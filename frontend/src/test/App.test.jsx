@@ -72,7 +72,9 @@ describe("app shell", () => {
       </AuthProvider>
     );
 
-    await user.click(screen.getByRole("button", { name: /Entrar al sistema/i }));
+    await user.click(
+      screen.getByRole("button", { name: /Entrar al sistema/i })
+    );
 
     expect(
       screen.getByText(/Ingrese usuario y contrasena/i)
@@ -96,7 +98,9 @@ describe("app shell", () => {
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
     await user.type(screen.getByLabelText(/Contrasena/i), "demo-pass-123");
-    await user.click(screen.getByRole("button", { name: /Entrar al sistema/i }));
+    await user.click(
+      screen.getByRole("button", { name: /Entrar al sistema/i })
+    );
 
     expect(authServiceMock.csrf).toHaveBeenCalledTimes(1);
     expect(authServiceMock.login).toHaveBeenCalledWith({
@@ -124,7 +128,9 @@ describe("app shell", () => {
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
     await user.type(screen.getByLabelText(/Contrasena/i), "incorrecta");
-    await user.click(screen.getByRole("button", { name: /Entrar al sistema/i }));
+    await user.click(
+      screen.getByRole("button", { name: /Entrar al sistema/i })
+    );
 
     expect(
       await screen.findByText(/Credenciales invalidas./i)
@@ -179,7 +185,9 @@ describe("app shell", () => {
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
     await user.type(screen.getByLabelText(/Contrasena/i), "admin");
-    await user.click(screen.getByRole("button", { name: /Entrar al sistema/i }));
+    await user.click(
+      screen.getByRole("button", { name: /Entrar al sistema/i })
+    );
 
     await waitFor(() => expect(authServiceMock.login).toHaveBeenCalled());
     expect(setItemSpy).not.toHaveBeenCalled();
