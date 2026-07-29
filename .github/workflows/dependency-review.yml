@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: dependency-review-${{ github.event.pull_request.number }}
@@ -19,7 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip on private repos without guaranteed plan support
+        if: ${{ github.event.repository.private }}
+        run: echo "Dependency Review left as informational on private repositories. See security workflow and pip-audit for enforced dependency checks."
+
       - name: Dependency review
+        if: ${{ !github.event.repository.private }}
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
