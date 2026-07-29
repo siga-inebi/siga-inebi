@@ -1,7 +1,29 @@
 # GitHub Configuration Report
 
 Fecha de inspeccion: 2026-07-29
-Estado de aplicacion: solo inspeccion y preparacion local. No se aplicaron cambios remotos.
+Estado de aplicacion: inspeccion completada y aplicacion parcial remota segun soporte real del plan y scopes disponibles.
+
+## Cambios aplicados
+
+- Rama predeterminada cambiada de `main` a `develop`
+- Labels faltantes creados o actualizados
+- Settings generales verificados/aplicados:
+  - visibilidad privada conservada
+  - issues habilitado
+  - projects habilitado
+  - wiki deshabilitado
+  - discussions deshabilitado
+  - squash merge habilitado
+  - merge commit deshabilitado
+  - rebase merge deshabilitado
+  - delete head branches habilitado
+  - auto merge deshabilitado
+- GitHub Actions:
+  - workflow permissions `read`
+  - Actions no pueden aprobar PRs
+  - politica de Actions mantenida en `all`
+- Dependabot vulnerability alerts habilitado
+- Automated security fixes habilitado
 
 ## Estado anterior
 
@@ -142,8 +164,8 @@ Observacion:
 | Funcion | Estado |
 |---|---|
 | Dependency graph / SBOM | no confirmado por API inspeccionada; endpoint usado devolvio `404` |
-| Dependabot alerts | disponible como producto, actualmente `Disabled` |
-| Dependabot security updates / automated security fixes | `Disabled` |
+| Dependabot alerts | `Enabled` |
+| Dependabot security updates / automated security fixes | `Enabled` |
 | Secret scanning | `Disabled` |
 | Push protection | no confirmado; normalmente depende de Secret Scanning / plan |
 | Code scanning | requiere GitHub Advanced Security; hoy no habilitado |
@@ -269,10 +291,8 @@ Comportamiento:
 1. Confirmar si repo/plan soporta rulesets o branch protection en privado
 2. Confirmar si quieres usar proteccion clasica como fallback si rulesets no estan disponibles
 3. Crear equipos de organizacion
-4. Completar labels faltantes
-5. Cambiar rama predeterminada a `develop`
-6. Aplicar protecciones/rulesets segun soporte real
-7. Verificar settings finales
+4. Aplicar protecciones/rulesets segun soporte real
+5. Verificar settings finales
 
 ## Riesgos pendientes
 
@@ -281,3 +301,21 @@ Comportamiento:
 - `CODEOWNERS` aun usa placeholder `@ORGANIZATION/...`; no debe hacerse obligatorio hasta reemplazarlo por slugs reales
 - `projectsV2` no pudo inspeccionarse por falta de scope `read:project`
 - Features de seguridad avanzadas pueden requerir GitHub Advanced Security o plan superior
+
+## Comandos ejecutados para aplicar
+
+- `APPLY=true GITHUB_ORG=siga-inebi GITHUB_REPO=siga-inebi sh scripts/github/configure-labels.sh`
+- `APPLY=true GITHUB_ORG=siga-inebi GITHUB_REPO=siga-inebi sh scripts/github/configure-repository.sh`
+- `gh api --method PUT -H "Accept: application/vnd.github+json" repos/siga-inebi/siga-inebi/vulnerability-alerts`
+- `gh api --method PUT repos/siga-inebi/siga-inebi/automated-security-fixes`
+
+## Verificacion final parcial
+
+- Default branch actual: `develop`
+- Labels propuestos: presentes
+- Actions permissions: `read`
+- Actions approve PRs: `false`
+- Dependabot alerts: `Enabled`
+- Automated security fixes: `Enabled`
+- Rulesets/protecciones: siguen pendientes por limitacion de plan detectada
+- Teams: siguen pendientes; token actual no muestra scope `admin:org`

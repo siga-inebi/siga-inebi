@@ -32,7 +32,7 @@ gh api --method PATCH "repos/$repoSlug" `
   -F allow_auto_merge=false | Out-Null
 
 gh api --method PUT "repos/$repoSlug/actions/permissions" `
-  -f enabled=true `
+  -F enabled=true `
   -f allowed_actions="all" | Out-Null
 
 gh api --method PUT "repos/$repoSlug/actions/permissions/workflow" `

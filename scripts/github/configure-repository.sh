@@ -43,7 +43,7 @@ gh api --method PATCH "repos/${REPO_SLUG}" \
   -F allow_auto_merge=false >/dev/null
 
 gh api --method PUT "repos/${REPO_SLUG}/actions/permissions" \
-  -f enabled=true \
+  -F enabled=true \
   -f allowed_actions="all" >/dev/null
 
 gh api --method PUT "repos/${REPO_SLUG}/actions/permissions/workflow" \
