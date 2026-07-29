@@ -44,7 +44,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: ${{ !github.event.repository.private && matrix.language == 'python' }}
         with:
           python-version: "3.11"
