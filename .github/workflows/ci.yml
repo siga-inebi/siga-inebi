@@ -282,9 +282,11 @@ jobs:
         env:
           COMPOSE_PROJECT_NAME: siga_inebi_ci
         run: |
-          for service in db backend frontend; do
+          for service in db backend; do
             timeout 120 sh -c "until [ \"$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' siga_inebi_ci-${service}-1)\" = healthy ]; do sleep 3; done"
           done
+          timeout 180 sh -c "until curl -fsS http://127.0.0.1:5173/ >/dev/null; do sleep 3; done"
+          timeout 180 sh -c "until curl -fsS http://127.0.0.1:8000/api/v1/health/ >/dev/null; do sleep 3; done"
 
       - name: Verify backend and frontend
         run: |

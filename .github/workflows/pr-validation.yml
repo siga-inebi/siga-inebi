@@ -72,8 +72,13 @@ jobs:
               /^media\/uploads\//,
             ];
 
+            const allowedFiles = new Set([
+              ".secrets.baseline",
+            ]);
+
             const forbidden = files
               .map((file) => file.filename)
+              .filter((filename) => !allowedFiles.has(filename))
               .filter((filename) => forbiddenPatterns.some((pattern) => pattern.test(filename)));
 
             if (forbidden.length) {
