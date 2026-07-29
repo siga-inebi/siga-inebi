@@ -25,6 +25,20 @@ def test_seed_idempotent_and_uses_env_password(settings):
 
 
 @pytest.mark.integration
+@pytest.mark.django_db
+def test_seed_uses_example_file_defaults_when_env_missing(monkeypatch):
+    monkeypatch.delenv("DEMO_ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("DEMO_ADMIN_EMAIL", raising=False)
+    monkeypatch.delenv("DEMO_ADMIN_PASSWORD", raising=False)
+
+    call_command("seed_demo_data")
+
+    user = get_user_model().objects.get(username="admin")
+    assert user.email == "admin@admin.com"
+    assert user.check_password("admin") is True
+
+
+@pytest.mark.integration
 @pytest.mark.security
 def test_seed_command_has_no_hardcoded_demo_password():
     with open("apps/identity/management/commands/seed_demo_data.py", encoding="utf-8") as handle:
