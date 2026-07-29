@@ -1,7 +1,9 @@
 import os
 import secrets
 from datetime import date
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
@@ -47,6 +49,53 @@ ROLES = {
     ],
     "director": ["auth_login", "auth_logout", "student_view_basic", "document_read", "audit_read"],
 }
+
+DEMO_ENV_KEYS = (
+    "DEMO_ADMIN_USERNAME",
+    "DEMO_ADMIN_EMAIL",
+    "DEMO_ADMIN_PASSWORD",
+)
+
+
+def parse_env_file(path):
+    values = {}
+    if not path.exists():
+        return values
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        values[key] = value.strip().strip("'\"")
+    return values
+
+
+def resolve_demo_admin_settings():
+    backend_dir = Path(settings.BASE_DIR)
+    repo_dir = backend_dir.parent
+    values = {}
+
+    for candidate in (
+        repo_dir / ".env.example",
+        backend_dir / ".env.example",
+        backend_dir / ".env",
+        repo_dir / ".env",
+    ):
+        values.update(parse_env_file(candidate))
+
+    for key in DEMO_ENV_KEYS:
+        env_value = os.environ.get(key)
+        if env_value is not None:
+            values[key] = env_value
+
+    return {
+        "username": values.get("DEMO_ADMIN_USERNAME", "").strip(),
+        "email": values.get("DEMO_ADMIN_EMAIL", "").strip(),
+        "password": values.get("DEMO_ADMIN_PASSWORD", "").strip(),
+    }
 
 
 class Command(BaseCommand):
@@ -142,9 +191,10 @@ class Command(BaseCommand):
             )
             role.permissions.set([permission_map[codename] for codename in codenames])
 
-        username = os.environ.get("DEMO_ADMIN_USERNAME", "").strip()
-        email = os.environ.get("DEMO_ADMIN_EMAIL", "").strip()
-        password = os.environ.get("DEMO_ADMIN_PASSWORD", "").strip()
+        admin_settings = resolve_demo_admin_settings()
+        username = admin_settings["username"]
+        email = admin_settings["email"]
+        password = admin_settings["password"]
 
         if username:
             person, _ = Person.objects.get_or_create(
@@ -192,5 +242,13 @@ class Command(BaseCommand):
                 self.stdout.write(generated_password)
             admin_role = Role.objects.get(slug="system-administrator")
             RoleAssignment.objects.get_or_create(user=user, role=admin_role)
+            self.stdout.write(self.style.SUCCESS(f"Demo admin ready: {username}"))
+        else:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Demo admin not created. "
+                    "Set DEMO_ADMIN_USERNAME or define it in .env/.env.example."
+                )
+            )
 
         self.stdout.write(self.style.SUCCESS("Demo data seed complete."))

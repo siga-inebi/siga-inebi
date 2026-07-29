@@ -37,7 +37,7 @@ describe("app shell", () => {
     renderWithRouter(<App />);
 
     expect(
-      await screen.findByText(/Gestion institucional modular/i)
+      await screen.findByText(/Control academico, administrativo y operativo/i)
     ).toBeInTheDocument();
   });
 
@@ -61,6 +61,7 @@ describe("app shell", () => {
     expect(
       await screen.findByRole("heading", { name: /Iniciar sesion/i })
     ).toBeInTheDocument();
+    expect(screen.getAllByAltText(/Logo de INEBI Salcaja/i)).toHaveLength(2);
   });
 
   test("validates empty login form", async () => {
@@ -71,12 +72,73 @@ describe("app shell", () => {
       </AuthProvider>
     );
 
-    await user.click(screen.getByRole("button", { name: /Entrar/i }));
+    await user.click(
+      screen.getByRole("button", { name: /Entrar al sistema/i })
+    );
 
     expect(
       screen.getByText(/Ingrese usuario y contrasena/i)
     ).toBeInTheDocument();
     expect(authServiceMock.login).not.toHaveBeenCalled();
+  });
+
+  test("redirects to dashboard after successful login", async () => {
+    const user = userEvent.setup();
+    authServiceMock.login.mockResolvedValueOnce(authenticatedSession.user);
+
+    renderWithRouter(
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/app" element={<div>Dashboard listo</div>} />
+        </Routes>
+      </AuthProvider>,
+      { route: "/login" }
+    );
+
+    await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
+    await user.type(screen.getByLabelText(/Contrasena/i), "demo-pass-123");
+    await user.click(
+      screen.getByRole("button", { name: /Entrar al sistema/i })
+    );
+
+    expect(authServiceMock.csrf).toHaveBeenCalledTimes(1);
+    expect(authServiceMock.login).toHaveBeenCalledWith({
+      username: "admin",
+      password: "demo-pass-123",
+    });
+    expect(await screen.findByText(/Dashboard listo/i)).toBeInTheDocument();
+  });
+
+  test("shows backend login error and stays on login", async () => {
+    const user = userEvent.setup();
+    authServiceMock.login.mockRejectedValueOnce(
+      new Error("Credenciales invalidas.")
+    );
+
+    renderWithRouter(
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/app" element={<div>Dashboard listo</div>} />
+        </Routes>
+      </AuthProvider>,
+      { route: "/login" }
+    );
+
+    await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
+    await user.type(screen.getByLabelText(/Contrasena/i), "incorrecta");
+    await user.click(
+      screen.getByRole("button", { name: /Entrar al sistema/i })
+    );
+
+    expect(
+      await screen.findByText(/Credenciales invalidas./i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Dashboard listo/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /Iniciar sesion/i })
+    ).toBeInTheDocument();
   });
 
   test("renders 404 page", () => {
@@ -102,7 +164,7 @@ describe("app shell", () => {
 
     renderWithRouter(<App />, { route: "/app" });
 
-    expect(await screen.findByText(/Sesion autenticada/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Bienvenido, Demo./i)).toBeInTheDocument();
   });
 
   test("does not store password or session token in localStorage on login", async () => {
@@ -123,7 +185,9 @@ describe("app shell", () => {
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
     await user.type(screen.getByLabelText(/Contrasena/i), "admin");
-    await user.click(screen.getByRole("button", { name: /Entrar/i }));
+    await user.click(
+      screen.getByRole("button", { name: /Entrar al sistema/i })
+    );
 
     await waitFor(() => expect(authServiceMock.login).toHaveBeenCalled());
     expect(setItemSpy).not.toHaveBeenCalled();

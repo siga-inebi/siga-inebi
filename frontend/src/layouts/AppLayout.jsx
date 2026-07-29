@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth.js";
+import logo from "../utils/logo.jpg";
 
 export function AppLayout({ children }) {
   const { isAuthenticated, logout, user } = useAuth();
@@ -8,14 +9,22 @@ export function AppLayout({ children }) {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand">SIGA-INEBI</div>
+        <Link className="brand" to="/">
+          <img alt="Logo de INEBI Salcaja" className="brand-logo" src={logo} />
+          <div>
+            <strong>SIGA-INEBI</strong>
+            <span>Instituto Nacional de Educacion Basica de Salcaja</span>
+          </div>
+        </Link>
         <nav className="actions">
           <Link className="button secondary" to="/">
             Inicio
           </Link>
           {isAuthenticated ? (
             <>
-              <span>{user?.username}</span>
+              <span className="user-chip">
+                {user?.person?.first_name || user?.username}
+              </span>
               <button className="button" onClick={logout} type="button">
                 Cerrar sesion
               </button>

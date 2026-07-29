@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth.js";
+import logo from "../utils/logo.jpg";
 
 export function LoginPage() {
   const { isAuthenticated, login } = useAuth();
@@ -34,41 +35,65 @@ export function LoginPage() {
   };
 
   return (
-    <section className="panel">
-      <h1>Iniciar sesion</h1>
-      <p>
-        Usa cuenta institucional configurada en ambiente local o por
-        `seed_demo_data`.
-      </p>
-      {error ? <div className="message">{error}</div> : null}
-      <form className="form" onSubmit={handleSubmit}>
-        <label className="field">
-          <span>Usuario</span>
-          <input
-            autoComplete="username"
-            name="username"
-            onChange={(event) =>
-              setForm({ ...form, username: event.target.value })
-            }
-            value={form.username}
-          />
-        </label>
-        <label className="field">
-          <span>Contrasena</span>
-          <input
-            autoComplete="current-password"
-            name="password"
-            onChange={(event) =>
-              setForm({ ...form, password: event.target.value })
-            }
-            type="password"
-            value={form.password}
-          />
-        </label>
-        <button className="button" disabled={loading} type="submit">
-          {loading ? "Validando..." : "Entrar"}
-        </button>
-      </form>
+    <section className="auth-shell">
+      <div className="panel auth-panel auth-panel-brand">
+        <img alt="Logo de INEBI Salcaja" className="auth-logo" src={logo} />
+        <p className="eyebrow">Acceso institucional</p>
+        <h1>SIGA-INEBI</h1>
+        <p>
+          Plataforma base para gestionar usuarios, estudiantes, matricula,
+          estructura academica y trazabilidad operativa del establecimiento.
+        </p>
+        <ul className="auth-highlights">
+          <li>Sesion segura por cookies y CSRF</li>
+          <li>Acceso controlado por rol y alcance</li>
+          <li>Base lista para crecimiento modular</li>
+        </ul>
+      </div>
+
+      <section className="panel auth-panel auth-panel-form">
+        <p className="eyebrow">Bienvenido</p>
+        <h2>Iniciar sesion</h2>
+        <p className="muted">
+          Usa cuenta institucional creada por `seed_demo_data` o configurada en
+          tu entorno local.
+        </p>
+        {error ? <div className="message message-error">{error}</div> : null}
+        <form className="form" onSubmit={handleSubmit}>
+          <label className="field">
+            <span>Usuario institucional</span>
+            <input
+              autoComplete="username"
+              name="username"
+              onChange={(event) =>
+                setForm({ ...form, username: event.target.value })
+              }
+              placeholder="Ejemplo: admin"
+              value={form.username}
+            />
+          </label>
+          <label className="field">
+            <span>Contrasena</span>
+            <input
+              autoComplete="current-password"
+              name="password"
+              onChange={(event) =>
+                setForm({ ...form, password: event.target.value })
+              }
+              placeholder="Ingrese su contrasena"
+              type="password"
+              value={form.password}
+            />
+          </label>
+          <button
+            className="button button-block"
+            disabled={loading}
+            type="submit"
+          >
+            {loading ? "Validando acceso..." : "Entrar al sistema"}
+          </button>
+        </form>
+      </section>
     </section>
   );
 }
