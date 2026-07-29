@@ -1,10 +1,13 @@
-import { AppRoutes } from "../routes/AppRoutes";
-import { AuthProvider } from "../features/auth/AuthContext";
+import { AppErrorBoundary } from "../components/AppErrorBoundary.jsx";
+import { AppRoutes } from "../routes/AppRoutes.jsx";
+import { AuthProvider } from "../features/auth/AuthContext.jsx";
 
 export function App() {
   return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <AppErrorBoundary>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </AppErrorBoundary>
   );
 }

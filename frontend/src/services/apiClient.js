@@ -6,8 +6,10 @@ async function parseResponse(response) {
   const data = isJson ? await response.json() : null;
 
   if (!response.ok) {
-    const detail = data?.error?.detail || data?.detail || "Solicitud no completada.";
-    const message = typeof detail === "string" ? detail : "Solicitud no completada.";
+    const detail =
+      data?.error?.detail || data?.detail || "Solicitud no completada.";
+    const message =
+      typeof detail === "string" ? detail : "Solicitud no completada.";
     const error = new Error(message);
     error.status = response.status;
     error.payload = data;

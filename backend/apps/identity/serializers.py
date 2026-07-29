@@ -1,5 +1,5 @@
-from drf_spectacular.utils import extend_schema_field
 from django.contrib.auth import authenticate, login
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 

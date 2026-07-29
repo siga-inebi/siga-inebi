@@ -2,6 +2,17 @@
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = "--strict-markers --cov=apps --cov=config/api --cov-report=term-missing --cov-report=xml --cov-fail-under=70"
+markers = [
+  "unit: Fast domain tests.",
+  "integration: Cross-layer integration tests.",
+  "api: API contract tests.",
+  "permissions: Authorization and scope tests.",
+  "slow: Slow tests.",
+  "postgres: Tests that require PostgreSQL.",
+  "migration: Migration and schema tests.",
+  "security: Security-sensitive tests.",
+]
 
 [tool.ruff]
 line-length = 100
@@ -9,7 +20,7 @@ target-version = "py311"
 exclude = ["migrations", ".venv", ".venv-broken"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B"]
+select = ["E", "F", "I", "B", "C4", "DJ", "SIM", "UP"]
 
 [tool.ruff.format]
 quote-style = "double"

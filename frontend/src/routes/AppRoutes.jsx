@@ -1,11 +1,11 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
-import { useAuth } from "../hooks/useAuth";
-import { AppLayout } from "../layouts/AppLayout";
-import { DashboardPage } from "../pages/DashboardPage";
-import { HomePage } from "../pages/HomePage";
-import { LoginPage } from "../pages/LoginPage";
-import { NotFoundPage } from "../pages/NotFoundPage";
+import { useAuth } from "../hooks/useAuth.js";
+import { AppLayout } from "../layouts/AppLayout.jsx";
+import { DashboardPage } from "../pages/DashboardPage.jsx";
+import { HomePage } from "../pages/HomePage.jsx";
+import { LoginPage } from "../pages/LoginPage.jsx";
+import { NotFoundPage } from "../pages/NotFoundPage.jsx";
 
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();

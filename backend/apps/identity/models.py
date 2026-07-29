@@ -31,18 +31,31 @@ class UserAccount(AbstractUser):
         return bool(self.locked_until and self.locked_until > timezone.now())
 
     def has_atomic_permission(self, codename, when=None):
+        return self.has_scoped_permission(codename, when=when)
+
+    def has_scoped_permission(self, codename, *, scope=None, when=None):
         when = when or timezone.now()
         if not self.is_active or self.status != self.AccountStatus.ACTIVE or self.is_locked():
             return False
 
-        return (
+        assignments = (
             RoleAssignment.objects.active_at(when)
             .filter(
                 user=self,
                 role__permissions__codename=codename,
             )
-            .exists()
+            .prefetch_related("scope_grants")
         )
+        if not scope:
+            return assignments.exists()
+
+        for assignment in assignments:
+            grants = [grant for grant in assignment.scope_grants.all() if grant.is_active_at(when)]
+            if not grants:
+                return True
+            if any(grant.matches(scope, when=when) for grant in grants):
+                return True
+        return False
 
 
 class Role(TimeStampedModel):
@@ -117,3 +130,34 @@ class ScopeGrant(TimeStampedModel):
     module_key = models.CharField(max_length=100, blank=True)
     starts_at = models.DateTimeField(default=timezone.now)
     ends_at = models.DateTimeField(null=True, blank=True)
+
+    def is_active_at(self, when):
+        return self.starts_at <= when and (self.ends_at is None or self.ends_at >= when)
+
+    def matches(self, scope, *, when=None):
+        when = when or timezone.now()
+        if not self.is_active_at(when):
+            return False
+
+        field_names = [
+            "institution",
+            "academic_cycle",
+            "grade",
+            "section",
+            "subject",
+            "teaching_assignment",
+            "student",
+            "module_key",
+        ]
+        for field_name in field_names:
+            expected = scope.get(field_name)
+            if expected in (None, ""):
+                continue
+            current = getattr(self, field_name)
+            if hasattr(expected, "pk"):
+                expected = expected.pk
+            if hasattr(current, "pk"):
+                current = current.pk
+            if current != expected:
+                return False
+        return True

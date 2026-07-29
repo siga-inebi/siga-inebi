@@ -1,0 +1,44 @@
+services:
+  db-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: siga_inebi_test
+      POSTGRES_USER: siga_inebi_test
+      POSTGRES_PASSWORD: siga_inebi_test_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siga_inebi_test -d siga_inebi_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - app_net
+
+  backend-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DATABASE_ENGINE: postgresql
+      DATABASE_NAME: siga_inebi_test
+      DATABASE_USER: siga_inebi_test
+      DATABASE_PASSWORD: siga_inebi_test_password
+      DATABASE_HOST: db-test
+      DATABASE_PORT: 5432
+      DJANGO_SECRET_KEY: test-secret-key
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      TIME_ZONE: America/Guatemala
+    depends_on:
+      db-test:
+        condition: service_healthy
+    command:
+      [
+        "sh",
+        "-lc",
+        "python manage.py migrate --noinput && pytest"
+      ]
+    networks:
+      - app_net

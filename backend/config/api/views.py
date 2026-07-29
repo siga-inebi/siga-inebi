@@ -1,13 +1,17 @@
-from django.views.decorators.csrf import ensure_csrf_cookie
 from django.db import connection
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.utils.decorators import method_decorator
 
-from apps.identity.serializers import CurrentSessionSerializer, CurrentUserSerializer, LoginSerializer
+from apps.identity.serializers import (
+    CurrentSessionSerializer,
+    CurrentUserSerializer,
+    LoginSerializer,
+)
 from config.api.serializers import EmptySerializer, HealthSerializer
 
 

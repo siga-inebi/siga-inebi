@@ -9,7 +9,7 @@ DEBUG = False
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
-if SECRET_KEY == "insecure-development-key":
+if SECRET_KEY == "insecure-development-key":  # nosec B105
     raise ImproperlyConfigured("Staging requires DJANGO_SECRET_KEY.")
 
 if not ALLOWED_HOSTS:

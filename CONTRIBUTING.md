@@ -16,8 +16,9 @@ Este repositorio esta en fase de fundacion documental y estructural. Antes de pr
 3. No implementar funcionalidad no solicitada.
 4. No cambiar contratos publicos sin documentacion.
 5. Agregar pruebas antes o junto con cada cambio funcional.
-6. No usar secretos ni datos reales.
-7. No eliminar historial auditable.
+6. Aplicar TDD en reglas de negocio, permisos, servicios, APIs y bugs.
+7. No usar secretos ni datos reales.
+8. No eliminar historial auditable.
 
 ## Flujo esperado
 
@@ -27,6 +28,16 @@ Este repositorio esta en fase de fundacion documental y estructural. Antes de pr
 4. Implementar cambio con pruebas.
 5. Actualizar trazabilidad y documentacion.
 6. Abrir Pull Request para revision.
+
+## Validacion minima local
+
+```bash
+make lint
+make format-check
+make test
+make coverage
+make migrations-check
+```
 
 ## Checklist minima para Pull Request
 

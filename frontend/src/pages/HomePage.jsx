@@ -7,8 +7,8 @@ export function HomePage() {
         <p>Fundacion ejecutable inicial</p>
         <h1>Gestion institucional modular para SIGA-INEBI.</h1>
         <p>
-          Base de trabajo con React, Django, PostgreSQL y Docker. Modulos funcionales aun no
-          implementados.
+          Base de trabajo con React, Django, PostgreSQL y Docker. Modulos
+          funcionales aun no implementados.
         </p>
         <div className="actions">
           <Link className="button" to="/login">
@@ -16,7 +16,7 @@ export function HomePage() {
           </Link>
           <a
             className="button secondary"
-            href="http://localhost:8000/api/v1/docs/"
+            href="/api/v1/docs/"
             rel="noreferrer"
             target="_blank"
           >

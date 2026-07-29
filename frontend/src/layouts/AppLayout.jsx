@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-import { useAuth } from "../hooks/useAuth";
+import { useAuth } from "../hooks/useAuth.js";
 
 export function AppLayout({ children }) {
   const { isAuthenticated, logout, user } = useAuth();

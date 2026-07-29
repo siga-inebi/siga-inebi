@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
-import { useAuth } from "../hooks/useAuth";
+import { useAuth } from "../hooks/useAuth.js";
 
 export function LoginPage() {
   const { isAuthenticated, login } = useAuth();
@@ -17,6 +17,10 @@ export function LoginPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (!form.username.trim() || !form.password) {
+      setError("Ingrese usuario y contrasena.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -32,7 +36,10 @@ export function LoginPage() {
   return (
     <section className="panel">
       <h1>Iniciar sesion</h1>
-      <p>Usa cuenta institucional configurada en ambiente local o por `seed_demo_data`.</p>
+      <p>
+        Usa cuenta institucional configurada en ambiente local o por
+        `seed_demo_data`.
+      </p>
       {error ? <div className="message">{error}</div> : null}
       <form className="form" onSubmit={handleSubmit}>
         <label className="field">
@@ -40,7 +47,9 @@ export function LoginPage() {
           <input
             autoComplete="username"
             name="username"
-            onChange={(event) => setForm({ ...form, username: event.target.value })}
+            onChange={(event) =>
+              setForm({ ...form, username: event.target.value })
+            }
             value={form.username}
           />
         </label>
@@ -49,7 +58,9 @@ export function LoginPage() {
           <input
             autoComplete="current-password"
             name="password"
-            onChange={(event) => setForm({ ...form, password: event.target.value })}
+            onChange={(event) =>
+              setForm({ ...form, password: event.target.value })
+            }
             type="password"
             value={form.password}
           />

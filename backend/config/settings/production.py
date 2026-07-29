@@ -10,7 +10,7 @@ SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SAMESITE = "Lax"
 
-if SECRET_KEY == "insecure-development-key":
+if SECRET_KEY == "insecure-development-key":  # nosec B105
     raise ImproperlyConfigured("Production requires DJANGO_SECRET_KEY.")
 
 if not ALLOWED_HOSTS:

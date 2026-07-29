@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { apiClient } from "../services/apiClient";
+import { apiClient } from "../services/apiClient.js";
 
 export function DashboardPage() {
   const [health, setHealth] = useState(null);

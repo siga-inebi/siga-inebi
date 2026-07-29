@@ -61,6 +61,7 @@ SIGA-INEBI es propuesta de plataforma integral para Instituto Nacional de Educac
 - Frontend React/Vite funcional con rutas base, login, layout y cliente HTTP centralizado.
 - Docker Compose funcional con `db`, `backend` y `frontend`.
 - Datos demo idempotentes disponibles por comando de management.
+- Fundacion de pruebas, TDD y calidad en progreso dentro de repo.
 
 ## Inicio Rapido con Docker
 
@@ -83,6 +84,8 @@ make ps
 make logs
 make migrate
 make seed
+make test
+make coverage
 ```
 
 ## Inicio Local sin Docker Completo
@@ -130,6 +133,20 @@ Windows y mas detalle: ver [local setup](docs/development/local-setup.md) y [doc
 - Rama protegida y reglas remotas: pendientes.
 - Trabajo esperado: ramas cortas por cambio, Pull Request, revision y trazabilidad.
 - Guia inicial: [git workflow](docs/development/git-workflow.md).
+
+## Calidad y Pruebas
+
+```bash
+make test
+make coverage
+make security
+make ci-local
+```
+
+- Backend usa `pytest`, `pytest-django`, `pytest-cov`, `factory_boy` y PostgreSQL.
+- Frontend usa `Vitest`, `React Testing Library` y cobertura V8.
+- `compose.test.yml` ejecuta backend contra base aislada de prueba.
+- `.pre-commit-config.yaml` agrega hooks rapidos de formato, lint y secretos.
 
 ## Documentacion Clave
 

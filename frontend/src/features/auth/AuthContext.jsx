@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
-import { authService } from "../../services/authService";
-import { AuthContext } from "./context";
+import { authService } from "../../services/authService.js";
+import { AuthContext } from "./context.js";
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -45,7 +45,9 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAuthenticated: Boolean(user), login, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, isAuthenticated: Boolean(user), login, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

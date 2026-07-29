@@ -22,5 +22,10 @@ class AuditEvent(TimeStampedModel):
     class Meta:
         ordering = ["-created_at"]
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Audit events cannot be modified.")
+        return super().save(*args, **kwargs)
+
     def delete(self, *args, **kwargs):
         raise RuntimeError("Audit events cannot be deleted.")
