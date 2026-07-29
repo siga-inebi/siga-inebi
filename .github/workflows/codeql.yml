@@ -1,0 +1,79 @@
+name: CodeQL
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+      - main
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: codeql-analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+          - javascript
+    steps:
+      - name: Skip on private repos without guaranteed GHAS support
+        if: ${{ github.event.repository.private }}
+        run: echo "CodeQL left as informational on private repositories unless GitHub Advanced Security is enabled."
+
+      - uses: actions/checkout@v4
+        if: ${{ !github.event.repository.private }}
+
+      - uses: github/codeql-action/init@v3
+        if: ${{ !github.event.repository.private }}
+        with:
+          languages: ${{ matrix.language }}
+
+      - uses: actions/setup-python@v5
+        if: ${{ !github.event.repository.private && matrix.language == 'python' }}
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements/base.txt
+            backend/requirements/dev.txt
+
+      - name: Install backend dependencies
+        if: ${{ !github.event.repository.private && matrix.language == 'python' }}
+        working-directory: backend
+        run: pip install -r requirements/dev.txt
+
+      - uses: actions/setup-node@v4
+        if: ${{ !github.event.repository.private && matrix.language == 'javascript' }}
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        if: ${{ !github.event.repository.private && matrix.language == 'javascript' }}
+        working-directory: frontend
+        run: npm ci
+
+      - uses: github/codeql-action/autobuild@v3
+        if: ${{ !github.event.repository.private }}
+
+      - uses: github/codeql-action/analyze@v3
+        if: ${{ !github.event.repository.private }}
+        with:
+          category: "/language:${{ matrix.language }}"

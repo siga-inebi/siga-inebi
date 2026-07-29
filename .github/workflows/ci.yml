@@ -1,0 +1,305 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "22"
+  POSTGRES_DB: siga_inebi_ci
+  POSTGRES_USER: siga_inebi_ci
+  POSTGRES_PASSWORD: siga_inebi_ci_password
+  POSTGRES_HOST: 127.0.0.1
+  POSTGRES_PORT: "5432"
+
+jobs:
+  backend-lint:
+    name: backend-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: siga_inebi_ci
+          POSTGRES_USER: siga_inebi_ci
+          POSTGRES_PASSWORD: siga_inebi_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U siga_inebi_ci -d siga_inebi_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements/base.txt
+            backend/requirements/dev.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements/dev.txt
+
+      - name: Ruff lint
+        working-directory: backend
+        run: ruff check .
+
+      - name: Ruff format check
+        working-directory: backend
+        run: ruff format --check .
+
+      - name: Django system check
+        working-directory: backend
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          DATABASE_ENGINE: postgresql
+          DATABASE_NAME: ${{ env.POSTGRES_DB }}
+          DATABASE_USER: ${{ env.POSTGRES_USER }}
+          DATABASE_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          DATABASE_HOST: ${{ env.POSTGRES_HOST }}
+          DATABASE_PORT: ${{ env.POSTGRES_PORT }}
+          DJANGO_SECRET_KEY: test-secret-key
+          DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+          TIME_ZONE: America/Guatemala
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: siga_inebi_ci
+          POSTGRES_USER: siga_inebi_ci
+          POSTGRES_PASSWORD: siga_inebi_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U siga_inebi_ci -d siga_inebi_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements/base.txt
+            backend/requirements/dev.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements/dev.txt
+
+      - name: Migrate test database
+        working-directory: backend
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          DATABASE_ENGINE: postgresql
+          DATABASE_NAME: ${{ env.POSTGRES_DB }}
+          DATABASE_USER: ${{ env.POSTGRES_USER }}
+          DATABASE_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          DATABASE_HOST: ${{ env.POSTGRES_HOST }}
+          DATABASE_PORT: ${{ env.POSTGRES_PORT }}
+          DJANGO_SECRET_KEY: test-secret-key
+          DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+          TIME_ZONE: America/Guatemala
+        run: |
+          python manage.py migrate --noinput
+
+      - name: Pytest with coverage
+        working-directory: backend
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          DATABASE_ENGINE: postgresql
+          DATABASE_NAME: ${{ env.POSTGRES_DB }}
+          DATABASE_USER: ${{ env.POSTGRES_USER }}
+          DATABASE_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          DATABASE_HOST: ${{ env.POSTGRES_HOST }}
+          DATABASE_PORT: ${{ env.POSTGRES_PORT }}
+          DJANGO_SECRET_KEY: test-secret-key
+          DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+          TIME_ZONE: America/Guatemala
+        run: |
+          pytest
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          if-no-files-found: error
+
+  backend-security:
+    name: backend-security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements/base.txt
+            backend/requirements/dev.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements/dev.txt
+
+      - name: Bandit
+        working-directory: backend
+        run: bandit -q -r apps config
+
+      - name: pip-audit
+        working-directory: backend
+        run: pip-audit -r requirements/dev.txt --ignore-vuln PYSEC-2026-1845 --ignore-vuln GHSA-6v7p-g79w-8964 --ignore-vuln PYSEC-2026-1375 --ignore-vuln PYSEC-2026-1374 --ignore-vuln PYSEC-2026-2275 --ignore-vuln PYSEC-2026-142 --ignore-vuln PYSEC-2026-141
+
+  frontend-lint:
+    name: frontend-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Prettier check
+        working-directory: frontend
+        run: npm run format:check
+
+  frontend-tests:
+    name: frontend-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Vitest coverage
+        working-directory: frontend
+        run: npm run test:coverage
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          if-no-files-found: error
+
+  frontend-build:
+    name: frontend-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+
+  docker-integration:
+    name: docker-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare env file
+        run: cp .env.example .env
+
+      - name: Docker Compose config
+        run: docker compose config
+
+      - name: Build and start stack
+        env:
+          COMPOSE_PROJECT_NAME: siga_inebi_ci
+        run: |
+          docker compose up --build -d
+
+      - name: Wait for services
+        env:
+          COMPOSE_PROJECT_NAME: siga_inebi_ci
+        run: |
+          for service in db backend; do
+            timeout 120 sh -c "until [ \"$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' siga_inebi_ci-${service}-1)\" = healthy ]; do sleep 3; done"
+          done
+          timeout 180 sh -c "until curl -fsS http://127.0.0.1:5173/ >/dev/null; do sleep 3; done"
+          timeout 180 sh -c "until curl -fsS http://127.0.0.1:8000/api/v1/health/ >/dev/null; do sleep 3; done"
+
+      - name: Verify backend and frontend
+        run: |
+          curl -fsS http://127.0.0.1:8000/api/v1/health/
+          curl -fsS http://127.0.0.1:8000/api/v1/health/database/
+          curl -fsS http://127.0.0.1:5173/
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Cleanup
+        if: always()
+        env:
+          COMPOSE_PROJECT_NAME: siga_inebi_ci
+        run: docker compose down -v --remove-orphans

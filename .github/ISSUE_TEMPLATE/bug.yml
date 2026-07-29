@@ -1,0 +1,61 @@
+name: Bug
+description: Reporte de fallo con evidencia sanitizada
+title: "fix(scope): "
+labels:
+  - type:bug
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripcion
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para reproducir
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Resultado actual
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Resultado esperado
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Ambiente
+      options:
+        - local
+        - docker
+        - ambos
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs sanitizados
+      description: Sin secretos, cookies, tokens ni datos personales
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severidad
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+  - type: textarea
+    id: regression
+    attributes:
+      label: Prueba de regresion propuesta
+      description: Toda correccion debe dejar prueba

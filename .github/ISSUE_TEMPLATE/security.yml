@@ -1,0 +1,39 @@
+name: Security
+description: Hallazgo de seguridad sin publicar secretos ni datos personales
+title: "security(scope): "
+labels:
+  - security
+  - area:security
+body:
+  - type: markdown
+    attributes:
+      value: |
+        No publiques credenciales, tokens, secretos, datos personales ni evidencia sensible.
+        Si vulnerabilidad es real y explotable, usa canal privado institucional en lugar de issue publico.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Resumen
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impacto
+    validations:
+      required: true
+  - type: textarea
+    id: affected
+    attributes:
+      label: Componentes afectados
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduccion segura
+      description: Sanitizada, sin secretos
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Mitigacion sugerida

@@ -1,0 +1,71 @@
+name: ${COMPOSE_PROJECT_NAME:-siga_inebi}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-siga_inebi}
+      POSTGRES_USER: ${POSTGRES_USER:-siga_inebi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-siga_inebi_dev_password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-siga_inebi} -d ${POSTGRES_DB:-siga_inebi}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_ENGINE: postgresql
+      DATABASE_NAME: ${POSTGRES_DB:-siga_inebi}
+      DATABASE_USER: ${POSTGRES_USER:-siga_inebi}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-siga_inebi_dev_password}
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python manage.py check >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      FRONTEND_PORT: ${FRONTEND_PORT:-5173}
+      VITE_API_URL: /api/v1
+      VITE_BACKEND_PROXY_TARGET: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5173 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - app_net
+
+volumes:
+  postgres_data:
+
+networks:
+  app_net:
+    driver: bridge

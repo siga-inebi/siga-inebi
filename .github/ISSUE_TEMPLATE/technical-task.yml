@@ -1,0 +1,39 @@
+name: Technical task
+description: Trabajo tecnico sin cambio funcional directo
+title: "chore(scope): "
+labels:
+  - type:chore
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objetivo
+    validations:
+      required: true
+  - type: textarea
+    id: justification
+    attributes:
+      label: Justificacion
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Alcance
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Criterios de finalizacion
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Riesgos
+  - type: textarea
+    id: validations
+    attributes:
+      label: Validaciones
+      description: Comandos, pruebas y evidencia requerida

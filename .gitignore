@@ -1,0 +1,53 @@
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+.venv-broken/
+venv/
+venv-broken/
+
+# Node
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+
+# Build and runtime artifacts
+tmp/
+logs/
+media/
+staticfiles/
+*.sqlite3
+db.sqlite3
+coverage.xml
+build/
+docker-data/
+*.sql
+*.dump
+*.pem
+*.key
+*.crt
+credentials/
+
+# Project-specific
+uploads/
