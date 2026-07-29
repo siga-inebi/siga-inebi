@@ -1,0 +1,31 @@
+name: GGA Review
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: gga-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gga-review:
+    name: gga-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate prerequisites
+        env:
+          GGA_API_KEY: ${{ secrets.GGA_API_KEY }}
+        run: |
+          test -f AGENTS.md
+          if [ -z "${GGA_API_KEY}" ]; then
+            echo "GGA credentials missing. Skipping experimental review."
+            exit 0
+          fi
+          echo "Experimental workflow placeholder. Real integration pending approved command and credential validation."

@@ -1,0 +1,58 @@
+name: Feature
+description: Solicitud funcional alineada a RF/RNF
+title: "feat(scope): "
+labels:
+  - type:feature
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Necesidad
+      description: Problema real que se quiere resolver
+    validations:
+      required: true
+  - type: input
+    id: user
+    attributes:
+      label: Usuario o rol principal
+      placeholder: Teacher, Director, Parent or Guardian
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: Requerimientos RF o RNF
+      description: Incluye IDs exactos
+      placeholder: RF-XXX-000, RNF-XXX-000
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Criterios de aceptacion
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencias
+      description: Modulos, decisiones o issues previos
+  - type: textarea
+    id: data
+    attributes:
+      label: Datos involucrados
+      description: Indica si hay datos sensibles, documentos o menores
+  - type: textarea
+    id: security
+    attributes:
+      label: Seguridad y autorizacion
+      description: Roles, permisos y alcances esperados
+  - type: textarea
+    id: tests
+    attributes:
+      label: Pruebas esperadas
+      description: Unitarias, integracion, API, UI, regresion
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Fuera de alcance

@@ -1,0 +1,96 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-validation:
+    name: pr-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate title, body and changed files
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const titlePattern = /^(feat|fix|test|docs|refactor|chore|ci|build|perf)\([^)]+\): .+/;
+            if (!titlePattern.test(pr.title)) {
+              core.setFailed("PR title must follow Conventional Commits, e.g. feat(scope): description");
+              return;
+            }
+
+            const body = pr.body || "";
+            if (!body.trim()) {
+              core.setFailed("PR description cannot be empty.");
+              return;
+            }
+
+            if (!/(Issue|Relacionado|Justificacion)/i.test(body)) {
+              core.setFailed("PR description must include related Issue or justification.");
+              return;
+            }
+
+            const mentionsRf = /RF-[A-Z]{3}-\d{3}|RNF-[A-Z]{3}-\d{3}/.test(body);
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            const forbiddenPatterns = [
+              /^\.env$/,
+              /^\.env\.(?!example$).+/,
+              /^.*\.sqlite$/,
+              /^.*\.sqlite3$/,
+              /^db\.sqlite3$/,
+              /^.*\.sql$/,
+              /^.*\.(pem|key|p12|pfx|crt)$/,
+              /^.*(secret|credential|backup|dump).*$/i,
+              /^media\/uploads\//,
+            ];
+
+            const forbidden = files
+              .map((file) => file.filename)
+              .filter((filename) => forbiddenPatterns.some((pattern) => pattern.test(filename)));
+
+            if (forbidden.length) {
+              core.setFailed(`Forbidden files detected: ${forbidden.join(", ")}`);
+              return;
+            }
+
+            const totalChanges = pr.additions + pr.deletions;
+            if (totalChanges > 1500) {
+              core.warning(`Large PR detected: ${totalChanges} changed lines.`);
+            }
+
+            if (mentionsRf) {
+              const traceabilityTouched = files.some((file) =>
+                file.filename.startsWith("docs/requirements/traceability-matrix.md"),
+              );
+              if (!traceabilityTouched) {
+                core.setFailed("RF/RNF referenced in PR body require traceability matrix update.");
+              }
+            }
