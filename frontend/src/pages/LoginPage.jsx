@@ -85,7 +85,11 @@ export function LoginPage() {
               value={form.password}
             />
           </label>
-          <button className="button button-block" disabled={loading} type="submit">
+          <button
+            className="button button-block"
+            disabled={loading}
+            type="submit"
+          >
             {loading ? "Validando acceso..." : "Entrar al sistema"}
           </button>
         </form>

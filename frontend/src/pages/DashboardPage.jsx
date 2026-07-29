@@ -19,9 +19,7 @@ export function DashboardPage() {
     <section className="dashboard-grid">
       <div className="panel hero hero-primary">
         <p className="eyebrow">Sesion autenticada</p>
-        <h1>
-          Bienvenido, {user?.person?.first_name || user?.username}.
-        </h1>
+        <h1>Bienvenido, {user?.person?.first_name || user?.username}.</h1>
         <p>
           Tu cuenta institucional ya esta activa en capa base. Desde aqui
           creceran los modulos academicos, administrativos y de control del

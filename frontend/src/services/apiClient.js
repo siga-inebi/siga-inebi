@@ -6,11 +6,15 @@ function getErrorMessage(detail) {
   }
 
   if (Array.isArray(detail)) {
-    return detail.find((item) => typeof item === "string") || "Solicitud no completada.";
+    return (
+      detail.find((item) => typeof item === "string") ||
+      "Solicitud no completada."
+    );
   }
 
   if (detail && typeof detail === "object") {
-    const nested = detail.non_field_errors || detail.detail || Object.values(detail)[0];
+    const nested =
+      detail.non_field_errors || detail.detail || Object.values(detail)[0];
     return getErrorMessage(nested);
   }
 
@@ -23,7 +27,8 @@ async function parseResponse(response) {
   const data = isJson ? await response.json() : null;
 
   if (!response.ok) {
-    const detail = data?.error?.detail || data?.detail || "Solicitud no completada.";
+    const detail =
+      data?.error?.detail || data?.detail || "Solicitud no completada.";
     const message = getErrorMessage(detail);
     const error = new Error(message);
     error.status = response.status;

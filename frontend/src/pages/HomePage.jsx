@@ -5,7 +5,9 @@ export function HomePage() {
     <section className="landing">
       <div className="panel hero hero-primary">
         <p className="eyebrow">Sistema institucional fundacional</p>
-        <h1>Control academico, administrativo y operativo en una sola base segura.</h1>
+        <h1>
+          Control academico, administrativo y operativo en una sola base segura.
+        </h1>
         <p>
           SIGA-INEBI centraliza acceso, estudiantes, estructura academica,
           matricula y trazabilidad inicial con autentificacion institucional y

@@ -73,7 +73,5 @@ def test_inactive_user_cannot_login(client):
     )
 
     assert response.status_code == 400
-    assert response.json()["error"]["detail"]["non_field_errors"] == [
-        "Credenciales invalidas."
-    ]
+    assert response.json()["error"]["detail"]["non_field_errors"] == ["Credenciales invalidas."]
     assert "_auth_user_id" not in client.session

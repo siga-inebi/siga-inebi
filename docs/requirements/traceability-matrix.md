@@ -24,10 +24,13 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 
 | Requirement | Issue | Design | Code | Test | Pull Request | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| RF-AUT-001 | TBD | docs/architecture/authorization-model.md | TBD | TBD | TBD | Planned | Inicio de sesion |
-| RF-PER-004 | TBD | docs/architecture/authorization-model.md | TBD | TBD | TBD | Planned | Denegacion por defecto |
+| RF-AUT-001 | TBD | docs/architecture/authorization-model.md | backend/config/api/views.py; frontend/src/pages/LoginPage.jsx; frontend/src/features/auth/AuthContext.jsx | backend/tests/api/test_auth_api.py; frontend/src/test/app.test.jsx | PR #3 | Under Review | Inicio de sesion institucional con sesion y CSRF |
+| RF-AUT-004 | TBD | docs/architecture/authorization-model.md | backend/config/api/views.py; frontend/src/layouts/AppLayout.jsx | backend/tests/api/test_auth_api.py | PR #3 | Under Review | Cierre de sesion y anulacion de contexto autenticado |
+| RF-PER-004 | TBD | docs/architecture/authorization-model.md | backend/apps/identity/models.py; backend/config/settings/base.py; backend/config/api/views.py | backend/tests/api/test_auth_api.py; frontend/src/test/app.test.jsx | PR #3 | Under Review | Denegacion por defecto con sesion anonima |
 | RF-ALC-001 | TBD | docs/architecture/authorization-model.md | TBD | TBD | TBD | Planned | Permiso siempre con alcance |
-| RF-CTA-002 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Cuenta vinculada a persona |
+| RF-CTA-001 | TBD | docs/architecture/authorization-model.md | backend/apps/identity/management/commands/seed_demo_data.py | backend/tests/integration/test_seed.py | PR #3 | Under Review | Provision administrativa inicial por seed en desarrollo |
+| RF-CTA-002 | TBD | docs/architecture/initial-data-model.md | backend/apps/identity/management/commands/seed_demo_data.py; backend/apps/identity/serializers.py | backend/tests/integration/test_seed.py; backend/tests/api/test_auth_api.py | PR #3 | Under Review | Cuenta demo vinculada a persona institucional |
+| RF-CTA-003 | TBD | docs/architecture/authorization-model.md | backend/apps/identity/management/commands/seed_demo_data.py; backend/docker-entrypoint.sh | backend/tests/integration/test_seed.py | PR #3 | Under Review | Activacion inicial guiada por seed y variables de entorno en desarrollo |
 | RF-CIC-001 | TBD | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Registro de ciclo |
 | RF-EST-007 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Secciones |
 | RF-MAT-002 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Matricula |
