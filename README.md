@@ -19,6 +19,8 @@ SIGA-INEBI es propuesta de plataforma integral para Instituto Nacional de Educac
 - API: REST con JSON.
 - Binarios fuera de base de datos.
 - Auditoria transversal para operaciones y lecturas sensibles.
+- Docker Compose para desarrollo recomendado.
+- Modo local sin dependencia obligatoria de Docker para frontend y backend.
 
 ## Stack Previsto
 
@@ -54,15 +56,74 @@ SIGA-INEBI es propuesta de plataforma integral para Instituto Nacional de Educac
 
 ## Estado Actual
 
-- Fase: fundacion documental y estructural.
-- Implementacion funcional: no iniciada.
-- Requerimientos: catalogados y no marcados como implementados.
-- Decisiones base: documentadas en ADR iniciales.
-- Configuracion de herramientas: minima y segura.
+- Fase: fundacion ejecutable inicial.
+- Backend Django funcional con API base, auth de sesion, health checks, OpenAPI y modelos fundacionales.
+- Frontend React/Vite funcional con rutas base, login, layout y cliente HTTP centralizado.
+- Docker Compose funcional con `db`, `backend` y `frontend`.
+- Datos demo idempotentes disponibles por comando de management.
 
-## Instalacion Futura
+## Inicio Rapido con Docker
 
-Instalacion aun no habilitada. Ver [local setup](docs/development/local-setup.md). Cuando implementacion comience, este documento se actualizara con pasos verificables para `frontend/` y `backend/`.
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Servicios por defecto:
+
+- Frontend: `http://127.0.0.1:5173`
+- Backend API: `http://127.0.0.1:8000/api/v1/`
+- OpenAPI UI: `http://127.0.0.1:8000/api/v1/docs/`
+- PostgreSQL: `127.0.0.1:5432`
+
+Comandos utiles:
+
+```bash
+make ps
+make logs
+make migrate
+make seed
+```
+
+## Inicio Local sin Docker Completo
+
+### Backend con PostgreSQL en Docker
+
+```bash
+cp .env.example .env
+docker compose up -d db
+cd backend
+/usr/bin/python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements/dev.txt
+DATABASE_ENGINE=postgresql \
+DATABASE_NAME=siga_inebi \
+DATABASE_USER=siga_inebi \
+DATABASE_PASSWORD=siga_inebi_dev_password \
+DATABASE_HOST=127.0.0.1 \
+DATABASE_PORT=5432 \
+python manage.py migrate
+python manage.py runserver 127.0.0.1:8001
+```
+
+### Backend con SQLite para desarrollo rapido
+
+```bash
+cd backend
+source .venv/bin/activate
+DATABASE_ENGINE=sqlite python manage.py migrate
+DATABASE_ENGINE=sqlite python manage.py runserver 127.0.0.1:8002
+```
+
+### Frontend local
+
+```bash
+cd frontend
+npm ci
+VITE_API_URL=http://127.0.0.1:8001/api/v1 npm run dev -- --host 127.0.0.1 --port 4173
+```
+
+Windows y mas detalle: ver [local setup](docs/development/local-setup.md) y [docker setup](docs/development/docker-setup.md).
 
 ## Flujo Git
 
@@ -77,7 +138,10 @@ Instalacion aun no habilitada. Ver [local setup](docs/development/local-setup.md
 - Trazabilidad: [traceability matrix](docs/requirements/traceability-matrix.md)
 - Mapa de dominios: [domain map](docs/architecture/domain-map.md)
 - Autorizacion: [authorization model](docs/architecture/authorization-model.md)
+- Base de datos y ambientes: [database strategy](docs/architecture/database-strategy.md)
 - ADR: [decisions index](docs/decisions/README.md)
+- Docker: [docker setup](docs/development/docker-setup.md)
+- Troubleshooting: [troubleshooting](docs/development/troubleshooting.md)
 - Guia para agentes y desarrolladores: [AGENTS.md](AGENTS.md)
 
 ## Advertencia de Datos

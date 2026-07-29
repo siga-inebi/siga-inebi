@@ -1,0 +1,147 @@
+:root {
+  font-family: "Segoe UI", sans-serif;
+  color: #132238;
+  background:
+    radial-gradient(circle at top, #f6efe2, transparent 45%),
+    linear-gradient(180deg, #f5f2ea 0%, #eef2f6 100%);
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: rgba(19, 34, 56, 0.92);
+  color: #f8fbff;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.content {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2rem 0 3rem;
+  flex: 1;
+}
+
+.panel {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(19, 34, 56, 0.1);
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(19, 34, 56, 0.08);
+  padding: 1.5rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.hero {
+  display: grid;
+  gap: 1rem;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+}
+
+.hero p {
+  margin: 0;
+  max-width: 60ch;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.8rem 1.2rem;
+  cursor: pointer;
+  background: #1d5f84;
+  color: white;
+  text-decoration: none;
+}
+
+.button.secondary {
+  background: #e2ebf3;
+  color: #132238;
+}
+
+.form {
+  display: grid;
+  gap: 1rem;
+  max-width: 420px;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field input {
+  border: 1px solid #b9c7d6;
+  border-radius: 12px;
+  padding: 0.8rem 0.95rem;
+}
+
+.message {
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: #fff3d9;
+  color: #7a4d00;
+}
+
+.status-ok {
+  color: #0b6f4c;
+}
+
+.status-error {
+  color: #8a1e2f;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}

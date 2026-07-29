@@ -4,9 +4,9 @@ Espacio reservado para proyecto Django + Django REST Framework.
 
 Estado actual:
 
-- Sin codigo funcional.
-- Sin dependencias instaladas.
-- Dominio y arquitectura base documentados en `docs/architecture/`.
+- Fundacion ejecutable inicial creada.
+- API base disponible bajo `/api/v1/`.
+- Modelos fundacionales y migraciones iniciales incluidos.
 
 Restricciones:
 
