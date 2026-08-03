@@ -18,7 +18,9 @@ Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo 
 
 ## Estado inicial
 
-Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno detallado, codigo, pruebas y PR quedan pendientes.
+La mayoria de requerimientos sigue en `Planned`. Las filas marcadas `Under Review`
+o `Implemented` citan su codigo y pruebas; las referencias de issue y PR se
+completan al abrir el pull request correspondiente.
 
 ## Seed Matrix
 
@@ -31,9 +33,7 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RF-CTA-001 | TBD | docs/architecture/authorization-model.md | backend/apps/identity/management/commands/seed_demo_data.py | backend/tests/integration/test_seed.py | PR #3 | Under Review | Provision administrativa inicial por seed en desarrollo |
 | RF-CTA-002 | TBD | docs/architecture/initial-data-model.md | backend/apps/identity/management/commands/seed_demo_data.py; backend/apps/identity/serializers.py | backend/tests/integration/test_seed.py; backend/tests/api/test_auth_api.py | PR #3 | Under Review | Cuenta demo vinculada a persona institucional |
 | RF-CTA-003 | TBD | docs/architecture/authorization-model.md | backend/apps/identity/management/commands/seed_demo_data.py; backend/docker-entrypoint.sh | backend/tests/integration/test_seed.py | PR #3 | Under Review | Activacion inicial guiada por seed y variables de entorno en desarrollo |
-| RF-CTA-006 | TBD | docs/architecture/authorization-model.md; docs/architecture/audit-strategy.md | backend/apps/identity/services.py | backend/tests/permissions/test_identity_permissions.py | TBD | In Progress | Servicio interno de desactivacion administrativa sin borrado fisico; API y verificacion de dependencias quedan fuera de este corte |
 | RF-CIC-001 | TBD | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Registro de ciclo |
-| RF-EST-007 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Secciones |
 | RF-MAT-002 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Matricula |
 | RF-CRE-001 | TBD | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | QR opaco |
 | RF-ASI-010 | TBD | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Idempotencia |
@@ -43,8 +43,16 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RF-BIT-005 | TBD | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Inmutabilidad |
 | RF-CAL-002 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Validacion de nota |
 | RF-RES-008 | TBD | docs/architecture/api-conventions.md | TBD | TBD | TBD | Planned | Boleta |
+| RF-CIC-003 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_cycle_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Apertura con unicidad de ciclo activo por institucion |
+| RF-CIC-004 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_cycle_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Cierre congela la estructura del ciclo |
+| RF-EST-001 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_catalog_services.py; backend/tests/unit/test_catalog_update_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Grados ligados a nivel, con orden pedagogico |
+| RF-EST-002 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_campus_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Jornadas por sede, con codigo unico por sede |
+| RF-EST-007 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_offering_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Secciones bajo la oferta de grado |
+| RF-EST-008 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_offering_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Cupo declarado y ocupacion consultable por seccion |
+| RF-EST-011 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_cycle_services.py; backend/tests/unit/test_offering_services.py | TBD | Implemented | Estructura inmutable con ciclo cerrado |
+| RF-EST-012 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_campus_services.py; backend/tests/unit/test_catalog_services.py; backend/tests/unit/test_offering_services.py | TBD | Implemented | Desactivacion en lugar de eliminacion |
+| RF-EST-013 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_offering_services.py | TBD | Implemented | Oferta y secciones versionadas por ciclo |
 | RNF-AUD-001 | TBD | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Eventos inmutables |
-| RNF-SEG-003 | TBD | docs/architecture/authorization-model.md; docs/architecture/audit-strategy.md | backend/apps/identity/services.py | backend/tests/permissions/test_identity_permissions.py | TBD | In Progress | Auditoria del intento denegado de desactivacion de cuenta; otros intentos rechazados quedan fuera de este corte |
 | RNF-PRI-001 | TBD | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | QR sin PII |
 | RNF-SEG-005 | TBD | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | Descarga segura |
 | RNF-REN-003 | TBD | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | Lotes en worker |

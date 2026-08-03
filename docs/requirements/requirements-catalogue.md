@@ -1,6 +1,7 @@
 # Requirements Catalogue
 
-Estado de implementacion inicial para todos requerimientos: `Not implemented`.
+La columna `Estado de implementacion` de cada tabla es la fuente autoritativa.
+Un requerimiento solo pasa a `Implemented` con pruebas verificables citadas.
 
 ## Functional Requirements
 
@@ -65,24 +66,24 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-DOC-010 | Conservacion del vinculo | Debe | document-management | Not implemented | TBD | TBD | Historia persistente |
 | RF-CIC-001 | Registro del ciclo escolar | Debe | school-cycle | Not implemented | TBD | TBD | Nucleo fundacional |
 | RF-CIC-002 | Estados del ciclo | Debe | school-cycle | Not implemented | TBD | TBD | Invariante |
-| RF-CIC-003 | Apertura del ciclo | Debe | school-cycle | Not implemented | TBD | TBD | Operacion sensible |
-| RF-CIC-004 | Cierre del ciclo | Debe | school-cycle | Not implemented | TBD | TBD | Congelamiento relacionado |
+| RF-CIC-003 | Apertura del ciclo | Debe | school-cycle | Implemented | TBD | backend/tests/unit/test_cycle_services.py; backend/tests/api/test_academics_catalog_api.py | Apertura con unicidad de ciclo activo por institucion |
+| RF-CIC-004 | Cierre del ciclo | Debe | school-cycle | Implemented | TBD | backend/tests/unit/test_cycle_services.py; backend/tests/api/test_academics_catalog_api.py | Cierre congela la estructura del ciclo |
 | RF-CIC-005 | Reapertura excepcional | Deberia | school-cycle | Not implemented | TBD | TBD | Ambiguo; controlar |
 | RF-CIC-006 | Conservacion de la informacion historica | Debe | school-cycle | Not implemented | TBD | TBD | Historia obligatoria |
 | RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Not implemented | TBD | TBD | Fase posterior |
-| RF-EST-001 | Catalogo de grados | Debe | institutional-structure | Not implemented | TBD | TBD | Nucleo fundacional |
-| RF-EST-002 | Jornadas del establecimiento | Debe | institutional-structure | Not implemented | TBD | TBD | Base de horarios y asistencia |
+| RF-EST-001 | Catalogo de grados | Debe | institutional-structure | Implemented | TBD | backend/tests/unit/test_catalog_services.py; backend/tests/unit/test_catalog_update_services.py; backend/tests/api/test_academics_catalog_api.py | Grados ligados a nivel, con orden pedagogico |
+| RF-EST-002 | Jornadas del establecimiento | Debe | institutional-structure | Implemented | TBD | backend/tests/unit/test_campus_services.py; backend/tests/api/test_academics_catalog_api.py | Jornadas por sede, con codigo unico por sede |
 | RF-EST-003 | Subareas del ciclo | Debe | institutional-structure | Not implemented | TBD | TBD | Base curricular |
 | RF-EST-004 | Etiqueta de presentacion configurable | Podria | institutional-structure | Not implemented | TBD | TBD | Postergado |
 | RF-EST-005 | Plan de estudios por grado y ciclo | Debe | institutional-structure | Not implemented | TBD | TBD | Nucleo academico |
 | RF-EST-006 | Carga horaria de la subarea | Deberia | institutional-structure | Not implemented | TBD | TBD | Cruza horario |
-| RF-EST-007 | Secciones | Debe | institutional-structure | Not implemented | TBD | TBD | Nucleo fundacional |
-| RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Not implemented | TBD | TBD | Afecta matricula |
+| RF-EST-007 | Secciones | Debe | institutional-structure | Implemented | TBD | backend/tests/unit/test_offering_services.py; backend/tests/api/test_academics_catalog_api.py | Secciones bajo la oferta de grado |
+| RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Implemented | TBD | backend/tests/unit/test_offering_services.py; backend/tests/api/test_academics_catalog_api.py | Cupo declarado y ocupacion consultable por seccion |
 | RF-EST-009 | Asignacion de docentes a subareas de seccion | Debe | institutional-structure | Not implemented | TBD | TBD | Base de alcance docente |
 | RF-EST-010 | Cobertura completa para la activacion del ciclo | Deberia | school-cycle | Not implemented | TBD | TBD | Regla de activacion |
-| RF-EST-011 | Mutabilidad de la estructura segun el estado del ciclo | Debe | school-cycle | Not implemented | TBD | TBD | Regla transversal |
-| RF-EST-012 | Desactivacion en lugar de eliminacion | Deberia | institutional-structure | Not implemented | TBD | TBD | Linea con historia |
-| RF-EST-013 | Independencia de la estructura entre ciclos | Debe | school-cycle | Not implemented | TBD | TBD | Versionado por ciclo |
+| RF-EST-011 | Mutabilidad de la estructura segun el estado del ciclo | Debe | school-cycle | Implemented | TBD | backend/tests/unit/test_cycle_services.py; backend/tests/unit/test_offering_services.py | Estructura inmutable con ciclo cerrado |
+| RF-EST-012 | Desactivacion en lugar de eliminacion | Deberia | institutional-structure | Implemented | TBD | backend/tests/unit/test_campus_services.py; backend/tests/unit/test_catalog_services.py; backend/tests/unit/test_offering_services.py | Desactivacion en lugar de eliminacion |
+| RF-EST-013 | Independencia de la estructura entre ciclos | Debe | school-cycle | Implemented | TBD | backend/tests/unit/test_offering_services.py | Oferta y secciones versionadas por ciclo |
 | RF-CAL-001 | Registro de la nota de unidad | Debe | academic-evaluation | Not implemented | TBD | TBD | Nucleo academico |
 | RF-CAL-002 | Escala y validacion de la nota | Debe | academic-evaluation | Not implemented | TBD | TBD | Regla central |
 | RF-CAL-003 | Distincion entre sin calificar y cero | Debe | academic-evaluation | Not implemented | TBD | TBD | Invariante importante |

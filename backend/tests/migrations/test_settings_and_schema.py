@@ -3,7 +3,16 @@ import sys
 
 import pytest
 
-from apps.academics.models import AcademicCycle, Grade, Institution, Section, Shift
+from apps.academics.models import (
+    AcademicCycle,
+    Campus,
+    Grade,
+    GradeOffering,
+    Institution,
+    Level,
+    Section,
+    Shift,
+)
 
 
 @pytest.mark.migration
@@ -18,17 +27,20 @@ def test_core_tables_available_after_migrations():
         ends_on="2026-10-31",
         status="active",
     )
-    shift = Shift.objects.create(institution=institution, name="Matutina", code="M")
-    grade = Grade.objects.create(institution=institution, name="Primero", code="1")
-    section = Section.objects.create(
+    campus = Campus.objects.create(institution=institution, name="Sede Central", code="CENTRAL")
+    shift = Shift.objects.create(campus=campus, name="Matutina", code="M")
+    level = Level.objects.create(institution=institution, name="Basico", code="BAS", sequence=3)
+    grade = Grade.objects.create(level=level, name="Primero", code="1", sequence=1)
+    offering = GradeOffering.objects.create(
         academic_cycle=cycle,
-        grade=grade,
         shift=shift,
-        name="A",
-        capacity=35,
+        grade=grade,
     )
+    section = Section.objects.create(offering=offering, name="A", capacity=35)
 
     assert section.pk is not None
+    assert section.campus == campus
+    assert section.level == level
 
 
 @pytest.mark.migration
