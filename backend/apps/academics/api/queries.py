@@ -9,7 +9,7 @@ hidden per-row count.
 from django.db.models import Count, Q
 from rest_framework.exceptions import NotFound
 
-from apps.academics.models import Campus, Institution, Shift
+from apps.academics.models import Campus, Grade, Institution, Level, LevelSubject, Shift, Subject
 
 
 def resolve_institution(request):
@@ -67,6 +67,55 @@ def shift_or_404(institution, public_id):
         public_id,
         "Shift",
     )
+
+
+def levels(institution, request):
+    return _filter_active(levels_all(institution), request)
+
+
+def levels_all(institution):
+    return (
+        Level.objects.filter(institution=institution)
+        .annotate(
+            _grade_count=Count("grades", filter=Q(grades__is_active=True), distinct=True),
+            _subject_count=Count("level_subjects", distinct=True),
+        )
+        .order_by("sequence", "name")
+    )
+
+
+def level_or_404(institution, public_id):
+    return _get(levels_all(institution), public_id, "Level")
+
+
+def grades(level, request):
+    return _filter_active(Grade.objects.filter(level=level).select_related("level"), request)
+
+
+def grade_or_404(institution, public_id):
+    return _get(
+        Grade.objects.filter(level__institution=institution).select_related("level"),
+        public_id,
+        "Grade",
+    )
+
+
+def subjects(institution, request):
+    return _filter_active(
+        Subject.objects.filter(institution=institution).prefetch_related("levels"), request
+    )
+
+
+def subject_or_404(institution, public_id):
+    return _get(
+        Subject.objects.filter(institution=institution).prefetch_related("levels"),
+        public_id,
+        "Subject",
+    )
+
+
+def level_subjects(level):
+    return LevelSubject.objects.filter(level=level).select_related("level", "subject")
 
 
 def _get(queryset, public_id, label):

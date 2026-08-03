@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.academics.models import Campus, Shift
+from apps.academics.models import Campus, Grade, Level, LevelSubject, Shift, Subject
 
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a catalogue node
@@ -16,6 +16,24 @@ class CampusRefSerializer(serializers.ModelSerializer):
 class ShiftRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shift
+        fields = ["public_id", "name", "code"]
+
+
+class LevelRefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Level
+        fields = ["public_id", "name", "code", "sequence"]
+
+
+class GradeRefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Grade
+        fields = ["public_id", "name", "code", "sequence"]
+
+
+class SubjectRefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subject
         fields = ["public_id", "name", "code"]
 
 
@@ -85,3 +103,108 @@ class ShiftCreateSerializer(serializers.Serializer):
 
 class ShiftUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, required=False)
+
+
+# --------------------------------------------------------------------------- #
+# levels ("niveles")
+# --------------------------------------------------------------------------- #
+
+
+class LevelSerializer(serializers.ModelSerializer):
+    """Querysets annotate ``_grade_count`` and ``_subject_count``."""
+
+    grade_count = serializers.IntegerField(source="_grade_count", read_only=True)
+    subject_count = serializers.IntegerField(source="_subject_count", read_only=True)
+
+    class Meta:
+        model = Level
+        fields = [
+            "public_id",
+            "name",
+            "code",
+            "sequence",
+            "is_active",
+            "grade_count",
+            "subject_count",
+        ]
+
+
+class LevelCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, help_text="Ej. Preprimaria, Primaria, Basico.")
+    code = serializers.CharField(max_length=30, help_text="Codigo unico por institucion.")
+    sequence = serializers.IntegerField(
+        min_value=1, help_text="Orden pedagogico del nivel. Unico por institucion."
+    )
+
+
+class LevelUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, required=False)
+    sequence = serializers.IntegerField(min_value=1, required=False)
+
+
+# --------------------------------------------------------------------------- #
+# grades ("grados")
+# --------------------------------------------------------------------------- #
+
+
+class GradeSerializer(serializers.ModelSerializer):
+    level = LevelRefSerializer(read_only=True)
+
+    class Meta:
+        model = Grade
+        fields = ["public_id", "name", "code", "sequence", "is_active", "level"]
+
+
+class GradeCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, help_text="Ej. Primero Primaria.")
+    code = serializers.CharField(max_length=30, help_text="Codigo unico por institucion.")
+    sequence = serializers.IntegerField(min_value=1, help_text="Orden del grado dentro del nivel.")
+
+
+class GradeUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, required=False)
+    sequence = serializers.IntegerField(min_value=1, required=False)
+
+
+# --------------------------------------------------------------------------- #
+# subjects ("cursos") and their link to levels
+# --------------------------------------------------------------------------- #
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    levels = LevelRefSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Subject
+        fields = ["public_id", "name", "code", "is_active", "levels"]
+
+
+class SubjectCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150, help_text="Ej. Matematica.")
+    code = serializers.CharField(max_length=50, help_text="Codigo unico por institucion.")
+
+
+class SubjectUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150, required=False)
+
+
+class LevelSubjectSerializer(serializers.ModelSerializer):
+    level = LevelRefSerializer(read_only=True)
+    subject = SubjectRefSerializer(read_only=True)
+
+    class Meta:
+        model = LevelSubject
+        fields = ["public_id", "level", "subject", "is_required", "weekly_hours"]
+
+
+class LevelSubjectCreateSerializer(serializers.Serializer):
+    subject_id = serializers.UUIDField(help_text="Public ID del curso a vincular.")
+    is_required = serializers.BooleanField(required=False, default=True)
+    weekly_hours = serializers.IntegerField(
+        min_value=0, required=False, default=0, help_text="0 significa sin definir."
+    )
+
+
+class LevelSubjectUpdateSerializer(serializers.Serializer):
+    is_required = serializers.BooleanField(required=False)
+    weekly_hours = serializers.IntegerField(min_value=0, required=False)
