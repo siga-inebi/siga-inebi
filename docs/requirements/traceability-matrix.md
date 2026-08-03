@@ -18,7 +18,9 @@ Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo 
 
 ## Estado inicial
 
-Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno detallado, codigo, pruebas y PR quedan pendientes.
+La mayoria de requerimientos sigue en `Planned`. Las filas marcadas `Under Review`
+o `Implemented` citan su codigo y pruebas; las referencias de issue y PR se
+completan al abrir el pull request correspondiente.
 
 ## Seed Matrix
 
@@ -33,8 +35,22 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RF-CTA-003 | TBD | docs/architecture/authorization-model.md | backend/apps/identity/management/commands/seed_demo_data.py; backend/docker-entrypoint.sh | backend/tests/integration/test_seed.py | PR #3 | Under Review | Activacion inicial guiada por seed y variables de entorno en desarrollo |
 | RF-CTA-006 | TBD | docs/architecture/authorization-model.md; docs/architecture/audit-strategy.md | backend/apps/identity/services.py | backend/tests/permissions/test_identity_permissions.py | TBD | In Progress | Servicio interno de desactivacion administrativa sin borrado fisico; API y verificacion de dependencias quedan fuera de este corte |
 | RF-CIC-001 | TBD | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Registro de ciclo |
-| RF-EST-007 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Secciones |
-| RF-MAT-002 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Matricula |
+| RF-CIC-003 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_cycle_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Apertura con unicidad de ciclo activo por institucion |
+| RF-CIC-004 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_cycle_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Cierre congela la estructura del ciclo |
+| RF-EST-001 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_catalog_services.py; backend/tests/unit/test_catalog_update_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Grados ligados a nivel, con orden pedagogico |
+| RF-EST-002 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_campus_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Jornadas por sede, con codigo unico por sede |
+| RF-EST-007 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_offering_services.py; backend/tests/api/test_academics_catalog_api.py | TBD | Implemented | Secciones bajo la oferta de grado |
+| RF-EST-008 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_offering_services.py; backend/tests/api/test_academics_catalog_api.py; backend/tests/integration/test_concurrency.py | TBD | Implemented | Cupo declarado y ocupacion consultable por seccion |
+| RF-EST-011 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_cycle_services.py; backend/tests/unit/test_offering_services.py | TBD | Implemented | Estructura inmutable con ciclo cerrado |
+| RF-EST-012 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_campus_services.py; backend/tests/unit/test_catalog_services.py; backend/tests/unit/test_offering_services.py | TBD | Implemented | Desactivacion en lugar de eliminacion |
+| RF-EST-013 | TBD | docs/architecture/academic-catalogue.md | backend/apps/academics/models.py; backend/apps/academics/services.py; backend/apps/academics/api/ | backend/tests/unit/test_offering_services.py | TBD | Implemented | Oferta y secciones versionadas por ciclo |
+| RF-MAT-001 | TBD | docs/architecture/academic-catalogue.md | backend/apps/enrolments/models.py; backend/apps/enrolments/services.py | backend/tests/unit/test_enrolment_services.py; backend/tests/api/test_enrolments_api.py | TBD | Implemented | Inscripcion como registro con vigencia (`effective_on`/`ends_on`) |
+| RF-MAT-002 | TBD | docs/architecture/academic-catalogue.md | backend/apps/enrolments/models.py; backend/apps/enrolments/services.py; backend/apps/enrolments/api/ | backend/tests/unit/test_enrolment_services.py; backend/tests/api/test_enrolments_api.py | TBD | Implemented | Matricula de un estudiante en ciclo/grado/seccion |
+| RF-MAT-003 | TBD | docs/architecture/academic-catalogue.md | backend/apps/enrolments/services.py; backend/apps/enrolments/api/ | backend/tests/unit/test_enrolment_services.py; backend/tests/api/test_enrolments_api.py | TBD | Implemented | Reinscripcion; rechaza si ya hay matricula activa en el ciclo destino |
+| RF-MAT-004 | TBD | docs/architecture/academic-catalogue.md | backend/apps/enrolments/services.py | backend/tests/unit/test_enrolment_services.py | TBD | Implemented | Cupo de la seccion bloquea nuevas matriculas; fila bloqueada antes de contar |
+| RF-MOV-001 | TBD | docs/architecture/academic-catalogue.md | backend/apps/enrolments/services.py; backend/apps/enrolments/api/ | backend/tests/unit/test_enrolment_services.py; backend/tests/api/test_enrolments_api.py | TBD | Implemented | Cambio de seccion distinto de retiro; misma matricula, otra seccion |
+| RF-MOV-002 | TBD | docs/architecture/academic-catalogue.md | backend/apps/enrolments/services.py | backend/tests/unit/test_enrolment_services.py | TBD | Implemented | Cambio de seccion cierra la matricula previa como completed, sin borrarla |
+| RF-MOV-004 | TBD | docs/architecture/academic-catalogue.md | backend/apps/enrolments/services.py; backend/apps/enrolments/api/ | backend/tests/unit/test_enrolment_services.py; backend/tests/api/test_enrolments_api.py | TBD | Implemented | Retiro solo de matriculas activas; ciclo cerrado lo bloquea; preserva historial |
 | RF-CRE-001 | TBD | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | QR opaco |
 | RF-ASI-010 | TBD | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Idempotencia |
 | RF-JOR-002 | TBD | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Estado diario derivado |
