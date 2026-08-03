@@ -42,6 +42,7 @@ describe("app shell", () => {
   });
 
   test("renders layout actions", async () => {
+    const user = userEvent.setup();
     renderWithRouter(
       <AuthProvider>
         <AppLayout>
@@ -51,12 +52,14 @@ describe("app shell", () => {
     );
 
     expect(await screen.findByText("SIGA-INEBI")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Abrir menu/i }));
     expect(
       screen.getByRole("link", { name: /Iniciar sesion/i })
     ).toBeInTheDocument();
   });
 
   test("hides LISTADOS navigation when not authenticated", async () => {
+    const user = userEvent.setup();
     renderWithRouter(
       <AuthProvider>
         <AppLayout>
@@ -65,8 +68,11 @@ describe("app shell", () => {
       </AuthProvider>
     );
 
+    await user.click(
+      await screen.findByRole("button", { name: /Abrir menu/i })
+    );
     expect(
-      await screen.findByRole("link", { name: /Iniciar sesion/i })
+      screen.getByRole("link", { name: /Iniciar sesion/i })
     ).toBeInTheDocument();
     expect(screen.queryByText("Listados")).not.toBeInTheDocument();
   });

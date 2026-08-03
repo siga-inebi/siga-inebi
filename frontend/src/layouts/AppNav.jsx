@@ -1,11 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 
+import { guardiansService } from "../services/guardiansService.js";
+import { studentsService } from "../services/studentsService.js";
+import { teachersService } from "../services/teachersService.js";
 import {
   canViewAlumnos,
   canViewDocentes,
   canViewPadres,
 } from "../utils/permissions.js";
+
+const COUNT_SERVICES = {
+  alumnos: studentsService,
+  docentes: teachersService,
+  padres: guardiansService,
+};
 
 const HOME_ITEM = { key: "inicio", label: "Panel principal", path: "/app" };
 
@@ -38,12 +47,13 @@ function navLinkClassName({ isActive }) {
   return isActive ? "sidebar-link active" : "sidebar-link";
 }
 
-function NavItem({ badge, item }) {
+function NavItem({ badge, item, onNavigate }) {
   return (
     <NavLink
       aria-label={item.label}
       className={navLinkClassName}
       end={item.path === "/app"}
+      onClick={onNavigate}
       title={item.label}
       to={item.path}
     >
@@ -54,14 +64,39 @@ function NavItem({ badge, item }) {
   );
 }
 
-// `counts` se completa cuando existan los servicios de dominio
-// (students/teachers/guardians); mientras tanto no se muestra badge.
-export function AppNav({ counts = {}, user }) {
+export function AppNav({ accountActions, onNavigate, open, user }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [counts, setCounts] = useState({});
   const items = LISTADO_ITEMS.filter((item) => item.canView(user));
+  const asideClassName = [
+    "sidebar",
+    collapsed ? "sidebar-collapsed" : "",
+    open ? "sidebar-open" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  useEffect(() => {
+    let active = true;
+    Promise.all(
+      Object.entries(COUNT_SERVICES).map(([key, service]) =>
+        service
+          .list()
+          .then((records) => [key, records.length])
+          .catch(() => [key, null])
+      )
+    ).then((entries) => {
+      if (active) {
+        setCounts(Object.fromEntries(entries));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
-    <aside className={collapsed ? "sidebar sidebar-collapsed" : "sidebar"}>
+    <aside className={asideClassName}>
       <button
         aria-label={collapsed ? "Expandir navegacion" : "Colapsar navegacion"}
         className="sidebar-toggle"
@@ -71,17 +106,26 @@ export function AppNav({ counts = {}, user }) {
         {collapsed ? "»" : "«"}
       </button>
 
-      <NavItem item={HOME_ITEM} />
+      <NavItem item={HOME_ITEM} onNavigate={onNavigate} />
 
       {items.length > 0 ? (
         <>
           <p className="sidebar-title">Listados</p>
           <nav className="sidebar-nav">
             {items.map((item) => (
-              <NavItem badge={counts[item.key]} item={item} key={item.key} />
+              <NavItem
+                badge={counts[item.key]}
+                item={item}
+                key={item.key}
+                onNavigate={onNavigate}
+              />
             ))}
           </nav>
         </>
+      ) : null}
+
+      {accountActions ? (
+        <div className="sidebar-actions">{accountActions}</div>
       ) : null}
     </aside>
   );

@@ -1,11 +1,32 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
 
 import { AppNav } from "../layouts/AppNav.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 
+const studentsServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const teachersServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const guardiansServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+
+vi.mock("../services/studentsService.js", () => ({
+  studentsService: studentsServiceMock,
+}));
+vi.mock("../services/teachersService.js", () => ({
+  teachersService: teachersServiceMock,
+}));
+vi.mock("../services/guardiansService.js", () => ({
+  guardiansService: guardiansServiceMock,
+}));
+
 describe("AppNav", () => {
-  test("renders a home link plus the LISTADOS group with a link to each domain", () => {
+  beforeEach(() => {
+    studentsServiceMock.list.mockReset().mockResolvedValue([]);
+    teachersServiceMock.list.mockReset().mockResolvedValue([]);
+    guardiansServiceMock.list.mockReset().mockResolvedValue([]);
+  });
+
+  test("renders a home link plus the LISTADOS group with a link to each domain", async () => {
     renderWithRouter(<AppNav user={{ id: 1 }} />);
 
     expect(
@@ -23,17 +44,19 @@ describe("AppNav", () => {
     expect(
       screen.getByRole("link", { name: "Padres de familia" })
     ).toHaveAttribute("href", "/app/padres-de-familia");
+    expect(await screen.findAllByText("0")).toHaveLength(3);
   });
 
-  test("shows a badge only for items with a known count", () => {
-    renderWithRouter(<AppNav counts={{ alumnos: 8 }} user={{ id: 1 }} />);
+  test("shows a badge with the real count once the domain services resolve", async () => {
+    studentsServiceMock.list.mockResolvedValue(new Array(8).fill({}));
+    renderWithRouter(<AppNav user={{ id: 1 }} />);
 
-    expect(screen.getByRole("link", { name: "Alumnos" })).toHaveTextContent(
-      "8"
-    );
+    expect(
+      await screen.findByRole("link", { name: "Alumnos" })
+    ).toHaveTextContent("8");
     expect(
       screen.getByRole("link", { name: "Docentes" })
-    ).not.toHaveTextContent(/\d/);
+    ).toHaveTextContent("0");
   });
 
   test("collapses and expands via the toggle button", async () => {
