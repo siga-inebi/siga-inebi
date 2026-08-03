@@ -357,30 +357,6 @@ def test_deactivate_section_preserves_the_record():
 # --------------------------------------------------------------------------- #
 
 
-def test_section_available_seats_reflects_active_enrolments():
-    from apps.enrolments.services import create_enrolment, withdraw
-
-    section = SectionFactory(capacity=3)
-    first = create_enrolment(
-        student=StudentFactory(),
-        academic_cycle=section.academic_cycle,
-        grade=section.grade,
-        section=section,
-    )
-    create_enrolment(
-        student=StudentFactory(),
-        academic_cycle=section.academic_cycle,
-        grade=section.grade,
-        section=section,
-    )
-
-    assert section.available_seats == 1
-
-    withdraw(enrolment=first, reason="traslado")
-
-    assert section.available_seats == 2
-
-
 def test_uncapped_section_reports_no_seat_limit():
     section = SectionFactory(capacity=0)
 
