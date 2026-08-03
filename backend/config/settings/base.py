@@ -14,6 +14,10 @@ def env_bool(name, default=False):
     return env(name, str(default)).lower() in {"1", "true", "yes", "on"}
 
 
+def env_int(name, default):
+    return int(env(name, str(default)))
+
+
 def env_list(name, default=""):
     value = env(name, default)
     return [item.strip() for item in value.split(",") if item.strip()]
@@ -75,6 +79,8 @@ TEMPLATES = [
 ]
 
 AUTH_USER_MODEL = "identity.UserAccount"
+LOGIN_MAX_FAILED_ATTEMPTS = env_int("LOGIN_MAX_FAILED_ATTEMPTS", 5)
+LOGIN_LOCKOUT_MINUTES = env_int("LOGIN_LOCKOUT_MINUTES", 10)
 
 DATABASE_ENGINE = env("DATABASE_ENGINE", "postgresql")
 SQLITE_PATH = env("SQLITE_PATH", "db.sqlite3")
