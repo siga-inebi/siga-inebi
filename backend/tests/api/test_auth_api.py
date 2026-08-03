@@ -103,10 +103,13 @@ def test_fifth_failed_login_temporarily_locks_account_and_audits_attempts(client
     ]
     assert user.locked_until is not None
     assert timedelta(minutes=9, seconds=55) <= user.locked_until - timezone.now()
-    assert AuditEvent.objects.filter(
-        action="identity.login.denied",
-        resource_identifier=str(user.pk),
-    ).count() == 5
+    assert (
+        AuditEvent.objects.filter(
+            action="identity.login.denied",
+            resource_identifier=str(user.pk),
+        ).count()
+        == 5
+    )
 
 
 @pytest.mark.api
