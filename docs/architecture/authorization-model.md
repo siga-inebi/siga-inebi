@@ -90,3 +90,12 @@ RoleAssignment -> ScopeGrant
 - Salud y documentos privados requieren permiso especifico mas alcance valido.
 - Descargas deben ser trazables.
 - Intentos denegados relevantes deben quedar auditados.
+
+## Contratos internos de cuentas
+
+- `disable_account(actor, user)` desactiva una cuenta institucional sin eliminarla.
+- La operacion requiere un superusuario o el permiso atomico logico `account.disable`,
+  representado por el codename Django existente `account_disable`.
+- La desactivacion actualiza `status=disabled` e `is_active=False` dentro de una transaccion.
+- Tanto la operacion exitosa como el intento denegado generan un evento de auditoria.
+- Este contrato es interno del dominio; no agrega ni modifica endpoints de la API publica.
