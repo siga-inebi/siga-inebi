@@ -3,8 +3,9 @@ from datetime import timedelta
 import pytest
 from django.core.exceptions import PermissionDenied
 
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
-from apps.identity.services import assign_role, protect_system_role
+from apps.identity.services import assign_role, disable_account, protect_system_role
 from apps.students.services import guardian_can_access_student
 from tests.factories.academic import AcademicCycleFactory, InstitutionFactory, SectionFactory
 from tests.factories.identity import (
@@ -172,3 +173,48 @@ def test_system_roles_require_explicit_authorization_to_modify():
 
     with pytest.raises(DomainError):
         protect_system_role(actor=actor, role=role)
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_authorized_actor_disables_account_without_deleting_it():
+    permission = PermissionFactory(codename="account_disable")
+    actor = UserFactory()
+    RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
+    target = UserFactory()
+
+    disabled_account = disable_account(actor=actor, user=target)
+
+    target.refresh_from_db()
+    assert disabled_account.pk == target.pk
+    assert target.status == target.AccountStatus.DISABLED
+    assert target.is_active is False
+    assert target.__class__.objects.filter(pk=target.pk).exists()
+
+    event = AuditEvent.objects.get(action="identity.account.disabled")
+    assert event.actor == actor
+    assert event.resource == "UserAccount"
+    assert event.resource_identifier == str(target.pk)
+    assert event.context["target_user_id"] == target.pk
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_unauthorized_account_disable_is_denied_and_audited():
+    actor = UserFactory()
+    target = UserFactory()
+
+    with pytest.raises(PermissionDenied):
+        disable_account(actor=actor, user=target)
+
+    target.refresh_from_db()
+    assert target.status == target.AccountStatus.ACTIVE
+    assert target.is_active is True
+
+    event = AuditEvent.objects.get(action="identity.account.disable_denied")
+    assert event.actor == actor
+    assert event.resource_identifier == str(target.pk)
+    assert event.context["target_user_id"] == target.pk
+    assert event.context["result"] == "denied"
