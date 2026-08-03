@@ -1,9 +1,14 @@
 from .academic import (
     AcademicCycleFactory,
+    CampusFactory,
     GradeFactory,
+    GradeOfferingFactory,
     InstitutionFactory,
+    LevelFactory,
+    LevelSubjectFactory,
     SectionFactory,
     ShiftFactory,
+    SubjectFactory,
 )
 from .identity import (
     PermissionFactory,
@@ -17,9 +22,13 @@ from .students import GuardianFactory, StudentFactory, StudentGuardianRelationFa
 
 __all__ = [
     "AcademicCycleFactory",
+    "CampusFactory",
     "GradeFactory",
+    "GradeOfferingFactory",
     "GuardianFactory",
     "InstitutionFactory",
+    "LevelFactory",
+    "LevelSubjectFactory",
     "PermissionFactory",
     "PersonFactory",
     "RoleAssignmentFactory",
@@ -29,5 +38,6 @@ __all__ = [
     "ShiftFactory",
     "StudentFactory",
     "StudentGuardianRelationFactory",
+    "SubjectFactory",
     "UserFactory",
 ]
