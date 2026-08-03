@@ -20,14 +20,20 @@ from rest_framework.response import Response
 
 from apps.academics import services
 from apps.academics.api import queries
-from apps.academics.models import Subject
+from apps.academics.models import AcademicCycle, Grade, Shift, Subject
 from apps.common.models import DomainError
+from apps.common.parsing import parse_uuid
 
 from .serializers import (
+    AcademicCycleCreateSerializer,
+    AcademicCycleDetailSerializer,
+    AcademicCycleListSerializer,
     CampusCreateSerializer,
     CampusSerializer,
     CampusUpdateSerializer,
     GradeCreateSerializer,
+    GradeOfferingCreateSerializer,
+    GradeOfferingSerializer,
     GradeSerializer,
     GradeUpdateSerializer,
     LevelCreateSerializer,
@@ -36,6 +42,9 @@ from .serializers import (
     LevelSubjectSerializer,
     LevelSubjectUpdateSerializer,
     LevelUpdateSerializer,
+    SectionCreateSerializer,
+    SectionSerializer,
+    SectionUpdateSerializer,
     ShiftCreateSerializer,
     ShiftSerializer,
     ShiftUpdateSerializer,
@@ -45,6 +54,7 @@ from .serializers import (
 )
 
 CATALOGUE = ["academics: catalogue"]
+CYCLES = ["academics: cycles"]
 
 INCLUDE_INACTIVE = OpenApiParameter(
     name="include_inactive",
@@ -561,3 +571,247 @@ def _resolve_subject(public_id):
     behind a generic "not found".
     """
     return _resolve(Subject.objects.all(), public_id, "Subject")
+
+
+# --------------------------------------------------------------------------- #
+# cycles
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar ciclos escolares",
+        tags=CYCLES,
+        responses={200: AcademicCycleListSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Crear ciclo en borrador",
+        tags=CYCLES,
+        request=AcademicCycleCreateSerializer,
+        responses={201: AcademicCycleListSerializer},
+    ),
+)
+class AcademicCycleListCreateView(CatalogueListCreateView):
+    list_serializer = AcademicCycleListSerializer
+    create_serializer = AcademicCycleCreateSerializer
+
+    def list_queryset(self, request):
+        return queries.cycles_all(self.institution)
+
+    def create(self, request, payload):
+        return AcademicCycle.objects.create(
+            institution=self.institution,
+            status=AcademicCycle.CycleStatus.DRAFT,
+            **payload,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar ciclo",
+        description=(
+            "Resumen del ciclo con el numero de ofertas y secciones. Las secciones se "
+            "consultan paginadas en `offerings/{id}/sections/`."
+        ),
+        tags=CYCLES,
+        responses={200: AcademicCycleDetailSerializer},
+    ),
+)
+class AcademicCycleDetailView(RetrieveMixin, CatalogueDetailView):
+    detail_serializer = AcademicCycleDetailSerializer
+
+    def get_object(self, public_id):
+        return queries.cycle_or_404(self.institution, public_id)
+
+
+class AcademicCycleTransitionView(CatalogueView):
+    """Shared body for the open/close transitions."""
+
+    serializer_class = AcademicCycleListSerializer
+    transition = None
+
+    def post(self, request, public_id):
+        cycle = queries.cycle_or_404(self.institution, public_id)
+        type(self).transition(cycle=cycle, actor=request.user)
+        return Response(AcademicCycleListSerializer(cycle).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Abrir ciclo",
+        description="Pasa el ciclo de borrador a activo (RF-CIC-003).",
+        tags=CYCLES,
+        request=None,
+        responses={200: AcademicCycleListSerializer},
+    ),
+)
+class AcademicCycleOpenView(AcademicCycleTransitionView):
+    transition = staticmethod(services.open_cycle)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Cerrar ciclo",
+        description="Pasa el ciclo de activo a cerrado y congela su estructura (RF-CIC-004).",
+        tags=CYCLES,
+        request=None,
+        responses={200: AcademicCycleListSerializer},
+    ),
+)
+class AcademicCycleCloseView(AcademicCycleTransitionView):
+    transition = staticmethod(services.close_cycle)
+
+
+# --------------------------------------------------------------------------- #
+# grade offerings — the catalogue enrolments are assigned to
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar la oferta de grados del ciclo",
+        description=(
+            "Cada elemento es un grado ofertado en una jornada de una sede. "
+            "Los filtros aceptan public IDs; un ID inexistente devuelve una lista vacia "
+            "y un ID mal formado devuelve 400."
+        ),
+        tags=CYCLES,
+        parameters=[
+            OpenApiParameter("campus", str, description="Filtra por sede."),
+            OpenApiParameter("shift", str, description="Filtra por jornada."),
+            OpenApiParameter("level", str, description="Filtra por nivel."),
+            OpenApiParameter("grade", str, description="Filtra por grado."),
+        ],
+        responses={200: GradeOfferingSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Ofertar un grado en una jornada",
+        description=(
+            "Agrega un grado a la oferta del ciclo. La jornada determina la sede. "
+            "Se rechaza si el ciclo esta cerrado, si hay mezcla de instituciones, "
+            "si algun elemento esta inactivo o si la combinacion ya existe."
+        ),
+        tags=CYCLES,
+        request=GradeOfferingCreateSerializer,
+        responses={201: GradeOfferingSerializer},
+    ),
+)
+class CycleOfferingListCreateView(CatalogueListCreateView):
+    list_serializer = GradeOfferingSerializer
+    create_serializer = GradeOfferingCreateSerializer
+
+    FILTERS = (
+        ("campus", "shift__campus__public_id"),
+        ("shift", "shift__public_id"),
+        ("level", "grade__level__public_id"),
+        ("grade", "grade__public_id"),
+    )
+
+    def list_queryset(self, request, cycle_public_id):
+        cycle = queries.cycle_or_404(self.institution, cycle_public_id)
+        queryset = queries.offerings(cycle)
+
+        for param, lookup in self.FILTERS:
+            value = parse_uuid(request.query_params.get(param), field=param)
+            if value is not None:
+                queryset = queryset.filter(**{lookup: value})
+
+        return queryset
+
+    def create(self, request, payload, cycle_public_id):
+        cycle = queries.cycle_or_404(self.institution, cycle_public_id)
+        grade = _resolve(Grade.objects.select_related("level"), payload["grade_id"], "Grade")
+        shift = _resolve(Shift.objects.select_related("campus"), payload["shift_id"], "Shift")
+
+        offering = services.create_grade_offering(
+            cycle=cycle, shift=shift, grade=grade, actor=request.user
+        )
+        return queries.offering_or_404(self.institution, offering.public_id)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar una oferta de grado",
+        tags=CYCLES,
+        responses={200: GradeOfferingSerializer},
+    ),
+    delete=extend_schema(
+        summary="Quitar una oferta de grado",
+        description="Se rechaza si el ciclo esta cerrado o si la oferta aun tiene secciones.",
+        tags=CYCLES,
+        responses={204: None},
+    ),
+)
+class GradeOfferingDetailView(RetrieveMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = GradeOfferingSerializer
+
+    def get_object(self, public_id):
+        return queries.offering_or_404(self.institution, public_id)
+
+    def deactivate(self, request, offering):
+        services.remove_grade_offering(offering=offering, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
+# sections
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar secciones de una oferta",
+        description="Incluye ocupacion activa y cupos libres (RF-EST-008).",
+        tags=CYCLES,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: SectionSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Crear seccion en una oferta",
+        description="El nombre se normaliza a mayusculas y es unico dentro de la oferta.",
+        tags=CYCLES,
+        request=SectionCreateSerializer,
+        responses={201: SectionSerializer},
+    ),
+)
+class OfferingSectionListCreateView(CatalogueListCreateView):
+    list_serializer = SectionSerializer
+    create_serializer = SectionCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        offering = queries.offering_or_404(self.institution, public_id)
+        return queries.sections(request, offering=offering)
+
+    def create(self, request, payload, public_id):
+        offering = queries.offering_or_404(self.institution, public_id)
+        section = services.create_section(offering=offering, actor=request.user, **payload)
+        return queries.section_or_404(self.institution, section.public_id)
+
+
+@extend_schema_view(
+    get=extend_schema(summary="Consultar seccion", tags=CYCLES, responses={200: SectionSerializer}),
+    patch=extend_schema(
+        summary="Actualizar seccion",
+        description="La capacidad no puede quedar por debajo de la ocupacion actual.",
+        tags=CYCLES,
+        request=SectionUpdateSerializer,
+        responses={200: SectionSerializer},
+    ),
+    delete=extend_schema(
+        summary="Desactivar seccion",
+        description="Se rechaza mientras la seccion tenga matriculas activas.",
+        tags=CYCLES,
+        responses={204: None},
+    ),
+)
+class SectionDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = SectionSerializer
+    update_serializer = SectionUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.section_or_404(self.institution, public_id)
+
+    def update(self, request, section, payload):
+        services.update_section(section=section, actor=request.user, **payload)
+
+    def deactivate(self, request, section):
+        services.deactivate_section(section=section, actor=request.user)

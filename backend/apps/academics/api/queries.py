@@ -9,7 +9,21 @@ hidden per-row count.
 from django.db.models import Count, Q
 from rest_framework.exceptions import NotFound
 
-from apps.academics.models import Campus, Grade, Institution, Level, LevelSubject, Shift, Subject
+from apps.academics.models import (
+    AcademicCycle,
+    Campus,
+    Grade,
+    GradeOffering,
+    Institution,
+    Level,
+    LevelSubject,
+    Section,
+    Shift,
+    Subject,
+)
+from apps.enrolments.models import Enrolment
+
+ACTIVE_ENROLMENT = Q(enrolments__status=Enrolment.EnrolmentStatus.ACTIVE)
 
 
 def resolve_institution(request):
@@ -116,6 +130,66 @@ def subject_or_404(institution, public_id):
 
 def level_subjects(level):
     return LevelSubject.objects.filter(level=level).select_related("level", "subject")
+
+
+def cycles_all(institution):
+    return (
+        AcademicCycle.objects.filter(institution=institution)
+        .annotate(
+            _offering_count=Count("grade_offerings", distinct=True),
+            _section_count=Count("grade_offerings__sections", distinct=True),
+        )
+        .order_by("-starts_on")
+    )
+
+
+def cycle_or_404(institution, public_id):
+    return _get(cycles_all(institution), public_id, "Academic cycle")
+
+
+def offerings(cycle):
+    return (
+        GradeOffering.objects.filter(academic_cycle=cycle)
+        .select_related("shift__campus", "grade__level")
+        .annotate(_section_count=Count("sections", distinct=True))
+        .order_by("shift__campus__name", "grade__level__sequence", "grade__sequence")
+    )
+
+
+def offering_or_404(institution, public_id):
+    return _get(
+        GradeOffering.objects.filter(academic_cycle__institution=institution)
+        .select_related("academic_cycle", "shift__campus", "grade__level")
+        .annotate(_section_count=Count("sections", distinct=True)),
+        public_id,
+        "Grade offering",
+    )
+
+
+def sections(request=None, *, offering=None, cycle=None):
+    queryset = (
+        Section.objects.select_related(
+            "offering__academic_cycle", "offering__shift__campus", "offering__grade__level"
+        )
+        .annotate(_active_enrolments=Count("enrolments", filter=ACTIVE_ENROLMENT, distinct=True))
+        .order_by("offering__grade__level__sequence", "offering__grade__sequence", "name")
+    )
+
+    if offering is not None:
+        queryset = queryset.filter(offering=offering)
+    if cycle is not None:
+        queryset = queryset.filter(offering__academic_cycle=cycle)
+    if request is not None:
+        queryset = _filter_active(queryset, request)
+    return queryset
+
+
+def section_or_404(institution, public_id):
+    return _get(
+        sections().filter(offering__academic_cycle__institution=institution),
+        public_id,
+        "Section",
+    )
 
 
 def _get(queryset, public_id, label):
