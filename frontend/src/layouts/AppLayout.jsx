@@ -1,8 +1,8 @@
-import { Link, NavLink } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth.js";
-import { MODULE_NAV } from "../routes/moduleNav.js";
 import logo from "../utils/logo.jpg";
+import { AppNav } from "./AppNav.jsx";
 
 export function AppLayout({ children }) {
   const { isAuthenticated, logout, user } = useAuth();
@@ -37,23 +37,10 @@ export function AppLayout({ children }) {
           )}
         </nav>
       </header>
-      {isAuthenticated ? (
-        <nav aria-label="Modulos" className="module-nav">
-          {MODULE_NAV.map((item) => (
-            <NavLink
-              className={({ isActive }) =>
-                isActive ? "module-link is-active" : "module-link"
-              }
-              end={item.end}
-              key={item.to}
-              to={item.to}
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      ) : null}
-      <main className="content">{children}</main>
+      <div className="shell-body">
+        {isAuthenticated ? <AppNav user={user} /> : null}
+        <main className="content">{children}</main>
+      </div>
     </div>
   );
 }
