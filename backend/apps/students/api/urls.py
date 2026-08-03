@@ -1,6 +1,8 @@
 from django.urls import path
 
 from apps.students.api.views import (
+    EmergencyContactDetailView,
+    EmergencyContactListCreateView,
     GuardianDetailView,
     GuardianListCreateView,
     StudentDetailView,
@@ -23,5 +25,15 @@ urlpatterns = [
         "guardian-relations/<int:pk>/",
         StudentGuardianRelationDetailView.as_view(),
         name="student-guardian-relation-detail",
+    ),
+    path(
+        "emergency-contacts/",
+        EmergencyContactListCreateView.as_view(),
+        name="emergency-contact-list",
+    ),
+    path(
+        "emergency-contacts/<int:pk>/",
+        EmergencyContactDetailView.as_view(),
+        name="emergency-contact-detail",
     ),
 ]

@@ -52,6 +52,19 @@ def deactivate_guardian(*, guardian, actor=None):
     return guardian
 
 
+def deactivate_emergency_contact(*, emergency_contact, actor=None):
+    emergency_contact.is_active = False
+    emergency_contact.save(update_fields=["is_active", "updated_at"])
+    record_event(
+        actor=actor,
+        action="students.emergency_contact.deactivated",
+        resource="EmergencyContact",
+        resource_identifier=str(emergency_contact.pk),
+        context={"public_id": str(emergency_contact.public_id)},
+    )
+    return emergency_contact
+
+
 def end_student_guardian_relation(*, relation, actor=None, ends_at=None):
     ends_at = ends_at or timezone.localdate()
     relation.ends_at = ends_at
