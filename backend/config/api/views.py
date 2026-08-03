@@ -1,4 +1,6 @@
-from django.db import connection
+import logging
+
+from django.db import DatabaseError, connection
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -14,6 +16,8 @@ from apps.identity.serializers import (
 )
 from config.api.serializers import EmptySerializer, HealthSerializer
 
+logger = logging.getLogger(__name__)
+
 
 class HealthView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -24,13 +28,36 @@ class HealthView(APIView):
 
 
 class DatabaseHealthView(APIView):
+    """
+    Reports whether the database answers.
+
+    A probe whose job is to report a dependency being down must not fall over
+    with it: letting the driver error escape produced an unhandled 500 and an
+    HTML debug page, which monitoring cannot read. The failure is caught and
+    reported as 503 with the same JSON shape as the healthy answer.
+    """
+
     permission_classes = [permissions.AllowAny]
 
-    @extend_schema(responses=HealthSerializer)
+    @extend_schema(
+        responses={
+            200: HealthSerializer,
+            503: OpenApiResponse(
+                response=HealthSerializer, description="La base de datos no responde."
+            ),
+        }
+    )
     def get(self, request):
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+        except DatabaseError:
+            logger.exception("Database health probe failed")
+            return Response(
+                {"status": "unavailable", "service": "database"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response({"status": "ok", "service": "database"})
 
 

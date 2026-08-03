@@ -159,6 +159,18 @@ LOGGING = {
             "formatter": "simple",
         }
     },
+    "loggers": {
+        # Django's default configuration attaches AdminEmailHandler to this
+        # logger, and every 4xx/5xx response goes through it. That handler
+        # renders a traceback template even when ADMINS is empty, so an error
+        # response would pay for a report nobody receives. Logs go to the
+        # console like everything else.
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
     "root": {
         "handlers": ["console"],
         "level": "INFO",
