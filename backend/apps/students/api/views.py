@@ -1,12 +1,14 @@
 from rest_framework import generics
 
 from apps.students.api.serializers import (
+    EmergencyContactSerializer,
     GuardianSerializer,
     StudentGuardianRelationSerializer,
     StudentSerializer,
 )
-from apps.students.models import Guardian, Student, StudentGuardianRelation
+from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
 from apps.students.services import (
+    deactivate_emergency_contact,
     deactivate_guardian,
     deactivate_student,
     end_student_guardian_relation,
@@ -50,3 +52,16 @@ class StudentGuardianRelationDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def perform_destroy(self, instance):
         end_student_guardian_relation(relation=instance, actor=self.request.user)
+
+
+class EmergencyContactListCreateView(generics.ListCreateAPIView):
+    queryset = EmergencyContact.objects.all()
+    serializer_class = EmergencyContactSerializer
+
+
+class EmergencyContactDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = EmergencyContact.objects.all()
+    serializer_class = EmergencyContactSerializer
+
+    def perform_destroy(self, instance):
+        deactivate_emergency_contact(emergency_contact=instance, actor=self.request.user)

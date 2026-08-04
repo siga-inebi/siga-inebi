@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.students.models import Guardian, Student, StudentGuardianRelation
+from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -48,3 +48,19 @@ class StudentGuardianRelationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "ends_at", "is_active", "created_at", "updated_at"]
+
+
+class EmergencyContactSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmergencyContact
+        fields = [
+            "id",
+            "student",
+            "name",
+            "phone_number",
+            "relationship_label",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "is_active", "created_at", "updated_at"]
