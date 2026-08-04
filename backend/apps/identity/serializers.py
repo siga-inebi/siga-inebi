@@ -1,6 +1,12 @@
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import login
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
+from apps.identity.services import (
+    AccountTemporarilyLockedError,
+    InvalidCredentialsError,
+    authenticate_account,
+)
 
 
 class PersonSummarySerializer(serializers.Serializer):
@@ -33,11 +39,16 @@ class LoginSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         request = self.context["request"]
-        user = authenticate(request=request, username=attrs["username"], password=attrs["password"])
-        if user is None:
-            raise serializers.ValidationError("Credenciales invalidas.")
-        if user.is_locked():
-            raise serializers.ValidationError("Cuenta temporalmente bloqueada.")
+        try:
+            user = authenticate_account(
+                request=request,
+                username=attrs["username"],
+                password=attrs["password"],
+            )
+        except InvalidCredentialsError:
+            raise serializers.ValidationError("Credenciales invalidas.") from None
+        except AccountTemporarilyLockedError:
+            raise serializers.ValidationError("Cuenta temporalmente bloqueada.") from None
         attrs["user"] = user
         return attrs
 
@@ -45,8 +56,6 @@ class LoginSerializer(serializers.Serializer):
         request = self.context["request"]
         user = self.validated_data["user"]
         login(request, user)
-        user.failed_login_attempts = 0
-        user.save(update_fields=["failed_login_attempts"])
         return user
 
 
