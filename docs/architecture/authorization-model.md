@@ -99,3 +99,17 @@ RoleAssignment -> ScopeGrant
 - La desactivacion actualiza `status=disabled` e `is_active=False` dentro de una transaccion.
 - Tanto la operacion exitosa como el intento denegado generan un evento de auditoria.
 - Este contrato es interno del dominio; no agrega ni modifica endpoints de la API publica.
+
+## Bloqueo temporal de autenticacion
+
+- Cinco intentos fallidos consecutivos bloquean temporalmente la cuenta durante diez minutos.
+- El umbral y la duracion se configuran con `LOGIN_MAX_FAILED_ATTEMPTS` y
+  `LOGIN_LOCKOUT_MINUTES`.
+- El bloqueo temporal usa `failed_login_attempts` y `locked_until`; no cambia el estado
+  administrativo de la cuenta.
+- Un inicio de sesion correcto o el primer acceso correcto posterior al vencimiento reinicia el
+  contador y elimina el vencimiento.
+- Cada intento rechazado genera un evento auditable sin almacenar la contrasena ni el identificador
+  ingresado para cuentas inexistentes.
+- El contrato de respuesta del endpoint existente se conserva: credenciales invalidas y cuenta
+  temporalmente bloqueada continuan devolviendo validacion HTTP 400.
