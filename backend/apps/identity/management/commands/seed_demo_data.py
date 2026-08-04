@@ -11,9 +11,13 @@ from django.core.management.base import BaseCommand
 
 from apps.academics.models import (
     AcademicCycle,
+    Campus,
     CurriculumPlan,
     Grade,
+    GradeOffering,
     Institution,
+    Level,
+    LevelSubject,
     Section,
     Shift,
     Subject,
@@ -113,33 +117,43 @@ class Command(BaseCommand):
             },
         )
 
+        campus, _ = Campus.objects.get_or_create(
+            institution=institution,
+            code="CENTRAL",
+            defaults={"name": "Sede Central", "is_main": True},
+        )
         shifts = [
             Shift.objects.get_or_create(
-                institution=institution,
+                campus=campus,
                 code="MOR",
                 defaults={"name": "Matutina"},
             )[0],
             Shift.objects.get_or_create(
-                institution=institution,
+                campus=campus,
                 code="VES",
                 defaults={"name": "Vespertina"},
             )[0],
         ]
+        level, _ = Level.objects.get_or_create(
+            institution=institution,
+            code="BAS",
+            defaults={"name": "Basico", "sequence": 3},
+        )
         grades = [
             Grade.objects.get_or_create(
-                institution=institution,
+                level=level,
                 code="B1",
-                defaults={"name": "Basico 1"},
+                defaults={"name": "Primero Basico", "sequence": 1},
             )[0],
             Grade.objects.get_or_create(
-                institution=institution,
+                level=level,
                 code="B2",
-                defaults={"name": "Basico 2"},
+                defaults={"name": "Segundo Basico", "sequence": 2},
             )[0],
             Grade.objects.get_or_create(
-                institution=institution,
+                level=level,
                 code="B3",
-                defaults={"name": "Basico 3"},
+                defaults={"name": "Tercero Basico", "sequence": 3},
             )[0],
         ]
         subjects = [
@@ -160,13 +174,24 @@ class Command(BaseCommand):
             )[0],
         ]
 
+        for subject in subjects:
+            LevelSubject.objects.get_or_create(
+                level=level,
+                subject=subject,
+                defaults={"is_required": True, "weekly_hours": 5},
+            )
+
         for grade in grades:
+            offering, _ = GradeOffering.objects.get_or_create(
+                academic_cycle=cycle,
+                shift=shifts[0],
+                grade=grade,
+            )
             for section_name in ["A", "B"]:
                 Section.objects.get_or_create(
-                    academic_cycle=cycle,
-                    grade=grade,
+                    offering=offering,
                     name=section_name,
-                    defaults={"shift": shifts[0], "capacity": 35},
+                    defaults={"capacity": 35},
                 )
             for subject in subjects:
                 CurriculumPlan.objects.get_or_create(

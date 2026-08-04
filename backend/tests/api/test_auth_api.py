@@ -1,7 +1,12 @@
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
+from apps.audit.models import AuditEvent
 from tests.factories.identity import UserFactory
 
 
@@ -75,3 +80,91 @@ def test_inactive_user_cannot_login(client):
     assert response.status_code == 400
     assert response.json()["error"]["detail"]["non_field_errors"] == ["Credenciales invalidas."]
     assert "_auth_user_id" not in client.session
+
+
+@pytest.mark.api
+@pytest.mark.security
+@pytest.mark.django_db
+@override_settings(LOGIN_MAX_FAILED_ATTEMPTS=5, LOGIN_LOCKOUT_MINUTES=10)
+def test_fifth_failed_login_temporarily_locks_account_and_audits_attempts(client):
+    user = UserFactory(password="correct-pass-123")
+
+    for attempt in range(1, 6):
+        response = client.post(
+            reverse("auth-login"),
+            {"username": user.username, "password": "wrong-pass-123"},
+        )
+        user.refresh_from_db()
+        assert user.failed_login_attempts == attempt
+
+    assert response.status_code == 400
+    assert response.json()["error"]["detail"]["non_field_errors"] == [
+        "Cuenta temporalmente bloqueada."
+    ]
+    assert user.locked_until is not None
+    assert timedelta(minutes=9, seconds=55) <= user.locked_until - timezone.now()
+    assert (
+        AuditEvent.objects.filter(
+            action="identity.login.denied",
+            resource_identifier=str(user.pk),
+        ).count()
+        == 5
+    )
+
+
+@pytest.mark.api
+@pytest.mark.security
+@pytest.mark.django_db
+def test_locked_account_cannot_login_with_correct_password(client):
+    user = UserFactory(password="correct-pass-123")
+    user.failed_login_attempts = 5
+    user.locked_until = timezone.now() + timedelta(minutes=10)
+    user.save(update_fields=["failed_login_attempts", "locked_until"])
+
+    response = client.post(
+        reverse("auth-login"),
+        {"username": user.username, "password": "correct-pass-123"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["detail"]["non_field_errors"] == [
+        "Cuenta temporalmente bloqueada."
+    ]
+    assert "_auth_user_id" not in client.session
+
+
+@pytest.mark.api
+@pytest.mark.security
+@pytest.mark.django_db
+def test_successful_login_resets_previous_failed_attempts(client):
+    user = UserFactory(password="correct-pass-123", failed_login_attempts=3)
+
+    response = client.post(
+        reverse("auth-login"),
+        {"username": user.username, "password": "correct-pass-123"},
+    )
+
+    assert response.status_code == 200
+    user.refresh_from_db()
+    assert user.failed_login_attempts == 0
+    assert user.locked_until is None
+
+
+@pytest.mark.api
+@pytest.mark.security
+@pytest.mark.django_db
+def test_expired_lock_allows_login_and_resets_counter(client):
+    user = UserFactory(password="correct-pass-123")
+    user.failed_login_attempts = 5
+    user.locked_until = timezone.now() - timedelta(seconds=1)
+    user.save(update_fields=["failed_login_attempts", "locked_until"])
+
+    response = client.post(
+        reverse("auth-login"),
+        {"username": user.username, "password": "correct-pass-123"},
+    )
+
+    assert response.status_code == 200
+    user.refresh_from_db()
+    assert user.failed_login_attempts == 0
+    assert user.locked_until is None
