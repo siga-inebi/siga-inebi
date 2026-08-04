@@ -1,7 +1,7 @@
 import pytest
 from django.urls import reverse
 
-from apps.academics.models import Campus, Grade, Level, Subject
+from apps.academics.models import AcademicCycle, Campus, Grade, Level, Section, Subject
 from tests.factories.academic import (
     AcademicCycleFactory,
     CampusFactory,
@@ -9,6 +9,7 @@ from tests.factories.academic import (
     GradeOfferingFactory,
     LevelFactory,
     LevelSubjectFactory,
+    SectionFactory,
     ShiftFactory,
     SubjectFactory,
 )
@@ -540,3 +541,425 @@ def test_unlink_unlinked_subject_returns_400(auth_client, institution):
 
     assert response.status_code == 400
     assert "not linked" in str(_detail(response))
+
+
+# --------------------------------------------------------------------------- #
+# grade offerings (the catalogue enrolments are assigned to)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_offering_returns_201_with_denormalised_labels(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+
+    response = auth_client.post(
+        reverse("cycle-offering-list-create", args=[cycle.public_id]),
+        {"grade_id": str(grade.public_id), "shift_id": str(shift.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["grade"]["code"] == grade.code
+    assert body["shift"]["code"] == shift.code
+    assert body["campus"]["code"] == shift.campus.code
+    assert body["level"]["code"] == grade.level.code
+    assert body["section_count"] == 0
+
+
+def test_create_offering_in_closed_cycle_returns_400(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+
+    response = auth_client.post(
+        reverse("cycle-offering-list-create", args=[cycle.public_id]),
+        {"grade_id": str(grade.public_id), "shift_id": str(shift.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "closed" in str(_detail(response))
+
+
+def test_create_offering_with_unknown_grade_returns_400(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+
+    response = auth_client.post(
+        reverse("cycle-offering-list-create", args=[cycle.public_id]),
+        {"grade_id": MISSING_UUID, "shift_id": str(shift.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+
+
+def test_list_offerings_can_be_filtered_by_campus_and_level(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    central = CampusFactory(institution=institution, code="CENTRAL")
+    annex = CampusFactory(institution=institution, code="ANEXO")
+    primaria = LevelFactory(institution=institution, code="PRI", sequence=1)
+    basico = LevelFactory(institution=institution, code="BAS", sequence=2)
+
+    GradeOfferingFactory(
+        academic_cycle=cycle,
+        shift=ShiftFactory(campus=central),
+        grade=GradeFactory(level=primaria),
+    )
+    GradeOfferingFactory(
+        academic_cycle=cycle,
+        shift=ShiftFactory(campus=annex),
+        grade=GradeFactory(level=basico),
+    )
+
+    url = reverse("cycle-offering-list-create", args=[cycle.public_id])
+
+    by_campus = auth_client.get(url, {"campus": str(central.public_id)})
+    by_level = auth_client.get(url, {"level": str(basico.public_id)})
+
+    assert len(_items(by_campus)) == 1
+    assert _items(by_campus)[0]["campus"]["code"] == "CENTRAL"
+    assert len(_items(by_level)) == 1
+    assert _items(by_level)[0]["level"]["code"] == "BAS"
+
+
+def test_list_offerings_with_unknown_filter_returns_empty_list(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    GradeOfferingFactory(academic_cycle=cycle)
+
+    response = auth_client.get(
+        reverse("cycle-offering-list-create", args=[cycle.public_id]),
+        {"campus": MISSING_UUID},
+    )
+
+    assert response.status_code == 200
+    assert _items(response) == []
+
+
+def test_delete_offering_returns_204(auth_client, institution):
+    offering = GradeOfferingFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    response = auth_client.delete(reverse("offering-detail", args=[offering.public_id]))
+
+    assert response.status_code == 204
+
+
+def test_delete_offering_with_sections_returns_400(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    response = auth_client.delete(reverse("offering-detail", args=[section.offering.public_id]))
+
+    assert response.status_code == 400
+    assert "section" in str(_detail(response))
+
+
+def test_offering_detail_exposes_its_section_count(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    response = auth_client.get(reverse("offering-detail", args=[section.offering.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["section_count"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# sections under an offering
+# --------------------------------------------------------------------------- #
+
+
+def test_create_section_under_offering(auth_client, institution):
+    offering = GradeOfferingFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    response = auth_client.post(
+        reverse("offering-section-list-create", args=[offering.public_id]),
+        {"name": "a", "capacity": 30},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "A"
+    assert body["capacity"] == 30
+    assert body["active_enrolment_count"] == 0
+    assert Section.objects.filter(offering=offering, name="A").exists()
+
+
+def test_create_section_rejects_negative_capacity_at_serializer(auth_client, institution):
+    offering = GradeOfferingFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    response = auth_client.post(
+        reverse("offering-section-list-create", args=[offering.public_id]),
+        {"name": "A", "capacity": -5},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "capacity" in _detail(response)
+
+
+def test_section_list_reports_occupancy(auth_client, institution):
+    from apps.enrolments.services import create_enrolment
+    from tests.factories.students import StudentFactory
+
+    section = SectionFactory(
+        academic_cycle=AcademicCycleFactory(institution=institution), capacity=10
+    )
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    response = auth_client.get(
+        reverse("offering-section-list-create", args=[section.offering.public_id])
+    )
+
+    assert response.status_code == 200
+    assert _items(response)[0]["active_enrolment_count"] == 1
+    assert _items(response)[0]["available_seats"] == 9
+
+
+def test_patch_section_capacity(auth_client, institution):
+    section = SectionFactory(
+        academic_cycle=AcademicCycleFactory(institution=institution), capacity=30
+    )
+
+    response = auth_client.patch(
+        reverse("section-detail", args=[section.public_id]),
+        {"capacity": 40},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["capacity"] == 40
+
+
+def test_section_detail_get_and_deactivate(auth_client, institution):
+    section = SectionFactory(
+        academic_cycle=AcademicCycleFactory(institution=institution), capacity=0
+    )
+
+    read = auth_client.get(reverse("section-detail", args=[section.public_id]))
+    removed = auth_client.delete(reverse("section-detail", args=[section.public_id]))
+
+    assert read.json()["available_seats"] is None
+    assert removed.status_code == 204
+    section.refresh_from_db()
+    assert section.is_active is False
+
+
+def test_section_detail_of_another_institution_returns_404(auth_client, institution):
+    foreign = SectionFactory()
+
+    response = auth_client.get(reverse("section-detail", args=[foreign.public_id]))
+
+    assert response.status_code == 404
+
+
+def test_patch_section_below_occupancy_returns_400(auth_client, institution):
+    from apps.enrolments.services import create_enrolment
+    from tests.factories.students import StudentFactory
+
+    section = SectionFactory(
+        academic_cycle=AcademicCycleFactory(institution=institution), capacity=5
+    )
+    for _ in range(2):
+        create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    response = auth_client.patch(
+        reverse("section-detail", args=[section.public_id]),
+        {"capacity": 1},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "occupancy" in str(_detail(response))
+
+
+# --------------------------------------------------------------------------- #
+# cycles
+# --------------------------------------------------------------------------- #
+
+
+def test_cycle_create_open_and_close_roundtrip(auth_client, institution):
+    created = auth_client.post(
+        reverse("cycle-list-create"),
+        {"name": "2027", "starts_on": "2027-01-15", "ends_on": "2027-10-30"},
+        content_type="application/json",
+    )
+    assert created.status_code == 201
+    assert created.json()["status"] == "draft"
+    public_id = created.json()["public_id"]
+
+    opened = auth_client.post(reverse("cycle-open", args=[public_id]))
+    assert opened.json()["status"] == "active"
+
+    closed = auth_client.post(reverse("cycle-close", args=[public_id]))
+    assert closed.json()["status"] == "closed"
+
+    reopened = auth_client.post(reverse("cycle-open", args=[public_id]))
+    assert reopened.status_code == 400
+    assert "closed" in str(_detail(reopened))
+
+
+def test_cycle_create_rejects_end_before_start(auth_client, institution):
+    response = auth_client.post(
+        reverse("cycle-list-create"),
+        {"name": "2027", "starts_on": "2027-10-30", "ends_on": "2027-01-15"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "ends_on" in _detail(response)
+
+
+def test_cycle_list_only_returns_current_institution(auth_client, institution):
+    AcademicCycleFactory(institution=institution, name="2026")
+    AcademicCycleFactory(name="2026-other")
+
+    response = auth_client.get(reverse("cycle-list-create"))
+
+    assert [item["name"] for item in _items(response)] == ["2026"]
+
+
+def test_cycle_detail_summarises_instead_of_embedding_every_section(auth_client, institution):
+    """
+    A cycle can hold hundreds of sections, so the detail payload counts them
+    and leaves the rows to the paginated sections endpoint.
+    """
+    cycle = AcademicCycleFactory(institution=institution)
+    section = SectionFactory(academic_cycle=cycle, name="A")
+    SectionFactory(offering=section.offering, name="B")
+
+    response = auth_client.get(reverse("cycle-detail", args=[cycle.public_id]))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["offering_count"] == 1
+    assert body["section_count"] == 2
+    assert "sections" not in body
+
+
+def test_cycle_detail_counts_are_zero_for_an_empty_cycle(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+
+    body = auth_client.get(reverse("cycle-detail", args=[cycle.public_id])).json()
+
+    assert body["offering_count"] == 0
+    assert body["section_count"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# schema
+# --------------------------------------------------------------------------- #
+
+
+def test_openapi_schema_documents_the_catalogue_endpoints(auth_client):
+    response = auth_client.get(reverse("schema"), {"format": "json"})
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    for path in [
+        "/api/v1/academics/campuses/",
+        "/api/v1/academics/campuses/{public_id}/shifts/",
+        "/api/v1/academics/levels/",
+        "/api/v1/academics/levels/{public_id}/grades/",
+        "/api/v1/academics/levels/{public_id}/subjects/",
+        "/api/v1/academics/subjects/",
+        "/api/v1/academics/cycles/{cycle_public_id}/offerings/",
+        "/api/v1/academics/offerings/{public_id}/sections/",
+    ]:
+        assert path in paths, f"missing documented path: {path}"
+
+
+def test_openapi_operations_carry_summaries_and_tags(auth_client):
+    response = auth_client.get(reverse("schema"), {"format": "json"})
+
+    operations = response.json()["paths"]["/api/v1/academics/campuses/"]
+    for method in ("get", "post"):
+        assert operations[method]["summary"]
+        assert operations[method]["tags"]
+
+
+# --------------------------------------------------------------------------- #
+# pagination and malformed input
+# --------------------------------------------------------------------------- #
+
+
+def test_list_responses_use_the_pagination_envelope(auth_client, institution):
+    CampusFactory(institution=institution, code="CENTRAL")
+
+    body = auth_client.get(reverse("campus-list-create")).json()
+
+    assert set(body) == {"count", "next", "previous", "results"}
+    assert body["count"] == 1
+    assert body["next"] is None
+
+
+def test_a_long_list_is_split_into_pages(auth_client, institution):
+    """PAGE_SIZE is 25, so a cycle with more sections than that must not dump them all."""
+    offering = GradeOfferingFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    for index in range(30):
+        SectionFactory(offering=offering, name=f"S{index:02d}")
+
+    url = reverse("offering-section-list-create", args=[offering.public_id])
+    first = auth_client.get(url).json()
+    second = auth_client.get(url, {"page": 2}).json()
+
+    assert first["count"] == 30
+    assert len(first["results"]) == 25
+    assert first["next"] is not None
+    assert len(second["results"]) == 5
+    assert second["next"] is None
+
+
+def test_requesting_a_page_beyond_the_end_returns_404(auth_client, institution):
+    CampusFactory(institution=institution)
+
+    response = auth_client.get(reverse("campus-list-create"), {"page": 99})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("bad", ["not-a-uuid", "1", "'; drop table--"])
+def test_malformed_uuid_filter_returns_400_not_500(auth_client, institution, bad):
+    cycle = AcademicCycleFactory(institution=institution)
+    GradeOfferingFactory(academic_cycle=cycle)
+
+    response = auth_client.get(
+        reverse("cycle-offering-list-create", args=[cycle.public_id]), {"campus": bad}
+    )
+
+    assert response.status_code == 400
+    assert "not a valid campus identifier" in str(_detail(response))
+
+
+def test_malformed_uuid_names_the_offending_filter(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+
+    response = auth_client.get(
+        reverse("cycle-offering-list-create", args=[cycle.public_id]), {"level": "nope"}
+    )
+
+    assert response.status_code == 400
+    assert "level" in str(_detail(response))
+
+
+def test_an_empty_filter_value_is_ignored_rather_than_rejected(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    GradeOfferingFactory(academic_cycle=cycle)
+
+    response = auth_client.get(
+        reverse("cycle-offering-list-create", args=[cycle.public_id]), {"campus": ""}
+    )
+
+    assert response.status_code == 200
+    assert len(_items(response)) == 1
