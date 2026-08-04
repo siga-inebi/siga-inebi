@@ -20,20 +20,12 @@ Definir entidades y relaciones base para fundacion.
 
 - `SchoolCycle`
 - `CycleState`
-- `Campus` (sede)
-- `Shift` (jornada de la sede)
-- `Level` (nivel)
 - `Grade`
-- `GradeOffering` (grado ofertado en una jornada, por ciclo)
 - `Section`
 - `AcademicSubarea`
-- `LevelSubject` (curso impartido en un nivel)
 - `StudyPlan`
 - `TeachingAssignment`
 - `ClassScheduleBlock`
-
-Detalle de esta rama del modelo, con sus invariantes y contrato HTTP, en
-`docs/architecture/academic-catalogue.md`.
 
 ### Estudiantes y matricula
 
@@ -76,12 +68,7 @@ Detalle de esta rama del modelo, con sus invariantes y contrato HTTP, en
 - `UserAccount` referencia `Person`.
 - `Student` referencia `Person` o extiende identidad institucional segun implementacion futura.
 - `GuardianLink` une estudiante con persona encargada y vigencia.
-- `Shift` depende de `Campus`; `Grade` depende de `Level`.
-- `GradeOffering` une ciclo, jornada y grado; la sede se deriva de la jornada.
-- `Section` depende de `GradeOffering` y expone ciclo, grado, jornada y sede como
-  atributos derivados.
-- `Enrollment` une estudiante, ciclo, grado y seccion; los tres deben concordar
-  con la oferta de la seccion.
+- `Enrollment` une estudiante, ciclo, grado y seccion.
 - `TeachingAssignment` une docente, subarea, seccion y ciclo.
 - `AttendanceEvent` referencia estudiante activo, credencial y lote.
 - `AttendanceDayStatus` deriva de eventos, reglas y justificaciones.
