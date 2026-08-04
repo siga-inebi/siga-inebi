@@ -8,6 +8,7 @@ from apps.common.models import TimeStampedModel
 
 class UserAccount(AbstractUser):
     class AccountStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
         ACTIVE = "active", "Active"
         BLOCKED = "blocked", "Blocked"
         DISABLED = "disabled", "Disabled"
