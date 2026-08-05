@@ -11,6 +11,7 @@ from apps.common.models import DomainError
 from apps.identity.models import RoleAssignment, ScopeGrant
 
 ACCOUNT_DISABLE_PERMISSION = "account_disable"
+ACCOUNT_CREATE_PERMISSION = "account_create"
 
 
 class InvalidCredentialsError(Exception):
@@ -19,6 +20,53 @@ class InvalidCredentialsError(Exception):
 
 class AccountTemporarilyLockedError(Exception):
     pass
+
+
+def create_account(*, actor, person, username, email=""):
+    is_authorized = bool(
+        actor and (actor.is_superuser or actor.has_atomic_permission(ACCOUNT_CREATE_PERMISSION))
+    )
+    if not is_authorized:
+        record_event(
+            actor=actor,
+            action="identity.account.create_denied",
+            resource="UserAccount",
+            context={
+                "person_id": getattr(person, "pk", None),
+                "result": "denied",
+                "reason": "missing_permission",
+            },
+        )
+        raise PermissionDenied("Actor lacks permission to create accounts.")
+
+    if person is None:
+        raise DomainError("An institutional person is required.")
+    if hasattr(person, "user_account"):
+        raise DomainError("The institutional person already has an account.")
+
+    user_model = get_user_model()
+    with transaction.atomic():
+        account = user_model.objects.create_user(
+            username=username,
+            email=email or person.email,
+            person=person,
+            status=user_model.AccountStatus.PENDING,
+            is_active=False,
+            password=None,
+        )
+        record_event(
+            actor=actor,
+            action="identity.account.created",
+            resource="UserAccount",
+            resource_identifier=str(account.pk),
+            context={
+                "target_user_id": account.pk,
+                "person_id": person.pk,
+                "status": account.status,
+                "result": "success",
+            },
+        )
+    return account
 
 
 def _audit_login_denied(*, account, reason, failed_attempts=None, locked_until=None):

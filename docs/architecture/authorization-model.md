@@ -93,6 +93,15 @@ RoleAssignment -> ScopeGrant
 
 ## Contratos internos de cuentas
 
+- `create_account(actor, person, username, email="")` provisiona una cuenta exclusivamente por
+  accion administrativa.
+- La operacion requiere un superusuario o el permiso atomico logico `account.create`, representado
+  por el codename Django `account_create`.
+- La persona institucional es obligatoria y solo puede estar vinculada a una cuenta.
+- La cuenta se crea con `status=pending`, `is_active=False` y sin contrasena utilizable.
+- La activacion mediante codigo de un solo uso pertenece a un corte posterior de `RF-CTA-003`.
+- Tanto la creacion exitosa como el intento sin autorizacion generan un evento de auditoria.
+- Este contrato es interno del dominio; no agrega ni modifica endpoints de la API publica.
 - `disable_account(actor, user)` desactiva una cuenta institucional sin eliminarla.
 - La operacion requiere un superusuario o el permiso atomico logico `account.disable`,
   representado por el codename Django existente `account_disable`.
