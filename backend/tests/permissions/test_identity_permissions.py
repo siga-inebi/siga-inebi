@@ -5,7 +5,7 @@ from django.core.exceptions import PermissionDenied
 
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
-from apps.identity.services import assign_role, disable_account, protect_system_role
+from apps.identity.services import assign_role, create_account, disable_account, protect_system_role
 from apps.students.services import guardian_can_access_student
 from tests.factories.academic import AcademicCycleFactory, InstitutionFactory, SectionFactory
 from tests.factories.identity import (
@@ -15,6 +15,7 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
+from tests.factories.people import PersonFactory
 from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
 
 
@@ -218,3 +219,56 @@ def test_unauthorized_account_disable_is_denied_and_audited():
     assert event.resource_identifier == str(target.pk)
     assert event.context["target_user_id"] == target.pk
     assert event.context["result"] == "denied"
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_authorized_actor_creates_pending_account_linked_to_person():
+    permission = PermissionFactory(codename="account_create")
+    actor = UserFactory()
+    RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
+    person = PersonFactory(email="new-account@example.test")
+
+    account = create_account(actor=actor, person=person, username="new-account")
+
+    assert account.person == person
+    assert account.email == person.email
+    assert account.status == account.AccountStatus.PENDING
+    assert account.is_active is False
+    assert account.has_usable_password() is False
+
+    event = AuditEvent.objects.get(action="identity.account.created")
+    assert event.actor == actor
+    assert event.resource_identifier == str(account.pk)
+    assert event.context["person_id"] == person.pk
+    assert event.context["result"] == "success"
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_unauthorized_account_creation_is_denied_and_audited():
+    actor = UserFactory()
+    person = PersonFactory()
+
+    with pytest.raises(PermissionDenied):
+        create_account(actor=actor, person=person, username="denied-account")
+
+    assert not person.__class__.objects.filter(pk=person.pk, user_account__isnull=False).exists()
+    event = AuditEvent.objects.get(action="identity.account.create_denied")
+    assert event.actor == actor
+    assert event.context["person_id"] == person.pk
+    assert event.context["reason"] == "missing_permission"
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_person_cannot_be_linked_to_multiple_accounts():
+    actor = UserFactory(is_superuser=True)
+    person = PersonFactory()
+    create_account(actor=actor, person=person, username="first-account")
+
+    with pytest.raises(DomainError, match="already has an account"):
+        create_account(actor=actor, person=person, username="second-account")
