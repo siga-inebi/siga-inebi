@@ -1,6 +1,7 @@
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth.js";
+import { MODULE_NAV } from "../routes/moduleNav.js";
 import logo from "../utils/logo.jpg";
 
 export function AppLayout({ children }) {
@@ -36,6 +37,22 @@ export function AppLayout({ children }) {
           )}
         </nav>
       </header>
+      {isAuthenticated ? (
+        <nav aria-label="Modulos" className="module-nav">
+          {MODULE_NAV.map((item) => (
+            <NavLink
+              className={({ isActive }) =>
+                isActive ? "module-link is-active" : "module-link"
+              }
+              end={item.end}
+              key={item.to}
+              to={item.to}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      ) : null}
       <main className="content">{children}</main>
     </div>
   );

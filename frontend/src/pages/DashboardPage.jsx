@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
+import { MODULE_NAV } from "../routes/moduleNav.js";
 import { apiClient } from "../services/apiClient.js";
 import { useAuth } from "../hooks/useAuth.js";
 
@@ -51,6 +53,17 @@ export function DashboardPage() {
           </p>
         ) : null}
         {error ? <p className="status-error">{error}</p> : null}
+      </div>
+      <div className="panel">
+        <h2>Estructura del establecimiento</h2>
+        <ul className="module-shortcuts">
+          {MODULE_NAV.filter((item) => !item.end).map((item) => (
+            <li key={item.to}>
+              <Link to={item.to}>{item.label}</Link>
+              <span className="muted">{item.description}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
