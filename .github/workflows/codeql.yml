@@ -36,7 +36,7 @@ jobs:
         if: ${{ github.event.repository.private }}
         run: echo "CodeQL left as informational on private repositories unless GitHub Advanced Security is enabled."
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: ${{ !github.event.repository.private }}
 
       - uses: github/codeql-action/init@v3
