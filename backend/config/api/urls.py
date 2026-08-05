@@ -13,5 +13,6 @@ urlpatterns = [
     path("auth/me/", MeView.as_view(), name="auth-me"),
     path("people/", include("apps.people.api.urls")),
     path("students/", include("apps.students.api.urls")),
+    path("teachers/", include("apps.teachers.api.urls")),
     path("academics/", include("apps.academics.api.urls")),
 ]
