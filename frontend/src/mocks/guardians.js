@@ -10,13 +10,25 @@
 //
 // `assigned_students` SI esta respaldado por un modelo real
 // (`students.StudentGuardianRelation`: student, relationship_label,
-// is_primary) — referencia los mismos alumnos de `./students.js` para que
-// ambas pantallas cuenten una historia consistente.
+// is_primary). Alumnos ahora usa datos reales via `studentsService`
+// (ver plan de integracion), asi que este mock ya no importa
+// `./students.js` — mantiene su propia referencia minima de alumnos
+// para no acoplar la pantalla de Padres (aun mockeada) a la forma real
+// de la API de Alumnos.
 
-import { students } from "./students.js";
+const STUDENT_REFS = [
+  { id: 1, first_name: "Maria Jose", last_name: "Lopez Garcia", section: { grade: "3ro", name: "A" } },
+  { id: 2, first_name: "Carlos Enrique", last_name: "Ramirez Perez", section: { grade: "2do", name: "B" } },
+  { id: 3, first_name: "Ana Lucia", last_name: "Morales Tzul", section: { grade: "3ro", name: "B" } },
+  { id: 4, first_name: "Jose Manuel", last_name: "Vasquez Coyoy", section: { grade: "3ro", name: "A" } },
+  { id: 5, first_name: "Gabriela Alejandra", last_name: "Xitumul Sac", section: { grade: "1ro", name: "C" } },
+  { id: 6, first_name: "Diego Alejandro", last_name: "Us Batz", section: { grade: "2do", name: "A" } },
+  { id: 7, first_name: "Yesenia Del Carmen", last_name: "Tzoc Ramirez", section: { grade: "1ro", name: "A" } },
+  { id: 8, first_name: "Luis Fernando", last_name: "Coy Xitumul", section: { grade: "2do", name: "C" } },
+];
 
 function studentRef(id, relationship_label, is_primary = true) {
-  const student = students.find((item) => item.id === id);
+  const student = STUDENT_REFS.find((item) => item.id === id);
   return {
     student_id: student.id,
     full_name: `${student.first_name} ${student.last_name}`,

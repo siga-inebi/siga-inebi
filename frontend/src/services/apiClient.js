@@ -51,7 +51,8 @@ async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("Accept", "application/json");
 
-  if (options.body && !headers.has("Content-Type")) {
+  const isFormData = options.body instanceof FormData;
+  if (options.body && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -68,7 +69,11 @@ async function request(path, options = {}) {
     method,
     credentials: "include",
     headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: options.body
+      ? isFormData
+        ? options.body
+        : JSON.stringify(options.body)
+      : undefined,
   });
 
   return parseResponse(response);

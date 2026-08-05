@@ -1,6 +1,27 @@
+from django.db import transaction
 from django.utils import timezone
 
 from apps.audit.services import record_event
+from apps.people.models import Person
+from apps.students.models import Student
+
+
+def create_student(*, person_data, student_code, status=None, actor=None):
+    with transaction.atomic():
+        person = Person.objects.create(**person_data)
+        student = Student.objects.create(
+            person=person,
+            student_code=student_code,
+            status=status or Student.StudentStatus.PRE_ENROLLED,
+        )
+        record_event(
+            actor=actor,
+            action="students.student.created",
+            resource="Student",
+            resource_identifier=str(student.pk),
+            context={"student_code": student.student_code},
+        )
+    return student
 
 
 def guardian_can_access_student(*, user, student, when=None):

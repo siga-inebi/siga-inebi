@@ -3,9 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { DataTable } from "../components/DataTable.jsx";
 import { DetailPanel } from "../components/DetailPanel.jsx";
 import { FormModal } from "../components/FormModal.jsx";
+import { ImageLightbox } from "../components/ImageLightbox.jsx";
 import { ListToolbar } from "../components/ListToolbar.jsx";
 import { Pagination } from "../components/Pagination.jsx";
-import { SECTION_OPTIONS } from "../mocks/students.js";
 import { studentsService } from "../services/studentsService.js";
 import { downloadCsv } from "../utils/csv.js";
 
@@ -14,36 +14,30 @@ const PAGE_SIZE = 5;
 const CREATE_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
   { name: "last_name", label: "Apellidos", required: true },
-  {
-    name: "gender",
-    label: "Genero",
-    type: "select",
-    options: ["Femenino", "Masculino"],
-    required: true,
-  },
+  { name: "email", label: "Correo", type: "email" },
+  { name: "phone_number", label: "Telefono" },
   { name: "student_code", label: "Codigo de estudiante", required: true },
-  { name: "birth_date", label: "Fecha de nacimiento", type: "date" },
-  { name: "cui", label: "CUI" },
-  { name: "age", label: "Edad", type: "number" },
-  { name: "clave", label: "Clave" },
+  { name: "photo", label: "Foto", type: "file", accept: "image/*" },
 ];
 
 function fullName(student) {
-  return `${student.first_name} ${student.last_name}`;
-}
-
-function sectionLabel(student) {
-  return student.section
-    ? `${student.section.grade} "${student.section.name}"`
-    : "Sin matricular";
+  return `${student.person.first_name} ${student.person.last_name}`;
 }
 
 const COLUMNS = [
+  {
+    key: "foto",
+    label: "Foto",
+    render: (item) =>
+      item.photo ? (
+        <img alt="" className="avatar-thumb" src={item.photo} />
+      ) : (
+        "Sin foto"
+      ),
+  },
   { key: "nombre", label: "Nombre", render: fullName },
-  { key: "genero", label: "Genero", render: (item) => item.gender },
   { key: "codigo", label: "Codigo", render: (item) => item.student_code },
-  { key: "seccion", label: "Seccion", render: sectionLabel },
-  { key: "edad", label: "Edad", render: (item) => item.age },
+  { key: "estado", label: "Estado", render: (item) => item.status },
 ];
 
 export function AlumnosPage() {
@@ -51,10 +45,11 @@ export function AlumnosPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [sectionFilter, setSectionFilter] = useState("");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [viewingPhoto, setViewingPhoto] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -82,19 +77,14 @@ export function AlumnosPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, sectionFilter]);
+  }, [search]);
 
   const filtered = useMemo(
     () =>
-      items.filter((student) => {
-        const matchesSearch = fullName(student)
-          .toLowerCase()
-          .includes(search.trim().toLowerCase());
-        const matchesSection =
-          !sectionFilter || sectionLabel(student) === sectionFilter;
-        return matchesSearch && matchesSection;
-      }),
-    [items, search, sectionFilter]
+      items.filter((student) =>
+        fullName(student).toLowerCase().includes(search.trim().toLowerCase())
+      ),
+    [items, search]
   );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -109,10 +99,8 @@ export function AlumnosPage() {
       "alumnos.csv",
       [
         { label: "Nombre", value: fullName },
-        { label: "Genero", value: (item) => item.gender },
         { label: "Codigo", value: (item) => item.student_code },
-        { label: "Seccion", value: sectionLabel },
-        { label: "Edad", value: (item) => item.age },
+        { label: "Estado", value: (item) => item.status },
       ],
       filtered
     );
@@ -120,13 +108,37 @@ export function AlumnosPage() {
 
   const handleCreate = async (values) => {
     const created = await studentsService.create({
-      ...values,
-      age: values.age ? Number(values.age) : null,
+      person: {
+        first_name: values.first_name,
+        last_name: values.last_name,
+        email: values.email,
+        phone_number: values.phone_number,
+      },
+      student_code: values.student_code,
       status: "pre_enrolled",
-      section: null,
+      photo: values.photo,
     });
     setItems((current) => [...current, created]);
     setCreating(false);
+  };
+
+  const handleUpdate = async (values) => {
+    const updated = await studentsService.update(editing.id, {
+      person: {
+        id: editing.person.id,
+        first_name: values.first_name,
+        last_name: values.last_name,
+        email: values.email,
+        phone_number: values.phone_number,
+      },
+      student_code: values.student_code,
+      photo: values.photo,
+    });
+    setItems((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item))
+    );
+    setSelected(updated);
+    setEditing(null);
   };
 
   return (
@@ -139,11 +151,8 @@ export function AlumnosPage() {
 
       <ListToolbar
         createLabel="+ Agregar nuevo"
-        filterOptions={SECTION_OPTIONS}
-        filterValue={sectionFilter}
         onCreate={() => setCreating(true)}
         onExportCsv={handleExport}
-        onFilterChange={setSectionFilter}
         onSearchChange={setSearch}
         searchValue={search}
       />
@@ -184,18 +193,50 @@ export function AlumnosPage() {
 
       {selected ? (
         <DetailPanel
+          actions={
+            <button
+              className="button secondary"
+              onClick={() => setEditing(selected)}
+              type="button"
+            >
+              Editar
+            </button>
+          }
           fields={[
-            { label: "Genero", value: selected.gender },
             { label: "Nombre completo", value: fullName(selected) },
-            { label: "Fecha de nacimiento", value: selected.birth_date },
-            { label: "CUI", value: selected.cui },
-            { label: "Edad", value: selected.age },
             { label: "Codigo de estudiante", value: selected.student_code },
-            { label: "Seccion", value: sectionLabel(selected) },
-            { label: "Clave", value: selected.clave },
+            { label: "Estado", value: selected.status },
+            { label: "Correo", value: selected.person.email },
+            { label: "Telefono", value: selected.person.phone_number },
+            {
+              label: "Foto",
+              value: selected.photo ? (
+                <button
+                  className="photo-preview-trigger"
+                  onClick={() => setViewingPhoto(selected.photo)}
+                  type="button"
+                >
+                  <img alt="" className="avatar-preview" src={selected.photo} />
+                </button>
+              ) : (
+                "Sin foto"
+              ),
+            },
           ]}
-          onClose={() => setSelected(null)}
+          onClose={() => {
+            setSelected(null);
+            setViewingPhoto(null);
+          }}
           title={fullName(selected)}
+        />
+      ) : null}
+
+      {viewingPhoto ? (
+        <ImageLightbox
+          alt={fullName(selected)}
+          downloadName={viewingPhoto.split("/").pop()}
+          onClose={() => setViewingPhoto(null)}
+          src={viewingPhoto}
         />
       ) : null}
 
@@ -205,6 +246,23 @@ export function AlumnosPage() {
           onCancel={() => setCreating(false)}
           onSubmit={handleCreate}
           title="Agregar alumno"
+        />
+      ) : null}
+
+      {editing ? (
+        <FormModal
+          fields={CREATE_FIELDS}
+          initialValues={{
+            first_name: editing.person.first_name,
+            last_name: editing.person.last_name,
+            email: editing.person.email,
+            phone_number: editing.person.phone_number,
+            student_code: editing.student_code,
+          }}
+          onCancel={() => setEditing(null)}
+          onSubmit={handleUpdate}
+          submitLabel="Guardar cambios"
+          title="Editar alumno"
         />
       ) : null}
     </section>

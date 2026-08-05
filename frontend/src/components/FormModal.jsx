@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useBodyScrollLock } from "../hooks/useBodyScrollLock.js";
 
@@ -6,9 +6,37 @@ function isEmpty(value) {
   return value == null || String(value).trim() === "";
 }
 
-export function FormModal({ fields, onCancel, onSubmit, submitLabel = "Guardar", title }) {
+function FilePreview({ file }) {
+  const [url, setUrl] = useState(null);
+
+  useEffect(() => {
+    if (!file) {
+      setUrl(null);
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  if (!url) {
+    return null;
+  }
+  return <img alt="Vista previa" className="file-preview" src={url} />;
+}
+
+export function FormModal({
+  fields,
+  initialValues = {},
+  onCancel,
+  onSubmit,
+  submitLabel = "Guardar",
+  title,
+}) {
   const [values, setValues] = useState(() =>
-    Object.fromEntries(fields.map((field) => [field.name, ""]))
+    Object.fromEntries(
+      fields.map((field) => [field.name, initialValues[field.name] ?? ""])
+    )
   );
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -71,6 +99,17 @@ export function FormModal({ fields, onCancel, onSubmit, submitLabel = "Guardar",
                       </option>
                     ))}
                   </select>
+                ) : field.type === "file" ? (
+                  <>
+                    <input
+                      accept={field.accept}
+                      onChange={(event) =>
+                        handleChange(field.name, event.target.files[0] || null)
+                      }
+                      type="file"
+                    />
+                    <FilePreview file={values[field.name]} />
+                  </>
                 ) : (
                   <input
                     onChange={(event) =>

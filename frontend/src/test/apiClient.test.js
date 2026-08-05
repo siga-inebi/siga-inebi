@@ -140,4 +140,36 @@ describe("apiClient", () => {
       message: "Error interno.",
     });
   });
+
+  test("sends FormData bodies as-is without a Content-Type header", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ ok: true }),
+    });
+
+    const formData = new FormData();
+    formData.append("photo", new File(["data"], "photo.jpg"));
+
+    await apiClient.patch("/students/1/", formData);
+
+    const [, options] = globalThis.fetch.mock.calls[0];
+    expect(options.body).toBe(formData);
+    expect(options.headers.has("Content-Type")).toBe(false);
+  });
+
+  test("patch sends the PATCH method and csrf header", async () => {
+    document.cookie = "csrftoken=test-token";
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ ok: true }),
+    });
+
+    await apiClient.patch("/students/1/", new FormData());
+
+    const [, options] = globalThis.fetch.mock.calls[0];
+    expect(options.method).toBe("PATCH");
+    expect(options.headers.get("X-CSRFToken")).toBe("test-token");
+  });
 });
