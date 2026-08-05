@@ -6,6 +6,11 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Caches de herramientas locales
+.atl/
+.codegraph/
+.playwright-mcp/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -35,6 +40,12 @@ frontend/.env
 # Build and runtime artifacts
 tmp/
 logs/
+scripts/requirements/out/
+
+# Documento fuente de requerimientos: 21 MB de binario que git no puede
+# diferenciar. Los datos que el pipeline necesita viven versionados en
+# docs/requirements/requirements.json y docs/requirements/openspec/.
+INEBI Fase 2.pdf
 media/
 staticfiles/
 *.sqlite3
