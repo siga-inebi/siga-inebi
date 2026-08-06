@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.people",
     "apps.identity",
     "apps.students",
+    "apps.teachers",
     "apps.academics",
     "apps.enrolments",
     "apps.audit",

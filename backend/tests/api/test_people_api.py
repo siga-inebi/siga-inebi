@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from django.urls import reverse
 
@@ -30,7 +32,8 @@ def test_create_person(logged_in_client):
     data = response.json()
     assert data["first_name"] == "Ana"
     assert data["is_active"] is True
-    assert Person.objects.filter(pk=data["id"]).exists()
+    assert "id" not in data
+    assert Person.objects.filter(public_id=data["public_id"]).exists()
 
 
 @pytest.mark.api
@@ -63,16 +66,16 @@ def test_list_people_is_paginated(logged_in_client):
 def test_retrieve_person(logged_in_client):
     person = PersonFactory()
 
-    response = logged_in_client.get(reverse("person-detail", args=[person.pk]))
+    response = logged_in_client.get(reverse("person-detail", args=[person.public_id]))
 
     assert response.status_code == 200
-    assert response.json()["id"] == person.pk
+    assert response.json()["public_id"] == str(person.public_id)
 
 
 @pytest.mark.api
 @pytest.mark.django_db
 def test_retrieve_missing_person_returns_404(logged_in_client):
-    response = logged_in_client.get(reverse("person-detail", args=[999999]))
+    response = logged_in_client.get(reverse("person-detail", args=[uuid.uuid4()]))
 
     assert response.status_code == 404
 
@@ -83,7 +86,7 @@ def test_update_person(logged_in_client):
     person = PersonFactory(first_name="Old")
 
     response = logged_in_client.patch(
-        reverse("person-detail", args=[person.pk]),
+        reverse("person-detail", args=[person.public_id]),
         {"first_name": "New"},
         content_type="application/json",
     )
@@ -98,7 +101,7 @@ def test_update_person(logged_in_client):
 def test_deactivate_person_via_delete_is_soft(logged_in_client):
     person = PersonFactory()
 
-    response = logged_in_client.delete(reverse("person-detail", args=[person.pk]))
+    response = logged_in_client.delete(reverse("person-detail", args=[person.public_id]))
 
     assert response.status_code == 204
     person.refresh_from_db()
