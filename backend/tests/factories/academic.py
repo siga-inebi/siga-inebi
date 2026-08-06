@@ -4,6 +4,7 @@ from django.utils import timezone
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    CurriculumPlan,
     Grade,
     GradeOffering,
     Institution,
@@ -12,7 +13,9 @@ from apps.academics.models import (
     Section,
     Shift,
     Subject,
+    TeachingAssignment,
 )
+from tests.factories.people import PersonFactory
 
 
 class InstitutionFactory(factory.django.DjangoModelFactory):
@@ -137,6 +140,40 @@ class SectionFactory(factory.django.DjangoModelFactory):
     )
     name = factory.Sequence(lambda n: chr(65 + (n % 26)))
     capacity = 35
+
+
+class CurriculumPlanFactory(factory.django.DjangoModelFactory):
+    """A subject in the plan of a grade, for one cycle (RF-EST-005)."""
+
+    class Meta:
+        model = CurriculumPlan
+
+    academic_cycle = factory.SubFactory(AcademicCycleFactory)
+    grade = factory.LazyAttribute(
+        lambda obj: GradeFactory(institution=obj.academic_cycle.institution)
+    )
+    subject = factory.LazyAttribute(
+        lambda obj: SubjectFactory(institution=obj.academic_cycle.institution)
+    )
+    is_required = True
+
+
+class TeachingAssignmentFactory(factory.django.DjangoModelFactory):
+    """
+    Teacher in front of a subject of a section. The cycle is taken from the
+    section so the row can never point at two different cycles.
+    """
+
+    class Meta:
+        model = TeachingAssignment
+
+    section = factory.SubFactory(SectionFactory)
+    academic_cycle = factory.LazyAttribute(lambda obj: obj.section.academic_cycle)
+    subject = factory.LazyAttribute(
+        lambda obj: SubjectFactory(institution=obj.section.academic_cycle.institution)
+    )
+    teacher = factory.SubFactory(PersonFactory)
+    ends_on = None
 
 
 def _build_offering(cycle, grade, shift):

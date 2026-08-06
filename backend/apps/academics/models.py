@@ -59,7 +59,12 @@ class AcademicCycle(TimeStampedModel):
     status = models.CharField(max_length=20, choices=CycleStatus.choices, default=CycleStatus.DRAFT)
 
     class Meta:
-        unique_together = [("institution", "name")]
+        ordering = ["-starts_on", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "name"], name="unique_cycle_name_per_institution"
+            )
+        ]
 
     def __str__(self):
         return self.name
@@ -67,6 +72,10 @@ class AcademicCycle(TimeStampedModel):
     @property
     def is_closed(self):
         return self.status == self.CycleStatus.CLOSED
+
+    @property
+    def is_draft(self):
+        return self.status == self.CycleStatus.DRAFT
 
 
 class Shift(TimeStampedModel):
@@ -313,7 +322,20 @@ class CurriculumPlan(TimeStampedModel):
     is_required = models.BooleanField(default=True)
 
     class Meta:
-        unique_together = [("academic_cycle", "grade", "subject")]
+        ordering = ["grade__level__sequence", "grade__sequence", "subject__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["academic_cycle", "grade", "subject"],
+                name="unique_subject_per_grade_and_cycle",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.subject.name} - {self.grade.name} ({self.academic_cycle.name})"
+
+    @property
+    def institution(self):
+        return self.academic_cycle.institution
 
 
 class TeachingAssignment(TimeStampedModel):
@@ -335,4 +357,24 @@ class TeachingAssignment(TimeStampedModel):
     ends_on = models.DateField(null=True, blank=True)
 
     class Meta:
-        unique_together = [("academic_cycle", "section", "subject", "teacher", "starts_on")]
+        ordering = ["section__name", "subject__name", "-starts_on"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["academic_cycle", "section", "subject", "teacher", "starts_on"],
+                name="unique_assignment_per_teacher_and_start",
+            ),
+            # Partial index: history may hold many closed assignments for the
+            # same subject, but only one of them can still be open (RF-EST-009).
+            models.UniqueConstraint(
+                fields=["section", "subject"],
+                condition=Q(ends_on__isnull=True),
+                name="unique_open_assignment_per_section_subject",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.teacher} - {self.subject.name} ({self.section})"
+
+    @property
+    def is_open(self):
+        return self.ends_on is None

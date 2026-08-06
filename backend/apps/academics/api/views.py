@@ -20,14 +20,24 @@ from rest_framework.response import Response
 
 from apps.academics import services
 from apps.academics.api import queries
-from apps.academics.models import Subject
+from apps.academics.models import Grade, Shift, Subject
 from apps.common.models import DomainError
+from apps.people.models import Person
 
 from .serializers import (
+    AcademicCycleCreateSerializer,
+    AcademicCycleSerializer,
+    AcademicCycleStatusSerializer,
+    AcademicCycleUpdateSerializer,
     CampusCreateSerializer,
     CampusSerializer,
     CampusUpdateSerializer,
+    CurriculumPlanCreateSerializer,
+    CurriculumPlanSerializer,
+    CurriculumPlanUpdateSerializer,
     GradeCreateSerializer,
+    GradeOfferingCreateSerializer,
+    GradeOfferingSerializer,
     GradeSerializer,
     GradeUpdateSerializer,
     LevelCreateSerializer,
@@ -36,12 +46,18 @@ from .serializers import (
     LevelSubjectSerializer,
     LevelSubjectUpdateSerializer,
     LevelUpdateSerializer,
+    SectionCreateSerializer,
+    SectionSerializer,
+    SectionUpdateSerializer,
     ShiftCreateSerializer,
     ShiftSerializer,
     ShiftUpdateSerializer,
     SubjectCreateSerializer,
     SubjectSerializer,
     SubjectUpdateSerializer,
+    TeachingAssignmentCreateSerializer,
+    TeachingAssignmentEndSerializer,
+    TeachingAssignmentSerializer,
 )
 
 CATALOGUE = ["academics: catalogue"]
@@ -539,6 +555,397 @@ class LevelSubjectDetailView(UpdateMixin, DeactivateMixin, CatalogueDetailView):
 
 
 # --------------------------------------------------------------------------- #
+# academic cycles ("ciclos escolares")
+# --------------------------------------------------------------------------- #
+
+CYCLE = ["academics: cycle"]
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar ciclos escolares",
+        description="Ciclos de la institucion, del mas reciente al mas antiguo.",
+        tags=CYCLE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: AcademicCycleSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Crear ciclo escolar",
+        description=(
+            "Abre un ciclo en estado `draft`. La estructura se arma primero y el "
+            "ciclo se activa despues, cuando ya tiene al menos una oferta de grado."
+        ),
+        tags=CYCLE,
+        request=AcademicCycleCreateSerializer,
+        responses={201: AcademicCycleSerializer},
+    ),
+)
+class CycleListCreateView(CatalogueListCreateView):
+    list_serializer = AcademicCycleSerializer
+    create_serializer = AcademicCycleCreateSerializer
+
+    def list_queryset(self, request):
+        return queries.cycles(self.institution, request)
+
+    def create(self, request, payload):
+        cycle = services.create_academic_cycle(
+            institution=self.institution, actor=request.user, **payload
+        )
+        return queries.cycle_or_404(self.institution, cycle.public_id)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar ciclo escolar", tags=CYCLE, responses={200: AcademicCycleSerializer}
+    ),
+    patch=extend_schema(
+        summary="Actualizar ciclo escolar",
+        description="Solo mientras el ciclo no este cerrado (RF-EST-011).",
+        tags=CYCLE,
+        request=AcademicCycleUpdateSerializer,
+        responses={200: AcademicCycleSerializer},
+    ),
+)
+class CycleDetailView(RetrieveMixin, UpdateMixin, CatalogueDetailView):
+    """No expone borrado: un ciclo se cierra, no se elimina."""
+
+    detail_serializer = AcademicCycleSerializer
+    update_serializer = AcademicCycleUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.cycle_or_404(self.institution, public_id)
+
+    def update(self, request, cycle, payload):
+        services.update_academic_cycle(cycle=cycle, actor=request.user, **payload)
+
+
+@extend_schema(
+    summary="Cambiar el estado del ciclo",
+    description=(
+        "Avanza el ciclo por `draft` -> `active` -> `closed`. No retrocede: las "
+        "matriculas ya apuntan a la estructura del ciclo. Activar exige al menos "
+        "una oferta de grado."
+    ),
+    tags=CYCLE,
+    request=AcademicCycleStatusSerializer,
+    responses={200: AcademicCycleSerializer},
+)
+class CycleStatusView(CatalogueView):
+    serializer_class = AcademicCycleStatusSerializer
+
+    def post(self, request, public_id):
+        payload = self.validated(AcademicCycleStatusSerializer, request)
+        cycle = queries.cycle_or_404(self.institution, public_id)
+        services.change_cycle_status(cycle=cycle, actor=request.user, **payload)
+        return Response(
+            AcademicCycleSerializer(queries.cycle_or_404(self.institution, public_id)).data
+        )
+
+
+# --------------------------------------------------------------------------- #
+# grade offerings ("oferta de grados") — always under a cycle
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar la oferta de grados de un ciclo",
+        description="Que grado se imparte en que jornada durante este ciclo.",
+        tags=CYCLE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: GradeOfferingSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Ofertar un grado en una jornada",
+        description=(
+            "Grado y jornada deben estar activos y ser de la misma institucion "
+            "que el ciclo. El trio ciclo/jornada/grado es unico."
+        ),
+        tags=CYCLE,
+        request=GradeOfferingCreateSerializer,
+        responses={201: GradeOfferingSerializer},
+    ),
+)
+class CycleOfferingListCreateView(CatalogueListCreateView):
+    list_serializer = GradeOfferingSerializer
+    create_serializer = GradeOfferingCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        return queries.cycle_offerings(queries.cycle_or_404(self.institution, public_id), request)
+
+    def create(self, request, payload, public_id):
+        cycle = queries.cycle_or_404(self.institution, public_id)
+        offering = services.offer_grade(
+            cycle=cycle,
+            grade=_resolve_grade(payload["grade_id"]),
+            shift=_resolve_shift(payload["shift_id"]),
+            actor=request.user,
+        )
+        return queries.offering_or_404(self.institution, offering.public_id)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar oferta de grado", tags=CYCLE, responses={200: GradeOfferingSerializer}
+    ),
+    delete=extend_schema(
+        summary="Retirar la oferta de grado",
+        description=(
+            "Desactiva la oferta y sus secciones. Se rechaza si alguna seccion "
+            "todavia tiene matriculas activas."
+        ),
+        tags=CYCLE,
+        responses={204: None},
+    ),
+)
+class OfferingDetailView(RetrieveMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = GradeOfferingSerializer
+
+    def get_object(self, public_id):
+        return queries.offering_or_404(self.institution, public_id)
+
+    def deactivate(self, request, offering):
+        services.withdraw_grade_offering(offering=offering, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
+# sections ("secciones") — always under an offering
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar secciones de una oferta",
+        description="Incluye ocupacion y cupo disponible (RF-EST-008).",
+        tags=CYCLE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: SectionSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Crear seccion",
+        description="El nombre se normaliza a mayusculas y es unico dentro de la oferta.",
+        tags=CYCLE,
+        request=SectionCreateSerializer,
+        responses={201: SectionSerializer},
+    ),
+)
+class OfferingSectionListCreateView(CatalogueListCreateView):
+    list_serializer = SectionSerializer
+    create_serializer = SectionCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        return queries.offering_sections(
+            queries.offering_or_404(self.institution, public_id), request
+        )
+
+    def create(self, request, payload, public_id):
+        offering = queries.offering_or_404(self.institution, public_id)
+        section = services.create_section(offering=offering, actor=request.user, **payload)
+        return queries.section_or_404(self.institution, section.public_id)
+
+
+@extend_schema_view(
+    get=extend_schema(summary="Consultar seccion", tags=CYCLE, responses={200: SectionSerializer}),
+    patch=extend_schema(
+        summary="Actualizar seccion",
+        description="El cupo no puede bajar por debajo de la ocupacion actual.",
+        tags=CYCLE,
+        request=SectionUpdateSerializer,
+        responses={200: SectionSerializer},
+    ),
+    delete=extend_schema(
+        summary="Desactivar seccion",
+        description="Se rechaza mientras tenga matriculas activas.",
+        tags=CYCLE,
+        responses={204: None},
+    ),
+)
+class SectionDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = SectionSerializer
+    update_serializer = SectionUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.section_or_404(self.institution, public_id)
+
+    def update(self, request, section, payload):
+        services.update_section(section=section, actor=request.user, **payload)
+
+    def deactivate(self, request, section):
+        services.deactivate_section(section=section, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
+# curriculum plan ("plan de estudios del ciclo")
+# --------------------------------------------------------------------------- #
+
+GRADE_FILTER = OpenApiParameter(
+    name="grade",
+    type=str,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Public ID de un grado, para ver solo su plan.",
+)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar el plan de estudios de un ciclo",
+        description=(
+            "Que cursos estudia cada grado en este ciclo (RF-EST-005). Es el plan "
+            "del ciclo, distinto del catalogo permanente del nivel."
+        ),
+        tags=CYCLE,
+        parameters=[GRADE_FILTER],
+        responses={200: CurriculumPlanSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Agregar un curso al plan de un grado",
+        description="Grado y curso deben estar activos y ser de la institucion del ciclo.",
+        tags=CYCLE,
+        request=CurriculumPlanCreateSerializer,
+        responses={201: CurriculumPlanSerializer},
+    ),
+)
+class CycleCurriculumListCreateView(CatalogueListCreateView):
+    list_serializer = CurriculumPlanSerializer
+    create_serializer = CurriculumPlanCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        cycle = queries.cycle_or_404(self.institution, public_id)
+        grade_public_id = request.query_params.get("grade")
+        grade = queries.grade_or_404(self.institution, grade_public_id) if grade_public_id else None
+        return queries.curriculum_entries(cycle, grade)
+
+    def create(self, request, payload, public_id):
+        cycle = queries.cycle_or_404(self.institution, public_id)
+        return services.add_curriculum_entry(
+            cycle=cycle,
+            grade=_resolve_grade(payload["grade_id"]),
+            subject=_resolve_subject(payload["subject_id"]),
+            is_required=payload["is_required"],
+            actor=request.user,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar entrada del plan",
+        tags=CYCLE,
+        responses={200: CurriculumPlanSerializer},
+    ),
+    patch=extend_schema(
+        summary="Cambiar la obligatoriedad de un curso del plan",
+        tags=CYCLE,
+        request=CurriculumPlanUpdateSerializer,
+        responses={200: CurriculumPlanSerializer},
+    ),
+    delete=extend_schema(
+        summary="Quitar un curso del plan",
+        description=("Se rechaza mientras un docente siga asignado a ese curso en el grado."),
+        tags=CYCLE,
+        responses={204: None},
+    ),
+)
+class CurriculumEntryDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = CurriculumPlanSerializer
+    update_serializer = CurriculumPlanUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.curriculum_entry_or_404(self.institution, public_id)
+
+    def update(self, request, entry, payload):
+        services.update_curriculum_entry(entry=entry, actor=request.user, **payload)
+
+    def deactivate(self, request, entry):
+        services.remove_curriculum_entry(entry=entry, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
+# teaching assignments ("asignacion de docentes") — always under a section
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar asignaciones docentes de una seccion",
+        description=(
+            "Solo las vigentes. `include_inactive=true` agrega las ya cerradas, "
+            "que se conservan como historia."
+        ),
+        tags=CYCLE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: TeachingAssignmentSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Asignar un docente a un curso de la seccion",
+        description=(
+            "El curso debe estar en el plan de estudios del grado para ese ciclo "
+            "(RF-EST-009). Solo puede haber una asignacion vigente por curso."
+        ),
+        tags=CYCLE,
+        request=TeachingAssignmentCreateSerializer,
+        responses={201: TeachingAssignmentSerializer},
+    ),
+)
+class SectionAssignmentListCreateView(CatalogueListCreateView):
+    list_serializer = TeachingAssignmentSerializer
+    create_serializer = TeachingAssignmentCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        return queries.section_assignments(
+            queries.section_or_404(self.institution, public_id), request
+        )
+
+    def create(self, request, payload, public_id):
+        section = queries.section_or_404(self.institution, public_id)
+        return services.assign_teacher(
+            section=section,
+            subject=_resolve_subject(payload["subject_id"]),
+            teacher=_resolve_teacher(payload["teacher_id"]),
+            starts_on=payload.get("starts_on"),
+            actor=request.user,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar asignacion docente",
+        tags=CYCLE,
+        responses={200: TeachingAssignmentSerializer},
+    ),
+    patch=extend_schema(
+        summary="Cerrar la asignacion en una fecha",
+        description="Libera el curso de la seccion para otro docente.",
+        tags=CYCLE,
+        request=TeachingAssignmentEndSerializer,
+        responses={200: TeachingAssignmentSerializer},
+    ),
+    delete=extend_schema(
+        summary="Cerrar la asignacion hoy",
+        description="La fila se conserva como historia; no se borra (ADR-0006).",
+        tags=CYCLE,
+        responses={204: None},
+    ),
+)
+class AssignmentDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    """Cerrar es la unica escritura: quien enseno que y hasta cuando es historia."""
+
+    detail_serializer = TeachingAssignmentSerializer
+    update_serializer = TeachingAssignmentEndSerializer
+
+    def get_object(self, public_id):
+        return queries.assignment_or_404(self.institution, public_id)
+
+    def update(self, request, assignment, payload):
+        services.end_teaching_assignment(
+            assignment=assignment, ends_on=payload.get("ends_on"), actor=request.user
+        )
+
+    def deactivate(self, request, assignment):
+        services.end_teaching_assignment(assignment=assignment, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
 
@@ -561,3 +968,15 @@ def _resolve_subject(public_id):
     behind a generic "not found".
     """
     return _resolve(Subject.objects.all(), public_id, "Subject")
+
+
+def _resolve_grade(public_id):
+    return _resolve(Grade.objects.select_related("level"), public_id, "Grade")
+
+
+def _resolve_shift(public_id):
+    return _resolve(Shift.objects.select_related("campus"), public_id, "Shift")
+
+
+def _resolve_teacher(public_id):
+    return _resolve(Person.objects.all(), public_id, "Teacher")

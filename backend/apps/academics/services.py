@@ -6,8 +6,18 @@ The catalogue is the structure enrolments are assigned to:
     Institution
       +-- Campus ("sede")
       |     +-- Shift ("jornada")
-      +-- Level ("nivel")            (added in a later PR of this chain)
-      +-- AcademicCycle ("ciclo")     (added in a later PR of this chain)
+      +-- Level ("nivel")
+      |     +-- Grade ("grado")
+      +-- Subject ("curso")
+      +-- AcademicCycle ("ciclo escolar")
+            +-- GradeOffering ("oferta")   grade x shift, rebuilt per cycle
+            |     +-- Section ("seccion")
+            |           +-- TeachingAssignment ("asignacion docente")
+            +-- CurriculumPlan ("plan de estudios")   grade x subject
+
+The permanent catalogue (levels, grades, subjects) outlives every cycle. What
+hangs from a cycle is rebuilt for each one, so a closed cycle keeps the exact
+structure its enrolments were made against (RF-EST-013).
 
 Every invariant lives here, never in views or serializers (AGENTS.md #8).
 
@@ -17,16 +27,20 @@ would leave a window for two concurrent requests to both pass the check.
 """
 
 from django.db import transaction
+from django.utils import timezone
 
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    CurriculumPlan,
     Grade,
     GradeOffering,
     Level,
     LevelSubject,
+    Section,
     Shift,
     Subject,
+    TeachingAssignment,
 )
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
@@ -501,3 +515,459 @@ def unlink_subject_from_level(*, level, subject, actor=None):
         subject_id=subject.pk,
     )
     link.delete()
+
+
+# --------------------------------------------------------------------------- #
+# academic cycles ("ciclos escolares")
+# --------------------------------------------------------------------------- #
+
+# Cycles only move forward. Reopening a closed cycle would let its already
+# archived structure change underneath the enrolments that reference it.
+_CYCLE_ORDER = {
+    AcademicCycle.CycleStatus.DRAFT: 0,
+    AcademicCycle.CycleStatus.ACTIVE: 1,
+    AcademicCycle.CycleStatus.CLOSED: 2,
+}
+
+
+def _cycle_conflicts(name):
+    return {
+        "unique_cycle_name_per_institution": (
+            f"Cycle name '{name}' already exists for this institution."
+        )
+    }
+
+
+def _require_open_cycle(cycle, action):
+    """Nothing that belongs to a closed cycle can change any more (RF-EST-011)."""
+    if cycle.is_closed:
+        raise DomainError(f"Cycle '{cycle.name}' is closed; {action} is no longer allowed.")
+
+
+def _validate_cycle_dates(starts_on, ends_on):
+    if starts_on is not None and ends_on is not None and ends_on <= starts_on:
+        raise DomainError("Cycle end date must be later than its start date.")
+
+
+def create_academic_cycle(*, institution, name, starts_on, ends_on, actor=None):
+    """
+    Open a school cycle (RF-EST-013).
+
+    Rules:
+    - Name unique per institution.
+    - End date strictly after the start date.
+    - Always born in draft: the structure is built first and the cycle is
+      activated only once it holds something to enrol into.
+    """
+    name = _clean_name(name)
+    if starts_on is None or ends_on is None:
+        raise DomainError("A cycle needs both a start and an end date.")
+    _validate_cycle_dates(starts_on, ends_on)
+
+    with unique_violation_as(_cycle_conflicts(name)):
+        cycle = AcademicCycle.objects.create(
+            institution=institution,
+            name=name,
+            starts_on=starts_on,
+            ends_on=ends_on,
+            status=AcademicCycle.CycleStatus.DRAFT,
+        )
+
+    _audit(actor, "academics.cycle.created", cycle, name=name)
+    return cycle
+
+
+def update_academic_cycle(*, cycle, name=None, starts_on=None, ends_on=None, actor=None):
+    """Rename a cycle or move its dates, while it is not closed."""
+    _require_open_cycle(cycle, "editing it")
+
+    if name is not None:
+        name = _clean_name(name)
+    _validate_cycle_dates(
+        starts_on if starts_on is not None else cycle.starts_on,
+        ends_on if ends_on is not None else cycle.ends_on,
+    )
+
+    with unique_violation_as(_cycle_conflicts(name or cycle.name)):
+        return _changed(
+            cycle,
+            actor,
+            "academics.cycle.updated",
+            name=name,
+            starts_on=starts_on,
+            ends_on=ends_on,
+        )
+
+
+def change_cycle_status(*, cycle, status, actor=None):
+    """
+    Move a cycle forward through draft -> active -> closed (RF-EST-011).
+
+    Rules:
+    - Forward only. A closed cycle never reopens and an active one never goes
+      back to draft, because enrolments already point at its structure.
+    - Activating requires at least one grade offering, so no cycle can be opened
+      for enrolment while it is still empty.
+    """
+    if status not in _CYCLE_ORDER:
+        raise DomainError(f"Unknown cycle status '{status}'.")
+
+    if _CYCLE_ORDER[status] <= _CYCLE_ORDER[cycle.status]:
+        raise DomainError(
+            f"Cycle '{cycle.name}' cannot move from '{cycle.status}' back to '{status}'."
+        )
+
+    if (
+        status == AcademicCycle.CycleStatus.ACTIVE
+        and not GradeOffering.objects.filter(academic_cycle=cycle, is_active=True).exists()
+    ):
+        raise DomainError(
+            f"Cycle '{cycle.name}' has no grade offering yet and cannot be activated."
+        )
+
+    cycle.status = status
+    cycle.save(update_fields=["status", "updated_at"])
+    _audit(actor, "academics.cycle.status_changed", cycle, status=status)
+    return cycle
+
+
+# --------------------------------------------------------------------------- #
+# grade offerings ("oferta de grados")
+# --------------------------------------------------------------------------- #
+
+
+def _section_has_enrolments(section_queryset):
+    return section_queryset.filter(enrolments__status="active").exists()
+
+
+@transaction.atomic
+def offer_grade(*, cycle, grade, shift, actor=None):
+    """
+    Declare that a grade is taught in a shift during a cycle (RF-EST-013).
+
+    This is the node enrolments hang from, so it is rebuilt per cycle instead of
+    being shared: the same grade may be offered in one cycle and dropped in the
+    next without rewriting history.
+
+    Rules:
+    - Cycle must not be closed.
+    - Grade and shift must be active and belong to the institution of the cycle.
+    - The trio cycle/shift/grade is unique.
+    """
+    _require_open_cycle(cycle, "adding grade offerings")
+    _require_active(grade, "Grade")
+    _require_active(shift, "Shift")
+
+    if grade.institution_id != cycle.institution_id:
+        raise DomainError("Grade and cycle must belong to the same institution.")
+    if shift.campus.institution_id != cycle.institution_id:
+        raise DomainError("Shift and cycle must belong to the same institution.")
+
+    conflicts = {
+        "unique_grade_offering_per_cycle_shift": (
+            f"Grade '{grade.name}' is already offered in shift '{shift.name}' for this cycle."
+        )
+    }
+    with unique_violation_as(conflicts):
+        offering = GradeOffering.objects.create(academic_cycle=cycle, grade=grade, shift=shift)
+
+    _audit(
+        actor, "academics.grade_offering.created", offering, grade_id=grade.pk, shift_id=shift.pk
+    )
+    return offering
+
+
+@transaction.atomic
+def withdraw_grade_offering(*, offering, actor=None):
+    """
+    Deactivate an offering and its sections instead of deleting them (RF-EST-012).
+
+    Refused while any of its sections still holds an active enrolment: dropping
+    the offering would leave those students pointing at a withdrawn structure.
+    """
+    if not offering.is_active:
+        return offering
+
+    _require_open_cycle(offering.academic_cycle, "withdrawing grade offerings")
+
+    if _section_has_enrolments(Section.objects.filter(offering=offering)):
+        raise DomainError(
+            f"Offering '{offering}' still has active enrolments and cannot be withdrawn."
+        )
+
+    offering.is_active = False
+    offering.save(update_fields=["is_active", "updated_at"])
+    Section.objects.filter(offering=offering, is_active=True).update(is_active=False)
+
+    _audit(actor, "academics.grade_offering.withdrawn", offering)
+    return offering
+
+
+# --------------------------------------------------------------------------- #
+# sections ("secciones")
+# --------------------------------------------------------------------------- #
+
+
+def _validate_capacity(capacity):
+    if capacity is not None and capacity < 0:
+        raise DomainError("Section capacity cannot be negative.")
+
+
+def create_section(*, offering, name, capacity=0, actor=None):
+    """
+    Create a section inside a grade offering (RF-EST-007).
+
+    Rules:
+    - Offering active and its cycle not closed.
+    - Name unique inside the offering; it is normalised to upper case so "a"
+      and "A" are the same section.
+    - Capacity cannot be negative. Zero means "no declared cap" (RF-EST-008).
+    """
+    _require_active(offering, "Grade offering")
+    _require_open_cycle(offering.academic_cycle, "adding sections")
+    name = _clean_code(name, field="section name")
+    _validate_capacity(capacity)
+
+    conflicts = {
+        "unique_section_name_per_offering": (
+            f"Section '{name}' already exists for offering '{offering}'."
+        )
+    }
+    with unique_violation_as(conflicts):
+        section = Section.objects.create(offering=offering, name=name, capacity=capacity or 0)
+
+    _audit(actor, "academics.section.created", section, offering_id=offering.pk, name=name)
+    return section
+
+
+def update_section(*, section, name=None, capacity=None, actor=None):
+    """
+    Rename a section or change its declared capacity.
+
+    Capacity cannot drop below the students already enrolled: the declared cap
+    has to stay a promise the current occupancy can keep (RF-EST-008).
+    """
+    _require_open_cycle(section.academic_cycle, "editing sections")
+    _validate_capacity(capacity)
+
+    if name is not None:
+        name = _clean_code(name, field="section name")
+
+    if capacity is not None and capacity != 0:
+        occupancy = section.active_enrolment_count
+        if capacity < occupancy:
+            raise DomainError(
+                f"Section '{section.name}' already holds {occupancy} students; "
+                f"capacity cannot be set below that."
+            )
+
+    conflicts = {
+        "unique_section_name_per_offering": (
+            f"Section '{name or section.name}' already exists for this offering."
+        )
+    }
+    with unique_violation_as(conflicts):
+        return _changed(section, actor, "academics.section.updated", name=name, capacity=capacity)
+
+
+def deactivate_section(*, section, actor=None):
+    """Deactivate a section unless students are still enrolled in it."""
+    if not section.is_active:
+        return section
+
+    _require_open_cycle(section.academic_cycle, "deactivating sections")
+
+    if section.active_enrolment_count:
+        raise DomainError(
+            f"Section '{section.name}' still has active enrolments and cannot be deactivated."
+        )
+
+    section.is_active = False
+    section.save(update_fields=["is_active", "updated_at"])
+    _audit(actor, "academics.section.deactivated", section, name=section.name)
+    return section
+
+
+# --------------------------------------------------------------------------- #
+# curriculum plan ("plan de estudios del ciclo")
+# --------------------------------------------------------------------------- #
+
+
+def add_curriculum_entry(*, cycle, grade, subject, is_required=True, actor=None):
+    """
+    Put a subject in the study plan of a grade for one cycle (RF-EST-005).
+
+    This is the per-cycle plan, not the permanent level catalogue: ``LevelSubject``
+    says what a level teaches in general, this says what a grade actually teaches
+    in this cycle, and the two can diverge without rewriting the catalogue.
+
+    Rules:
+    - Cycle not closed.
+    - Grade and subject active and from the institution of the cycle.
+    - A subject appears once per grade and cycle.
+    """
+    _require_open_cycle(cycle, "editing the curriculum")
+    _require_active(grade, "Grade")
+    _require_active(subject, "Subject")
+
+    if grade.institution_id != cycle.institution_id:
+        raise DomainError("Grade and cycle must belong to the same institution.")
+    if subject.institution_id != cycle.institution_id:
+        raise DomainError("Subject and cycle must belong to the same institution.")
+
+    conflicts = {
+        "unique_subject_per_grade_and_cycle": (
+            f"Subject '{subject.name}' is already in the plan of grade '{grade.name}'."
+        )
+    }
+    with unique_violation_as(conflicts):
+        entry = CurriculumPlan.objects.create(
+            academic_cycle=cycle, grade=grade, subject=subject, is_required=is_required
+        )
+
+    _audit(
+        actor,
+        "academics.curriculum_plan.added",
+        entry,
+        cycle_id=cycle.pk,
+        grade_id=grade.pk,
+        subject_id=subject.pk,
+    )
+    return entry
+
+
+def get_curriculum_entry(cycle, grade, subject):
+    """The plan entry for a trio, or a DomainError when the subject is not planned."""
+    try:
+        return CurriculumPlan.objects.select_related("academic_cycle", "grade", "subject").get(
+            academic_cycle=cycle, grade=grade, subject=subject
+        )
+    except CurriculumPlan.DoesNotExist as exc:
+        raise DomainError(
+            f"Subject '{subject.name}' is not in the plan of grade '{grade.name}' for this cycle."
+        ) from exc
+
+
+def update_curriculum_entry(*, entry, is_required=None, actor=None):
+    """Change whether a planned subject is compulsory."""
+    _require_open_cycle(entry.academic_cycle, "editing the curriculum")
+
+    if is_required is None:
+        return entry
+
+    # ``is_required=False`` is a real value, so it cannot ride on the None convention.
+    entry.is_required = is_required
+    return _changed(entry, actor, "academics.curriculum_plan.updated", is_required=is_required)
+
+
+@transaction.atomic
+def remove_curriculum_entry(*, entry, actor=None):
+    """
+    Drop a subject from the plan.
+
+    Refused while a teacher is still assigned to that subject in the cycle:
+    removing it would leave the assignment pointing at something the grade no
+    longer teaches.
+    """
+    _require_open_cycle(entry.academic_cycle, "editing the curriculum")
+
+    covered = TeachingAssignment.objects.filter(
+        academic_cycle=entry.academic_cycle,
+        subject=entry.subject,
+        section__offering__grade=entry.grade,
+        ends_on__isnull=True,
+    ).exists()
+    if covered:
+        raise DomainError(
+            f"Subject '{entry.subject.name}' still has an open teaching assignment "
+            f"in grade '{entry.grade.name}' and cannot be removed from the plan."
+        )
+
+    _audit(
+        actor,
+        "academics.curriculum_plan.removed",
+        entry,
+        cycle_id=entry.academic_cycle_id,
+        grade_id=entry.grade_id,
+        subject_id=entry.subject_id,
+    )
+    entry.delete()
+
+
+# --------------------------------------------------------------------------- #
+# teaching assignments ("asignacion de docentes")
+# --------------------------------------------------------------------------- #
+
+
+def assign_teacher(*, section, subject, teacher, starts_on=None, actor=None):
+    """
+    Put a teacher in front of a subject of a section (RF-EST-009).
+
+    Rules:
+    - Cycle not closed and section active.
+    - The subject must already be in the curriculum plan of the grade for that
+      cycle: a section cannot be taught something its grade does not study.
+    - Teacher must be active.
+    - Only one open assignment per section and subject. Closed assignments stay
+      as history, which is why the constraint is partial on ``ends_on``.
+    """
+    cycle = section.academic_cycle
+    _require_open_cycle(cycle, "assigning teachers")
+    _require_active(section, "Section")
+    _require_active(teacher, "Teacher")
+
+    # Raises a DomainError naming the missing plan entry when there is none.
+    get_curriculum_entry(cycle, section.grade, subject)
+
+    starts_on = starts_on or timezone.localdate()
+
+    conflicts = {
+        "unique_open_assignment_per_section_subject": (
+            f"Subject '{subject.name}' already has an assigned teacher in section "
+            f"'{section.name}'. Close that assignment first."
+        ),
+        "unique_assignment_per_teacher_and_start": (
+            f"'{teacher}' is already assigned to '{subject.name}' in section "
+            f"'{section.name}' from that same date."
+        ),
+    }
+    with unique_violation_as(conflicts):
+        assignment = TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            starts_on=starts_on,
+        )
+
+    _audit(
+        actor,
+        "academics.teaching_assignment.created",
+        assignment,
+        section_id=section.pk,
+        subject_id=subject.pk,
+        teacher_id=teacher.pk,
+    )
+    return assignment
+
+
+def end_teaching_assignment(*, assignment, ends_on=None, actor=None):
+    """
+    Close an assignment so the slot can take another teacher.
+
+    The row is kept rather than deleted (ADR-0006): who taught what and until
+    when is exactly the history the audit trail is for. Idempotent.
+    """
+    _require_open_cycle(assignment.academic_cycle, "closing teaching assignments")
+
+    if not assignment.is_open:
+        return assignment
+
+    ends_on = ends_on or timezone.localdate()
+    if ends_on < assignment.starts_on:
+        raise DomainError("An assignment cannot end before it starts.")
+
+    assignment.ends_on = ends_on
+    assignment.save(update_fields=["ends_on", "updated_at"])
+    _audit(actor, "academics.teaching_assignment.ended", assignment, ends_on=str(ends_on))
+    return assignment

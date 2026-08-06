@@ -149,6 +149,12 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "SIGA-INEBI API",
     "DESCRIPTION": "Fundacion ejecutable inicial del sistema SIGA-INEBI",
     "VERSION": "0.1.0",
+    # Varios recursos publican un campo "status" con juegos de opciones
+    # distintos. Sin un nombre explicito, drf-spectacular los desambigua con
+    # sufijos generados ("Status95aEnum") que cambian al mover codigo.
+    "ENUM_NAME_OVERRIDES": {
+        "CycleStatusEnum": "apps.academics.models.AcademicCycle.CycleStatus",
+    },
 }
 
 LOGGING = {
