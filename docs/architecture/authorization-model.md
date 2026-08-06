@@ -101,7 +101,16 @@ RoleAssignment -> ScopeGrant
 - La cuenta se crea con `status=pending`, `is_active=False` y sin contrasena utilizable.
 - La activacion mediante codigo de un solo uso pertenece a un corte posterior de `RF-CTA-003`.
 - Tanto la creacion exitosa como el intento sin autorizacion generan un evento de auditoria.
-- Este contrato es interno del dominio; no agrega ni modifica endpoints de la API publica.
+- `provision_account_with_activation(...)` combina la provision con la emision inicial del desafio.
+- El endpoint administrativo `POST /api/v1/identity/accounts/` devuelve el codigo inicial una sola
+  vez y exige `account.create`.
+- Los codigos son numericos de ocho digitos, duran quince minutos y permiten tres intentos.
+- La base de datos conserva un HMAC del codigo; el valor original no se registra ni puede
+  recuperarse.
+- `POST /api/v1/identity/accounts/{account_id}/activation-challenges/` permite reemitir un codigo
+  con `account.activate`; la reemision revoca inmediatamente cualquier desafio anterior vigente.
+- Las respuestas que contienen codigos usan `Cache-Control: no-store`.
+- La validacion del codigo y la activacion final pertenecen al siguiente corte de `RF-CTA-003`.
 - `disable_account(actor, user)` desactiva una cuenta institucional sin eliminarla.
 - La operacion requiere un superusuario o el permiso atomico logico `account.disable`,
   representado por el codename Django existente `account_disable`.

@@ -1,17 +1,21 @@
+import secrets
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core.exceptions import PermissionDenied
+from django.core.signing import salted_hmac
 from django.db import transaction
 from django.utils import timezone
 
 from apps.audit.services import record_event
 from apps.common.models import DomainError
-from apps.identity.models import RoleAssignment, ScopeGrant
+from apps.identity.models import ActivationChallenge, RoleAssignment, ScopeGrant
 
 ACCOUNT_DISABLE_PERMISSION = "account_disable"
 ACCOUNT_CREATE_PERMISSION = "account_create"
+ACCOUNT_ACTIVATE_PERMISSION = "account_activate"
+ACTIVATION_CODE_DIGITS = 8
 
 
 class InvalidCredentialsError(Exception):
@@ -22,21 +26,29 @@ class AccountTemporarilyLockedError(Exception):
     pass
 
 
-def create_account(*, actor, person, username, email=""):
-    is_authorized = bool(
+def _can_create_account(actor):
+    return bool(
         actor and (actor.is_superuser or actor.has_atomic_permission(ACCOUNT_CREATE_PERMISSION))
     )
+
+
+def _audit_account_create_denied(*, actor, person):
+    record_event(
+        actor=actor,
+        action="identity.account.create_denied",
+        resource="UserAccount",
+        context={
+            "person_id": getattr(person, "pk", None),
+            "result": "denied",
+            "reason": "missing_permission",
+        },
+    )
+
+
+def create_account(*, actor, person, username, email=""):
+    is_authorized = _can_create_account(actor)
     if not is_authorized:
-        record_event(
-            actor=actor,
-            action="identity.account.create_denied",
-            resource="UserAccount",
-            context={
-                "person_id": getattr(person, "pk", None),
-                "result": "denied",
-                "reason": "missing_permission",
-            },
-        )
+        _audit_account_create_denied(actor=actor, person=person)
         raise PermissionDenied("Actor lacks permission to create accounts.")
 
     if person is None:
@@ -67,6 +79,100 @@ def create_account(*, actor, person, username, email=""):
             },
         )
     return account
+
+
+def _activation_code_digest(code):
+    return salted_hmac(
+        "identity.activation_challenge",
+        code,
+        algorithm="sha256",
+    ).hexdigest()
+
+
+def _generate_activation_code():
+    return f"{secrets.randbelow(10**ACTIVATION_CODE_DIGITS):0{ACTIVATION_CODE_DIGITS}d}"
+
+
+def _issue_activation_challenge(*, actor, account, reason):
+    if account.status != account.AccountStatus.PENDING or account.is_active:
+        raise DomainError("Activation challenges require a pending inactive account.")
+
+    now = timezone.now()
+    ActivationChallenge.objects.filter(
+        account=account,
+        is_active=True,
+        used_at__isnull=True,
+        revoked_at__isnull=True,
+    ).update(is_active=False, revoked_at=now, updated_at=now)
+
+    code = _generate_activation_code()
+    challenge = ActivationChallenge.objects.create(
+        account=account,
+        token_digest=_activation_code_digest(code),
+        expires_at=now + timedelta(minutes=settings.ACCOUNT_ACTIVATION_TTL_MINUTES),
+    )
+    record_event(
+        actor=actor,
+        action="identity.activation_challenge.issued",
+        resource="ActivationChallenge",
+        resource_identifier=str(challenge.public_id),
+        context={
+            "target_user_id": account.pk,
+            "challenge_id": str(challenge.public_id),
+            "expires_at": challenge.expires_at.isoformat(),
+            "max_attempts": settings.ACCOUNT_ACTIVATION_MAX_ATTEMPTS,
+            "reason": reason,
+            "result": "success",
+        },
+    )
+    return challenge, code
+
+
+def provision_account_with_activation(*, actor, person, username, email=""):
+    if not _can_create_account(actor):
+        _audit_account_create_denied(actor=actor, person=person)
+        raise PermissionDenied("Actor lacks permission to create accounts.")
+
+    with transaction.atomic():
+        account = create_account(
+            actor=actor,
+            person=person,
+            username=username,
+            email=email,
+        )
+        challenge, code = _issue_activation_challenge(
+            actor=actor,
+            account=account,
+            reason="initial_provisioning",
+        )
+        return account, challenge, code
+
+
+def reissue_activation_challenge(*, actor, account):
+    is_authorized = bool(
+        actor and (actor.is_superuser or actor.has_atomic_permission(ACCOUNT_ACTIVATE_PERMISSION))
+    )
+    if not is_authorized:
+        record_event(
+            actor=actor,
+            action="identity.activation_challenge.issue_denied",
+            resource="UserAccount",
+            resource_identifier=str(account.pk),
+            context={
+                "target_user_id": account.pk,
+                "result": "denied",
+                "reason": "missing_permission",
+            },
+        )
+        raise PermissionDenied("Actor lacks permission to issue activation challenges.")
+
+    with transaction.atomic():
+        locked_account = account.__class__.objects.select_for_update().get(pk=account.pk)
+        return _issue_activation_challenge(
+            actor=actor,
+            account=locked_account,
+            reason="administrative_reissue",
+        )
 
 
 def _audit_login_denied(*, account, reason, failed_attempts=None, locked_until=None):
