@@ -5,7 +5,15 @@ from apps.people.models import Person
 from apps.teachers.models import Teacher
 
 
-def create_teacher(*, person_data, employee_code, specialty, position, appointment_date=None, actor=None):
+def create_teacher(
+    *,
+    person_data,
+    employee_code,
+    specialty,
+    position,
+    appointment_date=None,
+    actor=None,
+):
     with transaction.atomic():
         person = Person.objects.create(**person_data)
         teacher = Teacher.objects.create(

@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.people.api.serializers import PersonSerializer
 from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
-from apps.students.services import create_student
+from apps.students.services import create_guardian, create_student
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -39,6 +39,8 @@ class StudentSerializer(serializers.ModelSerializer):
 
 
 class GuardianSerializer(serializers.ModelSerializer):
+    person = PersonSerializer()
+
     class Meta:
         model = Guardian
         fields = [
@@ -49,6 +51,16 @@ class GuardianSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "is_active", "created_at", "updated_at"]
+
+    def create(self, validated_data):
+        person_data = validated_data.pop("person")
+        actor = getattr(self.context.get("request"), "user", None)
+        return create_guardian(person_data=person_data, actor=actor)
+
+    def update(self, instance, validated_data):
+        # Nested person edits aren't supported yet — edit via /api/v1/people/<id>/.
+        validated_data.pop("person", None)
+        return super().update(instance, validated_data)
 
 
 class StudentGuardianRelationSerializer(serializers.ModelSerializer):

@@ -6,11 +6,11 @@ import { AlumnosPage } from "../pages/AlumnosPage.jsx";
 import { CampusesPage } from "../pages/CampusesPage.jsx";
 import { DashboardPage } from "../pages/DashboardPage.jsx";
 import { DocentesPage } from "../pages/DocentesPage.jsx";
+import { GuardiansPage } from "../pages/GuardiansPage.jsx";
 import { HomePage } from "../pages/HomePage.jsx";
 import { LevelsPage } from "../pages/LevelsPage.jsx";
 import { LoginPage } from "../pages/LoginPage.jsx";
 import { NotFoundPage } from "../pages/NotFoundPage.jsx";
-import { PadresPage } from "../pages/PadresPage.jsx";
 import { SubjectsPage } from "../pages/SubjectsPage.jsx";
 
 function PrivateRoute({ children }) {
@@ -61,7 +61,7 @@ export function AppRoutes() {
         <Route
           element={
             <PrivateRoute>
-              <PadresPage />
+              <GuardiansPage />
             </PrivateRoute>
           }
           path="/app/padres-de-familia"

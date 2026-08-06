@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from apps.audit.services import record_event
 from apps.people.models import Person
-from apps.students.models import Student
+from apps.students.models import Guardian, Student
 
 
 def create_student(*, person_data, student_code, status=None, actor=None):
@@ -22,6 +22,20 @@ def create_student(*, person_data, student_code, status=None, actor=None):
             context={"student_code": student.student_code},
         )
     return student
+
+
+def create_guardian(*, person_data, actor=None):
+    with transaction.atomic():
+        person = Person.objects.create(**person_data)
+        guardian = Guardian.objects.create(person=person)
+        record_event(
+            actor=actor,
+            action="students.guardian.created",
+            resource="Guardian",
+            resource_identifier=str(guardian.pk),
+            context={"public_id": str(guardian.public_id)},
+        )
+    return guardian
 
 
 def guardian_can_access_student(*, user, student, when=None):

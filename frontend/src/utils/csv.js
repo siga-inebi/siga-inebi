@@ -7,9 +7,12 @@ function escapeCsvValue(value) {
 // pintando en la tabla (filas visibles/filtradas) — sin logica de negocio,
 // sin pedir nada nuevo al backend.
 export function buildCsv(columns, rows) {
-  const lines = [columns.map((column) => column.label), ...rows.map(
-    (row) => columns.map((column) => escapeCsvValue(column.value(row)))
-  )];
+  const lines = [
+    columns.map((column) => column.label),
+    ...rows.map((row) =>
+      columns.map((column) => escapeCsvValue(column.value(row)))
+    ),
+  ];
   return lines.map((line) => line.join(",")).join("\r\n");
 }
 

@@ -47,6 +47,24 @@ describe("AppNav", () => {
     expect(await screen.findAllByText("0")).toHaveLength(3);
   });
 
+  test("renders the CATALOGO ACADEMICO group with a link to each catalog page", async () => {
+    renderWithRouter(<AppNav user={{ id: 1 }} />);
+
+    expect(await screen.findByText("Catalogo academico")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sedes" })).toHaveAttribute(
+      "href",
+      "/app/sedes"
+    );
+    expect(screen.getByRole("link", { name: "Niveles" })).toHaveAttribute(
+      "href",
+      "/app/niveles"
+    );
+    expect(screen.getByRole("link", { name: "Cursos" })).toHaveAttribute(
+      "href",
+      "/app/cursos"
+    );
+  });
+
   test("shows a badge with the real count once the domain services resolve", async () => {
     studentsServiceMock.list.mockResolvedValue(new Array(8).fill({}));
     renderWithRouter(<AppNav user={{ id: 1 }} />);
@@ -54,9 +72,9 @@ describe("AppNav", () => {
     expect(
       await screen.findByRole("link", { name: "Alumnos" })
     ).toHaveTextContent("8");
-    expect(
-      screen.getByRole("link", { name: "Docentes" })
-    ).toHaveTextContent("0");
+    expect(screen.getByRole("link", { name: "Docentes" })).toHaveTextContent(
+      "0"
+    );
   });
 
   test("collapses and expands via the toggle button", async () => {
@@ -72,16 +90,12 @@ describe("AppNav", () => {
 
     await user.click(toggle);
 
-    expect(screen.getByRole("complementary")).toHaveClass(
-      "sidebar-collapsed"
-    );
+    expect(screen.getByRole("complementary")).toHaveClass("sidebar-collapsed");
     expect(
       screen.getByRole("button", { name: "Expandir navegacion" })
     ).toBeInTheDocument();
     // Accessible names stay stable even while collapsed (labels hide via CSS,
     // not by leaving the DOM).
-    expect(
-      screen.getByRole("link", { name: "Alumnos" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Alumnos" })).toBeInTheDocument();
   });
 });

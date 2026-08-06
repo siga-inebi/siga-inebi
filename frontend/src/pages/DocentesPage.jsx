@@ -46,7 +46,11 @@ const COLUMNS = [
       ),
   },
   { key: "nombre", label: "Nombre", render: fullName },
-  { key: "especialidad", label: "Especialidad", render: (item) => item.specialty },
+  {
+    key: "especialidad",
+    label: "Especialidad",
+    render: (item) => item.specialty,
+  },
   { key: "puesto", label: "Puesto", render: (item) => item.position },
   {
     key: "codigo",
@@ -171,7 +175,9 @@ export function DocentesPage() {
   return (
     <section className="list-page">
       <header className="list-page-header">
-        <p className="eyebrow">Sistema academico / Docentes y Administrativos</p>
+        <p className="eyebrow">
+          Sistema academico / Docentes y Administrativos
+        </p>
         <h1>Docentes y Administrativos</h1>
         <p className="muted">Listado de personal docente y administrativo.</p>
       </header>

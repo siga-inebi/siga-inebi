@@ -99,9 +99,7 @@ def test_list_students_returns_nested_person(logged_in_client):
 @pytest.mark.django_db
 def test_upload_student_photo(logged_in_client):
     student = StudentFactory()
-    photo = SimpleUploadedFile(
-        "photo.jpg", b"fake-image-bytes", content_type="image/jpeg"
-    )
+    photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
 
     response = logged_in_client.patch(
         reverse("student-detail", args=[student.pk]),

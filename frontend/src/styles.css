@@ -442,7 +442,8 @@ input {
 .field select,
 .list-filter {
   appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, #45607a 50%),
+  background-image:
+    linear-gradient(45deg, transparent 50%, #45607a 50%),
     linear-gradient(135deg, #45607a 50%, transparent 50%);
   background-position:
     calc(100% - 1.3rem) center,
@@ -1082,7 +1083,7 @@ input {
     justify-content: center;
     padding: 0.6rem 1rem;
   }
-  
+
   .shell-body {
     flex-direction: column;
   }

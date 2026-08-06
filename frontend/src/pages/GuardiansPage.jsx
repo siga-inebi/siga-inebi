@@ -5,60 +5,41 @@ import { DetailPanel } from "../components/DetailPanel.jsx";
 import { FormModal } from "../components/FormModal.jsx";
 import { ListToolbar } from "../components/ListToolbar.jsx";
 import { Pagination } from "../components/Pagination.jsx";
-import { SECTION_OPTIONS } from "../mocks/students.js";
 import { guardiansService } from "../services/guardiansService.js";
 import { downloadCsv } from "../utils/csv.js";
 
 const PAGE_SIZE = 5;
 
-// El mockup no muestra un modal "Agregar" propio para Padres; se sigue el
-// mismo patron que el modal de Docentes (unico modal con diseño real en
-// los mockups), usando los campos ya conocidos de esta entidad. No incluye
-// "alumnos asignados": esa relacion es matricula (StudentGuardianRelation),
-// fuera de alcance de esta entrega (ver src/mocks/students.js).
 const CREATE_FIELDS = [
-  { name: "full_name", label: "Nombres completos", required: true },
-  { name: "occupation", label: "Ocupacion" },
+  { name: "first_name", label: "Nombres", required: true },
+  { name: "last_name", label: "Apellidos", required: true },
+  { name: "email", label: "Correo", type: "email" },
   { name: "phone_number", label: "Telefono" },
 ];
 
 function fullName(guardian) {
-  return [guardian.first_name, guardian.last_name].filter(Boolean).join(" ");
-}
-
-function sectionLabel(entry) {
-  return `${entry.section.grade} "${entry.section.name}"`;
-}
-
-function assignedStudentsSummary(guardian) {
-  const count = guardian.assigned_students.length;
-  if (count === 0) {
-    return "Sin alumnos asignados";
-  }
-  const sections = guardian.assigned_students.map(sectionLabel).join(", ");
-  return `${count} alumno${count === 1 ? "" : "s"} — ${sections}`;
+  return `${guardian.person.first_name} ${guardian.person.last_name}`;
 }
 
 const COLUMNS = [
   { key: "nombre", label: "Nombre", render: fullName },
-  { key: "ocupacion", label: "Ocupacion", render: (item) => item.occupation },
-  { key: "telefono", label: "Telefono", render: (item) => item.phone_number },
+  { key: "correo", label: "Correo", render: (item) => item.person.email },
   {
-    key: "asignados",
-    label: "Alumnos asignados",
-    render: assignedStudentsSummary,
+    key: "telefono",
+    label: "Telefono",
+    render: (item) => item.person.phone_number,
   },
 ];
 
-export function PadresPage() {
+export function GuardiansPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [sectionFilter, setSectionFilter] = useState("");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -86,22 +67,14 @@ export function PadresPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, sectionFilter]);
+  }, [search]);
 
   const filtered = useMemo(
     () =>
-      items.filter((guardian) => {
-        const matchesSearch = fullName(guardian)
-          .toLowerCase()
-          .includes(search.trim().toLowerCase());
-        const matchesSection =
-          !sectionFilter ||
-          guardian.assigned_students.some(
-            (entry) => sectionLabel(entry) === sectionFilter
-          );
-        return matchesSearch && matchesSection;
-      }),
-    [items, search, sectionFilter]
+      items.filter((guardian) =>
+        fullName(guardian).toLowerCase().includes(search.trim().toLowerCase())
+      ),
+    [items, search]
   );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -116,24 +89,41 @@ export function PadresPage() {
       "padres-de-familia.csv",
       [
         { label: "Nombre", value: fullName },
-        { label: "Ocupacion", value: (item) => item.occupation },
-        { label: "Telefono", value: (item) => item.phone_number },
-        { label: "Alumnos asignados", value: assignedStudentsSummary },
+        { label: "Correo", value: (item) => item.person.email },
+        { label: "Telefono", value: (item) => item.person.phone_number },
       ],
       filtered
     );
   };
 
   const handleCreate = async (values) => {
-    const { full_name: fullNameInput, ...rest } = values;
     const created = await guardiansService.create({
-      ...rest,
-      first_name: fullNameInput,
-      last_name: "",
-      assigned_students: [],
+      person: {
+        first_name: values.first_name,
+        last_name: values.last_name,
+        email: values.email,
+        phone_number: values.phone_number,
+      },
     });
     setItems((current) => [...current, created]);
     setCreating(false);
+  };
+
+  const handleUpdate = async (values) => {
+    const updated = await guardiansService.update(editing.id, {
+      person: {
+        id: editing.person.id,
+        first_name: values.first_name,
+        last_name: values.last_name,
+        email: values.email,
+        phone_number: values.phone_number,
+      },
+    });
+    setItems((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item))
+    );
+    setSelected(updated);
+    setEditing(null);
   };
 
   return (
@@ -146,11 +136,8 @@ export function PadresPage() {
 
       <ListToolbar
         createLabel="+ Agregar nuevo"
-        filterOptions={SECTION_OPTIONS}
-        filterValue={sectionFilter}
         onCreate={() => setCreating(true)}
         onExportCsv={handleExport}
-        onFilterChange={setSectionFilter}
         onSearchChange={setSearch}
         searchValue={search}
       />
@@ -191,26 +178,19 @@ export function PadresPage() {
 
       {selected ? (
         <DetailPanel
+          actions={
+            <button
+              className="button secondary"
+              onClick={() => setEditing(selected)}
+              type="button"
+            >
+              Editar
+            </button>
+          }
           fields={[
             { label: "Nombre completo", value: fullName(selected) },
-            { label: "Ocupacion", value: selected.occupation },
-            { label: "Telefono", value: selected.phone_number },
-            {
-              label: "Alumnos asignados",
-              value:
-                selected.assigned_students.length === 0 ? (
-                  "Sin alumnos asignados"
-                ) : (
-                  <ul className="detail-list">
-                    {selected.assigned_students.map((entry) => (
-                      <li key={entry.student_id}>
-                        {entry.full_name} ({entry.relationship_label},{" "}
-                        {sectionLabel(entry)})
-                      </li>
-                    ))}
-                  </ul>
-                ),
-            },
+            { label: "Correo", value: selected.person.email },
+            { label: "Telefono", value: selected.person.phone_number },
           ]}
           onClose={() => setSelected(null)}
           title={fullName(selected)}
@@ -223,6 +203,22 @@ export function PadresPage() {
           onCancel={() => setCreating(false)}
           onSubmit={handleCreate}
           title="Agregar padre o encargado"
+        />
+      ) : null}
+
+      {editing ? (
+        <FormModal
+          fields={CREATE_FIELDS}
+          initialValues={{
+            first_name: editing.person.first_name,
+            last_name: editing.person.last_name,
+            email: editing.person.email,
+            phone_number: editing.person.phone_number,
+          }}
+          onCancel={() => setEditing(null)}
+          onSubmit={handleUpdate}
+          submitLabel="Guardar cambios"
+          title="Editar padre o encargado"
         />
       ) : null}
     </section>

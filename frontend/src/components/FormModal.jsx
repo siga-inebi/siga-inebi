@@ -78,9 +78,7 @@ export function FormModal({
       <div aria-label={title} className="panel modal" role="dialog">
         <div className="modal-body">
           <h2>{title}</h2>
-          {error ? (
-            <div className="message message-error">{error}</div>
-          ) : null}
+          {error ? <div className="message message-error">{error}</div> : null}
           <form className="form" onSubmit={handleSubmit}>
             {fields.map((field) => (
               <label className="field" key={field.name}>

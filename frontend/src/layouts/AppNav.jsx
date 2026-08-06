@@ -6,8 +6,11 @@ import { studentsService } from "../services/studentsService.js";
 import { teachersService } from "../services/teachersService.js";
 import {
   canViewAlumnos,
+  canViewCursos,
   canViewDocentes,
+  canViewNiveles,
   canViewPadres,
+  canViewSedes,
 } from "../utils/permissions.js";
 
 const COUNT_SERVICES = {
@@ -36,6 +39,27 @@ const LISTADO_ITEMS = [
     label: "Padres de familia",
     path: "/app/padres-de-familia",
     canView: canViewPadres,
+  },
+];
+
+const CATALOGUE_ITEMS = [
+  {
+    key: "sedes",
+    label: "Sedes",
+    path: "/app/sedes",
+    canView: canViewSedes,
+  },
+  {
+    key: "niveles",
+    label: "Niveles",
+    path: "/app/niveles",
+    canView: canViewNiveles,
+  },
+  {
+    key: "cursos",
+    label: "Cursos",
+    path: "/app/cursos",
+    canView: canViewCursos,
   },
 ];
 
@@ -68,6 +92,7 @@ export function AppNav({ accountActions, onNavigate, open, user }) {
   const [collapsed, setCollapsed] = useState(false);
   const [counts, setCounts] = useState({});
   const items = LISTADO_ITEMS.filter((item) => item.canView(user));
+  const catalogueItems = CATALOGUE_ITEMS.filter((item) => item.canView(user));
   const asideClassName = [
     "sidebar",
     collapsed ? "sidebar-collapsed" : "",
@@ -111,7 +136,7 @@ export function AppNav({ accountActions, onNavigate, open, user }) {
       {items.length > 0 ? (
         <>
           <p className="sidebar-title">Listados</p>
-          <nav className="sidebar-nav">
+          <nav aria-label="Listados" className="sidebar-nav">
             {items.map((item) => (
               <NavItem
                 badge={counts[item.key]}
@@ -119,6 +144,17 @@ export function AppNav({ accountActions, onNavigate, open, user }) {
                 key={item.key}
                 onNavigate={onNavigate}
               />
+            ))}
+          </nav>
+        </>
+      ) : null}
+
+      {catalogueItems.length > 0 ? (
+        <>
+          <p className="sidebar-title">Catalogo academico</p>
+          <nav aria-label="Catalogo academico" className="sidebar-nav">
+            {catalogueItems.map((item) => (
+              <NavItem item={item} key={item.key} onNavigate={onNavigate} />
             ))}
           </nav>
         </>

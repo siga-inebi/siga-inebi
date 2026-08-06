@@ -2,13 +2,14 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
-import { PadresPage } from "../pages/PadresPage.jsx";
+import { GuardiansPage } from "../pages/GuardiansPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 
 const guardiansServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
   get: vi.fn(),
   create: vi.fn(),
+  update: vi.fn(),
 }));
 
 vi.mock("../services/guardiansService.js", () => ({
@@ -22,49 +23,38 @@ vi.mock("../utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
 const SAMPLE = [
   {
     id: 1,
-    first_name: "Rosa Elvira",
-    last_name: "Garcia Mendez",
-    occupation: "Comerciante",
-    phone_number: "4512-7890",
-    assigned_students: [
-      {
-        student_id: 1,
-        full_name: "Maria Jose Lopez Garcia",
-        section: { grade: "3ro", name: "A" },
-        relationship_label: "Madre",
-        is_primary: true,
-      },
-    ],
+    person: {
+      id: 31,
+      first_name: "Rosa Elvira",
+      last_name: "Garcia Mendez",
+      email: "rosa@example.test",
+      phone_number: "4512-7890",
+    },
   },
   {
     id: 2,
-    first_name: "Marco Tulio",
-    last_name: "Ramirez Us",
-    occupation: "Agricultor",
-    phone_number: "3398-1122",
-    assigned_students: [
-      {
-        student_id: 2,
-        full_name: "Carlos Enrique Ramirez Perez",
-        section: { grade: "2do", name: "B" },
-        relationship_label: "Padre",
-        is_primary: true,
-      },
-    ],
+    person: {
+      id: 32,
+      first_name: "Marco Tulio",
+      last_name: "Ramirez Us",
+      email: "marco@example.test",
+      phone_number: "3398-1122",
+    },
   },
 ];
 
-describe("PadresPage", () => {
+describe("GuardiansPage", () => {
   beforeEach(() => {
     guardiansServiceMock.list.mockReset();
     guardiansServiceMock.create.mockReset();
+    guardiansServiceMock.update.mockReset();
     downloadCsvMock.mockReset();
   });
 
   test("exports the currently filtered rows as CSV", async () => {
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
     const user = userEvent.setup();
-    renderWithRouter(<PadresPage />);
+    renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
@@ -77,13 +67,13 @@ describe("PadresPage", () => {
 
   test("renders the list once loaded", async () => {
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
-    renderWithRouter(<PadresPage />);
+    renderWithRouter(<GuardiansPage />);
 
     expect(
       await screen.findByText("Rosa Elvira Garcia Mendez")
     ).toBeInTheDocument();
     expect(
-      within(screen.getByRole("table")).getByText('1 alumno — 3ro "A"')
+      within(screen.getByRole("table")).getByText("rosa@example.test")
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Mostrando 1-2 de 2 registros/)
@@ -93,7 +83,7 @@ describe("PadresPage", () => {
   test("shows an empty state when the search does not match", async () => {
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
     const user = userEvent.setup();
-    renderWithRouter(<PadresPage />);
+    renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.type(
@@ -108,35 +98,21 @@ describe("PadresPage", () => {
     ).toBeInTheDocument();
   });
 
-  test("filters by the assigned student's seccion", async () => {
-    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
-    const user = userEvent.setup();
-    renderWithRouter(<PadresPage />);
-
-    await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.selectOptions(screen.getByLabelText("Filtrar"), '2do "B"');
-
-    expect(
-      screen.queryByText("Rosa Elvira Garcia Mendez")
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("Marco Tulio Ramirez Us")).toBeInTheDocument();
-  });
-
   test("shows the service error instead of the table", async () => {
     guardiansServiceMock.list.mockRejectedValue(
       new Error("Solicitud no completada.")
     );
-    renderWithRouter(<PadresPage />);
+    renderWithRouter(<GuardiansPage />);
 
     expect(
       await screen.findByText("Solicitud no completada.")
     ).toBeInTheDocument();
   });
 
-  test("opens the detail panel listing the assigned students", async () => {
+  test("opens the detail panel for a row", async () => {
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
     const user = userEvent.setup();
-    renderWithRouter(<PadresPage />);
+    renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
@@ -145,32 +121,29 @@ describe("PadresPage", () => {
     expect(
       within(panel).getByRole("heading", { name: "Rosa Elvira Garcia Mendez" })
     ).toBeInTheDocument();
-    expect(
-      within(panel).getByText(/Maria Jose Lopez Garcia/)
-    ).toBeInTheDocument();
+    expect(within(panel).getByText("rosa@example.test")).toBeInTheDocument();
   });
 
-  test("submits the create form against the mock service", async () => {
+  test("submits the create form against the service", async () => {
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
     guardiansServiceMock.create.mockResolvedValue({
       id: 3,
-      first_name: "Nuevo Encargado",
-      last_name: "",
-      occupation: "Panadero",
-      phone_number: "4000-0000",
-      assigned_students: [],
+      person: {
+        id: 33,
+        first_name: "Nuevo",
+        last_name: "Encargado",
+        email: "",
+        phone_number: "",
+      },
     });
     const user = userEvent.setup();
-    renderWithRouter(<PadresPage />);
+    renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
 
-    await user.type(
-      screen.getByLabelText("Nombres completos"),
-      "Nuevo Encargado"
-    );
-    await user.type(screen.getByLabelText("Ocupacion"), "Panadero");
+    await user.type(screen.getByLabelText("Nombres"), "Nuevo");
+    await user.type(screen.getByLabelText("Apellidos"), "Encargado");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() =>
@@ -178,19 +151,66 @@ describe("PadresPage", () => {
     );
     expect(guardiansServiceMock.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        first_name: "Nuevo Encargado",
-        last_name: "",
-        occupation: "Panadero",
-        assigned_students: [],
+        person: {
+          first_name: "Nuevo",
+          last_name: "Encargado",
+          email: "",
+          phone_number: "",
+        },
       })
     );
     expect(await screen.findByText("Nuevo Encargado")).toBeInTheDocument();
   });
 
+  test("edits a guardian via the detail panel", async () => {
+    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
+    guardiansServiceMock.update.mockResolvedValue({
+      id: 1,
+      person: {
+        id: 31,
+        first_name: "Rosa Elvira",
+        last_name: "Garcia Lopez",
+        email: "rosa@example.test",
+        phone_number: "4512-7890",
+      },
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<GuardiansPage />);
+
+    await screen.findByText("Rosa Elvira Garcia Mendez");
+    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getByRole("button", { name: "Editar" }));
+
+    const lastNameInput = screen.getByLabelText("Apellidos");
+    expect(lastNameInput).toHaveValue("Garcia Mendez");
+    await user.clear(lastNameInput);
+    await user.type(lastNameInput, "Garcia Lopez");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    await waitFor(() =>
+      expect(guardiansServiceMock.update).toHaveBeenCalledTimes(1)
+    );
+    expect(guardiansServiceMock.update).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        person: {
+          id: 31,
+          first_name: "Rosa Elvira",
+          last_name: "Garcia Lopez",
+          email: "rosa@example.test",
+          phone_number: "4512-7890",
+        },
+      })
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Rosa Elvira Garcia Lopez" })
+    ).toBeInTheDocument();
+  });
+
   test("requires the mandatory fields before submitting", async () => {
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
     const user = userEvent.setup();
-    renderWithRouter(<PadresPage />);
+    renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));

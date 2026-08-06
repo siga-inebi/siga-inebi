@@ -15,3 +15,15 @@ export function canViewDocentes(_user) {
 export function canViewPadres(_user) {
   return true;
 }
+
+export function canViewSedes(_user) {
+  return true;
+}
+
+export function canViewNiveles(_user) {
+  return true;
+}
+
+export function canViewCursos(_user) {
+  return true;
+}

@@ -101,9 +101,7 @@ def test_list_teachers_returns_nested_person(logged_in_client):
 @pytest.mark.django_db
 def test_upload_teacher_photo(logged_in_client):
     teacher = TeacherFactory()
-    photo = SimpleUploadedFile(
-        "photo.jpg", b"fake-image-bytes", content_type="image/jpeg"
-    )
+    photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
 
     response = logged_in_client.patch(
         reverse("teacher-detail", args=[teacher.pk]),

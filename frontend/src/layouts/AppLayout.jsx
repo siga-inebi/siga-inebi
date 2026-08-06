@@ -50,7 +50,11 @@ export function AppLayout({ children }) {
             <span>Instituto Nacional de Educacion Basica de Salcaja</span>
           </div>
         </Link>
-        <div className={isAuthenticated ? "action-group has-drawer" : "action-group"}>
+        <div
+          className={
+            isAuthenticated ? "action-group has-drawer" : "action-group"
+          }
+        >
           <button
             aria-expanded={navOpen}
             aria-label={navOpen ? "Cerrar menu" : "Abrir menu"}
@@ -84,7 +88,9 @@ export function AppLayout({ children }) {
         <button
           aria-label="Cerrar menu"
           className={
-            isAuthenticated ? "nav-backdrop nav-backdrop-drawer" : "nav-backdrop"
+            isAuthenticated
+              ? "nav-backdrop nav-backdrop-drawer"
+              : "nav-backdrop"
           }
           onClick={closeNav}
           type="button"
