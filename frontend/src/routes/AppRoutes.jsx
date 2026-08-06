@@ -8,6 +8,7 @@ import { HomePage } from "../pages/HomePage.jsx";
 import { LevelsPage } from "../pages/LevelsPage.jsx";
 import { LoginPage } from "../pages/LoginPage.jsx";
 import { NotFoundPage } from "../pages/NotFoundPage.jsx";
+import { StudentRecordPage } from "../pages/StudentRecordPage.jsx";
 import { SubjectsPage } from "../pages/SubjectsPage.jsx";
 
 function PrivateRoute({ children }) {
@@ -62,6 +63,16 @@ export function AppRoutes() {
             </PrivateRoute>
           }
           path="/app/cursos"
+        />
+        {/* Ruta de apoyo provisional, sin entrada en MODULE_NAV: ver el
+            docstring de StudentRecordPage.jsx. */}
+        <Route
+          element={
+            <PrivateRoute>
+              <StudentRecordPage />
+            </PrivateRoute>
+          }
+          path="/app/estudiantes/expediente"
         />
         <Route element={<NotFoundPage />} path="*" />
       </Routes>
