@@ -31,3 +31,12 @@
 
 - Evitar delete fisico en recursos historicos.
 - Preferir estados, revocacion o desactivacion.
+
+## Provision administrativa de cuentas
+
+- `POST /api/v1/identity/accounts/` provisiona una cuenta pendiente vinculada a una persona.
+- La respuesta incluye el codigo de activacion inicial una sola vez y no debe almacenarse en cache.
+- `POST /api/v1/identity/accounts/{account_id}/activation-challenges/` revoca el desafio anterior y
+  emite uno nuevo.
+- Ambos endpoints requieren sesion; los servicios de dominio exigen respectivamente
+  `account.create` y `account.activate`.
