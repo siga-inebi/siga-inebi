@@ -19,6 +19,7 @@ from .identity import (
 )
 from .people import PersonFactory
 from .students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
+from .teachers import TeacherFactory
 
 __all__ = [
     "AcademicCycleFactory",
@@ -39,5 +40,6 @@ __all__ = [
     "StudentFactory",
     "StudentGuardianRelationFactory",
     "SubjectFactory",
+    "TeacherFactory",
     "UserFactory",
 ]

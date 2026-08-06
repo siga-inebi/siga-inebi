@@ -2,8 +2,11 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { useAuth } from "../hooks/useAuth.js";
 import { AppLayout } from "../layouts/AppLayout.jsx";
+import { AlumnosPage } from "../pages/AlumnosPage.jsx";
 import { CampusesPage } from "../pages/CampusesPage.jsx";
 import { DashboardPage } from "../pages/DashboardPage.jsx";
+import { DocentesPage } from "../pages/DocentesPage.jsx";
+import { GuardiansPage } from "../pages/GuardiansPage.jsx";
 import { HomePage } from "../pages/HomePage.jsx";
 import { LevelsPage } from "../pages/LevelsPage.jsx";
 import { LoginPage } from "../pages/LoginPage.jsx";
@@ -42,6 +45,32 @@ export function AppRoutes() {
         <Route
           element={
             <PrivateRoute>
+              <AlumnosPage />
+            </PrivateRoute>
+          }
+          path="/app/alumnos"
+        />
+        <Route
+          element={
+            <PrivateRoute>
+              <DocentesPage />
+            </PrivateRoute>
+          }
+          path="/app/docentes"
+        />
+        <Route
+          element={
+            <PrivateRoute>
+              <GuardiansPage />
+            </PrivateRoute>
+          }
+          path="/app/padres-de-familia"
+        />
+
+        {/* Catalogo academico */}
+        <Route
+          element={
+            <PrivateRoute>
               <CampusesPage />
             </PrivateRoute>
           }
@@ -63,6 +92,7 @@ export function AppRoutes() {
           }
           path="/app/cursos"
         />
+
         <Route element={<NotFoundPage />} path="*" />
       </Routes>
     </AppLayout>

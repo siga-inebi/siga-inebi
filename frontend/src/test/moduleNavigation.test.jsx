@@ -32,9 +32,14 @@ describe("navegacion de modulos", () => {
   test("una sesion abierta ve los modulos del catalogo", async () => {
     renderWithRouter(<App />, { route: "/app" });
 
-    const nav = await screen.findByRole("navigation", { name: "Modulos" });
+    expect(
+      await screen.findByRole("link", { name: "Panel principal" })
+    ).toBeInTheDocument();
 
-    for (const label of ["Panel", "Sedes", "Niveles", "Cursos"]) {
+    const nav = await screen.findByRole("navigation", {
+      name: "Catalogo academico",
+    });
+    for (const label of ["Sedes", "Niveles", "Cursos"]) {
       expect(
         within(nav).getByRole("link", { name: label })
       ).toBeInTheDocument();
@@ -45,11 +50,14 @@ describe("navegacion de modulos", () => {
     authServiceMock.me.mockResolvedValue(anonymousSession);
     renderWithRouter(<App />, { route: "/" });
 
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Abrir menu" }));
+
     expect(
       await screen.findByRole("link", { name: /Iniciar sesion/i })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("navigation", { name: "Modulos" })
+      screen.queryByRole("navigation", { name: "Catalogo academico" })
     ).not.toBeInTheDocument();
   });
 
@@ -57,7 +65,9 @@ describe("navegacion de modulos", () => {
     const user = userEvent.setup();
     renderWithRouter(<App />, { route: "/app" });
 
-    const nav = await screen.findByRole("navigation", { name: "Modulos" });
+    const nav = await screen.findByRole("navigation", {
+      name: "Catalogo academico",
+    });
     await user.click(within(nav).getByRole("link", { name: "Sedes" }));
 
     expect(
