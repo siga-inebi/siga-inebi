@@ -11,6 +11,7 @@ import { HomePage } from "../pages/HomePage.jsx";
 import { LevelsPage } from "../pages/LevelsPage.jsx";
 import { LoginPage } from "../pages/LoginPage.jsx";
 import { NotFoundPage } from "../pages/NotFoundPage.jsx";
+import { PersonasPage } from "../pages/PersonasPage.jsx";
 import { SubjectsPage } from "../pages/SubjectsPage.jsx";
 
 function PrivateRoute({ children }) {
@@ -45,29 +46,11 @@ export function AppRoutes() {
         <Route
           element={
             <PrivateRoute>
-              <AlumnosPage />
+              <PersonasPage />
             </PrivateRoute>
           }
-          path="/app/alumnos"
+          path="/app/personas"
         />
-        <Route
-          element={
-            <PrivateRoute>
-              <DocentesPage />
-            </PrivateRoute>
-          }
-          path="/app/docentes"
-        />
-        <Route
-          element={
-            <PrivateRoute>
-              <GuardiansPage />
-            </PrivateRoute>
-          }
-          path="/app/padres-de-familia"
-        />
-
-        {/* Catalogo academico */}
         <Route
           element={
             <PrivateRoute>
