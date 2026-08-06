@@ -50,7 +50,8 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RNF-SEG-005 | TBD | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | Descarga segura |
 | RNF-REN-003 | TBD | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | Lotes en worker |
 | RNF-RES-002 | TBD | docs/decisions/pending-decisions.md | TBD | TBD | TBD | Planned | RPO/RTO pendientes |
-| RF-EXP-005 | TBD | docs/architecture/domain-map.md | backend/apps/students/services.py; backend/apps/students/api/{views.py,serializers.py,urls.py,queries.py} | backend/tests/api/test_emergency_contacts_api.py; backend/tests/unit/test_emergency_contact_services.py | PR #TBD | In Progress | Contactos de emergencia (Restricted); auditoria de escritura, sin auditoria de lectura |
+| RF-EXP-005 | TBD | docs/architecture/domain-map.md | backend/apps/students/services.py; backend/apps/students/api/{views.py,serializers.py,urls.py,queries.py} | backend/tests/api/test_emergency_contacts_api.py; backend/tests/unit/test_emergency_contact_services.py | PR #57 | In Progress | Contactos de emergencia (Restricted); auditoria de escritura, sin auditoria de lectura |
+| RF-EXP-004 | TBD | docs/architecture/domain-map.md | backend/apps/students/models.py (constraints); backend/apps/students/services.py; backend/apps/students/api/{views.py,serializers.py,urls.py,queries.py} | backend/tests/api/test_student_guardian_relations_api.py; backend/tests/unit/test_student_guardian_relation_services.py | PR #TBD | In Progress | Un solo encargado principal activo por estudiante; sin relacion activa duplicada (student, guardian) |
 
 ## Mantenimiento
 

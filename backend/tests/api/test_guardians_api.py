@@ -1,15 +1,10 @@
 import pytest
 from django.urls import reverse
-from django.utils import timezone
 
-from apps.students.models import Guardian, StudentGuardianRelation
+from apps.students.models import Guardian
 from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
-from tests.factories.students import (
-    GuardianFactory,
-    StudentFactory,
-    StudentGuardianRelationFactory,
-)
+from tests.factories.students import GuardianFactory
 
 
 @pytest.fixture
@@ -118,116 +113,22 @@ def test_unauthenticated_request_to_guardian_list_is_rejected(client):
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_create_student_guardian_relation(logged_in_client):
-    student = StudentFactory()
-    guardian = GuardianFactory()
+def test_guardian_options_lists_only_active_guardians_unpaginated(logged_in_client):
+    GuardianFactory.create_batch(2)
+    GuardianFactory(is_active=False)
 
-    response = logged_in_client.post(
-        reverse("student-guardian-relation-list"),
-        {
-            "student": student.pk,
-            "guardian": guardian.pk,
-            "relationship_label": "Madre",
-            "is_primary": True,
-        },
-    )
-
-    assert response.status_code == 201
-    data = response.json()
-    assert data["student"] == student.pk
-    assert data["guardian"] == guardian.pk
-    assert data["relationship_label"] == "Madre"
-    assert data["is_primary"] is True
-    assert data["ends_at"] is None
-    assert StudentGuardianRelation.objects.filter(pk=data["id"]).exists()
-
-
-@pytest.mark.api
-@pytest.mark.django_db
-def test_list_student_guardian_relations_is_paginated(logged_in_client):
-    StudentGuardianRelationFactory.create_batch(3)
-
-    response = logged_in_client.get(reverse("student-guardian-relation-list"))
+    response = logged_in_client.get(reverse("guardian-option-list"))
 
     assert response.status_code == 200
     data = response.json()
-    assert "results" in data
-    assert "count" in data
-    assert data["count"] == StudentGuardianRelation.objects.count()
+    assert isinstance(data, list)
+    assert len(data) == 2
+    assert all("public_id" in item and "person" in item for item in data)
 
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_retrieve_student_guardian_relation(logged_in_client):
-    relation = StudentGuardianRelationFactory()
-
-    response = logged_in_client.get(reverse("student-guardian-relation-detail", args=[relation.pk]))
-
-    assert response.status_code == 200
-    assert response.json()["id"] == relation.pk
-
-
-@pytest.mark.api
-@pytest.mark.django_db
-def test_retrieve_missing_student_guardian_relation_returns_404(logged_in_client):
-    response = logged_in_client.get(reverse("student-guardian-relation-detail", args=[999999]))
-
-    assert response.status_code == 404
-
-
-@pytest.mark.api
-@pytest.mark.django_db
-def test_update_student_guardian_relation(logged_in_client):
-    relation = StudentGuardianRelationFactory(relationship_label="Padre")
-
-    response = logged_in_client.patch(
-        reverse("student-guardian-relation-detail", args=[relation.pk]),
-        {"relationship_label": "Tutor"},
-        content_type="application/json",
-    )
-
-    assert response.status_code == 200
-    relation.refresh_from_db()
-    assert relation.relationship_label == "Tutor"
-
-
-@pytest.mark.api
-@pytest.mark.django_db
-def test_ending_student_guardian_relation_via_delete_sets_ends_at(logged_in_client):
-    relation = StudentGuardianRelationFactory(ends_at=None)
-
-    response = logged_in_client.delete(
-        reverse("student-guardian-relation-detail", args=[relation.pk])
-    )
-
-    assert response.status_code == 204
-    relation.refresh_from_db()
-    assert relation.ends_at == timezone.localdate()
-    assert StudentGuardianRelation.objects.filter(pk=relation.pk).exists()
-
-
-@pytest.mark.api
-@pytest.mark.django_db
-def test_create_student_guardian_relation_missing_student_is_rejected(logged_in_client):
-    guardian = GuardianFactory()
-
-    response = logged_in_client.post(
-        reverse("student-guardian-relation-list"),
-        {
-            "student": 999999,
-            "guardian": guardian.pk,
-            "relationship_label": "Madre",
-        },
-    )
-
-    assert response.status_code == 400
-    detail = response.json()["error"]["detail"]
-    assert "student" in detail
-
-
-@pytest.mark.api
-@pytest.mark.django_db
-def test_unauthenticated_request_to_relation_list_is_rejected(client):
-    response = client.get(reverse("student-guardian-relation-list"))
+def test_unauthenticated_request_to_guardian_options_is_rejected(client):
+    response = client.get(reverse("guardian-option-list"))
 
     assert response.status_code == 403
