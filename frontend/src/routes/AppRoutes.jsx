@@ -8,6 +8,7 @@ import { HomePage } from "../pages/HomePage.jsx";
 import { LevelsPage } from "../pages/LevelsPage.jsx";
 import { LoginPage } from "../pages/LoginPage.jsx";
 import { NotFoundPage } from "../pages/NotFoundPage.jsx";
+import { PersonasPage } from "../pages/PersonasPage.jsx";
 import { SubjectsPage } from "../pages/SubjectsPage.jsx";
 
 function PrivateRoute({ children }) {
@@ -38,6 +39,14 @@ export function AppRoutes() {
             </PrivateRoute>
           }
           path="/app"
+        />
+        <Route
+          element={
+            <PrivateRoute>
+              <PersonasPage />
+            </PrivateRoute>
+          }
+          path="/app/personas"
         />
         <Route
           element={
