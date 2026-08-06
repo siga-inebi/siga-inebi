@@ -2,22 +2,22 @@ from rest_framework import generics, permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from apps.common.models import DomainError
 from apps.students import services
 from apps.students.api import queries
 from apps.students.api.serializers import (
     EmergencyContactCreateSerializer,
     EmergencyContactSerializer,
     EmergencyContactUpdateSerializer,
+    GuardianRefSerializer,
     GuardianSerializer,
+    StudentGuardianRelationCreateSerializer,
     StudentGuardianRelationSerializer,
+    StudentGuardianRelationUpdateSerializer,
     StudentSerializer,
 )
-from apps.students.models import Guardian, Student, StudentGuardianRelation
-from apps.students.services import (
-    deactivate_guardian,
-    deactivate_student,
-    end_student_guardian_relation,
-)
+from apps.students.models import Guardian, Student
+from apps.students.services import deactivate_guardian, deactivate_student
 
 
 class StudentListCreateView(generics.ListCreateAPIView):
@@ -46,26 +46,13 @@ class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
         deactivate_guardian(guardian=instance, actor=self.request.user)
 
 
-class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
-    queryset = StudentGuardianRelation.objects.all()
-    serializer_class = StudentGuardianRelationSerializer
-
-
-class StudentGuardianRelationDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = StudentGuardianRelation.objects.all()
-    serializer_class = StudentGuardianRelationSerializer
-
-    def perform_destroy(self, instance):
-        end_student_guardian_relation(relation=instance, actor=self.request.user)
-
-
 # --------------------------------------------------------------------------- #
-# emergency contacts — nested under a student
+# local scaffolding
 #
-# Small, local scaffolding mirroring apps.academics.api.views (list-create
-# nested under the parent, detail flat by the resource's own public_id, same
-# as Shift/Grade there). Duplicated on purpose instead of imported: keeps
-# student-records independent of institutional-structure (AGENTS.md #9).
+# Mirrors apps.academics.api.views (list-create nested under the parent,
+# detail flat by the resource's own public_id, same as Shift/Grade there).
+# Duplicated on purpose instead of imported: keeps student-records
+# independent of institutional-structure (AGENTS.md #9).
 # --------------------------------------------------------------------------- #
 
 
@@ -158,3 +145,71 @@ class EmergencyContactDetailView(
         services.deactivate_emergency_contact(
             emergency_contact=emergency_contact, actor=request.user
         )
+
+
+# --------------------------------------------------------------------------- #
+# guardians — read-only options for a "link existing guardian" selector
+# --------------------------------------------------------------------------- #
+
+
+class GuardianOptionListView(generics.ListAPIView):
+    """Active guardians, unpaginated reference list for the relation form."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = GuardianRefSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return queries.guardian_options(self.request)
+
+
+# --------------------------------------------------------------------------- #
+# student <-> guardian relations — nested under a student
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_guardian(public_id):
+    """
+    Resolve a reference that arrived in the request body. A bad reference in a
+    payload is a bad request, not a missing endpoint, so it lands as a 400
+    (mirrors apps.academics.api.views._resolve). Resolved without an
+    is_active filter on purpose: the service is the one that must report an
+    inactive guardian, not a generic "not found".
+    """
+    try:
+        return Guardian.objects.select_related("person").get(public_id=public_id)
+    except Guardian.DoesNotExist as exc:
+        raise DomainError("Guardian not found.") from exc
+
+
+class StudentGuardianRelationListCreateView(StudentRecordListCreateView):
+    list_serializer = StudentGuardianRelationSerializer
+    create_serializer = StudentGuardianRelationCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        return queries.student_guardian_relations(queries.student_or_404(public_id), request)
+
+    def create(self, request, payload, public_id):
+        student = queries.student_or_404(public_id)
+        guardian = _resolve_guardian(payload.pop("guardian_id"))
+        return services.create_student_guardian_relation(
+            student=student, guardian=guardian, actor=request.user, **payload
+        )
+
+
+class StudentGuardianRelationDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
+    """``deactivate`` here means "end the relation" (sets ``ends_at``)."""
+
+    detail_serializer = StudentGuardianRelationSerializer
+    update_serializer = StudentGuardianRelationUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.student_guardian_relation_or_404(public_id)
+
+    def update(self, request, relation, payload):
+        services.update_student_guardian_relation(relation=relation, actor=request.user, **payload)
+
+    def deactivate(self, request, relation):
+        services.end_student_guardian_relation(relation=relation, actor=request.user)

@@ -28,7 +28,11 @@ class StudentGuardianRelationFactory(factory.django.DjangoModelFactory):
     student = factory.SubFactory(StudentFactory)
     guardian = factory.SubFactory(GuardianFactory)
     relationship_label = "Padre"
-    is_primary = True
+    # False by default: unique_primary_guardian_per_student allows only one
+    # open is_primary=True relation per student, so a batch of relations for
+    # the same student would raise a raw IntegrityError unless the caller
+    # opts in explicitly with StudentGuardianRelationFactory(is_primary=True).
+    is_primary = False
     starts_at = factory.LazyFunction(timezone.localdate)
     ends_at = None
 
