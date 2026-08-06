@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from django.urls import reverse
 
@@ -19,9 +21,8 @@ def test_create_emergency_contact(logged_in_client):
     student = StudentFactory()
 
     response = logged_in_client.post(
-        reverse("emergency-contact-list"),
+        reverse("student-emergency-contact-list-create", args=[student.public_id]),
         {
-            "student": student.pk,
             "name": "Maria Perez",
             "phone_number": "555-0123",
             "relationship_label": "Tia",
@@ -30,26 +31,78 @@ def test_create_emergency_contact(logged_in_client):
 
     assert response.status_code == 201
     data = response.json()
-    assert data["student"] == student.pk
+    assert data["student"]["public_id"] == str(student.public_id)
     assert data["name"] == "Maria Perez"
     assert data["phone_number"] == "555-0123"
     assert data["relationship_label"] == "Tia"
     assert data["is_active"] is True
-    assert EmergencyContact.objects.filter(pk=data["id"]).exists()
+    assert "id" not in data
+    assert EmergencyContact.objects.filter(public_id=data["public_id"]).exists()
 
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_list_emergency_contacts_is_paginated(logged_in_client):
-    EmergencyContactFactory.create_batch(3)
+def test_create_emergency_contact_under_unknown_student_returns_404(logged_in_client):
+    response = logged_in_client.post(
+        reverse("student-emergency-contact-list-create", args=[uuid.uuid4()]),
+        {
+            "name": "Maria Perez",
+            "phone_number": "555-0123",
+            "relationship_label": "Tia",
+        },
+    )
 
-    response = logged_in_client.get(reverse("emergency-contact-list"))
+    assert response.status_code == 404
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_create_emergency_contact_under_inactive_student_is_rejected(logged_in_client):
+    student = StudentFactory(is_active=False)
+
+    response = logged_in_client.post(
+        reverse("student-emergency-contact-list-create", args=[student.public_id]),
+        {
+            "name": "Maria Perez",
+            "phone_number": "555-0123",
+            "relationship_label": "Tia",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_list_emergency_contacts_is_paginated_and_scoped_to_student(logged_in_client):
+    student = StudentFactory()
+    EmergencyContactFactory.create_batch(3, student=student)
+    EmergencyContactFactory.create_batch(2)  # other students, must not leak into the list
+
+    response = logged_in_client.get(
+        reverse("student-emergency-contact-list-create", args=[student.public_id])
+    )
 
     assert response.status_code == 200
     data = response.json()
     assert "results" in data
     assert "count" in data
-    assert data["count"] == EmergencyContact.objects.count()
+    assert data["count"] == 3
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_list_emergency_contacts_hides_inactive_unless_requested(logged_in_client):
+    student = StudentFactory()
+    EmergencyContactFactory(student=student, is_active=False)
+    EmergencyContactFactory(student=student, is_active=True)
+    list_url = reverse("student-emergency-contact-list-create", args=[student.public_id])
+
+    response = logged_in_client.get(list_url)
+    assert response.json()["count"] == 1
+
+    response = logged_in_client.get(list_url, {"include_inactive": "true"})
+    assert response.json()["count"] == 2
 
 
 @pytest.mark.api
@@ -57,16 +110,16 @@ def test_list_emergency_contacts_is_paginated(logged_in_client):
 def test_retrieve_emergency_contact(logged_in_client):
     contact = EmergencyContactFactory()
 
-    response = logged_in_client.get(reverse("emergency-contact-detail", args=[contact.pk]))
+    response = logged_in_client.get(reverse("emergency-contact-detail", args=[contact.public_id]))
 
     assert response.status_code == 200
-    assert response.json()["id"] == contact.pk
+    assert response.json()["public_id"] == str(contact.public_id)
 
 
 @pytest.mark.api
 @pytest.mark.django_db
 def test_retrieve_missing_emergency_contact_returns_404(logged_in_client):
-    response = logged_in_client.get(reverse("emergency-contact-detail", args=[999999]))
+    response = logged_in_client.get(reverse("emergency-contact-detail", args=[uuid.uuid4()]))
 
     assert response.status_code == 404
 
@@ -77,7 +130,7 @@ def test_update_emergency_contact(logged_in_client):
     contact = EmergencyContactFactory(name="Old Name")
 
     response = logged_in_client.patch(
-        reverse("emergency-contact-detail", args=[contact.pk]),
+        reverse("emergency-contact-detail", args=[contact.public_id]),
         {"name": "New Name"},
         content_type="application/json",
     )
@@ -92,7 +145,9 @@ def test_update_emergency_contact(logged_in_client):
 def test_deactivate_emergency_contact_via_delete_is_soft(logged_in_client):
     contact = EmergencyContactFactory()
 
-    response = logged_in_client.delete(reverse("emergency-contact-detail", args=[contact.pk]))
+    response = logged_in_client.delete(
+        reverse("emergency-contact-detail", args=[contact.public_id])
+    )
 
     assert response.status_code == 204
     contact.refresh_from_db()
@@ -102,25 +157,11 @@ def test_deactivate_emergency_contact_via_delete_is_soft(logged_in_client):
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_create_emergency_contact_missing_student_is_rejected(logged_in_client):
-    response = logged_in_client.post(
-        reverse("emergency-contact-list"),
-        {
-            "student": 999999,
-            "name": "Maria Perez",
-            "phone_number": "555-0123",
-            "relationship_label": "Tia",
-        },
-    )
-
-    assert response.status_code == 400
-    detail = response.json()["error"]["detail"]
-    assert "student" in detail
-
-
-@pytest.mark.api
-@pytest.mark.django_db
 def test_unauthenticated_request_to_emergency_contact_list_is_rejected(client):
-    response = client.get(reverse("emergency-contact-list"))
+    student = StudentFactory()
+
+    response = client.get(
+        reverse("student-emergency-contact-list-create", args=[student.public_id])
+    )
 
     assert response.status_code == 403

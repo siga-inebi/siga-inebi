@@ -50,6 +50,7 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RNF-SEG-005 | TBD | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | Descarga segura |
 | RNF-REN-003 | TBD | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | Lotes en worker |
 | RNF-RES-002 | TBD | docs/decisions/pending-decisions.md | TBD | TBD | TBD | Planned | RPO/RTO pendientes |
+| RF-EXP-005 | TBD | docs/architecture/domain-map.md | backend/apps/students/services.py; backend/apps/students/api/{views.py,serializers.py,urls.py,queries.py} | backend/tests/api/test_emergency_contacts_api.py; backend/tests/unit/test_emergency_contact_services.py | PR #TBD | In Progress | Contactos de emergencia (Restricted); auditoria de escritura, sin auditoria de lectura |
 
 ## Mantenimiento
 

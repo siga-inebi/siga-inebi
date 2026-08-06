@@ -2,10 +2,10 @@ from django.urls import path
 
 from apps.students.api.views import (
     EmergencyContactDetailView,
-    EmergencyContactListCreateView,
     GuardianDetailView,
     GuardianListCreateView,
     StudentDetailView,
+    StudentEmergencyContactListCreateView,
     StudentGuardianRelationDetailView,
     StudentGuardianRelationListCreateView,
     StudentListCreateView,
@@ -26,13 +26,14 @@ urlpatterns = [
         StudentGuardianRelationDetailView.as_view(),
         name="student-guardian-relation-detail",
     ),
+    # emergency contacts — always created inside a student (RF-EXP-005)
     path(
-        "emergency-contacts/",
-        EmergencyContactListCreateView.as_view(),
-        name="emergency-contact-list",
+        "<uuid:public_id>/emergency-contacts/",
+        StudentEmergencyContactListCreateView.as_view(),
+        name="student-emergency-contact-list-create",
     ),
     path(
-        "emergency-contacts/<int:pk>/",
+        "emergency-contacts/<uuid:public_id>/",
         EmergencyContactDetailView.as_view(),
         name="emergency-contact-detail",
     ),

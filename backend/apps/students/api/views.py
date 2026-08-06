@@ -1,14 +1,19 @@
-from rest_framework import generics
+from rest_framework import generics, permissions, status
+from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
 
+from apps.students import services
+from apps.students.api import queries
 from apps.students.api.serializers import (
+    EmergencyContactCreateSerializer,
     EmergencyContactSerializer,
+    EmergencyContactUpdateSerializer,
     GuardianSerializer,
     StudentGuardianRelationSerializer,
     StudentSerializer,
 )
-from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
+from apps.students.models import Guardian, Student, StudentGuardianRelation
 from apps.students.services import (
-    deactivate_emergency_contact,
     deactivate_guardian,
     deactivate_student,
     end_student_guardian_relation,
@@ -54,14 +59,102 @@ class StudentGuardianRelationDetailView(generics.RetrieveUpdateDestroyAPIView):
         end_student_guardian_relation(relation=instance, actor=self.request.user)
 
 
-class EmergencyContactListCreateView(generics.ListCreateAPIView):
-    queryset = EmergencyContact.objects.all()
-    serializer_class = EmergencyContactSerializer
+# --------------------------------------------------------------------------- #
+# emergency contacts — nested under a student
+#
+# Small, local scaffolding mirroring apps.academics.api.views (list-create
+# nested under the parent, detail flat by the resource's own public_id, same
+# as Shift/Grade there). Duplicated on purpose instead of imported: keeps
+# student-records independent of institutional-structure (AGENTS.md #9).
+# --------------------------------------------------------------------------- #
 
 
-class EmergencyContactDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = EmergencyContact.objects.all()
-    serializer_class = EmergencyContactSerializer
+class StudentRecordView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
 
-    def perform_destroy(self, instance):
-        deactivate_emergency_contact(emergency_contact=instance, actor=self.request.user)
+    def validated(self, serializer_class, request):
+        serializer = serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+
+class StudentRecordListCreateView(StudentRecordView):
+    list_serializer = None
+    create_serializer = None
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return self.create_serializer
+        return self.list_serializer
+
+    def get(self, request, **kwargs):
+        page = self.paginate_queryset(self.list_queryset(request, **kwargs))
+        return self.get_paginated_response(self.list_serializer(page, many=True).data)
+
+    def post(self, request, **kwargs):
+        payload = self.validated(self.create_serializer, request)
+        created = self.create(request, payload, **kwargs)
+        return Response(self.list_serializer(created).data, status=status.HTTP_201_CREATED)
+
+
+class StudentRecordDetailView(StudentRecordView):
+    detail_serializer = None
+    update_serializer = None
+
+    def get_serializer_class(self):
+        if self.request.method == "PATCH":
+            return self.update_serializer
+        return self.detail_serializer
+
+    def represent(self, instance):
+        return Response(self.detail_serializer(instance).data)
+
+
+class RetrieveMixin:
+    def get(self, request, **kwargs):
+        return self.represent(self.get_object(**kwargs))
+
+
+class UpdateMixin:
+    def patch(self, request, **kwargs):
+        payload = self.validated(self.update_serializer, request)
+        self.update(request, self.get_object(**kwargs), payload)
+        return self.represent(self.get_object(**kwargs))
+
+
+class DeactivateMixin:
+    def delete(self, request, **kwargs):
+        self.deactivate(request, self.get_object(**kwargs))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
+    list_serializer = EmergencyContactSerializer
+    create_serializer = EmergencyContactCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        return queries.emergency_contacts(queries.student_or_404(public_id), request)
+
+    def create(self, request, payload, public_id):
+        student = queries.student_or_404(public_id)
+        return services.create_emergency_contact(student=student, actor=request.user, **payload)
+
+
+class EmergencyContactDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
+    detail_serializer = EmergencyContactSerializer
+    update_serializer = EmergencyContactUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.emergency_contact_or_404(public_id)
+
+    def update(self, request, emergency_contact, payload):
+        services.update_emergency_contact(
+            emergency_contact=emergency_contact, actor=request.user, **payload
+        )
+
+    def deactivate(self, request, emergency_contact):
+        services.deactivate_emergency_contact(
+            emergency_contact=emergency_contact, actor=request.user
+        )
