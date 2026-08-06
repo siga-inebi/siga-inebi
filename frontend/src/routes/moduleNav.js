@@ -10,6 +10,11 @@ export const MODULE_NAV = [
     end: true,
   },
   {
+    to: "/app/personas",
+    label: "Personas",
+    description: "Registro base de personas institucionales.",
+  },
+  {
     to: "/app/sedes",
     label: "Sedes",
     description: "Sedes del establecimiento y sus jornadas.",

@@ -12,16 +12,23 @@ vi.mock("../services/academicsService.js", async () => {
   return { academicsService: academicsServiceMock, PAGE_SIZE: 25 };
 });
 
+vi.mock("../services/peopleService.js", async () => {
+  const { peopleServiceMock } = await import("./mocks/peopleService.js");
+  return { peopleService: peopleServiceMock };
+});
+
 import { App } from "../app/App.jsx";
 import { apiClient } from "../services/apiClient.js";
 import { authenticatedSession, anonymousSession } from "./fixtures/auth.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import { resetAcademicsServiceMock } from "./mocks/academicsService.js";
 import { authServiceMock } from "./mocks/authService.js";
+import { resetPeopleServiceMock } from "./mocks/peopleService.js";
 
 describe("navegacion de modulos", () => {
   beforeEach(() => {
     resetAcademicsServiceMock();
+    resetPeopleServiceMock();
     authServiceMock.me.mockResolvedValue(authenticatedSession);
     vi.spyOn(apiClient, "get").mockResolvedValue({
       service: "api",
@@ -34,7 +41,7 @@ describe("navegacion de modulos", () => {
 
     const nav = await screen.findByRole("navigation", { name: "Modulos" });
 
-    for (const label of ["Panel", "Sedes", "Niveles", "Cursos"]) {
+    for (const label of ["Panel", "Personas", "Sedes", "Niveles", "Cursos"]) {
       expect(
         within(nav).getByRole("link", { name: label })
       ).toBeInTheDocument();
@@ -62,6 +69,18 @@ describe("navegacion de modulos", () => {
 
     expect(
       await screen.findByRole("heading", { name: "Sedes y jornadas" })
+    ).toBeInTheDocument();
+  });
+
+  test("navega desde el panel hasta la pantalla de personas", async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<App />, { route: "/app" });
+
+    const nav = await screen.findByRole("navigation", { name: "Modulos" });
+    await user.click(within(nav).getByRole("link", { name: "Personas" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Personas" })
     ).toBeInTheDocument();
   });
 
