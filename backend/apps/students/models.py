@@ -1,5 +1,4 @@
 from django.db import models
-from django.db.models import Q
 from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
@@ -41,13 +40,6 @@ class Guardian(TimeStampedModel):
 
 
 class StudentGuardianRelation(TimeStampedModel):
-    """
-    ``is_active`` (inherited from ``TimeStampedModel``) is never used by this
-    model: the real lifecycle flag is ``ends_at``. A relation is "active" (in
-    the everyday sense, not the field) while ``ends_at`` is null; closing one
-    is what ``end_student_guardian_relation`` does.
-    """
-
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name="guardian_relations"
     )
@@ -60,27 +52,6 @@ class StudentGuardianRelation(TimeStampedModel):
     is_primary = models.BooleanField(default=False)
     starts_at = models.DateField(default=timezone.localdate)
     ends_at = models.DateField(null=True, blank=True)
-
-    class Meta:
-        constraints = [
-            # At most one open relation between a given student and guardian
-            # (RF-EXP-004). "Open" means not yet closed, mirroring
-            # Enrolment.unique_active_enrolment_per_student_cycle.
-            models.UniqueConstraint(
-                fields=["student", "guardian"],
-                condition=Q(ends_at__isnull=True),
-                name="unique_active_student_guardian_relation",
-            ),
-            # At most one primary guardian per student, but only while the
-            # relation is open: without ends_at__isnull=True a closed relation
-            # that was once primary would permanently block promoting a new
-            # one. Same idiom as Campus.unique_main_campus_per_institution.
-            models.UniqueConstraint(
-                fields=["student"],
-                condition=Q(is_primary=True, ends_at__isnull=True),
-                name="unique_primary_guardian_per_student",
-            ),
-        ]
 
 
 class EmergencyContact(TimeStampedModel):

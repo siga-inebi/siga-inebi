@@ -10,7 +10,7 @@ stay easy to read side by side.
 
 from rest_framework.exceptions import NotFound
 
-from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
+from apps.students.models import EmergencyContact, Student
 
 
 def _wants_inactive(request):
@@ -22,22 +22,9 @@ def _wants_inactive(request):
 
 
 def _filter_active(queryset, request):
-    """``include_inactive`` filters on the ``is_active`` field."""
     if _wants_inactive(request):
         return queryset
     return queryset.filter(is_active=True)
-
-
-def _filter_open(queryset, request):
-    """
-    Same ``include_inactive`` contract as ``_filter_active``, but for models
-    whose real lifecycle flag is ``ends_at`` rather than ``is_active`` (see
-    ``StudentGuardianRelation``). Filtering on ``is_active`` there would never
-    hide anything: that field is never set on this model.
-    """
-    if _wants_inactive(request):
-        return queryset
-    return queryset.filter(ends_at__isnull=True)
 
 
 def _get(queryset, public_id, label):
@@ -53,15 +40,6 @@ def student_or_404(public_id):
     return _get(Student.objects.all(), public_id, "Student")
 
 
-def guardian_options(request):
-    """Active guardians, for populating a "link existing guardian" selector."""
-    return (
-        Guardian.objects.filter(is_active=True)
-        .select_related("person")
-        .order_by("person__last_name", "person__first_name")
-    )
-
-
 def emergency_contacts(student, request):
     return _filter_active(
         EmergencyContact.objects.filter(student=student).select_related("student"), request
@@ -73,21 +51,4 @@ def emergency_contact_or_404(public_id):
         EmergencyContact.objects.select_related("student").all(),
         public_id,
         "EmergencyContact",
-    )
-
-
-def student_guardian_relations(student, request):
-    return _filter_open(
-        StudentGuardianRelation.objects.filter(student=student).select_related(
-            "student", "guardian__person"
-        ),
-        request,
-    )
-
-
-def student_guardian_relation_or_404(public_id):
-    return _get(
-        StudentGuardianRelation.objects.select_related("student", "guardian__person").all(),
-        public_id,
-        "StudentGuardianRelation",
     )

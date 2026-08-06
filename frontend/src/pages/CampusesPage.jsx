@@ -1,13 +1,13 @@
 import { useCallback, useState } from "react";
 
-import { CatalogueForm } from "../features/catalogue/CatalogueForm.jsx";
-import { CataloguePager } from "../features/catalogue/CataloguePager.jsx";
+import { CatalogueForm } from "../features/academics/CatalogueForm.jsx";
+import { CataloguePager } from "../features/academics/CataloguePager.jsx";
 import {
   CatalogueTable,
   StatusBadge,
-} from "../features/catalogue/CatalogueTable.jsx";
-import { ConfirmButton } from "../features/catalogue/ConfirmButton.jsx";
-import { useCatalogue } from "../features/catalogue/useCatalogue.js";
+} from "../features/academics/CatalogueTable.jsx";
+import { ConfirmButton } from "../features/academics/ConfirmButton.jsx";
+import { useCatalogue } from "../features/academics/useCatalogue.js";
 import { academicsService } from "../services/academicsService.js";
 
 const CAMPUS_COLUMNS = [

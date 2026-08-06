@@ -2,9 +2,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.audit.services import record_event
-from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
-from apps.students.models import EmergencyContact, StudentGuardianRelation
+from apps.students.models import EmergencyContact
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -114,9 +113,6 @@ def deactivate_emergency_contact(*, emergency_contact, actor=None):
 
 def end_student_guardian_relation(*, relation, actor=None, ends_at=None):
     ends_at = ends_at or timezone.localdate()
-    if ends_at < relation.starts_at:
-        raise DomainError("ends_at cannot be earlier than starts_at.")
-
     relation.ends_at = ends_at
     relation.save(update_fields=["ends_at", "updated_at"])
     record_event(
@@ -127,100 +123,6 @@ def end_student_guardian_relation(*, relation, actor=None, ends_at=None):
         context={"student_id": relation.student_id, "guardian_id": relation.guardian_id},
     )
     return relation
-
-
-# --------------------------------------------------------------------------- #
-# student <-> guardian relations (RF-EXP-004)
-# --------------------------------------------------------------------------- #
-
-
-def _relation_conflicts(student, guardian):
-    return {
-        "unique_active_student_guardian_relation": (
-            f"An open guardian relation already exists between '{student}' and '{guardian}'."
-        ),
-        "unique_primary_guardian_per_student": (
-            "Another guardian was promoted to primary at the same time. Retry the operation."
-        ),
-    }
-
-
-def _demote_active_primary(student, *, exclude_pk=None):
-    """
-    Clear ``is_primary`` on the student's current open primary relation, if
-    any. Must run before promoting a new one: the database constraint only
-    allows one open ``is_primary=True`` row per student.
-    """
-    queryset = StudentGuardianRelation.objects.filter(
-        student=student, is_primary=True, ends_at__isnull=True
-    )
-    if exclude_pk is not None:
-        queryset = queryset.exclude(pk=exclude_pk)
-    queryset.update(is_primary=False)
-
-
-@transaction.atomic
-def create_student_guardian_relation(
-    *, student, guardian, relationship_label, is_primary=False, starts_at=None, actor=None
-):
-    """
-    Link a guardian to a student (RF-EXP-004).
-
-    Rules:
-    - Student and guardian must both be active.
-    - At most one open relation per (student, guardian) pair.
-    - At most one open primary guardian per student; promoting a new one
-      demotes the previous one.
-    """
-    _require_active(student, "Student")
-    _require_active(guardian, "Guardian")
-    relationship_label = _clean_text(relationship_label, field="relationship_label")
-
-    if is_primary:
-        _demote_active_primary(student)
-
-    with unique_violation_as(_relation_conflicts(student, guardian)):
-        relation = StudentGuardianRelation.objects.create(
-            student=student,
-            guardian=guardian,
-            relationship_label=relationship_label,
-            is_primary=is_primary,
-            starts_at=starts_at or timezone.localdate(),
-        )
-
-    _audit(
-        actor,
-        "students.student_guardian_relation.created",
-        relation,
-        student_id=student.pk,
-        guardian_id=guardian.pk,
-    )
-    return relation
-
-
-def update_student_guardian_relation(
-    *, relation, relationship_label=None, is_primary=None, actor=None
-):
-    """
-    Update the relationship label or promote/demote the primary flag.
-
-    ``starts_at``/``ends_at`` are not editable here: closing a relation is
-    exclusively the job of ``end_student_guardian_relation``.
-    """
-    if relationship_label is not None:
-        relationship_label = _clean_text(relationship_label, field="relationship_label")
-
-    # ``is_primary=False`` is a real value, so it cannot ride on the None
-    # convention (same reasoning as Campus.is_main in academics.services).
-    fields = {"relationship_label": relationship_label}
-    if is_primary is not None and is_primary != relation.is_primary:
-        if is_primary:
-            _demote_active_primary(relation.student, exclude_pk=relation.pk)
-        relation.is_primary = is_primary
-        fields["is_primary"] = is_primary
-
-    with unique_violation_as(_relation_conflicts(relation.student, relation.guardian)):
-        return _changed(relation, actor, "students.student_guardian_relation.updated", **fields)
 
 
 # --------------------------------------------------------------------------- #
