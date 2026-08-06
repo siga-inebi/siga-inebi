@@ -22,7 +22,7 @@ class Student(TimeStampedModel):
         choices=StudentStatus.choices,
         default=StudentStatus.PRE_ENROLLED,
     )
-    photo_path = models.CharField(max_length=255, blank=True)
+    photo = models.FileField(upload_to="student_photos/", blank=True)
 
     def __str__(self):
         return self.student_code
