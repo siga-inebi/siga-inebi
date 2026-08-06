@@ -59,6 +59,32 @@ class UserAccount(AbstractUser):
         return False
 
 
+class ActivationChallenge(TimeStampedModel):
+    account = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="activation_challenges",
+    )
+    token_digest = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    failed_attempts = models.PositiveIntegerField(default=0)
+    used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def is_usable(self, when=None):
+        when = when or timezone.now()
+        return bool(
+            self.is_active
+            and self.used_at is None
+            and self.revoked_at is None
+            and self.expires_at > when
+            and self.failed_attempts < settings.ACCOUNT_ACTIVATION_MAX_ATTEMPTS
+        )
+
+
 class Role(TimeStampedModel):
     name = models.CharField(max_length=150, unique=True)
     slug = models.SlugField(max_length=150, unique=True)
