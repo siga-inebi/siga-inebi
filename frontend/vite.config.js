@@ -12,9 +12,18 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 5173,
       proxy: {
+        // changeOrigin is off on purpose: Django builds absolute media URLs
+        // (e.g. student photos) from the inbound Host header. Rewriting it to
+        // the backend's own docker-internal host would bake an unreachable
+        // hostname into those URLs; keeping the original Host (as seen by the
+        // browser) means the URLs it gets back are ones it can actually load.
         "/api": {
           target: backendProxyTarget,
-          changeOrigin: true,
+          changeOrigin: false,
+        },
+        "/media": {
+          target: backendProxyTarget,
+          changeOrigin: false,
         },
       },
     },

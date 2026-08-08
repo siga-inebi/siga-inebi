@@ -2,6 +2,7 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.people.models import Person
 from apps.students.models import Guardian, StudentGuardianRelation
 from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
@@ -22,15 +23,28 @@ def logged_in_client(client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_create_guardian(logged_in_client):
-    person = PersonFactory()
+    person_count = Person.objects.count()
+    payload = {
+        "person": {
+            "first_name": "Rosa",
+            "last_name": "Garcia",
+            "email": "rosa.garcia@example.test",
+            "phone_number": "55501234",
+        },
+    }
 
-    response = logged_in_client.post(reverse("guardian-list"), {"person": person.pk})
+    response = logged_in_client.post(
+        reverse("guardian-list"), payload, content_type="application/json"
+    )
 
     assert response.status_code == 201
     data = response.json()
-    assert data["person"] == person.pk
     assert data["is_active"] is True
+    assert isinstance(data["person"], dict)
+    assert data["person"]["first_name"] == "Rosa"
+    assert data["person"]["last_name"] == "Garcia"
     assert Guardian.objects.filter(pk=data["id"]).exists()
+    assert Person.objects.count() == person_count + 1
 
 
 @pytest.mark.api
@@ -68,19 +82,19 @@ def test_retrieve_missing_guardian_returns_404(logged_in_client):
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_update_guardian(logged_in_client):
+def test_update_guardian_ignores_nested_person_changes(logged_in_client):
     guardian = GuardianFactory()
     other_person = PersonFactory()
 
     response = logged_in_client.patch(
         reverse("guardian-detail", args=[guardian.pk]),
-        {"person": other_person.pk},
+        {"person": {"first_name": other_person.first_name}},
         content_type="application/json",
     )
 
     assert response.status_code == 200
     guardian.refresh_from_db()
-    assert guardian.person_id == other_person.pk
+    assert guardian.person_id != other_person.pk
 
 
 @pytest.mark.api
@@ -94,18 +108,6 @@ def test_deactivate_guardian_via_delete_is_soft(logged_in_client):
     guardian.refresh_from_db()
     assert guardian.is_active is False
     assert Guardian.objects.filter(pk=guardian.pk).exists()
-
-
-@pytest.mark.api
-@pytest.mark.django_db
-def test_create_guardian_duplicate_person_is_rejected(logged_in_client):
-    existing = GuardianFactory()
-
-    response = logged_in_client.post(reverse("guardian-list"), {"person": existing.person_id})
-
-    assert response.status_code == 400
-    detail = response.json()["error"]["detail"]
-    assert "person" in detail
 
 
 @pytest.mark.api

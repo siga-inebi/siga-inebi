@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.people",
     "apps.identity",
     "apps.students",
+    "apps.teachers",
     "apps.academics",
     "apps.enrolments",
     "apps.audit",
@@ -81,6 +82,8 @@ TEMPLATES = [
 AUTH_USER_MODEL = "identity.UserAccount"
 LOGIN_MAX_FAILED_ATTEMPTS = env_int("LOGIN_MAX_FAILED_ATTEMPTS", 5)
 LOGIN_LOCKOUT_MINUTES = env_int("LOGIN_LOCKOUT_MINUTES", 10)
+ACCOUNT_ACTIVATION_TTL_MINUTES = env_int("ACCOUNT_ACTIVATION_TTL_MINUTES", 15)
+ACCOUNT_ACTIVATION_MAX_ATTEMPTS = env_int("ACCOUNT_ACTIVATION_MAX_ATTEMPTS", 3)
 
 DATABASE_ENGINE = env("DATABASE_ENGINE", "postgresql")
 SQLITE_PATH = env("SQLITE_PATH", "db.sqlite3")
