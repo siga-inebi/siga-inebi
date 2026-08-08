@@ -55,13 +55,40 @@ def student_queryset(*, user, codename, queryset=None, when=None):
     return queryset.filter(allowed).distinct()
 
 
+def guardian_student_queryset(*, user, queryset=None):
+    """Resolve the current student scope derived from a guardian relationship."""
+    queryset = queryset if queryset is not None else Student.objects.all()
+    person = getattr(user, "person", None)
+    guardian = getattr(person, "guardian_profile", None)
+    if guardian is None or not guardian.is_active:
+        return queryset.none()
+
+    return queryset.filter(
+        guardian_relations__guardian=guardian,
+        guardian_relations__is_active=True,
+        guardian_relations__starts_at__lte=timezone.localdate(),
+        guardian_relations__ends_at__isnull=True,
+    ).distinct()
+
+
+def effective_student_queryset(*, user, codename, queryset=None, when=None):
+    queryset = queryset if queryset is not None else Student.objects.all()
+    granted_students = student_queryset(user=user, codename=codename, when=when)
+    guardian_students = guardian_student_queryset(user=user)
+    return queryset.filter(
+        Q(pk__in=granted_students.values("pk")) | Q(pk__in=guardian_students.values("pk"))
+    ).distinct()
+
+
 def authorized_student_queryset(*, user, codename, queryset=None, when=None):
     """Resolve a student queryset or deny when permission or scope is missing."""
     if not user.has_atomic_permission(codename, when=when):
         raise PermissionDenied("Actor lacks the required permission.")
-    if not has_effective_scope_grant(user=user, codename=codename, when=when):
+    guardian_students = guardian_student_queryset(user=user)
+    has_grant_scope = has_effective_scope_grant(user=user, codename=codename, when=when)
+    if not has_grant_scope and not guardian_students.exists():
         raise PermissionDenied("Actor lacks an effective scope grant.")
-    return student_queryset(user=user, codename=codename, queryset=queryset, when=when)
+    return effective_student_queryset(user=user, codename=codename, queryset=queryset, when=when)
 
 
 def can_access_student(*, user, codename, student, when=None):
@@ -78,6 +105,9 @@ def can_access_student(*, user, codename, student, when=None):
 def scope_matches(*, user, codename, scope, when=None):
     if not scope:
         return False
+    student = scope.get("student")
+    if student is not None:
+        return can_access_student(user=user, codename=codename, student=student, when=when)
     return any(
         grant_matches_scope(grant, scope, when=when)
         for grant in active_scope_grants(user=user, codename=codename, when=when)
