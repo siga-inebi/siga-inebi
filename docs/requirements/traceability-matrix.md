@@ -24,33 +24,33 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 
 | Requirement | Issue | Design | Code | Test | Pull Request | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| RF-AUT-001 | TBD | docs/architecture/authorization-model.md | backend/config/api/views.py; frontend/src/pages/LoginPage.jsx; frontend/src/features/auth/AuthContext.jsx | backend/tests/api/test_auth_api.py; frontend/src/test/app.test.jsx | PR #3 | Under Review | Inicio de sesion institucional con sesion y CSRF |
-| RF-AUT-002 | TBD | docs/architecture/authorization-model.md | backend/apps/identity/services.py; backend/apps/identity/serializers.py; backend/config/settings/base.py | backend/tests/api/test_auth_api.py | PR #25 | In Progress | Bloqueo configurable al alcanzar 5 intentos fallidos durante 10 minutos |
-| RF-AUT-004 | TBD | docs/architecture/authorization-model.md | backend/config/api/views.py; frontend/src/layouts/AppLayout.jsx | backend/tests/api/test_auth_api.py | PR #3 | Under Review | Cierre de sesion y anulacion de contexto autenticado |
-| RF-PER-004 | TBD | docs/architecture/authorization-model.md | backend/apps/identity/models.py; backend/config/settings/base.py; backend/config/api/views.py | backend/tests/api/test_auth_api.py; frontend/src/test/app.test.jsx | PR #3 | Under Review | Denegacion por defecto con sesion anonima |
-| RF-ALC-001 | TBD | docs/architecture/authorization-model.md | TBD | TBD | TBD | Planned | Permiso siempre con alcance |
-| RF-CTA-001 | TBD | docs/architecture/authorization-model.md; docs/architecture/api-conventions.md | backend/apps/identity/services.py; backend/apps/identity/api/views.py; backend/apps/identity/management/commands/seed_demo_data.py | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py; backend/tests/integration/test_seed.py | PR #3; PR #41; PR #53 | In Progress | Provision administrativa expuesta por API; activacion final fuera de este corte |
-| RF-CTA-002 | TBD | docs/architecture/initial-data-model.md; docs/architecture/authorization-model.md | backend/apps/identity/services.py; backend/apps/identity/api/serializers.py; backend/apps/identity/management/commands/seed_demo_data.py | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py; backend/tests/integration/test_seed.py | PR #3; PR #41; PR #53 | In Progress | La provision exige una persona institucional existente y unica por cuenta |
-| RF-CTA-003 | TBD | docs/architecture/authorization-model.md; docs/architecture/api-conventions.md | backend/apps/identity/models.py; backend/apps/identity/services.py; backend/apps/identity/api/views.py | backend/tests/api/test_identity_account_provisioning_api.py | PR #3; PR #53 | In Progress | Emision y reemision segura implementadas; consumo del codigo y activacion final quedan fuera de este corte |
-| RF-CTA-006 | TBD | docs/architecture/authorization-model.md; docs/architecture/audit-strategy.md | backend/apps/identity/services.py | backend/tests/permissions/test_identity_permissions.py | TBD | In Progress | Servicio interno de desactivacion administrativa sin borrado fisico; API y verificacion de dependencias quedan fuera de este corte |
-| RF-CIC-001 | TBD | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Registro de ciclo |
-| RF-EST-007 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Secciones |
-| RF-MAT-002 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Matricula |
-| RF-CRE-001 | TBD | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | QR opaco |
-| RF-ASI-010 | TBD | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Idempotencia |
-| RF-JOR-002 | TBD | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Estado diario derivado |
-| RF-JUS-004 | TBD | docs/architecture/data-classification.md | TBD | TBD | TBD | Planned | Resolucion auditable |
-| RF-DOC-006 | TBD | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Auditoria de lectura |
-| RF-BIT-005 | TBD | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Inmutabilidad |
-| RF-CAL-002 | TBD | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Validacion de nota |
-| RF-RES-008 | TBD | docs/architecture/api-conventions.md | TBD | TBD | TBD | Planned | Boleta |
-| RNF-AUD-001 | TBD | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Eventos inmutables |
-| RNF-SEG-003 | TBD | docs/architecture/authorization-model.md; docs/architecture/audit-strategy.md | backend/apps/identity/services.py | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py | PR #53 | In Progress | Auditoria de rechazos de desactivacion, provision, login y reemision de desafios; otros intentos quedan fuera de este corte |
-| RNF-PRI-001 | TBD | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | QR sin PII |
-| RNF-SEG-005 | TBD | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | Descarga segura |
-| RNF-REN-003 | TBD | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | Lotes en worker |
-| RNF-RES-002 | TBD | docs/decisions/pending-decisions.md | TBD | TBD | TBD | Planned | RPO/RTO pendientes |
-| RF-EXP-005 | TBD | docs/architecture/domain-map.md | backend/apps/students/services.py; backend/apps/students/api/{views.py,serializers.py,urls.py,queries.py} | backend/tests/api/test_emergency_contacts_api.py; backend/tests/unit/test_emergency_contact_services.py | PR #TBD | In Progress | Contactos de emergencia (Restricted); auditoria de escritura, sin auditoria de lectura |
+| RF-AUT-001 | #105 | docs/architecture/authorization-model.md | backend/config/api/views.py; frontend/src/pages/LoginPage.jsx; frontend/src/features/auth/AuthContext.jsx | backend/tests/api/test_auth_api.py; frontend/src/test/app.test.jsx | PR #3 | Under Review | Inicio de sesion institucional con sesion y CSRF |
+| RF-AUT-002 | #106 | docs/architecture/authorization-model.md | backend/apps/identity/services.py; backend/apps/identity/serializers.py; backend/config/settings/base.py | backend/tests/api/test_auth_api.py | PR #25 | In Progress | Bloqueo configurable al alcanzar 5 intentos fallidos durante 10 minutos |
+| RF-AUT-004 | #108 | docs/architecture/authorization-model.md | backend/config/api/views.py; frontend/src/layouts/AppLayout.jsx | backend/tests/api/test_auth_api.py | PR #3 | Under Review | Cierre de sesion y anulacion de contexto autenticado |
+| RF-PER-004 | #244 | docs/architecture/authorization-model.md | backend/apps/identity/models.py; backend/config/settings/base.py; backend/config/api/views.py | backend/tests/api/test_auth_api.py; frontend/src/test/app.test.jsx | PR #3 | Under Review | Denegacion por defecto con sesion anonima |
+| RF-ALC-001 | #69 | docs/architecture/authorization-model.md | TBD | TBD | TBD | Planned | Permiso siempre con alcance |
+| RF-CTA-001 | #139 | docs/architecture/authorization-model.md; docs/architecture/api-conventions.md | backend/apps/identity/services.py; backend/apps/identity/api/views.py; backend/apps/identity/management/commands/seed_demo_data.py | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py; backend/tests/integration/test_seed.py | PR #3; PR #41; PR #53 | In Progress | Provision administrativa expuesta por API; activacion final fuera de este corte |
+| RF-CTA-002 | #140 | docs/architecture/initial-data-model.md; docs/architecture/authorization-model.md | backend/apps/identity/services.py; backend/apps/identity/api/serializers.py; backend/apps/identity/management/commands/seed_demo_data.py | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py; backend/tests/integration/test_seed.py | PR #3; PR #41; PR #53 | In Progress | La provision exige una persona institucional existente y unica por cuenta |
+| RF-CTA-003 | #141 | docs/architecture/authorization-model.md; docs/architecture/api-conventions.md | backend/apps/identity/models.py; backend/apps/identity/services.py; backend/apps/identity/api/views.py | backend/tests/api/test_identity_account_provisioning_api.py | PR #3; PR #53 | In Progress | Emision y reemision segura implementadas; consumo del codigo y activacion final quedan fuera de este corte |
+| RF-CTA-006 | #144 | docs/architecture/authorization-model.md; docs/architecture/audit-strategy.md | backend/apps/identity/services.py | backend/tests/permissions/test_identity_permissions.py | TBD | In Progress | Servicio interno de desactivacion administrativa sin borrado fisico; API y verificacion de dependencias quedan fuera de este corte |
+| RF-CIC-001 | #126 | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Registro de ciclo |
+| RF-EST-007 | #171 | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Secciones |
+| RF-MAT-002 | #226 | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Matricula |
+| RF-CRE-001 | #133 | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | QR opaco |
+| RF-ASI-010 | #94 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Idempotencia |
+| RF-JOR-002 | #206 | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Estado diario derivado |
+| RF-JUS-004 | #219 | docs/architecture/data-classification.md | TBD | TBD | TBD | Planned | Resolucion auditable |
+| RF-DOC-006 | #151 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Auditoria de lectura |
+| RF-BIT-005 | #115 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Inmutabilidad |
+| RF-CAL-002 | #119 | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Validacion de nota |
+| RF-RES-008 | #262 | docs/architecture/api-conventions.md | TBD | TBD | TBD | Planned | Boleta |
+| RNF-AUD-001 | #264 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Eventos inmutables |
+| RNF-SEG-003 | #294 | docs/architecture/authorization-model.md; docs/architecture/audit-strategy.md | backend/apps/identity/services.py | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py | PR #53 | In Progress | Auditoria de rechazos de desactivacion, provision, login y reemision de desafios; otros intentos quedan fuera de este corte |
+| RNF-PRI-001 | #280 | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | QR sin PII |
+| RNF-SEG-005 | #296 | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | Descarga segura |
+| RNF-REN-003 | #287 | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | Lotes en worker |
+| RNF-RES-002 | #290 | docs/decisions/pending-decisions.md | TBD | TBD | TBD | Planned | RPO/RTO pendientes |
+| RF-EXP-005 | #189 | docs/architecture/domain-map.md | backend/apps/students/services.py; backend/apps/students/api/{views.py,serializers.py,urls.py,queries.py} | backend/tests/api/test_emergency_contacts_api.py; backend/tests/unit/test_emergency_contact_services.py | PR #57 | In Progress | Contactos de emergencia (Restricted); auditoria de escritura, sin auditoria de lectura |
 
 ## Mantenimiento
 
