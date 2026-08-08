@@ -32,31 +32,26 @@ class UserAccount(AbstractUser):
         return bool(self.locked_until and self.locked_until > timezone.now())
 
     def has_atomic_permission(self, codename, when=None):
-        return self.has_scoped_permission(codename, when=when)
-
-    def has_scoped_permission(self, codename, *, scope=None, when=None):
         when = when or timezone.now()
         if not self.is_active or self.status != self.AccountStatus.ACTIVE or self.is_locked():
             return False
-
-        assignments = (
+        return (
             RoleAssignment.objects.active_at(when)
             .filter(
+                is_active=True,
                 user=self,
                 role__permissions__codename=codename,
             )
-            .prefetch_related("scope_grants")
+            .exists()
         )
-        if not scope:
-            return assignments.exists()
 
-        for assignment in assignments:
-            grants = [grant for grant in assignment.scope_grants.all() if grant.is_active_at(when)]
-            if not grants:
-                return True
-            if any(grant.matches(scope, when=when) for grant in grants):
-                return True
-        return False
+    def has_scoped_permission(self, codename, *, scope=None, when=None):
+        if not scope or not self.has_atomic_permission(codename, when=when):
+            return False
+
+        from apps.identity.scopes import scope_matches
+
+        return scope_matches(user=self, codename=codename, scope=scope, when=when)
 
 
 class ActivationChallenge(TimeStampedModel):
@@ -123,6 +118,17 @@ class RoleAssignment(TimeStampedModel):
 
 
 class ScopeGrant(TimeStampedModel):
+    SCOPE_FIELDS = (
+        "institution",
+        "academic_cycle",
+        "grade",
+        "section",
+        "subject",
+        "teaching_assignment",
+        "student",
+        "module_key",
+    )
+
     assignment = models.ForeignKey(
         RoleAssignment,
         on_delete=models.CASCADE,
@@ -159,32 +165,16 @@ class ScopeGrant(TimeStampedModel):
     ends_at = models.DateTimeField(null=True, blank=True)
 
     def is_active_at(self, when):
-        return self.starts_at <= when and (self.ends_at is None or self.ends_at >= when)
+        return (
+            self.is_active
+            and self.starts_at <= when
+            and (self.ends_at is None or self.ends_at >= when)
+        )
+
+    def has_effective_scope(self):
+        return any(getattr(self, field_name) not in (None, "") for field_name in self.SCOPE_FIELDS)
 
     def matches(self, scope, *, when=None):
-        when = when or timezone.now()
-        if not self.is_active_at(when):
-            return False
+        from apps.identity.scopes import grant_matches_scope
 
-        field_names = [
-            "institution",
-            "academic_cycle",
-            "grade",
-            "section",
-            "subject",
-            "teaching_assignment",
-            "student",
-            "module_key",
-        ]
-        for field_name in field_names:
-            expected = scope.get(field_name)
-            if expected in (None, ""):
-                continue
-            current = getattr(self, field_name)
-            if hasattr(expected, "pk"):
-                expected = expected.pk
-            if hasattr(current, "pk"):
-                current = current.pk
-            if current != expected:
-                return False
-        return True
+        return grant_matches_scope(self, scope, when=when)
