@@ -24,10 +24,29 @@ class StudentListCreateView(generics.ListCreateAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
 
+    def get_queryset(self):
+        from apps.identity.scopes import authorized_student_queryset
+
+        return authorized_student_queryset(
+            user=self.request.user,
+            codename="student_view_basic",
+            queryset=super().get_queryset(),
+        )
+
 
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Student.objects.all()
     serializer_class = StudentSerializer
+
+    def get_queryset(self):
+        from apps.identity.scopes import authorized_student_queryset
+
+        codename = "student_view_basic" if self.request.method == "GET" else "student_edit_basic"
+        return authorized_student_queryset(
+            user=self.request.user,
+            codename=codename,
+            queryset=super().get_queryset(),
+        )
 
     def perform_destroy(self, instance):
         deactivate_student(student=instance, actor=self.request.user)
