@@ -20,9 +20,10 @@ def test_contextual_permission_without_scope_is_denied():
 
     assert user.has_atomic_permission("student_view_basic") is True
     assert user.has_scoped_permission("student_view_basic") is False
-    assert user.has_scoped_permission(
-        "student_view_basic", scope={"student": StudentFactory()}
-    ) is False
+    assert (
+        user.has_scoped_permission("student_view_basic", scope={"student": StudentFactory()})
+        is False
+    )
 
 
 @pytest.mark.permissions
@@ -43,12 +44,8 @@ def test_institution_scope_matches_students_enrolled_in_its_sections():
 def test_role_scopes_are_union_of_active_grants():
     permission = PermissionFactory(codename="student_view_basic")
     user = UserFactory()
-    first_assignment = RoleAssignmentFactory(
-        user=user, role=RoleFactory(permissions=[permission])
-    )
-    second_assignment = RoleAssignmentFactory(
-        user=user, role=RoleFactory(permissions=[permission])
-    )
+    first_assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    second_assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
     first_student = StudentFactory()
     second_student = StudentFactory()
     ScopeGrantFactory(assignment=first_assignment, student=first_student)
