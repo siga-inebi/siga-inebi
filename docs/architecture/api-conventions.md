@@ -60,3 +60,17 @@
   principal.
 - `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
   Debe incluir `replacement_relation` al terminar la relacion principal.
+
+## Administracion de roles
+
+- `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.
+- `POST /api/v1/identity/roles/` crea un rol configurable.
+- `PATCH /api/v1/identity/roles/{role_id}/` modifica nombre, descripcion o permisos; el `slug`
+  permanece estable despues de crear el rol.
+- `POST /api/v1/identity/accounts/{account_id}/role-assignments/` asigna un rol con vigencia.
+- `DELETE /api/v1/identity/role-assignments/{assignment_id}/` finaliza la vigencia sin borrar
+  historial.
+- Todos requieren sesion y `role.assign`, o condicion de superusuario.
+- Permisos de entrada y salida usan codigos publicos con punto.
+- Cambios de composicion y vigencia generan eventos auditables y aplican en la siguiente
+  evaluacion de permisos de cualquier sesion activa.
