@@ -1,7 +1,9 @@
+from django.core.exceptions import PermissionDenied
 from rest_framework import generics, permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from apps.identity.scopes import authorized_student_queryset
 from apps.students import services
 from apps.students.api import queries
 from apps.students.api.serializers import (
@@ -9,11 +11,13 @@ from apps.students.api.serializers import (
     EmergencyContactSerializer,
     EmergencyContactUpdateSerializer,
     GuardianSerializer,
+    StudentGuardianRelationEndSerializer,
     StudentGuardianRelationSerializer,
     StudentSerializer,
 )
 from apps.students.models import Guardian, Student, StudentGuardianRelation
 from apps.students.services import (
+    change_primary_student_guardian_relation,
     deactivate_guardian,
     deactivate_student,
     end_student_guardian_relation,
@@ -25,8 +29,6 @@ class StudentListCreateView(generics.ListCreateAPIView):
     serializer_class = StudentSerializer
 
     def get_queryset(self):
-        from apps.identity.scopes import authorized_student_queryset
-
         return authorized_student_queryset(
             user=self.request.user,
             codename="student_view_basic",
@@ -39,8 +41,6 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = StudentSerializer
 
     def get_queryset(self):
-        from apps.identity.scopes import authorized_student_queryset
-
         codename = "student_view_basic" if self.request.method == "GET" else "student_edit_basic"
         return authorized_student_queryset(
             user=self.request.user,
@@ -69,13 +69,92 @@ class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
     queryset = StudentGuardianRelation.objects.all()
     serializer_class = StudentGuardianRelationSerializer
 
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                student__in=authorized_student_queryset(
+                    user=self.request.user,
+                    codename="student_view_basic",
+                )
+            )
+        )
 
-class StudentGuardianRelationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    def perform_create(self, serializer):
+        student = serializer.validated_data["student"]
+        if not self.request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": student}
+        ):
+            raise PermissionDenied("Actor lacks the required permission or student scope.")
+        serializer.save()
+
+
+class StudentGuardianRelationDetailView(generics.RetrieveAPIView):
     queryset = StudentGuardianRelation.objects.all()
     serializer_class = StudentGuardianRelationSerializer
 
-    def perform_destroy(self, instance):
-        end_student_guardian_relation(relation=instance, actor=self.request.user)
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                student__in=authorized_student_queryset(
+                    user=self.request.user,
+                    codename="student_view_basic",
+                )
+            )
+        )
+
+
+class StudentGuardianRelationPrimaryView(GenericAPIView):
+    queryset = StudentGuardianRelation.objects.all()
+    serializer_class = StudentGuardianRelationSerializer
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                student__in=authorized_student_queryset(
+                    user=self.request.user,
+                    codename="student_edit_basic",
+                )
+            )
+        )
+
+    def post(self, request, pk):
+        relation = self.get_object()
+        relation = change_primary_student_guardian_relation(relation=relation, actor=request.user)
+        return Response(self.get_serializer(relation).data)
+
+
+class StudentGuardianRelationEndView(GenericAPIView):
+    queryset = StudentGuardianRelation.objects.all()
+    serializer_class = StudentGuardianRelationEndSerializer
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                student__in=authorized_student_queryset(
+                    user=self.request.user,
+                    codename="student_edit_basic",
+                )
+            )
+        )
+
+    def post(self, request, pk):
+        relation = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        relation = end_student_guardian_relation(
+            relation=relation,
+            actor=request.user,
+            replacement_relation=serializer.validated_data.get("replacement_relation"),
+        )
+        return Response(StudentGuardianRelationSerializer(relation).data)
 
 
 # --------------------------------------------------------------------------- #
