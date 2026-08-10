@@ -16,6 +16,8 @@ Uniqueness is delegated to the database constraints and translated back into a
 would leave a window for two concurrent requests to both pass the check.
 """
 
+from datetime import timedelta
+
 from django.db import transaction
 
 from apps.academics.models import (
@@ -27,10 +29,12 @@ from apps.academics.models import (
     LevelSubject,
     Shift,
     Subject,
+    TeachingAssignment,
 )
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
+from apps.teachers.models import Teacher
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -501,3 +505,134 @@ def unlink_subject_from_level(*, level, subject, actor=None):
         subject_id=subject.pk,
     )
     link.delete()
+
+
+# --------------------------------------------------------------------------- #
+# teaching assignments
+# --------------------------------------------------------------------------- #
+
+
+def _teaching_assignment_conflicts():
+    return {
+        "teaching_assignment_no_overlapping_period": (
+            "Another teacher is already assigned to this section and subject for that period."
+        ),
+    }
+
+
+def _teacher_profile_for(person):
+    try:
+        teacher = person.teacher_profile
+    except Teacher.DoesNotExist as exc:
+        raise DomainError("Teacher must have an active Teacher profile.") from exc
+    if not teacher.is_active:
+        raise DomainError("Teacher must have an active Teacher profile.")
+    return teacher
+
+
+def _validate_teaching_assignment(*, academic_cycle, section, subject, teacher, starts_on, ends_on):
+    if section.offering.academic_cycle_id != academic_cycle.id:
+        raise DomainError("Section must belong to the academic cycle.")
+    if subject.institution_id != academic_cycle.institution_id:
+        raise DomainError("Subject must belong to the academic cycle institution.")
+    _teacher_profile_for(teacher)
+
+    if starts_on < academic_cycle.starts_on or starts_on > academic_cycle.ends_on:
+        raise DomainError("Assignment start date must be within the academic cycle.")
+    if ends_on is not None:
+        if ends_on < academic_cycle.starts_on or ends_on > academic_cycle.ends_on:
+            raise DomainError("Assignment end date must be within the academic cycle.")
+        if ends_on < starts_on:
+            raise DomainError("Assignment end date cannot be before its start date.")
+
+
+@transaction.atomic
+def create_teaching_assignment(
+    *, academic_cycle, section, subject, teacher, starts_on=None, actor=None
+):
+    """Create the single current assignment for a cycle, section, and subject."""
+    starts_on = starts_on or academic_cycle.starts_on
+    _validate_teaching_assignment(
+        academic_cycle=academic_cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher,
+        starts_on=starts_on,
+        ends_on=None,
+    )
+
+    with unique_violation_as(_teaching_assignment_conflicts()):
+        assignment = TeachingAssignment.objects.create(
+            academic_cycle=academic_cycle,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            starts_on=starts_on,
+        )
+
+    _audit(
+        actor,
+        "academics.teaching_assignment.created",
+        assignment,
+        academic_cycle_id=academic_cycle.pk,
+        section_id=section.pk,
+        subject_id=subject.pk,
+        teacher_id=teacher.pk,
+        starts_on=starts_on.isoformat(),
+    )
+    return assignment
+
+
+@transaction.atomic
+def reassign_teaching_assignment(*, assignment, teacher, ends_on, actor=None):
+    """Close a current assignment and open its successor on the following day."""
+    assignment = (
+        TeachingAssignment.objects.select_for_update()
+        .select_related("academic_cycle", "section", "subject", "teacher")
+        .get(pk=assignment.pk)
+    )
+    academic_cycle = assignment.academic_cycle
+
+    if assignment.ends_on is not None:
+        raise DomainError("Only the current teaching assignment can be reassigned.")
+    if assignment.teacher_id == teacher.id:
+        raise DomainError("Reassignment requires a different teacher.")
+    if ends_on < academic_cycle.starts_on or ends_on > academic_cycle.ends_on:
+        raise DomainError("Assignment end date must be within the academic cycle.")
+    if ends_on < assignment.starts_on:
+        raise DomainError("Reassignment end date cannot be before the current assignment starts.")
+
+    new_starts_on = ends_on + timedelta(days=1)
+    if new_starts_on > academic_cycle.ends_on:
+        raise DomainError("Reassignment end date must leave at least one day for the successor.")
+    _validate_teaching_assignment(
+        academic_cycle=academic_cycle,
+        section=assignment.section,
+        subject=assignment.subject,
+        teacher=teacher,
+        starts_on=new_starts_on,
+        ends_on=None,
+    )
+
+    assignment.ends_on = ends_on
+    assignment.save(update_fields=["ends_on", "updated_at"])
+    with unique_violation_as(_teaching_assignment_conflicts()):
+        successor = TeachingAssignment.objects.create(
+            academic_cycle=academic_cycle,
+            section=assignment.section,
+            subject=assignment.subject,
+            teacher=teacher,
+            starts_on=new_starts_on,
+        )
+
+    _audit(
+        actor,
+        "academics.teaching_assignment.reassigned",
+        successor,
+        previous_assignment_id=assignment.pk,
+        previous_teacher_id=assignment.teacher_id,
+        teacher_id=teacher.pk,
+        ends_on=ends_on.isoformat(),
+        starts_on=new_starts_on.isoformat(),
+    )
+    return successor

@@ -4,7 +4,13 @@ from django.utils import timezone
 
 from apps.people.models import Person
 from apps.students.models import Guardian, StudentGuardianRelation
-from tests.factories.identity import UserFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+    UserFactory,
+)
 from tests.factories.people import PersonFactory
 from tests.factories.students import (
     GuardianFactory,
@@ -17,7 +23,14 @@ from tests.factories.students import (
 def logged_in_client(client):
     user = UserFactory(password="test-pass-123")
     client.login(username=user.username, password="test-pass-123")
+    client.user = user
     return client
+
+
+def _grant_student_permission(user, codename, student):
+    permission = PermissionFactory(codename=codename)
+    assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    return ScopeGrantFactory(assignment=assignment, student=student)
 
 
 @pytest.mark.api
@@ -123,6 +136,7 @@ def test_unauthenticated_request_to_guardian_list_is_rejected(client):
 def test_create_student_guardian_relation(logged_in_client):
     student = StudentFactory()
     guardian = GuardianFactory()
+    _grant_student_permission(logged_in_client.user, "student_edit_basic", student)
 
     response = logged_in_client.post(
         reverse("student-guardian-relation-list"),
@@ -130,7 +144,6 @@ def test_create_student_guardian_relation(logged_in_client):
             "student": student.pk,
             "guardian": guardian.pk,
             "relationship_label": "Madre",
-            "is_primary": True,
         },
     )
 
@@ -147,7 +160,14 @@ def test_create_student_guardian_relation(logged_in_client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_list_student_guardian_relations_is_paginated(logged_in_client):
-    StudentGuardianRelationFactory.create_batch(3)
+    relations = StudentGuardianRelationFactory.create_batch(3)
+    scope_grant = _grant_student_permission(
+        logged_in_client.user,
+        "student_view_basic",
+        relations[0].student,
+    )
+    for relation in relations[1:]:
+        ScopeGrantFactory(assignment=scope_grant.assignment, student=relation.student)
 
     response = logged_in_client.get(reverse("student-guardian-relation-list"))
 
@@ -162,6 +182,7 @@ def test_list_student_guardian_relations_is_paginated(logged_in_client):
 @pytest.mark.django_db
 def test_retrieve_student_guardian_relation(logged_in_client):
     relation = StudentGuardianRelationFactory()
+    _grant_student_permission(logged_in_client.user, "student_view_basic", relation.student)
 
     response = logged_in_client.get(reverse("student-guardian-relation-detail", args=[relation.pk]))
 
@@ -172,6 +193,8 @@ def test_retrieve_student_guardian_relation(logged_in_client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_retrieve_missing_student_guardian_relation_returns_404(logged_in_client):
+    _grant_student_permission(logged_in_client.user, "student_view_basic", StudentFactory())
+
     response = logged_in_client.get(reverse("student-guardian-relation-detail", args=[999999]))
 
     assert response.status_code == 404
@@ -179,7 +202,7 @@ def test_retrieve_missing_student_guardian_relation_returns_404(logged_in_client
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_update_student_guardian_relation(logged_in_client):
+def test_direct_student_guardian_relation_update_is_not_available(logged_in_client):
     relation = StudentGuardianRelationFactory(relationship_label="Padre")
 
     response = logged_in_client.patch(
@@ -188,24 +211,73 @@ def test_update_student_guardian_relation(logged_in_client):
         content_type="application/json",
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 405
     relation.refresh_from_db()
-    assert relation.relationship_label == "Tutor"
+    assert relation.relationship_label == "Padre"
 
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_ending_student_guardian_relation_via_delete_sets_ends_at(logged_in_client):
+def test_ending_primary_student_guardian_relation_requires_replacement(logged_in_client):
     relation = StudentGuardianRelationFactory(ends_at=None)
+    _grant_student_permission(logged_in_client.user, "student_edit_basic", relation.student)
 
-    response = logged_in_client.delete(
-        reverse("student-guardian-relation-detail", args=[relation.pk])
+    response = logged_in_client.post(
+        reverse("student-guardian-relation-end", args=[relation.pk]),
+        content_type="application/json",
     )
 
-    assert response.status_code == 204
+    assert response.status_code == 400
     relation.refresh_from_db()
-    assert relation.ends_at == timezone.localdate()
+    assert relation.ends_at is None
     assert StudentGuardianRelation.objects.filter(pk=relation.pk).exists()
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_end_student_guardian_relation_with_replacement(logged_in_client):
+    relation = StudentGuardianRelationFactory(ends_at=None)
+    replacement = StudentGuardianRelationFactory(
+        student=relation.student,
+        is_primary=False,
+        ends_at=None,
+    )
+    _grant_student_permission(logged_in_client.user, "student_edit_basic", relation.student)
+
+    response = logged_in_client.post(
+        reverse("student-guardian-relation-end", args=[relation.pk]),
+        {"replacement_relation": replacement.pk},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    relation.refresh_from_db()
+    replacement.refresh_from_db()
+    assert relation.ends_at == timezone.localdate()
+    assert relation.is_primary is False
+    assert replacement.is_primary is True
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_make_student_guardian_relation_primary(logged_in_client):
+    current_primary = StudentGuardianRelationFactory(ends_at=None)
+    relation = StudentGuardianRelationFactory(
+        student=current_primary.student,
+        is_primary=False,
+        ends_at=None,
+    )
+    _grant_student_permission(logged_in_client.user, "student_edit_basic", relation.student)
+
+    response = logged_in_client.post(
+        reverse("student-guardian-relation-make-primary", args=[relation.pk]),
+    )
+
+    assert response.status_code == 200
+    current_primary.refresh_from_db()
+    relation.refresh_from_db()
+    assert current_primary.is_primary is False
+    assert relation.is_primary is True
 
 
 @pytest.mark.api
@@ -233,3 +305,55 @@ def test_unauthenticated_request_to_relation_list_is_rejected(client):
     response = client.get(reverse("student-guardian-relation-list"))
 
     assert response.status_code == 403
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_relation_list_and_detail_require_student_view_scope(logged_in_client):
+    allowed_relation = StudentGuardianRelationFactory()
+    denied_relation = StudentGuardianRelationFactory()
+
+    assert logged_in_client.get(reverse("student-guardian-relation-list")).status_code == 403
+
+    _grant_student_permission(
+        logged_in_client.user,
+        "student_view_basic",
+        allowed_relation.student,
+    )
+    response = logged_in_client.get(reverse("student-guardian-relation-list"))
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["results"][0]["id"] == allowed_relation.pk
+    assert (
+        logged_in_client.get(
+            reverse("student-guardian-relation-detail", args=[denied_relation.pk])
+        ).status_code
+        == 404
+    )
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_relation_mutations_require_student_edit_scope(logged_in_client):
+    relation = StudentGuardianRelationFactory()
+    guardian = GuardianFactory()
+
+    create_response = logged_in_client.post(
+        reverse("student-guardian-relation-list"),
+        {
+            "student": relation.student_id,
+            "guardian": guardian.pk,
+            "relationship_label": "Tutor",
+        },
+    )
+    primary_response = logged_in_client.post(
+        reverse("student-guardian-relation-make-primary", args=[relation.pk]),
+    )
+    end_response = logged_in_client.post(
+        reverse("student-guardian-relation-end", args=[relation.pk]),
+    )
+
+    assert create_response.status_code == 403
+    assert primary_response.status_code == 403
+    assert end_response.status_code == 403
