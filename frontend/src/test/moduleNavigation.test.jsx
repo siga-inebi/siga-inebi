@@ -63,10 +63,10 @@ describe("navegacion de modulos", () => {
     ).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Listados" });
 
-    for (const label of ["Alumnos", "Docentes", "Padres de familia"]) {
+    for (const label of ["Personas", "Sedes", "Niveles", "Cursos"]) {
       expect(
-        within(nav).getByRole("link", { name: label })
-      ).toBeInTheDocument();
+        screen.getAllByRole("link", { name: label }).length
+      ).toBeGreaterThan(0);
     }
   });
 

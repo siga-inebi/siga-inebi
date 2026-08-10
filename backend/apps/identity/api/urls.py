@@ -1,8 +1,13 @@
 from django.urls import path
 
-from apps.identity.api.views import AccountProvisionView, ActivationChallengeReissueView
+from apps.identity.api.views import (
+    AccountProvisionView,
+    ActivationChallengeReissueView,
+    AtomicPermissionListView,
+)
 
 urlpatterns = [
+    path("permissions/", AtomicPermissionListView.as_view(), name="identity-permission-list"),
     path("accounts/", AccountProvisionView.as_view(), name="identity-account-provision"),
     path(
         "accounts/<int:account_id>/activation-challenges/",

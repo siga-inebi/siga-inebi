@@ -128,6 +128,9 @@ Las pruebas en `backend/tests/permissions/test_identity_permissions.py` y
 - `enrollment.create`
 - `enrollment.update`
 - `attendance.scan`
+- `attendance.record_entry`
+- `attendance.record_exit`
+- `attendance.declared_close`
 - `attendance.record_manual`
 - `attendance.justification.request`
 - `attendance.justification.resolve`

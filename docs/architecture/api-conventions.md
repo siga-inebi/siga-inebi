@@ -41,6 +41,13 @@
 - Ambos endpoints requieren sesion; los servicios de dominio exigen respectivamente
   `account.create` y `account.activate`.
 
+## Catalogo de permisos atomicos
+
+- `GET /api/v1/identity/permissions/` devuelve el catalogo paginado de permisos atomicos.
+- Requiere sesion y el permiso administrativo logico `role.assign`, representado en Django por
+  `role_assign`; los superusuarios tambien pueden consultarlo.
+- La respuesta publica usa codigos con punto, por ejemplo `attendance.record_entry`.
+- La consulta exitosa y el intento autenticado denegado generan eventos de auditoria.
 ## Relaciones estudiante-encargado
 
 - `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por

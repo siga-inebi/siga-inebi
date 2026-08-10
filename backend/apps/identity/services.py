@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied
 from django.core.signing import salted_hmac
 from django.db import transaction
@@ -10,12 +11,42 @@ from django.utils import timezone
 
 from apps.audit.services import record_event
 from apps.common.models import DomainError
+from apps.identity.atomic_permissions import ATOMIC_PERMISSION_CODENAMES
 from apps.identity.models import ActivationChallenge, RoleAssignment, ScopeGrant
 
 ACCOUNT_DISABLE_PERMISSION = "account_disable"
 ACCOUNT_CREATE_PERMISSION = "account_create"
 ACCOUNT_ACTIVATE_PERMISSION = "account_activate"
 ACTIVATION_CODE_DIGITS = 8
+PERMISSION_CATALOG_READ_PERMISSION = "role_assign"
+
+
+def list_atomic_permissions(*, actor):
+    is_authorized = bool(
+        actor
+        and (actor.is_superuser or actor.has_atomic_permission(PERMISSION_CATALOG_READ_PERMISSION))
+    )
+    if not is_authorized:
+        record_event(
+            actor=actor,
+            action="identity.permission_catalog.read_denied",
+            resource="Permission",
+            context={"result": "denied", "reason": "missing_permission"},
+        )
+        raise PermissionDenied("Actor lacks permission to read the permission catalog.")
+
+    permissions = Permission.objects.filter(
+        content_type__app_label="identity",
+        content_type__model="role",
+        codename__in=ATOMIC_PERMISSION_CODENAMES,
+    ).order_by("codename")
+    record_event(
+        actor=actor,
+        action="identity.permission_catalog.read",
+        resource="Permission",
+        context={"result": "success", "permission_count": permissions.count()},
+    )
+    return permissions
 
 
 class InvalidCredentialsError(Exception):
