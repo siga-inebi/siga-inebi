@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.people.api.serializers import PersonSerializer
 from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
-from apps.students.services import create_guardian, create_student
+from apps.students.services import create_guardian, create_student, create_student_guardian_relation
 
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a parent record
@@ -89,7 +89,26 @@ class StudentGuardianRelationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "ends_at", "is_active", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "is_primary",
+            "ends_at",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+    def create(self, validated_data):
+        actor = getattr(self.context.get("request"), "user", None)
+        return create_student_guardian_relation(actor=actor, **validated_data)
+
+
+class StudentGuardianRelationEndSerializer(serializers.Serializer):
+    replacement_relation = serializers.PrimaryKeyRelatedField(
+        queryset=StudentGuardianRelation.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
 
 class EmergencyContactSerializer(serializers.ModelSerializer):

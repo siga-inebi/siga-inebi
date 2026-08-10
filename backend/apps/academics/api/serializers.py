@@ -1,6 +1,14 @@
 from rest_framework import serializers
 
-from apps.academics.models import Campus, Grade, Level, LevelSubject, Shift, Subject
+from apps.academics.models import (
+    Campus,
+    Grade,
+    Level,
+    LevelSubject,
+    Shift,
+    Subject,
+    TeachingAssignment,
+)
 
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a catalogue node
@@ -208,3 +216,45 @@ class LevelSubjectCreateSerializer(serializers.Serializer):
 class LevelSubjectUpdateSerializer(serializers.Serializer):
     is_required = serializers.BooleanField(required=False)
     weekly_hours = serializers.IntegerField(min_value=0, required=False)
+
+
+# --------------------------------------------------------------------------- #
+# teaching assignments
+# --------------------------------------------------------------------------- #
+
+
+class TeachingAssignmentSerializer(serializers.ModelSerializer):
+    academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
+    section_id = serializers.UUIDField(source="section.public_id", read_only=True)
+    subject_id = serializers.UUIDField(source="subject.public_id", read_only=True)
+    teacher_id = serializers.UUIDField(source="teacher.teacher_profile.public_id", read_only=True)
+
+    class Meta:
+        model = TeachingAssignment
+        fields = [
+            "public_id",
+            "academic_cycle_id",
+            "section_id",
+            "subject_id",
+            "teacher_id",
+            "starts_on",
+            "ends_on",
+        ]
+
+
+class TeachingAssignmentCreateSerializer(serializers.Serializer):
+    academic_cycle_id = serializers.UUIDField(help_text="Public ID del ciclo escolar.")
+    section_id = serializers.UUIDField(help_text="Public ID de la seccion.")
+    subject_id = serializers.UUIDField(help_text="Public ID del curso.")
+    teacher_id = serializers.UUIDField(help_text="Public ID del perfil Teacher activo.")
+    starts_on = serializers.DateField(
+        required=False,
+        help_text="Fecha de inicio dentro del ciclo. Por defecto, inicia en la fecha del ciclo.",
+    )
+
+
+class TeachingAssignmentReassignSerializer(serializers.Serializer):
+    teacher_id = serializers.UUIDField(help_text="Public ID del nuevo perfil Teacher activo.")
+    ends_on = serializers.DateField(
+        help_text="Ultimo dia inclusivo del docente vigente; el nuevo inicia al dia siguiente."
+    )
