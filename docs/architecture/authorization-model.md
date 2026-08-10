@@ -74,6 +74,9 @@ RoleAssignment -> ScopeGrant
 - `enrollment.create`
 - `enrollment.update`
 - `attendance.scan`
+- `attendance.record_entry`
+- `attendance.record_exit`
+- `attendance.declared_close`
 - `attendance.record_manual`
 - `attendance.justification.request`
 - `attendance.justification.resolve`

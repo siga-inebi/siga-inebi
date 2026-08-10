@@ -9,12 +9,26 @@ from rest_framework.response import Response
 from apps.identity.api.serializers import (
     AccountProvisionSerializer,
     ActivationChallengeSerializer,
+    AtomicPermissionSerializer,
     ProvisionedAccountSerializer,
 )
 from apps.identity.services import (
+    list_atomic_permissions,
     provision_account_with_activation,
     reissue_activation_challenge,
 )
+
+
+class AtomicPermissionListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AtomicPermissionSerializer
+
+    @extend_schema(responses={200: AtomicPermissionSerializer(many=True)})
+    def get(self, request):
+        queryset = list_atomic_permissions(actor=request.user)
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
 
 class AccountProvisionView(GenericAPIView):

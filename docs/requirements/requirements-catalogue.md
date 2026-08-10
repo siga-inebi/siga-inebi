@@ -156,7 +156,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ALC-007 | Asociacion principal del estudiante | Deberia | identity-access | Not implemented | #75 | TBD | Ambiguo |
 | RF-ALC-008 | Corte total al terminar la asociacion | Debe | identity-access | Not implemented | #76 | TBD | Seguridad |
 | RF-ALC-009 | Union de alcances en cuentas con varios roles | Debe | identity-access | Not implemented | #77 | TBD | Regla base |
-| RF-PER-001 | Catalogo de permisos atomicos | Debe | identity-access | Not implemented | #241 | TBD | Base authz |
+| RF-PER-001 | Catalogo de permisos atomicos | Debe | identity-access | Implemented | #241 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_permission_catalog_api.py | Catalogo administrativo auditable con acciones atomicas diferenciadas |
 | RF-PER-002 | Roles como agrupacion de permisos | Debe | identity-access | Not implemented | #242 | TBD | Base authz |
 | RF-PER-003 | Asignacion de multiples roles | Debe | identity-access | Not implemented | #243 | TBD | Base authz |
 | RF-PER-004 | Denegacion por defecto | Debe | identity-access | Not implemented | #244 | TBD | Base authz |
