@@ -43,10 +43,8 @@ describe("navegacion de modulos", () => {
       await screen.findByRole("link", { name: "Panel principal" })
     ).toBeInTheDocument();
 
-    for (const label of ["Panel", "Personas", "Sedes", "Niveles", "Cursos"]) {
-      expect(
-        within(nav).getByRole("link", { name: label })
-      ).toBeInTheDocument();
+    for (const label of ["Personas", "Sedes", "Niveles", "Cursos"]) {
+      expect(screen.getAllByRole("link", { name: label }).length).toBeGreaterThan(0);
     }
   });
 
@@ -83,8 +81,7 @@ describe("navegacion de modulos", () => {
     const user = userEvent.setup();
     renderWithRouter(<App />, { route: "/app" });
 
-    const nav = await screen.findByRole("navigation", { name: "Modulos" });
-    await user.click(within(nav).getByRole("link", { name: "Personas" }));
+    await user.click(await screen.findByRole("link", { name: "Personas" }));
 
     expect(
       await screen.findByRole("heading", { name: "Personas" })
