@@ -44,7 +44,9 @@ describe("navegacion de modulos", () => {
     ).toBeInTheDocument();
 
     for (const label of ["Personas", "Sedes", "Niveles", "Cursos"]) {
-      expect(screen.getAllByRole("link", { name: label }).length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByRole("link", { name: label }).length
+      ).toBeGreaterThan(0);
     }
   });
 
