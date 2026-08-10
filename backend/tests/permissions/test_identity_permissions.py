@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import pytest
 from django.core.exceptions import PermissionDenied
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.academics.services import create_teaching_assignment, reassign_teaching_assignment
@@ -44,12 +45,44 @@ def test_default_deny_without_assignments():
 
 @pytest.mark.permissions
 @pytest.mark.django_db
+def test_permission_without_explicit_scope_is_denied():
+    permission = PermissionFactory(codename="student_view_basic")
+    assignment = RoleAssignmentFactory(
+        role=RoleFactory(permissions=[permission]),
+        identity_scope=False,
+    )
+
+    assert (
+        assignment.user.has_scoped_permission(
+            "student_view_basic",
+            scope={"module_key": "students"},
+        )
+        is False
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db(transaction=True)
+def test_database_rejects_active_scope_grant_without_dimension():
+    assignment = RoleAssignmentFactory(identity_scope=False)
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        ScopeGrantFactory(assignment=assignment)
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
 def test_role_groups_permission():
     permission = PermissionFactory(codename="student_view_basic")
     role = RoleFactory(permissions=[permission])
     assignment = RoleAssignmentFactory(role=role)
 
-    assert assignment.user.has_atomic_permission("student_view_basic") is True
+    assert (
+        assignment.user.has_scoped_permission(
+            "student_view_basic", scope={"module_key": "identity"}
+        )
+        is True
+    )
 
 
 @pytest.mark.permissions
@@ -61,8 +94,10 @@ def test_multiple_roles_union_permissions():
     RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[read_permission]))
     RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[audit_permission]))
 
-    assert user.has_atomic_permission("student_view_basic") is True
-    assert user.has_atomic_permission("audit_read") is True
+    assert (
+        user.has_scoped_permission("student_view_basic", scope={"module_key": "identity"}) is True
+    )
+    assert user.has_scoped_permission("audit_read", scope={"module_key": "identity"}) is True
 
 
 @pytest.mark.permissions
@@ -491,7 +526,10 @@ def test_authorization_changes_apply_immediately():
     role = RoleFactory(permissions=[permission])
     assignment = RoleAssignmentFactory(role=role)
 
-    assert assignment.user.has_atomic_permission("audit_read") is True
+    assert (
+        assignment.user.has_scoped_permission("audit_read", scope={"module_key": "identity"})
+        is True
+    )
 
     assignment.ends_at = assignment.starts_at
     assignment.save(update_fields=["ends_at", "updated_at"])

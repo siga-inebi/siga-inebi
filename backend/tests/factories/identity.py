@@ -54,11 +54,17 @@ class RoleFactory(factory.django.DjangoModelFactory):
 class RoleAssignmentFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = RoleAssignment
+        skip_postgeneration_save = True
 
     user = factory.SubFactory(UserFactory)
     role = factory.SubFactory(RoleFactory)
     starts_at = factory.LazyFunction(timezone.now)
     ends_at = None
+
+    @factory.post_generation
+    def identity_scope(obj, create, extracted, **kwargs):
+        if create and extracted is not False:
+            ScopeGrant.objects.create(assignment=obj, module_key="identity")
 
 
 class ScopeGrantFactory(factory.django.DjangoModelFactory):
