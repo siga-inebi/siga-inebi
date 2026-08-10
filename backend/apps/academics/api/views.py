@@ -15,13 +15,15 @@ the docs stay per-resource even though the handlers are inherited.
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import permissions, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from apps.academics import services
 from apps.academics.api import queries
-from apps.academics.models import Subject
+from apps.academics.models import AcademicCycle, Section, Subject, TeachingAssignment
 from apps.common.models import DomainError
+from apps.teachers.models import Teacher
 
 from .serializers import (
     CampusCreateSerializer,
@@ -42,6 +44,9 @@ from .serializers import (
     SubjectCreateSerializer,
     SubjectSerializer,
     SubjectUpdateSerializer,
+    TeachingAssignmentCreateSerializer,
+    TeachingAssignmentReassignSerializer,
+    TeachingAssignmentSerializer,
 )
 
 CATALOGUE = ["academics: catalogue"]
@@ -75,6 +80,12 @@ class CatalogueView(GenericAPIView):
         serializer = serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
+
+    def require_assignment_scope(self):
+        if not self.request.user.has_scoped_permission(
+            "scope_assign", scope={"institution": self.institution}
+        ):
+            raise PermissionDenied("Actor lacks the required permission or institution scope.")
 
 
 class CatalogueListCreateView(CatalogueView):
@@ -536,6 +547,108 @@ class LevelSubjectDetailView(UpdateMixin, DeactivateMixin, CatalogueDetailView):
         services.unlink_subject_from_level(
             level=link.level, subject=link.subject, actor=request.user
         )
+
+
+# --------------------------------------------------------------------------- #
+# teaching assignments
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Crear asignacion docente",
+        description=(
+            "Registra la asignacion vigente de un curso y seccion. PostgreSQL impide periodos "
+            "solapados para el mismo ciclo, seccion y curso."
+        ),
+        tags=CATALOGUE,
+        request=TeachingAssignmentCreateSerializer,
+        responses={201: TeachingAssignmentSerializer},
+    ),
+)
+class TeachingAssignmentListCreateView(CatalogueView):
+    def post(self, request):
+        self.require_assignment_scope()
+        payload = self.validated(TeachingAssignmentCreateSerializer, request)
+        academic_cycle = _resolve(
+            AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
+        )
+        if academic_cycle.institution_id != self.institution.id:
+            raise DomainError("Academic cycle must belong to the current institution.")
+        assignment = services.create_teaching_assignment(
+            academic_cycle=academic_cycle,
+            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            subject=_resolve(Subject.objects.all(), payload["subject_id"], "Subject"),
+            teacher=_resolve(Teacher.objects.all(), payload["teacher_id"], "Teacher").person,
+            starts_on=payload.get("starts_on"),
+            actor=request.user,
+        )
+        return Response(
+            TeachingAssignmentSerializer(assignment).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Reasignar docente",
+        description=(
+            "Cierra la asignacion vigente en `ends_on` y crea otra para el nuevo docente al dia "
+            "siguiente, sin modificar el historial."
+        ),
+        tags=CATALOGUE,
+        request=TeachingAssignmentReassignSerializer,
+        responses={201: TeachingAssignmentSerializer},
+    ),
+)
+class TeachingAssignmentReassignView(CatalogueView):
+    def post(self, request, public_id):
+        self.require_assignment_scope()
+        payload = self.validated(TeachingAssignmentReassignSerializer, request)
+        assignment = _resolve(TeachingAssignment.objects.all(), public_id, "Teaching assignment")
+        if assignment.academic_cycle.institution_id != self.institution.id:
+            raise DomainError("Teaching assignment must belong to the current institution.")
+        successor = services.reassign_teaching_assignment(
+            assignment=assignment,
+            teacher=_resolve(Teacher.objects.all(), payload["teacher_id"], "Teacher").person,
+            ends_on=payload["ends_on"],
+            actor=request.user,
+        )
+        return Response(
+            TeachingAssignmentSerializer(successor).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema(
+    summary="Consultar historial de asignaciones docentes",
+    description="Filtra opcionalmente por perfil Teacher y ciclo escolar mediante sus public IDs.",
+    tags=CATALOGUE,
+    parameters=[
+        OpenApiParameter("teacher_id", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("academic_cycle_id", str, OpenApiParameter.QUERY, required=False),
+    ],
+    responses={200: TeachingAssignmentSerializer(many=True)},
+)
+class TeachingAssignmentHistoryView(CatalogueView):
+    def get(self, request):
+        self.require_assignment_scope()
+        teacher_id = request.query_params.get("teacher_id")
+        academic_cycle_id = request.query_params.get("academic_cycle_id")
+        teacher = (
+            _resolve(Teacher.objects.all(), teacher_id, "Teacher").person if teacher_id else None
+        )
+        academic_cycle = (
+            _resolve(AcademicCycle.objects.all(), academic_cycle_id, "Academic cycle")
+            if academic_cycle_id
+            else None
+        )
+        page = self.paginate_queryset(
+            queries.teaching_assignment_history(
+                self.institution, teacher=teacher, academic_cycle=academic_cycle
+            )
+        )
+        return self.get_paginated_response(TeachingAssignmentSerializer(page, many=True).data)
 
 
 # --------------------------------------------------------------------------- #
