@@ -99,7 +99,6 @@ RoleAssignment -> ScopeGrant
   por el codename Django `account_create`.
 - La persona institucional es obligatoria y solo puede estar vinculada a una cuenta.
 - La cuenta se crea con `status=pending`, `is_active=False` y sin contrasena utilizable.
-- La activacion mediante codigo de un solo uso pertenece a un corte posterior de `RF-CTA-003`.
 - Tanto la creacion exitosa como el intento sin autorizacion generan un evento de auditoria.
 - `provision_account_with_activation(...)` combina la provision con la emision inicial del desafio.
 - El endpoint administrativo `POST /api/v1/identity/accounts/` devuelve el codigo inicial una sola
@@ -110,7 +109,15 @@ RoleAssignment -> ScopeGrant
 - `POST /api/v1/identity/accounts/{account_id}/activation-challenges/` permite reemitir un codigo
   con `account.activate`; la reemision revoca inmediatamente cualquier desafio anterior vigente.
 - Las respuestas que contienen codigos usan `Cache-Control: no-store`.
-- La validacion del codigo y la activacion final pertenecen al siguiente corte de `RF-CTA-003`.
+- `activate_account(username, activation_code, password)` valida el codigo con comparacion de
+  tiempo constante dentro de una transaccion y aplica los validadores de contrasena de Django.
+- `POST /api/v1/identity/accounts/activate/` es publico porque la cuenta aun no puede iniciar
+  sesion; exige los tres valores del contrato confirmado y no revela si el usuario existe.
+- Cada codigo admite tres intentos fallidos. Un codigo vencido, revocado, agotado o consumido no
+  activa la cuenta.
+- El canje exitoso registra `used_at`, invalida el desafio, define la contrasena y cambia la cuenta
+  de `pending` e inactiva a `active` y activa en una sola transaccion.
+- Exitos y rechazos de activacion generan eventos auditables sin guardar codigo ni contrasena.
 - `disable_account(actor, user)` desactiva una cuenta institucional sin eliminarla.
 - La operacion requiere un superusuario o el permiso atomico logico `account.disable`,
   representado por el codename Django existente `account_disable`.

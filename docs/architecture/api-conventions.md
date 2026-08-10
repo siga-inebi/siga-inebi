@@ -40,3 +40,7 @@
   emite uno nuevo.
 - Ambos endpoints requieren sesion; los servicios de dominio exigen respectivamente
   `account.create` y `account.activate`.
+- `POST /api/v1/identity/accounts/activate/` permite al titular canjear sin sesion previa el codigo
+  mediante `username`, `activation_code` y `password`.
+- La activacion devuelve una respuesta uniforme ante cuenta inexistente, codigo incorrecto,
+  vencido, revocado, agotado o ya utilizado.

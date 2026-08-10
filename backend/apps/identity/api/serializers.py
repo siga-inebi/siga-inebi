@@ -30,3 +30,15 @@ class ActivationChallengeSerializer(serializers.Serializer):
     activation_code = serializers.CharField()
     activation_expires_at = serializers.DateTimeField()
     max_attempts = serializers.IntegerField()
+
+
+class AccountActivationSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    activation_code = serializers.CharField(max_length=8, trim_whitespace=False)
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
+class ActivatedAccountSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+    status = serializers.CharField()
