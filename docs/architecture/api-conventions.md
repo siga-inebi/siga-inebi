@@ -40,3 +40,12 @@
   emite uno nuevo.
 - Ambos endpoints requieren sesion; los servicios de dominio exigen respectivamente
   `account.create` y `account.activate`.
+
+## Relaciones estudiante-encargado
+
+- `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por
+  el servicio y no se acepta en el payload.
+- `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como
+  principal.
+- `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
+  Debe incluir `replacement_relation` al terminar la relacion principal.

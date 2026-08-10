@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
@@ -52,6 +53,15 @@ class StudentGuardianRelation(TimeStampedModel):
     is_primary = models.BooleanField(default=False)
     starts_at = models.DateField(default=timezone.localdate)
     ends_at = models.DateField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student"],
+                condition=Q(is_primary=True, ends_at__isnull=True),
+                name="students_one_current_primary_guardian",
+            )
+        ]
 
 
 class EmergencyContact(TimeStampedModel):

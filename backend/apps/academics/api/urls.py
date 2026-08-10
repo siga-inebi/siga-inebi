@@ -13,6 +13,9 @@ from .views import (
     ShiftDetailView,
     SubjectDetailView,
     SubjectListCreateView,
+    TeachingAssignmentHistoryView,
+    TeachingAssignmentListCreateView,
+    TeachingAssignmentReassignView,
 )
 
 urlpatterns = [
@@ -46,4 +49,19 @@ urlpatterns = [
     ),
     path("subjects/", SubjectListCreateView.as_view(), name="subject-list-create"),
     path("subjects/<uuid:public_id>/", SubjectDetailView.as_view(), name="subject-detail"),
+    path(
+        "teaching-assignments/",
+        TeachingAssignmentListCreateView.as_view(),
+        name="teaching-assignment-list-create",
+    ),
+    path(
+        "teaching-assignments/history/",
+        TeachingAssignmentHistoryView.as_view(),
+        name="teaching-assignment-history",
+    ),
+    path(
+        "teaching-assignments/<uuid:public_id>/reassignments/",
+        TeachingAssignmentReassignView.as_view(),
+        name="teaching-assignment-reassign",
+    ),
 ]

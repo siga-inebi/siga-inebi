@@ -2,12 +2,26 @@ from datetime import timedelta
 
 import pytest
 from django.core.exceptions import PermissionDenied
+from django.utils import timezone
 
+from apps.academics.services import create_teaching_assignment, reassign_teaching_assignment
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
+from apps.enrolments.models import Enrolment
+from apps.enrolments.services import create_enrolment
 from apps.identity.services import assign_role, create_account, disable_account, protect_system_role
-from apps.students.services import guardian_can_access_student
-from tests.factories.academic import AcademicCycleFactory, InstitutionFactory, SectionFactory
+from apps.students.services import (
+    change_primary_student_guardian_relation,
+    create_student_guardian_relation,
+    end_student_guardian_relation,
+    guardian_can_access_student,
+)
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    InstitutionFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -17,6 +31,7 @@ from tests.factories.identity import (
 )
 from tests.factories.people import PersonFactory
 from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
+from tests.factories.teachers import TeacherFactory
 
 
 @pytest.mark.permissions
@@ -74,22 +89,219 @@ def test_scope_limits_permission():
 
 @pytest.mark.permissions
 @pytest.mark.django_db
+def test_contextual_permission_without_scope_grant_is_denied():
+    permission = PermissionFactory(codename="student_view_basic")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    assert assignment.user.has_atomic_permission("student_view_basic") is True
+    assert assignment.user.has_scoped_permission("student_view_basic") is False
+    assert not assignment.user.has_scoped_permission(
+        "student_view_basic",
+        scope={"student": StudentFactory()},
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_institution_scope_matches_its_sections():
+    permission = PermissionFactory(codename="student_view_basic")
+    institution = InstitutionFactory()
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+    allowed_section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    denied_section = SectionFactory()
+    ScopeGrantFactory(assignment=assignment, institution=institution)
+
+    assert assignment.user.has_scoped_permission(
+        "student_view_basic",
+        scope={"section": allowed_section},
+    )
+    assert not assignment.user.has_scoped_permission(
+        "student_view_basic",
+        scope={"section": denied_section},
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
 def test_teacher_scope_depends_on_teaching_assignment():
     permission = PermissionFactory(codename="grade_capture")
-    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+    teacher = TeacherFactory()
+    assignment = RoleAssignmentFactory(
+        user=UserFactory(person=teacher.person),
+        role=RoleFactory(permissions=[permission]),
+    )
     section = SectionFactory()
     teaching_assignment = section.teaching_assignments.create(
         academic_cycle=section.academic_cycle,
         section=section,
         subject=section.academic_cycle.institution.subjects.create(name="Math", code="MATH"),
-        teacher=assignment.user.person,
+        teacher=teacher.person,
     )
-    ScopeGrantFactory(assignment=assignment, teaching_assignment=teaching_assignment)
 
     assert assignment.user.has_scoped_permission(
         "grade_capture",
         scope={"teaching_assignment": teaching_assignment},
     )
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_teaching_assignment_grants_current_section_students_without_scope_grant():
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=1),
+        ends_on=today + timedelta(days=10),
+    )
+    assigned_section = SectionFactory(academic_cycle=cycle)
+    other_section = SectionFactory(academic_cycle=cycle)
+    teacher = TeacherFactory()
+    user = UserFactory(person=teacher.person)
+    permission = PermissionFactory(codename="student_view_basic")
+    RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=assigned_section,
+        subject=SubjectFactory(institution=cycle.institution),
+        teacher=teacher.person,
+        starts_on=today,
+    )
+    assigned_student = StudentFactory()
+    other_student = StudentFactory()
+    inactive_enrolment_student = StudentFactory()
+    create_enrolment(
+        student=assigned_student,
+        academic_cycle=cycle,
+        grade=assigned_section.grade,
+        section=assigned_section,
+    )
+    create_enrolment(
+        student=other_student,
+        academic_cycle=cycle,
+        grade=other_section.grade,
+        section=other_section,
+    )
+    inactive_enrolment = create_enrolment(
+        student=inactive_enrolment_student,
+        academic_cycle=cycle,
+        grade=assigned_section.grade,
+        section=assigned_section,
+    )
+    inactive_enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    inactive_enrolment.save(update_fields=["status", "updated_at"])
+
+    from apps.identity.scopes import authorized_student_queryset
+
+    visible_ids = set(
+        authorized_student_queryset(user=user, codename="student_view_basic").values_list(
+            "pk", flat=True
+        )
+    )
+
+    assert visible_ids == {assigned_student.pk}
+    assert user.has_scoped_permission("student_view_basic", scope={"student": assigned_student})
+    assert not user.has_scoped_permission("student_view_basic", scope={"student": other_student})
+    assert not user.has_scoped_permission(
+        "student_view_basic", scope={"student": inactive_enrolment_student}
+    )
+
+    cycle.status = cycle.CycleStatus.DRAFT
+    cycle.save(update_fields=["status", "updated_at"])
+
+    assert not user.has_scoped_permission("student_view_basic", scope={"student": assigned_student})
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_reassignment_transfers_current_student_scope_to_successor_teacher():
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=1),
+        ends_on=today + timedelta(days=10),
+    )
+    section = SectionFactory(academic_cycle=cycle)
+    subject = SubjectFactory(institution=cycle.institution)
+    first_teacher = TeacherFactory()
+    second_teacher = TeacherFactory()
+    first_user = UserFactory(person=first_teacher.person)
+    second_user = UserFactory(person=second_teacher.person)
+    permission = PermissionFactory(codename="student_view_basic")
+    RoleAssignmentFactory(user=first_user, role=RoleFactory(permissions=[permission]))
+    RoleAssignmentFactory(user=second_user, role=RoleFactory(permissions=[permission]))
+    assignment = create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=first_teacher.person,
+        starts_on=today - timedelta(days=1),
+    )
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    reassign_teaching_assignment(
+        assignment=assignment,
+        teacher=second_teacher.person,
+        ends_on=today,
+    )
+
+    tomorrow = timezone.now() + timedelta(days=1)
+
+    assert not first_user.has_scoped_permission(
+        "student_view_basic", scope={"student": student}, when=tomorrow
+    )
+    assert second_user.has_scoped_permission(
+        "student_view_basic", scope={"student": student}, when=tomorrow
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_teaching_assignment_scope_unites_with_administrative_scope():
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=1),
+        ends_on=today + timedelta(days=10),
+    )
+    assigned_section = SectionFactory(academic_cycle=cycle)
+    teacher = TeacherFactory()
+    user = UserFactory(person=teacher.person)
+    permission = PermissionFactory(codename="student_view_basic")
+    RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    administrative_assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[permission]),
+    )
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=assigned_section,
+        subject=SubjectFactory(institution=cycle.institution),
+        teacher=teacher.person,
+        starts_on=today,
+    )
+    assigned_student = StudentFactory()
+    administratively_scoped_student = StudentFactory()
+    unrelated_student = StudentFactory()
+    create_enrolment(
+        student=assigned_student,
+        academic_cycle=cycle,
+        grade=assigned_section.grade,
+        section=assigned_section,
+    )
+    ScopeGrantFactory(assignment=administrative_assignment, student=administratively_scoped_student)
+
+    from apps.identity.scopes import authorized_student_queryset
+
+    visible_ids = set(
+        authorized_student_queryset(user=user, codename="student_view_basic").values_list(
+            "pk", flat=True
+        )
+    )
+
+    assert visible_ids == {assigned_student.pk, administratively_scoped_student.pk}
+    assert unrelated_student.pk not in visible_ids
 
 
 @pytest.mark.permissions
@@ -117,6 +329,143 @@ def test_guardian_scope_depends_on_active_relationship():
 
 @pytest.mark.permissions
 @pytest.mark.django_db
+def test_guardian_scope_has_only_current_related_students_without_scope_grant():
+    permission = PermissionFactory(codename="student_view_basic")
+    guardian = GuardianFactory()
+    guardian_user = UserFactory(person=guardian.person)
+    RoleAssignmentFactory(user=guardian_user, role=RoleFactory(permissions=[permission]))
+    first_student = StudentFactory()
+    second_student = StudentFactory()
+    unrelated_student = StudentFactory()
+    create_student_guardian_relation(
+        student=first_student,
+        guardian=guardian,
+        relationship_label="Madre",
+    )
+    create_student_guardian_relation(
+        student=second_student,
+        guardian=guardian,
+        relationship_label="Madre",
+    )
+
+    from apps.identity.scopes import authorized_student_queryset
+
+    visible_ids = set(
+        authorized_student_queryset(
+            user=guardian_user,
+            codename="student_view_basic",
+        ).values_list("pk", flat=True)
+    )
+
+    assert visible_ids == {first_student.pk, second_student.pk}
+    assert unrelated_student.pk not in visible_ids
+    assert guardian_user.has_scoped_permission(
+        "student_view_basic", scope={"student": first_student}
+    )
+    assert not guardian_user.has_scoped_permission(
+        "student_view_basic", scope={"student": unrelated_student}
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_ended_guardian_relationship_never_restores_historical_access():
+    permission = PermissionFactory(codename="student_view_basic")
+    guardian = GuardianFactory()
+    guardian_user = UserFactory(person=guardian.person)
+    RoleAssignmentFactory(user=guardian_user, role=RoleFactory(permissions=[permission]))
+    ended_student = StudentFactory()
+    current_student = StudentFactory()
+    replacement_guardian = GuardianFactory()
+    ended_relation = create_student_guardian_relation(
+        student=ended_student,
+        guardian=guardian,
+        relationship_label="Madre",
+    )
+    replacement_relation = create_student_guardian_relation(
+        student=ended_student,
+        guardian=replacement_guardian,
+        relationship_label="Tutor",
+    )
+    create_student_guardian_relation(
+        student=current_student,
+        guardian=guardian,
+        relationship_label="Madre",
+    )
+    change_primary_student_guardian_relation(relation=replacement_relation)
+    end_student_guardian_relation(
+        relation=ended_relation,
+        replacement_relation=replacement_relation,
+    )
+
+    from apps.identity.scopes import authorized_student_queryset, can_access_student
+
+    visible_ids = set(
+        authorized_student_queryset(
+            user=guardian_user,
+            codename="student_view_basic",
+        ).values_list("pk", flat=True)
+    )
+    assert visible_ids == {current_student.pk}
+    assert (
+        guardian_can_access_student(
+            user=guardian_user,
+            student=ended_student,
+            when=ended_relation.starts_at,
+        )
+        is False
+    )
+    assert (
+        can_access_student(
+            user=guardian_user,
+            codename="student_view_basic",
+            student=ended_student,
+        )
+        is False
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_guardian_scope_unites_with_administrative_scope_without_other_students():
+    permission = PermissionFactory(codename="student_view_basic")
+    guardian = GuardianFactory()
+    guardian_user = UserFactory(person=guardian.person)
+    guardian_assignment = RoleAssignmentFactory(
+        user=guardian_user,
+        role=RoleFactory(permissions=[permission]),
+    )
+    administrative_assignment = RoleAssignmentFactory(
+        user=guardian_user,
+        role=RoleFactory(permissions=[permission]),
+    )
+    guardian_student = StudentFactory()
+    administrative_student = StudentFactory()
+    unrelated_student = StudentFactory()
+    create_student_guardian_relation(
+        student=guardian_student,
+        guardian=guardian,
+        relationship_label="Madre",
+    )
+    ScopeGrantFactory(assignment=administrative_assignment, student=administrative_student)
+
+    from apps.identity.scopes import authorized_student_queryset
+
+    visible_ids = set(
+        authorized_student_queryset(
+            user=guardian_user,
+            codename="student_view_basic",
+        ).values_list("pk", flat=True)
+    )
+
+    assert guardian_assignment.user_id == guardian_user.pk
+    assert visible_ids == {guardian_student.pk, administrative_student.pk}
+    assert unrelated_student.pk not in visible_ids
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
 def test_role_union_keeps_scope_boundaries():
     permission = PermissionFactory(codename="student_view_basic")
     user = UserFactory()
@@ -128,6 +477,8 @@ def test_role_union_keeps_scope_boundaries():
     ScopeGrantFactory(assignment=first_assignment, section=allowed_section)
     ScopeGrantFactory(assignment=second_assignment, section=second_allowed)
 
+    assert user.has_scoped_permission("student_view_basic", scope={"section": allowed_section})
+    assert user.has_scoped_permission("student_view_basic", scope={"section": second_allowed})
     assert (
         user.has_scoped_permission("student_view_basic", scope={"section": denied_section}) is False
     )
@@ -146,7 +497,7 @@ def test_authorization_changes_apply_immediately():
     assignment.save(update_fields=["ends_at", "updated_at"])
 
     assert (
-        assignment.user.has_scoped_permission(
+        assignment.user.has_atomic_permission(
             "audit_read",
             when=assignment.ends_at + timedelta(microseconds=1),
         )

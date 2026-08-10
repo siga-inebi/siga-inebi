@@ -9,7 +9,16 @@ hidden per-row count.
 from django.db.models import Count, Q
 from rest_framework.exceptions import NotFound
 
-from apps.academics.models import Campus, Grade, Institution, Level, LevelSubject, Shift, Subject
+from apps.academics.models import (
+    Campus,
+    Grade,
+    Institution,
+    Level,
+    LevelSubject,
+    Shift,
+    Subject,
+    TeachingAssignment,
+)
 
 
 def resolve_institution(request):
@@ -116,6 +125,17 @@ def subject_or_404(institution, public_id):
 
 def level_subjects(level):
     return LevelSubject.objects.filter(level=level).select_related("level", "subject")
+
+
+def teaching_assignment_history(institution, *, teacher=None, academic_cycle=None):
+    queryset = TeachingAssignment.objects.filter(
+        academic_cycle__institution=institution
+    ).select_related("academic_cycle", "section", "subject", "teacher__teacher_profile")
+    if teacher is not None:
+        queryset = queryset.filter(teacher=teacher)
+    if academic_cycle is not None:
+        queryset = queryset.filter(academic_cycle=academic_cycle)
+    return queryset.order_by("-academic_cycle__starts_on", "-starts_on", "-created_at")
 
 
 def _get(queryset, public_id, label):

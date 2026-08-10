@@ -54,6 +54,30 @@ export function AppRoutes() {
         <Route
           element={
             <PrivateRoute>
+              <AlumnosPage />
+            </PrivateRoute>
+          }
+          path="/app/alumnos"
+        />
+        <Route
+          element={
+            <PrivateRoute>
+              <DocentesPage />
+            </PrivateRoute>
+          }
+          path="/app/docentes"
+        />
+        <Route
+          element={
+            <PrivateRoute>
+              <GuardiansPage />
+            </PrivateRoute>
+          }
+          path="/app/padres-de-familia"
+        />
+        <Route
+          element={
+            <PrivateRoute>
               <CampusesPage />
             </PrivateRoute>
           }

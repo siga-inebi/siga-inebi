@@ -1,5 +1,7 @@
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import DateRangeField, RangeOperators
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Func, Q, Value
 from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
@@ -336,3 +338,27 @@ class TeachingAssignment(TimeStampedModel):
 
     class Meta:
         unique_together = [("academic_cycle", "section", "subject", "teacher", "starts_on")]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(ends_on__isnull=True) | Q(starts_on__lte=F("ends_on")),
+                name="teaching_assignment_valid_dates",
+            ),
+            ExclusionConstraint(
+                name="teaching_assignment_no_overlapping_period",
+                expressions=[
+                    ("academic_cycle", RangeOperators.EQUAL),
+                    ("section", RangeOperators.EQUAL),
+                    ("subject", RangeOperators.EQUAL),
+                    (
+                        Func(
+                            F("starts_on"),
+                            F("ends_on"),
+                            Value("[]"),
+                            function="DATERANGE",
+                            output_field=DateRangeField(),
+                        ),
+                        RangeOperators.OVERLAPS,
+                    ),
+                ],
+            ),
+        ]

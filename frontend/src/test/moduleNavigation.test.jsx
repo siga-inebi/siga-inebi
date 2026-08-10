@@ -17,6 +17,22 @@ vi.mock("../services/peopleService.js", async () => {
   return { peopleService: peopleServiceMock };
 });
 
+const studentsServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const teachersServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const guardiansServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+
+vi.mock("../services/studentsService.js", () => ({
+  studentsService: studentsServiceMock,
+}));
+
+vi.mock("../services/teachersService.js", () => ({
+  teachersService: teachersServiceMock,
+}));
+
+vi.mock("../services/guardiansService.js", () => ({
+  guardiansService: guardiansServiceMock,
+}));
+
 import { App } from "../app/App.jsx";
 import { apiClient } from "../services/apiClient.js";
 import { authenticatedSession, anonymousSession } from "./fixtures/auth.js";
@@ -29,6 +45,9 @@ describe("navegacion de modulos", () => {
   beforeEach(() => {
     resetAcademicsServiceMock();
     resetPeopleServiceMock();
+    studentsServiceMock.list.mockReset().mockResolvedValue([]);
+    teachersServiceMock.list.mockReset().mockResolvedValue([]);
+    guardiansServiceMock.list.mockReset().mockResolvedValue([]);
     authServiceMock.me.mockResolvedValue(authenticatedSession);
     vi.spyOn(apiClient, "get").mockResolvedValue({
       service: "api",
@@ -42,8 +61,9 @@ describe("navegacion de modulos", () => {
     expect(
       await screen.findByRole("link", { name: "Panel principal" })
     ).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Listados" });
 
-    for (const label of ["Panel", "Personas", "Sedes", "Niveles", "Cursos"]) {
+    for (const label of ["Alumnos", "Docentes", "Padres de familia"]) {
       expect(
         within(nav).getByRole("link", { name: label })
       ).toBeInTheDocument();
@@ -83,8 +103,7 @@ describe("navegacion de modulos", () => {
     const user = userEvent.setup();
     renderWithRouter(<App />, { route: "/app" });
 
-    const nav = await screen.findByRole("navigation", { name: "Modulos" });
-    await user.click(within(nav).getByRole("link", { name: "Personas" }));
+    await user.click(await screen.findByRole("link", { name: "Personas" }));
 
     expect(
       await screen.findByRole("heading", { name: "Personas" })
@@ -99,6 +118,30 @@ describe("navegacion de modulos", () => {
       })
     ).toBeInTheDocument();
   });
+
+  test.each([
+    ["/app/alumnos", "Alumnos"],
+    ["/app/docentes", "Docentes y Administrativos"],
+    ["/app/padres-de-familia", "Padres y Encargados"],
+  ])("la ruta privada %s monta su pantalla", async (route, heading) => {
+    renderWithRouter(<App />, { route });
+
+    expect(
+      await screen.findByRole("heading", { name: heading })
+    ).toBeInTheDocument();
+  });
+
+  test.each(["/app/alumnos", "/app/docentes", "/app/padres-de-familia"])(
+    "la ruta privada %s exige sesion",
+    async (route) => {
+      authServiceMock.me.mockResolvedValue(anonymousSession);
+      renderWithRouter(<App />, { route });
+
+      expect(
+        await screen.findByRole("heading", { name: /Iniciar sesion/i })
+      ).toBeInTheDocument();
+    }
+  );
 
   test("la ruta de cursos exige sesion", async () => {
     authServiceMock.me.mockResolvedValue(anonymousSession);
