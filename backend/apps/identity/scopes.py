@@ -2,6 +2,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.utils import timezone
 
+from apps.academics.models import AcademicCycle, TeachingAssignment
 from apps.identity.models import ScopeGrant
 from apps.students.models import Student
 
@@ -56,7 +57,7 @@ def student_queryset(*, user, codename, queryset=None, when=None):
 
 
 def guardian_student_queryset(*, user, queryset=None):
-    """Resolve the current student scope derived from a guardian relationship."""
+    """Resolve the current, non-historical student scope derived from a guardian link."""
     queryset = queryset if queryset is not None else Student.objects.all()
     person = getattr(user, "person", None)
     guardian = getattr(person, "guardian_profile", None)
@@ -71,12 +72,28 @@ def guardian_student_queryset(*, user, queryset=None):
     ).distinct()
 
 
+def teacher_student_queryset(*, user, queryset=None, when=None):
+    """Resolve current students in sections assigned to the account's teacher."""
+    queryset = queryset if queryset is not None else Student.objects.all()
+    assigned_sections = teaching_assignment_queryset(user=user, when=when)
+
+    return queryset.filter(
+        enrolments__section_id__in=assigned_sections.values("section_id"),
+        enrolments__is_active=True,
+        enrolments__status="active",
+    ).distinct()
+
+
 def effective_student_queryset(*, user, codename, queryset=None, when=None):
+    """Return the additive student scope from grants, guardian links, and teaching assignments."""
     queryset = queryset if queryset is not None else Student.objects.all()
     granted_students = student_queryset(user=user, codename=codename, when=when)
     guardian_students = guardian_student_queryset(user=user)
+    teacher_students = teacher_student_queryset(user=user, when=when)
     return queryset.filter(
-        Q(pk__in=granted_students.values("pk")) | Q(pk__in=guardian_students.values("pk"))
+        Q(pk__in=granted_students.values("pk"))
+        | Q(pk__in=guardian_students.values("pk"))
+        | Q(pk__in=teacher_students.values("pk"))
     ).distinct()
 
 
@@ -85,8 +102,10 @@ def authorized_student_queryset(*, user, codename, queryset=None, when=None):
     if not user.has_atomic_permission(codename, when=when):
         raise PermissionDenied("Actor lacks the required permission.")
     guardian_students = guardian_student_queryset(user=user)
-    has_grant_scope = has_effective_scope_grant(user=user, codename=codename, when=when)
-    if not has_grant_scope and not guardian_students.exists():
+    teacher_students = teacher_student_queryset(user=user, when=when)
+    has_administrative_scope = has_effective_scope_grant(user=user, codename=codename, when=when)
+    has_derived_scope = guardian_students.exists() or teacher_students.exists()
+    if not has_administrative_scope and not has_derived_scope:
         raise PermissionDenied("Actor lacks an effective scope grant.")
     return effective_student_queryset(user=user, codename=codename, queryset=queryset, when=when)
 
@@ -103,15 +122,52 @@ def can_access_student(*, user, codename, student, when=None):
 
 
 def scope_matches(*, user, codename, scope, when=None):
+    """Resolve an object scope through the same central rules as student querysets."""
     if not scope:
         return False
+
     student = scope.get("student")
     if student is not None:
         return can_access_student(user=user, codename=codename, student=student, when=when)
+
+    if _teacher_matches_scope(user=user, scope=scope, when=when):
+        return True
+
     return any(
         grant_matches_scope(grant, scope, when=when)
         for grant in active_scope_grants(user=user, codename=codename, when=when)
     )
+
+
+def teaching_assignment_queryset(*, user, when=None):
+    person = getattr(user, "person", None)
+    if person is None:
+        return TeachingAssignment.objects.none()
+
+    current_date = _local_date(when)
+    return TeachingAssignment.objects.filter(
+        teacher=person,
+        academic_cycle__status=AcademicCycle.CycleStatus.ACTIVE,
+        starts_on__lte=current_date,
+    ).filter(Q(ends_on__isnull=True) | Q(ends_on__gte=current_date))
+
+
+def _teacher_matches_scope(*, user, scope, when=None):
+    assignments = teaching_assignment_queryset(user=user, when=when)
+    teaching_assignment = scope.get("teaching_assignment")
+    if teaching_assignment is not None:
+        assignment_id = getattr(teaching_assignment, "pk", teaching_assignment)
+        return assignments.filter(pk=assignment_id).exists()
+
+    section = scope.get("section")
+    subject = scope.get("subject")
+    if section is None:
+        return False
+
+    assignments = assignments.filter(section_id=getattr(section, "pk", section))
+    if subject is not None:
+        assignments = assignments.filter(subject_id=getattr(subject, "pk", subject))
+    return assignments.exists()
 
 
 def grant_matches_scope(grant, scope, *, when=None):
@@ -170,7 +226,10 @@ def _student_filter_for_grant(grant):
         has_enrolment_dimension = True
 
     if has_enrolment_dimension:
-        conditions &= Q(enrolments__is_active=True, enrolments__status="active")
+        conditions &= Q(
+            enrolments__is_active=True,
+            enrolments__status="active",
+        )
     if not has_student_dimension and not has_enrolment_dimension:
         return None
     return conditions
@@ -195,3 +254,11 @@ def _scope_context(scope):
 
 def _primary_key(value):
     return getattr(value, "pk", value)
+
+
+def _local_date(when):
+    if when is None:
+        return timezone.localdate()
+    if hasattr(when, "hour"):
+        return timezone.localdate(when)
+    return when
