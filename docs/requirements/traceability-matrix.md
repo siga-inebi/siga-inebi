@@ -47,7 +47,7 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RF-MAT-002 | #226 | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Matricula |
 | RF-CRE-001 | #133 | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | QR opaco |
 | RF-ASI-010 | #94 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Idempotencia |
-| RF-JOR-002 | #206 | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Estado diario derivado |
+| RF-JOR-002 | #206 | docs/architecture/domain-map.md | backend/apps/attendance/{models.py,services.py,api/} | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py,integration/test_attendance.py} | TBD | Implemented | Estado diario derivado (presente/tarde/ausente pendiente); recalculable sin alterar eventos |
 | RF-JUS-004 | #219 | docs/architecture/data-classification.md | TBD | TBD | TBD | Planned | Resolucion auditable |
 | RF-DOC-006 | #151 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Auditoria de lectura |
 | RF-BIT-005 | #115 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Inmutabilidad |

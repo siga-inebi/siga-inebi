@@ -10,7 +10,7 @@ from .academic import (
     ShiftFactory,
     SubjectFactory,
 )
-from .attendance import JornadaParametersFactory
+from .attendance import AttendanceEventFactory, JornadaParametersFactory
 from .identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -24,6 +24,7 @@ from .teachers import TeacherFactory
 
 __all__ = [
     "AcademicCycleFactory",
+    "AttendanceEventFactory",
     "CampusFactory",
     "GradeFactory",
     "GradeOfferingFactory",

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.attendance.models import JornadaParameters
+from apps.attendance.models import AttendanceEvent, DayStatus, JornadaParameters
 
 
 class JornadaParametersSerializer(serializers.ModelSerializer):
@@ -39,6 +39,49 @@ class JornadaParametersCreateSerializer(serializers.Serializer):
         child=serializers.IntegerField(min_value=1, max_value=7),
         help_text="Dias lectivos de la semana (1=lunes .. 7=domingo).",
     )
-    effective_from = serializers.DateField(
-        help_text="Fecha desde la que rigen estos parametros."
+    effective_from = serializers.DateField(help_text="Fecha desde la que rigen estos parametros.")
+
+
+class AttendanceEventSerializer(serializers.ModelSerializer):
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    shift_id = serializers.UUIDField(source="shift.public_id", read_only=True)
+
+    class Meta:
+        model = AttendanceEvent
+        fields = [
+            "public_id",
+            "student_id",
+            "shift_id",
+            "event_date",
+            "movement_type",
+            "origin",
+            "transmission",
+            "captured_at",
+            "is_active",
+            "created_at",
+        ]
+
+
+class AttendanceEventCreateSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+    shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
+    event_date = serializers.DateField(help_text="Fecha de la jornada.")
+    movement_type = serializers.ChoiceField(choices=AttendanceEvent.MovementType.choices)
+    origin = serializers.ChoiceField(choices=AttendanceEvent.Origin.choices)
+    transmission = serializers.ChoiceField(
+        choices=AttendanceEvent.Transmission.choices,
+        required=False,
+        default=AttendanceEvent.Transmission.INDIVIDUAL,
     )
+    captured_at = serializers.DateTimeField(help_text="Hora de captura del evento.")
+
+
+class DayStatusQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField()
+    shift_id = serializers.UUIDField()
+    event_date = serializers.DateField()
+
+
+class DayStatusResultSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=DayStatus.choices, allow_null=True)
+    entry_event = AttendanceEventSerializer(allow_null=True)

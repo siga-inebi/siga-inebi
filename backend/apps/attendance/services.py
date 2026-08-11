@@ -2,16 +2,28 @@
 Domain services for Jornada Diaria y Estados.
 
 RF-JOR-001 lives here: configurable jornada parameters, versioned by
-``effective_from`` and never overwritten (AGENTS.md #8, #12). Later phases of
-this same app (RF-JOR-002, RF-JOR-003) extend this module instead of putting
-their rules in views or serializers.
+``effective_from`` and never overwritten (AGENTS.md #8, #12). RF-JOR-002
+(daily status derivation) and RF-JOR-003 (precedence between events) extend
+this same module instead of putting their rules in views or serializers.
 """
 
+from dataclasses import dataclass
+from datetime import datetime
+
+from django.db.models import Case, IntegerField, Value, When
+from django.utils import timezone
+
 from apps.academics.models import AcademicCycle
-from apps.attendance.models import JornadaParameters
+from apps.attendance.models import AttendanceEvent, DayStatus, JornadaParameters
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
+
+ORIGIN_PRECEDENCE = {
+    AttendanceEvent.Origin.SCAN: 0,
+    AttendanceEvent.Origin.MANUAL: 1,
+    AttendanceEvent.Origin.DECLARED: 2,
+}
 
 
 def _require_active(instance, label):
@@ -88,9 +100,7 @@ def get_effective_parameters(*, shift, academic_cycle, on_date):
         .first()
     )
     if parameters is None:
-        raise DomainError(
-            f"No jornada parameters are configured for shift '{shift}' on {on_date}."
-        )
+        raise DomainError(f"No jornada parameters are configured for shift '{shift}' on {on_date}.")
     return parameters
 
 
@@ -104,3 +114,113 @@ def resolve_academic_cycle_for(*, shift, event_date):
     if academic_cycle is None:
         raise DomainError(f"No academic cycle covers {event_date} for shift '{shift}'.")
     return academic_cycle
+
+
+def record_attendance_event(
+    *,
+    student,
+    shift,
+    event_date,
+    movement_type,
+    origin,
+    captured_at,
+    transmission=AttendanceEvent.Transmission.INDIVIDUAL,
+    actor=None,
+):
+    """
+    Store a new attendance event. Never mutates or replaces an existing one:
+    conflicting events for the same student/shift/date/movement all coexist,
+    and RF-JOR-003's precedence rule decides which one is used later.
+    """
+    _require_active(student, "Student")
+    _require_active(shift, "Shift")
+
+    event = AttendanceEvent.objects.create(
+        student=student,
+        shift=shift,
+        event_date=event_date,
+        movement_type=movement_type,
+        origin=origin,
+        transmission=transmission,
+        captured_at=captured_at,
+    )
+    record_event(
+        actor=actor,
+        action="attendance.event.recorded",
+        resource="AttendanceEvent",
+        resource_identifier=str(event.pk),
+        context={
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "event_date": str(event_date),
+            "movement_type": movement_type,
+            "origin": origin,
+            "transmission": transmission,
+        },
+    )
+    return event
+
+
+def resolve_prevailing_event(*, student, shift, event_date, movement_type):
+    """
+    The event that prevails for a student/shift/date/movement combination
+    (RF-JOR-003): scan origin outranks manual, which outranks declared;
+    within the same origin, the most recent ``captured_at`` wins. Transmission
+    never affects the outcome. Returns ``None`` when nothing matches, and
+    never mutates or removes any of the events it considered.
+    """
+    candidates = AttendanceEvent.objects.filter(
+        student=student,
+        shift=shift,
+        event_date=event_date,
+        movement_type=movement_type,
+        is_active=True,
+    ).annotate(
+        _origin_rank=Case(
+            *[When(origin=origin, then=Value(rank)) for origin, rank in ORIGIN_PRECEDENCE.items()],
+            output_field=IntegerField(),
+        )
+    )
+    return candidates.order_by("_origin_rank", "-captured_at").first()
+
+
+@dataclass
+class DayStatusResult:
+    status: str
+    entry_event: AttendanceEvent | None
+    parameters: JornadaParameters
+
+
+def derive_day_status(*, student, shift, event_date, as_of=None):
+    """
+    The student's daily attendance status for a jornada (RF-JOR-002), derived
+    from their movement events and the jornada's current parameters. Never
+    captured manually, and recalculating it never alters the events it reads.
+
+    Returns ``None`` when there is no entry event yet and the jornada's
+    closing time for ``event_date`` hasn't passed as of ``as_of`` — the day
+    genuinely has no final status yet.
+    """
+    as_of = as_of or timezone.now()
+    academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+    parameters = get_effective_parameters(
+        shift=shift, academic_cycle=academic_cycle, on_date=event_date
+    )
+    entry_event = resolve_prevailing_event(
+        student=student,
+        shift=shift,
+        event_date=event_date,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+
+    if entry_event is not None:
+        entry_time = timezone.localtime(entry_event.captured_at).time()
+        status = DayStatus.PRESENT if entry_time <= parameters.entry_limit_time else DayStatus.LATE
+        return DayStatusResult(status=status, entry_event=entry_event, parameters=parameters)
+
+    closing_datetime = timezone.make_aware(datetime.combine(event_date, parameters.closing_time))
+    if as_of >= closing_datetime:
+        return DayStatusResult(
+            status=DayStatus.ABSENT_PENDING_JUSTIFICATION, entry_event=None, parameters=parameters
+        )
+    return None

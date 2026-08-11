@@ -1,8 +1,6 @@
 from django.db import migrations
 
-PERMISSIONS = (
-    ("attendance_jornada_configure", "Can configure jornada parameters"),
-)
+PERMISSIONS = (("attendance_jornada_configure", "Can configure jornada parameters"),)
 
 
 def seed_permissions(apps, schema_editor):

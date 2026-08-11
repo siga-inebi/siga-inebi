@@ -1,16 +1,24 @@
 """
-RF-JOR-001 — parametros de jornada configurables, en aislamiento.
+RF-JOR-001 — parametros de jornada configurables.
+RF-JOR-002 — derivacion del estado diario.
+
+Both in isolation from the API layer. The precedence ranking that
+RF-JOR-002's derivation depends on is RF-JOR-003's own rule; its dedicated
+"Escaneo prevalece sobre declaracion" scenario test lives in a later phase of
+this same file, once the resolution endpoint exists.
 """
 
-from datetime import time, timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
+from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import JornadaParameters
+from apps.attendance.models import AttendanceEvent, DayStatus, JornadaParameters
 from apps.common.models import DomainError
 from tests.factories.academic import AcademicCycleFactory, CampusFactory, ShiftFactory
-from tests.factories.attendance import JornadaParametersFactory
+from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
@@ -134,3 +142,175 @@ def test_resolve_academic_cycle_for_finds_the_cycle_covering_the_date():
     resolved = services.resolve_academic_cycle_for(shift=shift, event_date=cycle.starts_on)
 
     assert resolved == cycle
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-003 groundwork — resolve_prevailing_event is what RF-JOR-002's
+# derivation reads to pick "the" entry/exit event when more than one exists.
+# --------------------------------------------------------------------------- #
+
+
+def _at(event_date, hour, minute):
+    return timezone.make_aware(datetime.combine(event_date, time(hour, minute)))
+
+
+def test_resolve_prevailing_event_prefers_scan_over_other_origins():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    scan_event = AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 15, 0),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 16, 0),
+    )
+
+    prevailing = services.resolve_prevailing_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+    )
+
+    assert prevailing == scan_event
+
+
+def test_resolve_prevailing_event_picks_latest_captured_at_within_same_origin():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    latest = AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 15),
+    )
+
+    prevailing = services.resolve_prevailing_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+
+    assert prevailing == latest
+
+
+def test_resolve_prevailing_event_returns_none_when_no_events_match():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    prevailing = services.resolve_prevailing_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+
+    assert prevailing is None
+
+
+def test_record_attendance_event_rejects_inactive_student():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory(is_active=False)
+
+    with pytest.raises(DomainError):
+        services.record_attendance_event(
+            student=student,
+            shift=parameters.shift,
+            event_date=parameters.effective_from,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=_at(parameters.effective_from, 7, 0),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-002 — derivacion del estado diario
+# --------------------------------------------------------------------------- #
+
+
+def test_entry_before_limit_is_present():
+    parameters = JornadaParametersFactory(entry_limit_time=time(7, 30))
+    student = StudentFactory()
+    entry_event = AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+
+    result = services.derive_day_status(
+        student=student, shift=parameters.shift, event_date=parameters.effective_from
+    )
+
+    assert result.status == DayStatus.PRESENT
+    assert result.entry_event == entry_event
+
+
+def test_entry_after_limit_within_tolerance_is_late():
+    parameters = JornadaParametersFactory(entry_limit_time=time(7, 30), tolerance_minutes=10)
+    student = StudentFactory()
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 35),
+    )
+
+    result = services.derive_day_status(
+        student=student, shift=parameters.shift, event_date=parameters.effective_from
+    )
+
+    assert result.status == DayStatus.LATE
+
+
+def test_no_events_after_closing_time_is_absent_pending_justification():
+    parameters = JornadaParametersFactory(closing_time=time(16, 0))
+    student = StudentFactory()
+
+    result = services.derive_day_status(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        as_of=_at(parameters.effective_from, 16, 1),
+    )
+
+    assert result.status == DayStatus.ABSENT_PENDING_JUSTIFICATION
+    assert result.entry_event is None
+
+
+def test_no_events_before_closing_time_has_no_final_status_yet():
+    parameters = JornadaParametersFactory(closing_time=time(16, 0))
+    student = StudentFactory()
+
+    result = services.derive_day_status(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        as_of=_at(parameters.effective_from, 10, 0),
+    )
+
+    assert result is None

@@ -1,21 +1,41 @@
 """
 RF-JOR-001 — contrato del endpoint de parametros de jornada.
+RF-JOR-002 — contrato del endpoint de estado diario.
 """
+
+from datetime import datetime, time
+from urllib.parse import urlencode
 
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 
+from apps.attendance.models import AttendanceEvent
 from tests.factories.academic import AcademicCycleFactory, ShiftFactory
-from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+)
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
 CONFIGURE_PERMISSION = "attendance_jornada_configure"
+STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 
 def _grant(user, codename):
     permission = PermissionFactory(codename=codename)
     RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+
+
+def _grant_student_scope(user, student, codename=STUDENT_VIEW_PERMISSION):
+    permission = PermissionFactory(codename=codename)
+    assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    return ScopeGrantFactory(assignment=assignment, student=student)
 
 
 def _payload(shift, cycle):
@@ -87,3 +107,115 @@ def test_unauthenticated_request_is_rejected(client):
     response = client.get(reverse("attendance-jornada-parameters-list"))
 
     assert response.status_code == 403
+
+
+def _event_payload(student, shift, **overrides):
+    payload = {
+        "student_id": str(student.public_id),
+        "shift_id": str(shift.public_id),
+        "event_date": str(timezone.localdate()),
+        "movement_type": AttendanceEvent.MovementType.EXIT,
+        "origin": AttendanceEvent.Origin.SCAN,
+        "captured_at": timezone.now().isoformat(),
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_create_attendance_event_requires_matching_origin_permission(auth_client):
+    student = StudentFactory()
+    shift = ShiftFactory()
+
+    response = auth_client.post(
+        reverse("attendance-event-list"),
+        _event_payload(student, shift),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_create_attendance_event_with_permission(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    student = StudentFactory()
+    shift = ShiftFactory()
+
+    response = auth_client.post(
+        reverse("attendance-event-list"),
+        _event_payload(student, shift),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["origin"] == AttendanceEvent.Origin.SCAN
+    assert data["student_id"] == str(student.public_id)
+
+
+def test_list_attendance_events_only_shows_authorized_students(auth_client):
+    visible_student = StudentFactory()
+    hidden_student = StudentFactory()
+    shift = ShiftFactory()
+
+    AttendanceEventFactory(student=visible_student, shift=shift)
+    AttendanceEventFactory(student=hidden_student, shift=shift)
+    _grant_student_scope(auth_client.user, visible_student)
+
+    response = auth_client.get(reverse("attendance-event-list"))
+
+    assert response.status_code == 200
+    student_ids = {item["student_id"] for item in response.json()["results"]}
+    assert student_ids == {str(visible_student.public_id)}
+
+
+def _day_status_url(student, shift, event_date):
+    query = urlencode(
+        {
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "event_date": str(event_date),
+        }
+    )
+    return f"{reverse('attendance-day-status')}?{query}"
+
+
+def test_day_status_returns_present_for_early_entry(auth_client):
+    parameters = JornadaParametersFactory(entry_limit_time=time(7, 30))
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+
+    response = auth_client.get(
+        _day_status_url(student, parameters.shift, parameters.effective_from)
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "presente"
+
+
+def test_day_status_requires_student_scope(auth_client):
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    response = auth_client.get(
+        _day_status_url(student, parameters.shift, parameters.effective_from)
+    )
+
+    assert response.status_code == 403
+
+
+def test_day_status_without_configured_parameters_is_a_bad_request(auth_client):
+    shift = ShiftFactory()
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student)
+
+    response = auth_client.get(_day_status_url(student, shift, timezone.localdate()))
+
+    assert response.status_code == 400
