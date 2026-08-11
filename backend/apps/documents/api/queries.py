@@ -9,7 +9,12 @@ from rest_framework.exceptions import NotFound
 from apps.academics.api.queries import resolve_institution
 from apps.documents.models import DocumentTemplate
 
-__all__ = ["resolve_institution", "document_templates", "document_template_or_404"]
+__all__ = [
+    "resolve_institution",
+    "document_templates",
+    "document_template_or_404",
+    "document_template_versions",
+]
 
 
 def _wants_inactive(request):
@@ -41,3 +46,7 @@ def document_template_or_404(institution, public_id):
         raise NotFound("DocumentTemplate not found.") from exc
     except (ValueError, TypeError) as exc:  # malformed public_id
         raise NotFound("DocumentTemplate not found.") from exc
+
+
+def document_template_versions(template):
+    return template.versions.all()

@@ -1,8 +1,10 @@
 import pytest
 from django.urls import reverse
 
+from apps.documents.field_catalog import FIELD_TAG_CODES
 from apps.documents.models import DocumentTemplate
-from tests.factories.documents import DocumentTemplateFactory
+from tests.factories.documents import DocumentTemplateFactory, DocumentTemplateVersionFactory
+from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -23,8 +25,9 @@ def _items(response):
 
 
 @pytest.mark.security
-def test_document_template_endpoints_require_authentication(client):
-    response = client.get(reverse("document-template-list-create"))
+@pytest.mark.parametrize("url_name", ["document-template-list-create", "document-field-tag-list"])
+def test_document_endpoints_require_authentication(client, url_name):
+    response = client.get(reverse(url_name))
 
     assert response.status_code in (401, 403)
 
@@ -47,6 +50,46 @@ def test_create_document_template_returns_201_with_public_id(auth_client, instit
     assert body["kind"] == "certificate"
     assert "public_id" in body
     assert DocumentTemplate.objects.filter(institution=institution, code="CONST").exists()
+
+
+def test_document_template_response_includes_institutional_header(auth_client, institution):
+    template = DocumentTemplateFactory(institution=institution)
+
+    response = auth_client.get(reverse("document-template-detail", args=[template.public_id]))
+
+    assert response.status_code == 200
+    header = response.json()["header"]
+    assert header["institution_name"] == institution.name
+    assert header["institution_short_name"] == institution.short_name
+    assert header["logo_url"] is None
+
+
+def test_document_template_header_ignores_submitted_value_on_create(auth_client, institution):
+    response = auth_client.post(
+        reverse("document-template-list-create"),
+        {
+            "name": "Constancia",
+            "code": "CONST",
+            "header": {"institution_name": "Suplantado", "logo_url": "http://evil.example/x.png"},
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["header"]["institution_name"] == institution.name
+
+
+def test_document_template_header_ignores_submitted_value_on_update(auth_client, institution):
+    template = DocumentTemplateFactory(institution=institution)
+
+    response = auth_client.patch(
+        reverse("document-template-detail", args=[template.public_id]),
+        {"header": {"institution_name": "Suplantado"}},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["header"]["institution_name"] == institution.name
 
 
 def test_create_document_template_rejects_duplicate_code_with_400(auth_client, institution):
@@ -154,3 +197,89 @@ def test_delete_document_template_deactivates_instead_of_deleting(auth_client, i
     template.refresh_from_db()
     assert template.is_active is False
     assert DocumentTemplate.objects.filter(pk=template.pk).exists()
+
+
+# --------------------------------------------------------------------------- #
+# versions (RF-PLA-005)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.security
+def test_document_template_versions_endpoint_requires_authentication(client, institution):
+    template = DocumentTemplateFactory(institution=institution)
+
+    response = client.get(reverse("document-template-version-list", args=[template.public_id]))
+
+    assert response.status_code in (401, 403)
+
+
+def test_create_document_template_creates_its_first_version(auth_client, institution):
+    create_response = auth_client.post(
+        reverse("document-template-list-create"),
+        {"name": "Constancia", "code": "CONST"},
+        content_type="application/json",
+    )
+    public_id = create_response.json()["public_id"]
+
+    response = auth_client.get(reverse("document-template-version-list", args=[public_id]))
+
+    assert response.status_code == 200
+    items = _items(response)
+    assert len(items) == 1
+    assert items[0]["sequence"] == 1
+    assert items[0]["name"] == "Constancia"
+
+
+def test_update_document_template_adds_a_new_version_most_recent_first(auth_client, institution):
+    template = DocumentTemplateFactory(institution=institution, name="Old")
+    DocumentTemplateVersionFactory(template=template, sequence=1, name="Old")
+
+    auth_client.patch(
+        reverse("document-template-detail", args=[template.public_id]),
+        {"name": "New"},
+        content_type="application/json",
+    )
+
+    response = auth_client.get(reverse("document-template-version-list", args=[template.public_id]))
+
+    sequences = [item["sequence"] for item in _items(response)]
+    assert sequences == [2, 1]
+
+
+def test_document_template_versions_returns_404_for_another_institution(auth_client, institution):
+    foreign = DocumentTemplateFactory()  # different institution
+
+    response = auth_client.get(reverse("document-template-version-list", args=[foreign.public_id]))
+
+    assert response.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# field tags
+# --------------------------------------------------------------------------- #
+
+
+def test_list_field_tags_returns_the_fixed_catalogue(auth_client):
+    response = auth_client.get(reverse("document-field-tag-list"))
+
+    assert response.status_code == 200
+    codes = {item["code"] for item in _items(response)}
+    assert codes == set(FIELD_TAG_CODES)
+    assert all(item["sensitive"] is False for item in _items(response))
+
+
+def test_include_sensitive_field_tags_without_permission_returns_403(auth_client):
+    response = auth_client.get(reverse("document-field-tag-list"), {"include_sensitive": "true"})
+
+    assert response.status_code == 403
+
+
+def test_include_sensitive_field_tags_with_permission_returns_200(auth_client):
+    permission = PermissionFactory(codename="student_view_sensitive")
+    RoleAssignmentFactory(user=auth_client.user, role=RoleFactory(permissions=[permission]))
+
+    response = auth_client.get(reverse("document-field-tag-list"), {"include_sensitive": "true"})
+
+    assert response.status_code == 200
+    codes = {item["code"] for item in _items(response)}
+    assert codes == set(FIELD_TAG_CODES)
