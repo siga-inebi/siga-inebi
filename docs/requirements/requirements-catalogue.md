@@ -116,7 +116,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EMI-007 | Registro de las emisiones | Deberia | audit-compliance | Not implemented | #162 | TBD | Historial |
 | RF-EMI-008 | Archivo de la emision entregada | Deberia | document-generation | Not implemented | #163 | TBD | Politica pendiente |
 | RF-EMI-009 | Codigo de verificacion | Podria | document-generation | Not implemented | #164 | TBD | Verificacion publica futura |
-| RF-PLA-001 | Catalogo de plantillas | Debe | document-generation | Not implemented | #248 | TBD | Configurable |
+| RF-PLA-001 | Catalogo de plantillas | Debe | document-generation | Implemented | #248 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Configurable; crea la app `documents` con codigo unico por institucion y baja logica |
 | RF-PLA-002 | Campos disponibles como catalogo cerrado | Debe | document-generation | Not implemented | #249 | TBD | Seguridad |
 | RF-PLA-003 | Campos sensibles excluidos por omision | Debe | document-generation | Not implemented | #250 | TBD | Seguridad y privacidad |
 | RF-PLA-004 | Encabezado institucional obligatorio | Debe | document-generation | Not implemented | #251 | TBD | Regla documental |

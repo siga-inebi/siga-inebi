@@ -59,6 +59,7 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RNF-REN-003 | #287 | docs/architecture/system-context.md | TBD | TBD | TBD | Planned | Lotes en worker |
 | RNF-RES-002 | #290 | docs/decisions/pending-decisions.md | TBD | TBD | TBD | Planned | RPO/RTO pendientes |
 | RF-EXP-005 | #189 | docs/architecture/domain-map.md | backend/apps/students/services.py; backend/apps/students/api/{views.py,serializers.py,urls.py,queries.py} | backend/tests/api/test_emergency_contacts_api.py; backend/tests/unit/test_emergency_contact_services.py | PR #57 | In Progress | Contactos de emergencia (Restricted); auditoria de escritura, sin auditoria de lectura |
+| RF-PLA-001 | #248 | docs/architecture/domain-map.md; docs/architecture/api-conventions.md; docs/architecture/file-storage-strategy.md | backend/apps/documents/{models.py,services.py,api/} | backend/tests/{unit/test_documents_services.py,api/test_documents_api.py,integration/test_documents.py} | TBD | Implemented | Crea la app `documents`; catalogo de plantillas con codigo unico por institucion y baja logica |
 
 ## Mantenimiento
 
