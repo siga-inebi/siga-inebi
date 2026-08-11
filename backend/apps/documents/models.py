@@ -50,3 +50,39 @@ class DocumentTemplate(TimeStampedModel):
             "institution_short_name": self.institution.short_name,
             "logo_url": None,
         }
+
+
+class DocumentTemplateVersion(TimeStampedModel):
+    """
+    Immutable snapshot of a document template's content at a point in time
+    (RF-PLA-005), for institutional traceability. Written only by
+    ``apps.documents.services`` on creation and content updates; never
+    edited or deleted, same guarantee as ``apps.audit.models.AuditEvent``.
+    """
+
+    template = models.ForeignKey(
+        DocumentTemplate, on_delete=models.CASCADE, related_name="versions"
+    )
+    sequence = models.PositiveIntegerField()
+    name = models.CharField(max_length=150)
+    kind = models.CharField(max_length=20, choices=DocumentTemplate.TemplateKind.choices)
+    description = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["template", "sequence"], name="unique_document_template_version_sequence"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.template.name} v{self.sequence}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Document template versions cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document template versions cannot be deleted.")
