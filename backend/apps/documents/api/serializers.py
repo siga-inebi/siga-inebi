@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.documents.models import DocumentTemplate
+from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
 
 
 class InstitutionalHeaderSerializer(serializers.Serializer):
@@ -52,3 +52,9 @@ class FieldTagSerializer(serializers.Serializer):
     code = serializers.CharField()
     label = serializers.CharField()
     sensitive = serializers.BooleanField()
+
+
+class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DocumentTemplateVersion
+        fields = ["public_id", "sequence", "name", "kind", "description", "created_at"]
