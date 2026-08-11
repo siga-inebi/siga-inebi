@@ -136,6 +136,96 @@ def test_deactivate_document_template_is_idempotent():
     assert template.is_active is False
 
 
+def test_deactivate_document_template_does_not_record_a_version():
+    template = create_document_template(institution=InstitutionFactory(), name="A", code="A")
+
+    deactivate_document_template(template=template)
+
+    assert template.versions.count() == 1
+
+
+# --------------------------------------------------------------------------- #
+# versioning (RF-PLA-005)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_document_template_records_initial_version():
+    template = create_document_template(
+        institution=InstitutionFactory(), name="Constancia", code="CONST", description="v1"
+    )
+
+    versions = list(template.versions.all())
+    assert len(versions) == 1
+    assert versions[0].sequence == 1
+    assert versions[0].name == "Constancia"
+    assert versions[0].description == "v1"
+
+
+def test_update_document_template_records_a_new_version():
+    template = create_document_template(institution=InstitutionFactory(), name="Old", code="A")
+
+    update_document_template(template=template, name="New")
+
+    versions = list(template.versions.order_by("sequence"))
+    assert [v.sequence for v in versions] == [1, 2]
+    assert versions[0].name == "Old"
+    assert versions[1].name == "New"
+
+
+def test_update_document_template_with_nothing_to_change_does_not_record_a_version():
+    template = create_document_template(institution=InstitutionFactory(), name="A", code="A")
+
+    update_document_template(template=template)
+
+    assert template.versions.count() == 1
+
+
+def test_document_template_version_cannot_be_modified():
+    version = create_document_template(
+        institution=InstitutionFactory(), name="A", code="A"
+    ).versions.get()
+
+    version.name = "Tampered"
+    with pytest.raises(RuntimeError):
+        version.save()
+
+
+def test_document_template_version_cannot_be_deleted():
+    version = create_document_template(
+        institution=InstitutionFactory(), name="A", code="A"
+    ).versions.get()
+
+    with pytest.raises(RuntimeError):
+        version.delete()
+
+
+# --------------------------------------------------------------------------- #
+# institutional_header (RF-PLA-004)
+# --------------------------------------------------------------------------- #
+
+
+def test_institutional_header_reflects_current_institution_data():
+    institution = InstitutionFactory(name="Instituto Demo", short_name="DEMO")
+    template = DocumentTemplateFactory(institution=institution)
+
+    assert template.institutional_header == {
+        "institution_name": "Instituto Demo",
+        "institution_short_name": "DEMO",
+        "logo_url": None,
+    }
+
+
+def test_institutional_header_follows_institution_changes():
+    """Derived, not stored: renaming the institution changes the header immediately."""
+    institution = InstitutionFactory(name="Old Name")
+    template = DocumentTemplateFactory(institution=institution)
+
+    institution.name = "New Name"
+    institution.save(update_fields=["name"])
+
+    assert template.institutional_header["institution_name"] == "New Name"
+
+
 # --------------------------------------------------------------------------- #
 # list_field_tags
 # --------------------------------------------------------------------------- #

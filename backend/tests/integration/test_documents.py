@@ -1,9 +1,9 @@
 import pytest
 from django.db import IntegrityError
 
-from apps.documents.models import DocumentTemplate
+from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
 from tests.factories.academic import InstitutionFactory
-from tests.factories.documents import DocumentTemplateFactory
+from tests.factories.documents import DocumentTemplateFactory, DocumentTemplateVersionFactory
 
 
 @pytest.mark.integration
@@ -30,3 +30,16 @@ def test_document_template_code_can_repeat_across_institutions():
 
     assert first.pk != second.pk
     assert DocumentTemplate.objects.filter(code="CONST").count() == 2
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_document_template_version_sequence_is_unique_per_template_at_db_level():
+    template = DocumentTemplateFactory()
+    DocumentTemplateVersionFactory(template=template, sequence=1)
+
+    with pytest.raises(IntegrityError):
+        DocumentTemplateVersion.objects.create(
+            template=template, sequence=1, name="Other", kind=DocumentTemplate.TemplateKind.OTHER
+        )

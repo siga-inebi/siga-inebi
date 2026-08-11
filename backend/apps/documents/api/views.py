@@ -18,6 +18,7 @@ from rest_framework.generics import GenericAPIView
 from apps.academics.api.views import (
     CatalogueDetailView,
     CatalogueListCreateView,
+    CatalogueView,
     DeactivateMixin,
     RetrieveMixin,
     UpdateMixin,
@@ -29,6 +30,7 @@ from .serializers import (
     DocumentTemplateCreateSerializer,
     DocumentTemplateSerializer,
     DocumentTemplateUpdateSerializer,
+    DocumentTemplateVersionSerializer,
     FieldTagSerializer,
 )
 
@@ -124,6 +126,24 @@ class DocumentTemplateDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, Ca
 
     def deactivate(self, request, template):
         services.deactivate_document_template(template=template, actor=request.user)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Historial de versiones de la plantilla",
+        description=(
+            "Historial inmutable de contenido de la plantilla, mas reciente primero (RF-PLA-005)."
+        ),
+        tags=CATALOGUE,
+        responses={200: DocumentTemplateVersionSerializer(many=True)},
+    ),
+)
+class DocumentTemplateVersionListView(CatalogueView):
+    def get(self, request, public_id):
+        template = queries.document_template_or_404(self.institution, public_id)
+        page = self.paginate_queryset(queries.document_template_versions(template))
+        serializer = DocumentTemplateVersionSerializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
 
 @extend_schema_view(
