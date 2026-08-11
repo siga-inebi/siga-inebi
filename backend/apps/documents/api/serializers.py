@@ -3,7 +3,17 @@ from rest_framework import serializers
 from apps.documents.models import DocumentTemplate
 
 
+class InstitutionalHeaderSerializer(serializers.Serializer):
+    institution_name = serializers.CharField()
+    institution_short_name = serializers.CharField()
+    logo_url = serializers.CharField(allow_null=True)
+
+
 class DocumentTemplateSerializer(serializers.ModelSerializer):
+    """``header`` is read-only and derived; it cannot be set via create/update payloads."""
+
+    header = InstitutionalHeaderSerializer(source="institutional_header", read_only=True)
+
     class Meta:
         model = DocumentTemplate
         fields = [
@@ -13,6 +23,7 @@ class DocumentTemplateSerializer(serializers.ModelSerializer):
             "kind",
             "description",
             "is_active",
+            "header",
         ]
 
 

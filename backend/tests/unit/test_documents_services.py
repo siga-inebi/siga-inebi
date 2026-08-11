@@ -137,6 +137,33 @@ def test_deactivate_document_template_is_idempotent():
 
 
 # --------------------------------------------------------------------------- #
+# institutional_header (RF-PLA-004)
+# --------------------------------------------------------------------------- #
+
+
+def test_institutional_header_reflects_current_institution_data():
+    institution = InstitutionFactory(name="Instituto Demo", short_name="DEMO")
+    template = DocumentTemplateFactory(institution=institution)
+
+    assert template.institutional_header == {
+        "institution_name": "Instituto Demo",
+        "institution_short_name": "DEMO",
+        "logo_url": None,
+    }
+
+
+def test_institutional_header_follows_institution_changes():
+    """Derived, not stored: renaming the institution changes the header immediately."""
+    institution = InstitutionFactory(name="Old Name")
+    template = DocumentTemplateFactory(institution=institution)
+
+    institution.name = "New Name"
+    institution.save(update_fields=["name"])
+
+    assert template.institutional_header["institution_name"] == "New Name"
+
+
+# --------------------------------------------------------------------------- #
 # list_field_tags
 # --------------------------------------------------------------------------- #
 

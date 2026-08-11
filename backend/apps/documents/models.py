@@ -32,3 +32,21 @@ class DocumentTemplate(TimeStampedModel):
 
     def __str__(self):
         return self.name
+
+    @property
+    def institutional_header(self):
+        """
+        Mandatory institutional header every print template carries by default
+        (RF-PLA-004). Derived from the institution, never stored or
+        configurable per template, so it always reflects current
+        institutional data and can never be turned off.
+
+        ``logo_url`` is ``None`` until the ``file-storage`` domain exists
+        (``docs/architecture/file-storage-strategy.md``); ``Institution`` has
+        no logo field yet.
+        """
+        return {
+            "institution_name": self.institution.name,
+            "institution_short_name": self.institution.short_name,
+            "logo_url": None,
+        }

@@ -52,6 +52,46 @@ def test_create_document_template_returns_201_with_public_id(auth_client, instit
     assert DocumentTemplate.objects.filter(institution=institution, code="CONST").exists()
 
 
+def test_document_template_response_includes_institutional_header(auth_client, institution):
+    template = DocumentTemplateFactory(institution=institution)
+
+    response = auth_client.get(reverse("document-template-detail", args=[template.public_id]))
+
+    assert response.status_code == 200
+    header = response.json()["header"]
+    assert header["institution_name"] == institution.name
+    assert header["institution_short_name"] == institution.short_name
+    assert header["logo_url"] is None
+
+
+def test_document_template_header_ignores_submitted_value_on_create(auth_client, institution):
+    response = auth_client.post(
+        reverse("document-template-list-create"),
+        {
+            "name": "Constancia",
+            "code": "CONST",
+            "header": {"institution_name": "Suplantado", "logo_url": "http://evil.example/x.png"},
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["header"]["institution_name"] == institution.name
+
+
+def test_document_template_header_ignores_submitted_value_on_update(auth_client, institution):
+    template = DocumentTemplateFactory(institution=institution)
+
+    response = auth_client.patch(
+        reverse("document-template-detail", args=[template.public_id]),
+        {"header": {"institution_name": "Suplantado"}},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["header"]["institution_name"] == institution.name
+
+
 def test_create_document_template_rejects_duplicate_code_with_400(auth_client, institution):
     DocumentTemplateFactory(institution=institution, code="CONST")
 
