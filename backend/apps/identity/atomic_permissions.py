@@ -18,6 +18,7 @@ ATOMIC_PERMISSIONS = (
     ("attendance.record_manual", "Can record attendance manually"),
     ("attendance.justification.request", "Can request attendance justifications"),
     ("attendance.justification.resolve", "Can resolve attendance justifications"),
+    ("attendance.jornada.configure", "Can configure jornada parameters"),
     ("grade.write", "Can write grades"),
     ("grade.correct", "Can correct grades"),
     ("document.upload", "Can upload documents"),
