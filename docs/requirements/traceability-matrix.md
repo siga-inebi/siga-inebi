@@ -42,11 +42,13 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RF-CTA-003 | #141 | docs/architecture/authorization-model.md; docs/architecture/api-conventions.md | backend/apps/identity/models.py; backend/apps/identity/services.py; backend/apps/identity/api/views.py | backend/tests/api/test_identity_account_provisioning_api.py | PR #3; PR #53 | In Progress | Emision y reemision segura implementadas; consumo del codigo y activacion final quedan fuera de este corte |
 | RF-CTA-006 | #144 | docs/architecture/authorization-model.md; docs/architecture/audit-strategy.md | backend/apps/identity/services.py | backend/tests/permissions/test_identity_permissions.py | TBD | In Progress | Servicio interno de desactivacion administrativa sin borrado fisico; API y verificacion de dependencias quedan fuera de este corte |
 | RF-CIC-001 | #126 | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Registro de ciclo |
+| RF-JOR-001 | #205 | docs/architecture/domain-map.md | backend/apps/attendance/{models.py,services.py,api/} | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py,integration/test_attendance.py} | TBD | Implemented | Parametros versionados por jornada y ciclo; dias lectivos como metadato configurable |
 | RF-EST-007 | #171 | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Secciones |
 | RF-MAT-002 | #226 | docs/architecture/initial-data-model.md | TBD | TBD | TBD | Planned | Matricula |
 | RF-CRE-001 | #133 | docs/architecture/file-storage-strategy.md | TBD | TBD | TBD | Planned | QR opaco |
 | RF-ASI-010 | #94 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Idempotencia |
-| RF-JOR-002 | #206 | docs/architecture/domain-map.md | TBD | TBD | TBD | Planned | Estado diario derivado |
+| RF-JOR-002 | #206 | docs/architecture/domain-map.md | backend/apps/attendance/{models.py,services.py,api/} | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py,integration/test_attendance.py} | TBD | Implemented | Estado diario derivado (presente/tarde/ausente pendiente); recalculable sin alterar eventos |
+| RF-JOR-003 | #207 | docs/architecture/domain-map.md; docs/architecture/audit-strategy.md | backend/apps/attendance/{models.py,services.py,api/} | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py,integration/test_attendance.py} | TBD | Implemented | Precedencia escaneo > manual > declarado; desempate por hora de captura; ningun evento se elimina ni se sobrescribe |
 | RF-JUS-004 | #219 | docs/architecture/data-classification.md | TBD | TBD | TBD | Planned | Resolucion auditable |
 | RF-DOC-006 | #151 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Auditoria de lectura |
 | RF-BIT-005 | #115 | docs/architecture/audit-strategy.md | TBD | TBD | TBD | Planned | Inmutabilidad |
