@@ -18,6 +18,7 @@ from rest_framework.generics import GenericAPIView
 from apps.academics.api.views import (
     CatalogueDetailView,
     CatalogueListCreateView,
+    CatalogueView,
     DeactivateMixin,
     RetrieveMixin,
     UpdateMixin,
@@ -29,6 +30,7 @@ from .serializers import (
     DocumentTemplateCreateSerializer,
     DocumentTemplateSerializer,
     DocumentTemplateUpdateSerializer,
+    DocumentTemplateVersionSerializer,
     FieldTagSerializer,
 )
 
@@ -41,6 +43,21 @@ INCLUDE_INACTIVE = OpenApiParameter(
     required=False,
     description="Incluye registros desactivados. Por defecto solo se listan los activos.",
 )
+
+INCLUDE_SENSITIVE = OpenApiParameter(
+    name="include_sensitive",
+    type=bool,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description=(
+        "Incluye etiquetas sensibles/confidenciales. Requiere el permiso "
+        "student.view_sensitive. Excluidas por defecto."
+    ),
+)
+
+
+def _wants_sensitive(request):
+    return str(request.query_params.get("include_sensitive", "")).lower() in {"1", "true", "yes"}
 
 
 @extend_schema_view(
@@ -113,12 +130,32 @@ class DocumentTemplateDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, Ca
 
 @extend_schema_view(
     get=extend_schema(
+        summary="Historial de versiones de la plantilla",
+        description=(
+            "Historial inmutable de contenido de la plantilla, mas reciente primero (RF-PLA-005)."
+        ),
+        tags=CATALOGUE,
+        responses={200: DocumentTemplateVersionSerializer(many=True)},
+    ),
+)
+class DocumentTemplateVersionListView(CatalogueView):
+    def get(self, request, public_id):
+        template = queries.document_template_or_404(self.institution, public_id)
+        page = self.paginate_queryset(queries.document_template_versions(template))
+        serializer = DocumentTemplateVersionSerializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+
+@extend_schema_view(
+    get=extend_schema(
         summary="Listar etiquetas dinamicas",
         description=(
             "Catalogo cerrado y predefinido de etiquetas dinamicas disponibles para el "
-            "contenido de las plantillas (RF-PLA-002)."
+            "contenido de las plantillas (RF-PLA-002). Las etiquetas sensibles se excluyen "
+            "por defecto (RF-PLA-003)."
         ),
         tags=CATALOGUE,
+        parameters=[INCLUDE_SENSITIVE],
         responses={200: FieldTagSerializer(many=True)},
     ),
 )
@@ -127,7 +164,13 @@ class FieldTagListView(GenericAPIView):
     serializer_class = FieldTagSerializer
 
     def get(self, request):
-        tags = [{"code": code, "label": label} for code, label in services.list_field_tags()]
+        catalogue = services.list_field_tags(
+            actor=request.user, include_sensitive=_wants_sensitive(request)
+        )
+        tags = [
+            {"code": code, "label": label, "sensitive": sensitive}
+            for code, label, sensitive in catalogue
+        ]
         page = self.paginate_queryset(tags)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)

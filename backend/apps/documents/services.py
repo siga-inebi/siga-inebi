@@ -8,17 +8,47 @@ Uniqueness is delegated to the database constraint and translated back into a
 would leave a window for two concurrent requests to both pass the check.
 """
 
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Max
 
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAGS
-from apps.documents.models import DocumentTemplate
+from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
+
+SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
 
 
-def list_field_tags():
-    """Fixed, predefined catalogue of dynamic tags templates may reference (RF-PLA-002)."""
+def list_field_tags(*, actor=None, include_sensitive=False):
+    """
+    Fixed, predefined catalogue of dynamic tags templates may reference
+    (RF-PLA-002). Sensitive/confidential tags are excluded by default
+    (RF-PLA-003); including them requires ``student.view_sensitive``.
+    """
+    if not include_sensitive:
+        return tuple(tag for tag in FIELD_TAGS if not tag[2])
+
+    is_authorized = bool(
+        actor
+        and (actor.is_superuser or actor.has_atomic_permission(SENSITIVE_FIELD_TAGS_PERMISSION))
+    )
+    if not is_authorized:
+        record_event(
+            actor=actor,
+            action="documents.field_tag_catalog.sensitive_read_denied",
+            resource="FieldTag",
+            context={"result": "denied", "reason": "missing_permission"},
+        )
+        raise PermissionDenied("Actor lacks permission to view sensitive field tags.")
+
+    record_event(
+        actor=actor,
+        action="documents.field_tag_catalog.sensitive_read",
+        resource="FieldTag",
+        context={"result": "success"},
+    )
     return FIELD_TAGS
 
 
@@ -68,6 +98,25 @@ def _document_template_conflicts(code):
     }
 
 
+def _version_conflicts():
+    return {
+        "unique_document_template_version_sequence": ("Concurrent update detected; retry."),
+    }
+
+
+def _record_version(template):
+    """Append an immutable content snapshot (RF-PLA-005)."""
+    next_sequence = (template.versions.aggregate(Max("sequence"))["sequence__max"] or 0) + 1
+    with unique_violation_as(_version_conflicts()):
+        DocumentTemplateVersion.objects.create(
+            template=template,
+            sequence=next_sequence,
+            name=template.name,
+            kind=template.kind,
+            description=template.description,
+        )
+
+
 @transaction.atomic
 def create_document_template(
     *, institution, name, code, kind=DocumentTemplate.TemplateKind.OTHER, description="", actor=None
@@ -92,18 +141,23 @@ def create_document_template(
         )
 
     _audit(actor, "documents.template.created", template, code=code, kind=kind)
+    _record_version(template)
     return template
 
 
 @transaction.atomic
 def update_document_template(*, template, name=None, description=None, kind=None, actor=None):
-    """Update the descriptive attributes of a document template. The code is immutable."""
+    """
+    Update the descriptive attributes of a document template. The code is
+    immutable. Any explicitly supplied field records a new version
+    (RF-PLA-005); a call with nothing to change does not.
+    """
     if name is not None:
         name = _clean_name(name)
     if description is not None:
         description = description.strip()
 
-    return _changed(
+    updated = _changed(
         template,
         actor,
         "documents.template.updated",
@@ -111,6 +165,11 @@ def update_document_template(*, template, name=None, description=None, kind=None
         description=description,
         kind=kind,
     )
+
+    if any(value is not None for value in (name, description, kind)):
+        _record_version(updated)
+
+    return updated
 
 
 @transaction.atomic
