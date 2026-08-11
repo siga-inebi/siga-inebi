@@ -50,7 +50,7 @@ services:
     environment:
       FRONTEND_PORT: ${FRONTEND_PORT:-5173}
       VITE_API_URL: /api/v1
-      VITE_BACKEND_PROXY_TARGET: http://backend:8000
+      VITE_BACKEND_PROXY_TARGET: http://backend:${BACKEND_PORT:-8000}
     depends_on:
       backend:
         condition: service_healthy
