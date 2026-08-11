@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 import pytest
+from django.core.exceptions import PermissionDenied
 
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
@@ -11,6 +14,12 @@ from apps.documents.services import (
 )
 from tests.factories.academic import InstitutionFactory
 from tests.factories.documents import DocumentTemplateFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    UserFactory,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
@@ -132,9 +141,63 @@ def test_deactivate_document_template_is_idempotent():
 # --------------------------------------------------------------------------- #
 
 
-def test_list_field_tags_returns_the_fixed_catalogue():
+def test_list_field_tags_returns_the_fixed_catalogue_by_default():
     assert list_field_tags() == FIELD_TAGS
 
 
 def test_field_tag_codes_are_unique():
     assert len(FIELD_TAG_CODES) == len(set(FIELD_TAG_CODES))
+
+
+def test_current_field_catalogue_has_no_sensitive_tags():
+    """
+    RF-PLA-003: nothing medical or confidential is modelled yet, so today's
+    catalogue must not mark anything sensitive. This guards against someone
+    adding a sensitive tag without also reviewing the exclusion-by-default
+    mechanism below.
+    """
+    assert all(sensitive is False for _code, _label, sensitive in FIELD_TAGS)
+
+
+_FAKE_CATALOGUE = (
+    ("student.full_name", "Nombre completo del estudiante", False),
+    ("student.health_note", "Nota de salud (simulada para prueba)", True),
+)
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_sensitive_tags_are_excluded_by_default():
+    tags = list_field_tags()
+
+    assert tags == (_FAKE_CATALOGUE[0],)
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_including_sensitive_tags_without_permission_is_denied():
+    with pytest.raises(PermissionDenied):
+        list_field_tags(actor=UserFactory(), include_sensitive=True)
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_including_sensitive_tags_without_actor_is_denied():
+    with pytest.raises(PermissionDenied):
+        list_field_tags(include_sensitive=True)
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_superuser_can_include_sensitive_tags():
+    actor = UserFactory(is_superuser=True)
+
+    tags = list_field_tags(actor=actor, include_sensitive=True)
+
+    assert tags == _FAKE_CATALOGUE
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_actor_with_student_view_sensitive_can_include_sensitive_tags():
+    permission = PermissionFactory(codename="student_view_sensitive")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    tags = list_field_tags(actor=assignment.user, include_sensitive=True)
+
+    assert tags == _FAKE_CATALOGUE

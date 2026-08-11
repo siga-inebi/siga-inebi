@@ -40,3 +40,4 @@ class DocumentTemplateUpdateSerializer(serializers.Serializer):
 class FieldTagSerializer(serializers.Serializer):
     code = serializers.CharField()
     label = serializers.CharField()
+    sensitive = serializers.BooleanField()

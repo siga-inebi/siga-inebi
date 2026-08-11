@@ -8,6 +8,7 @@ Uniqueness is delegated to the database constraint and translated back into a
 would leave a window for two concurrent requests to both pass the check.
 """
 
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
 from apps.audit.services import record_event
@@ -16,9 +17,37 @@ from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAGS
 from apps.documents.models import DocumentTemplate
 
+SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
 
-def list_field_tags():
-    """Fixed, predefined catalogue of dynamic tags templates may reference (RF-PLA-002)."""
+
+def list_field_tags(*, actor=None, include_sensitive=False):
+    """
+    Fixed, predefined catalogue of dynamic tags templates may reference
+    (RF-PLA-002). Sensitive/confidential tags are excluded by default
+    (RF-PLA-003); including them requires ``student.view_sensitive``.
+    """
+    if not include_sensitive:
+        return tuple(tag for tag in FIELD_TAGS if not tag[2])
+
+    is_authorized = bool(
+        actor
+        and (actor.is_superuser or actor.has_atomic_permission(SENSITIVE_FIELD_TAGS_PERMISSION))
+    )
+    if not is_authorized:
+        record_event(
+            actor=actor,
+            action="documents.field_tag_catalog.sensitive_read_denied",
+            resource="FieldTag",
+            context={"result": "denied", "reason": "missing_permission"},
+        )
+        raise PermissionDenied("Actor lacks permission to view sensitive field tags.")
+
+    record_event(
+        actor=actor,
+        action="documents.field_tag_catalog.sensitive_read",
+        resource="FieldTag",
+        context={"result": "success"},
+    )
     return FIELD_TAGS
 
 

@@ -4,6 +4,7 @@ from django.urls import reverse
 from apps.documents.field_catalog import FIELD_TAG_CODES
 from apps.documents.models import DocumentTemplate
 from tests.factories.documents import DocumentTemplateFactory
+from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -165,6 +166,24 @@ def test_delete_document_template_deactivates_instead_of_deleting(auth_client, i
 
 def test_list_field_tags_returns_the_fixed_catalogue(auth_client):
     response = auth_client.get(reverse("document-field-tag-list"))
+
+    assert response.status_code == 200
+    codes = {item["code"] for item in _items(response)}
+    assert codes == set(FIELD_TAG_CODES)
+    assert all(item["sensitive"] is False for item in _items(response))
+
+
+def test_include_sensitive_field_tags_without_permission_returns_403(auth_client):
+    response = auth_client.get(reverse("document-field-tag-list"), {"include_sensitive": "true"})
+
+    assert response.status_code == 403
+
+
+def test_include_sensitive_field_tags_with_permission_returns_200(auth_client):
+    permission = PermissionFactory(codename="student_view_sensitive")
+    RoleAssignmentFactory(user=auth_client.user, role=RoleFactory(permissions=[permission]))
+
+    response = auth_client.get(reverse("document-field-tag-list"), {"include_sensitive": "true"})
 
     assert response.status_code == 200
     codes = {item["code"] for item in _items(response)}
