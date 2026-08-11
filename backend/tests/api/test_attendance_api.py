@@ -1,6 +1,7 @@
 """
 RF-JOR-001 — contrato del endpoint de parametros de jornada.
 RF-JOR-002 — contrato del endpoint de estado diario.
+RF-JOR-003 — contrato del endpoint de resolucion de precedencia.
 """
 
 from datetime import datetime, time
@@ -217,5 +218,76 @@ def test_day_status_without_configured_parameters_is_a_bad_request(auth_client):
     _grant_student_scope(auth_client.user, student)
 
     response = auth_client.get(_day_status_url(student, shift, timezone.localdate()))
+
+    assert response.status_code == 400
+
+
+def _resolution_url(student, shift, event_date, movement_type):
+    query = urlencode(
+        {
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "event_date": str(event_date),
+            "movement_type": movement_type,
+        }
+    )
+    return f"{reverse('attendance-event-resolution')}?{query}"
+
+
+def test_resolution_returns_scan_event_over_declared(auth_client):
+    shift = ShiftFactory()
+    student = StudentFactory()
+    event_date = timezone.localdate()
+    _grant_student_scope(auth_client.user, student)
+    scan_event = AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=event_date,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.now(),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=event_date,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=timezone.now(),
+    )
+
+    response = auth_client.get(
+        _resolution_url(student, shift, event_date, AttendanceEvent.MovementType.EXIT)
+    )
+
+    assert response.status_code == 200
+    assert response.json()["public_id"] == str(scan_event.public_id)
+
+
+def test_resolution_requires_student_scope(auth_client):
+    shift = ShiftFactory()
+    student = StudentFactory()
+
+    response = auth_client.get(
+        _resolution_url(student, shift, timezone.localdate(), AttendanceEvent.MovementType.EXIT)
+    )
+
+    assert response.status_code == 403
+
+
+def test_resolution_returns_404_when_no_event_matches(auth_client):
+    shift = ShiftFactory()
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student)
+
+    response = auth_client.get(
+        _resolution_url(student, shift, timezone.localdate(), AttendanceEvent.MovementType.EXIT)
+    )
+
+    assert response.status_code == 404
+
+
+def test_resolution_with_malformed_query_is_a_bad_request(auth_client):
+    response = auth_client.get(f"{reverse('attendance-event-resolution')}?movement_type=exit")
 
     assert response.status_code == 400

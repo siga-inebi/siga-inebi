@@ -3,6 +3,7 @@ from django.urls import path
 from apps.attendance.api.views import (
     AttendanceDayStatusView,
     AttendanceEventListCreateView,
+    AttendanceEventResolutionView,
     JornadaParametersListCreateView,
 )
 
@@ -16,6 +17,11 @@ urlpatterns = [
         "events/",
         AttendanceEventListCreateView.as_view(),
         name="attendance-event-list",
+    ),
+    path(
+        "events/resolution/",
+        AttendanceEventResolutionView.as_view(),
+        name="attendance-event-resolution",
     ),
     path(
         "day-status/",

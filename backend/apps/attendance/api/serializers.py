@@ -85,3 +85,10 @@ class DayStatusQuerySerializer(serializers.Serializer):
 class DayStatusResultSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=DayStatus.choices, allow_null=True)
     entry_event = AttendanceEventSerializer(allow_null=True)
+
+
+class AttendanceEventResolutionQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField()
+    shift_id = serializers.UUIDField()
+    event_date = serializers.DateField()
+    movement_type = serializers.ChoiceField(choices=AttendanceEvent.MovementType.choices)

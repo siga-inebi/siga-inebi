@@ -7,7 +7,7 @@ via ``config.api.exception_handler``, so no view here catches it.
 """
 
 from rest_framework import permissions, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
@@ -20,6 +20,7 @@ from apps.students.models import Student
 
 from .serializers import (
     AttendanceEventCreateSerializer,
+    AttendanceEventResolutionQuerySerializer,
     AttendanceEventSerializer,
     DayStatusQuerySerializer,
     DayStatusResultSerializer,
@@ -104,6 +105,33 @@ class AttendanceEventListCreateView(GenericAPIView):
             student=student, shift=shift, actor=request.user, **payload
         )
         return Response(AttendanceEventSerializer(event).data, status=status.HTTP_201_CREATED)
+
+
+class AttendanceEventResolutionView(GenericAPIView):
+    """RF-JOR-003 contract: the event that prevails by precedence."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendanceEventSerializer
+
+    def get(self, request):
+        query = AttendanceEventResolutionQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = query.validated_data
+        student = _resolve(Student.objects.all(), payload["student_id"], "Student")
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        if not can_access_student(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
+        ):
+            raise PermissionDenied("Actor lacks the required permission or student scope.")
+        event = services.resolve_prevailing_event(
+            student=student,
+            shift=shift,
+            event_date=payload["event_date"],
+            movement_type=payload["movement_type"],
+        )
+        if event is None:
+            raise NotFound("No attendance event found for the given criteria.")
+        return Response(AttendanceEventSerializer(event).data)
 
 
 class AttendanceDayStatusView(GenericAPIView):

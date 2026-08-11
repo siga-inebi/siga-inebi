@@ -1,11 +1,9 @@
 """
 RF-JOR-001 — parametros de jornada configurables.
 RF-JOR-002 — derivacion del estado diario.
+RF-JOR-003 — precedencia entre eventos.
 
-Both in isolation from the API layer. The precedence ranking that
-RF-JOR-002's derivation depends on is RF-JOR-003's own rule; its dedicated
-"Escaneo prevalece sobre declaracion" scenario test lives in a later phase of
-this same file, once the resolution endpoint exists.
+All three in isolation from the API layer.
 """
 
 from datetime import datetime, time, timedelta
@@ -145,13 +143,52 @@ def test_resolve_academic_cycle_for_finds_the_cycle_covering_the_date():
 
 
 # --------------------------------------------------------------------------- #
-# RF-JOR-003 groundwork — resolve_prevailing_event is what RF-JOR-002's
-# derivation reads to pick "the" entry/exit event when more than one exists.
+# RF-JOR-003 — precedencia entre eventos. resolve_prevailing_event is also
+# what RF-JOR-002's derivation reads to pick "the" entry/exit event when more
+# than one exists.
 # --------------------------------------------------------------------------- #
 
 
 def _at(event_date, hour, minute):
     return timezone.make_aware(datetime.combine(event_date, time(hour, minute)))
+
+
+def test_escaneo_prevalece_sobre_declaracion():
+    """
+    Escenario 1 (RF-JOR-003): GIVEN un estudiante con un egreso de origen
+    escaneado y un egreso de origen declarado para la misma jornada, WHEN se
+    deriva su estado del dia, THEN el estado se calcula con el evento de
+    origen escaneado, AND el evento declarado permanece almacenado y
+    consultable.
+    """
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    scan_exit = AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 15, 0),
+    )
+    declared_exit = AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 16, 0),
+    )
+
+    prevailing = services.resolve_prevailing_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+    )
+
+    assert prevailing == scan_exit
+    assert AttendanceEvent.objects.filter(pk=declared_exit.pk, is_active=True).exists()
 
 
 def test_resolve_prevailing_event_prefers_scan_over_other_origins():

@@ -1,6 +1,7 @@
 """
 RF-JOR-001 — flujo cruzando dominios (academics + attendance) contra Postgres.
 RF-JOR-002 — derivacion del estado diario, con matricula real de por medio.
+RF-JOR-003 — precedencia entre eventos, con matricula real de por medio.
 """
 
 from datetime import datetime, time
@@ -92,3 +93,39 @@ def test_derive_day_status_for_an_actively_enrolled_student():
 
     assert result.status == DayStatus.PRESENT
     assert result.parameters == parameters
+
+
+def test_scan_prevails_over_declared_for_an_actively_enrolled_student():
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+    )
+    scan_event = services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(15, 0))),
+    )
+    declared_event = services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(16, 0))),
+    )
+
+    prevailing = services.resolve_prevailing_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+    )
+
+    assert prevailing == scan_event
+    assert AttendanceEvent.objects.filter(pk=declared_event.pk, is_active=True).exists()
