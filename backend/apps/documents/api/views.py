@@ -12,6 +12,8 @@ rather than duplicated.
 """
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from rest_framework import permissions
+from rest_framework.generics import GenericAPIView
 
 from apps.academics.api.views import (
     CatalogueDetailView,
@@ -27,6 +29,7 @@ from .serializers import (
     DocumentTemplateCreateSerializer,
     DocumentTemplateSerializer,
     DocumentTemplateUpdateSerializer,
+    FieldTagSerializer,
 )
 
 CATALOGUE = ["documents: catalogue"]
@@ -106,3 +109,25 @@ class DocumentTemplateDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, Ca
 
     def deactivate(self, request, template):
         services.deactivate_document_template(template=template, actor=request.user)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar etiquetas dinamicas",
+        description=(
+            "Catalogo cerrado y predefinido de etiquetas dinamicas disponibles para el "
+            "contenido de las plantillas (RF-PLA-002)."
+        ),
+        tags=CATALOGUE,
+        responses={200: FieldTagSerializer(many=True)},
+    ),
+)
+class FieldTagListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FieldTagSerializer
+
+    def get(self, request):
+        tags = [{"code": code, "label": label} for code, label in services.list_field_tags()]
+        page = self.paginate_queryset(tags)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)

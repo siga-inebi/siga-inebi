@@ -1,10 +1,12 @@
 import pytest
 
 from apps.common.models import DomainError
+from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
 from apps.documents.models import DocumentTemplate
 from apps.documents.services import (
     create_document_template,
     deactivate_document_template,
+    list_field_tags,
     update_document_template,
 )
 from tests.factories.academic import InstitutionFactory
@@ -123,3 +125,16 @@ def test_deactivate_document_template_is_idempotent():
 
     template.refresh_from_db()
     assert template.is_active is False
+
+
+# --------------------------------------------------------------------------- #
+# list_field_tags
+# --------------------------------------------------------------------------- #
+
+
+def test_list_field_tags_returns_the_fixed_catalogue():
+    assert list_field_tags() == FIELD_TAGS
+
+
+def test_field_tag_codes_are_unique():
+    assert len(FIELD_TAG_CODES) == len(set(FIELD_TAG_CODES))

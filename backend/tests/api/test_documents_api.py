@@ -1,6 +1,7 @@
 import pytest
 from django.urls import reverse
 
+from apps.documents.field_catalog import FIELD_TAG_CODES
 from apps.documents.models import DocumentTemplate
 from tests.factories.documents import DocumentTemplateFactory
 
@@ -23,8 +24,9 @@ def _items(response):
 
 
 @pytest.mark.security
-def test_document_template_endpoints_require_authentication(client):
-    response = client.get(reverse("document-template-list-create"))
+@pytest.mark.parametrize("url_name", ["document-template-list-create", "document-field-tag-list"])
+def test_document_endpoints_require_authentication(client, url_name):
+    response = client.get(reverse(url_name))
 
     assert response.status_code in (401, 403)
 
@@ -154,3 +156,16 @@ def test_delete_document_template_deactivates_instead_of_deleting(auth_client, i
     template.refresh_from_db()
     assert template.is_active is False
     assert DocumentTemplate.objects.filter(pk=template.pk).exists()
+
+
+# --------------------------------------------------------------------------- #
+# field tags
+# --------------------------------------------------------------------------- #
+
+
+def test_list_field_tags_returns_the_fixed_catalogue(auth_client):
+    response = auth_client.get(reverse("document-field-tag-list"))
+
+    assert response.status_code == 200
+    codes = {item["code"] for item in _items(response)}
+    assert codes == set(FIELD_TAG_CODES)

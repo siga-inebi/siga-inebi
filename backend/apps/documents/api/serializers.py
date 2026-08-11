@@ -35,3 +35,8 @@ class DocumentTemplateUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150, required=False)
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     kind = serializers.ChoiceField(choices=DocumentTemplate.TemplateKind.choices, required=False)
+
+
+class FieldTagSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    label = serializers.CharField()

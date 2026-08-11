@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import DocumentTemplateDetailView, DocumentTemplateListCreateView
+from .views import DocumentTemplateDetailView, DocumentTemplateListCreateView, FieldTagListView
 
 urlpatterns = [
     path(
@@ -11,4 +11,5 @@ urlpatterns = [
         DocumentTemplateDetailView.as_view(),
         name="document-template-detail",
     ),
+    path("field-tags/", FieldTagListView.as_view(), name="document-field-tag-list"),
 ]

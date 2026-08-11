@@ -13,7 +13,13 @@ from django.db import transaction
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
+from apps.documents.field_catalog import FIELD_TAGS
 from apps.documents.models import DocumentTemplate
+
+
+def list_field_tags():
+    """Fixed, predefined catalogue of dynamic tags templates may reference (RF-PLA-002)."""
+    return FIELD_TAGS
 
 
 def _clean_code(value, *, field="code"):
