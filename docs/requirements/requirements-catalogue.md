@@ -157,11 +157,11 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ALC-008 | Corte total al terminar la asociacion | Debe | identity-access | Not implemented | #76 | TBD | Seguridad |
 | RF-ALC-009 | Union de alcances en cuentas con varios roles | Debe | identity-access | Not implemented | #77 | TBD | Regla base |
 | RF-PER-001 | Catalogo de permisos atomicos | Debe | identity-access | Implemented | #241 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_permission_catalog_api.py | Catalogo administrativo auditable con acciones atomicas diferenciadas |
-| RF-PER-002 | Roles como agrupacion de permisos | Debe | identity-access | Not implemented | #242 | TBD | Base authz |
-| RF-PER-003 | Asignacion de multiples roles | Debe | identity-access | Not implemented | #243 | TBD | Base authz |
+| RF-PER-002 | Roles como agrupacion de permisos | Debe | identity-access | Implemented | #242 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_roles_api.py | Composicion configurable y auditable |
+| RF-PER-003 | Asignacion de multiples roles | Debe | identity-access | Implemented | #243 | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_roles_api.py | Union de roles vigentes expuesta por API |
 | RF-PER-004 | Denegacion por defecto | Debe | identity-access | Not implemented | #244 | TBD | Base authz |
 | RF-PER-005 | Evaluacion en cada operacion | Debe | identity-access | Not implemented | #245 | TBD | Base authz |
-| RF-PER-006 | Vigencia inmediata de los cambios de autorizacion | Deberia | identity-access | Not implemented | #246 | TBD | Sesiones y cache |
+| RF-PER-006 | Vigencia inmediata de los cambios de autorizacion | Deberia | identity-access | Implemented | #246 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_roles_api.py | Composicion y revocacion evaluadas por operacion |
 | RF-PER-007 | Roles del sistema protegidos | Debe | identity-access | Not implemented | #247 | TBD | Seguridad |
 | RF-AUT-001 | Inicio de sesion | Debe | identity-access | Not implemented | #105 | TBD | Nucleo fundacional |
 | RF-AUT-002 | Bloqueo temporal por intentos fallidos | Debe | identity-access | Not implemented | #106 | TBD | Seguridad |

@@ -70,3 +70,16 @@
   existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
 - Todos requieren sesion autenticada. La definicion de permisos atomicos para Directora,
   Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
+## Administracion de roles
+
+- `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.
+- `POST /api/v1/identity/roles/` crea un rol configurable.
+- `PATCH /api/v1/identity/roles/{role_id}/` modifica nombre, descripcion o permisos; el `slug`
+  permanece estable despues de crear el rol.
+- `POST /api/v1/identity/accounts/{account_id}/role-assignments/` asigna un rol con vigencia.
+- `DELETE /api/v1/identity/role-assignments/{assignment_id}/` finaliza la vigencia sin borrar
+  historial.
+- Todos requieren sesion y `role.assign`, o condicion de superusuario.
+- Permisos de entrada y salida usan codigos publicos con punto.
+- Cambios de composicion y vigencia generan eventos auditables y aplican en la siguiente
+  evaluacion de permisos de cualquier sesion activa.

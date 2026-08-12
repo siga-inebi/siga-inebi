@@ -37,3 +37,20 @@ class EnrolmentCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Fecha final opcional de la vigencia.",
     )
+
+
+class MatriculationSerializer(EnrolmentSerializer):
+    shift_id = serializers.UUIDField(source="section.shift.public_id", read_only=True)
+
+    class Meta:
+        model = Enrolment
+        fields = EnrolmentSerializer.Meta.fields + ["shift_id"]
+
+
+class MatriculationCreateSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante pre-enrolled.")
+    academic_cycle_id = serializers.UUIDField(help_text="Public ID del ciclo escolar.")
+    grade_id = serializers.UUIDField(help_text="Public ID del grado.")
+    shift_id = serializers.UUIDField(help_text="Public ID de la jornada.")
+    section_id = serializers.UUIDField(help_text="Public ID de la sección asignada.")
+    effective_on = serializers.DateField(help_text="Fecha de inicio de la matrícula.")
