@@ -1,0 +1,156 @@
+"""
+Unit tests for evaluation services.
+
+RF-EVC-001: Estructura de unidades del ciclo
+
+Scenario 1: Configuración de cuatro unidades
+Scenario 2: Unidades solapadas
+"""
+
+from datetime import date
+
+import pytest
+
+from apps.common.models import DomainError
+from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.services import create_evaluation_unit
+from tests.factories.academic import AcademicCycleFactory
+
+pytestmark = pytest.mark.django_db
+
+
+class TestCreateEvaluationUnit:
+    """Tests for create_evaluation_unit service."""
+
+    def test_create_four_units_successfully(self):
+        """
+        Scenario 1: Configuración de cuatro unidades
+        GIVEN un ciclo escolar sin unidades configuradas
+        WHEN un usuario autorizado define cuatro unidades con sus fechas
+        THEN el sistema las registra como la estructura de evaluación de ese ciclo
+        """
+        cycle = AcademicCycleFactory(
+            starts_on=date(2026, 1, 15),
+            ends_on=date(2026, 10, 31),
+        )
+
+        units = []
+        for i in range(1, 5):
+            start_month = 1 + (i - 1) * 2
+            end_month = start_month + 1
+            if end_month > 12:
+                end_month = 12
+            
+            unit = create_evaluation_unit(
+                academic_cycle=cycle,
+                number=i,
+                name=f"Unit {i}",
+                starts_on=date(2026, start_month, 1),
+                ends_on=date(2026, end_month, 28),
+            )
+            units.append(unit)
+
+        assert len(units) == 4
+        assert all(u.academic_cycle == cycle for u in units)
+        assert [u.number for u in units] == [1, 2, 3, 4]
+        assert [u.status for u in units] == [
+            EvaluationUnit.UnitStatus.OPEN,
+        ] * 4
+
+    def test_reject_overlapping_dates(self):
+        """
+        Scenario 2: Unidades solapadas
+        GIVEN un ciclo con una unidad ya configurada
+        WHEN se intenta crear otra cuyo rango de fechas se solapa con la anterior
+        THEN el sistema rechaza la operación indicando el conflicto
+        """
+        cycle = AcademicCycleFactory(
+            starts_on=date(2026, 1, 15),
+            ends_on=date(2026, 10, 31),
+        )
+
+        # Create first unit: Jan 1 - Feb 28
+        unit1 = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+        )
+        assert unit1.id is not None
+
+        # Try to create overlapping unit: Feb 1 - Mar 31
+        with pytest.raises(DomainError, match="overlap"):
+            create_evaluation_unit(
+                academic_cycle=cycle,
+                number=2,
+                name="Unit 2",
+                starts_on=date(2026, 2, 1),
+                ends_on=date(2026, 3, 31),
+            )
+
+    def test_reject_invalid_date_range(self):
+        """
+        Test that starts_on > ends_on is rejected.
+        """
+        cycle = AcademicCycleFactory()
+
+        with pytest.raises(DomainError, match="cannot be after"):
+            create_evaluation_unit(
+                academic_cycle=cycle,
+                number=1,
+                name="Unit 1",
+                starts_on=date(2026, 3, 1),
+                ends_on=date(2026, 1, 1),
+            )
+
+    def test_reject_duplicate_unit_number(self):
+        """
+        Test that two units with the same number in the same cycle are rejected.
+        """
+        cycle = AcademicCycleFactory()
+
+        # Create first unit
+        create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+        )
+
+        # Try to create another with same number
+        with pytest.raises(DomainError, match="number.*already exists"):
+            create_evaluation_unit(
+                academic_cycle=cycle,
+                number=1,
+                name="Unit 1 Duplicate",
+                starts_on=date(2026, 3, 1),
+                ends_on=date(2026, 4, 30),
+            )
+
+    def test_allow_units_in_different_cycles(self):
+        """
+        Same unit number should be allowed in different cycles.
+        """
+        cycle1 = AcademicCycleFactory(year=2025)
+        cycle2 = AcademicCycleFactory(year=2026)
+
+        unit1 = create_evaluation_unit(
+            academic_cycle=cycle1,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2025, 1, 1),
+            ends_on=date(2025, 2, 28),
+        )
+
+        unit2 = create_evaluation_unit(
+            academic_cycle=cycle2,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+        )
+
+        assert unit1.id != unit2.id
+        assert unit1.academic_cycle_id != unit2.academic_cycle_id
