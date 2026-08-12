@@ -3,11 +3,13 @@ Unit tests for evaluation services.
 
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
+RF-EVC-003: Ventana de recuperacion
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
 Scenario 3: Captura dentro de la ventana
 Scenario 4: Captura con la ventana cerrada
+Scenario 5: Recuperación fuera de fecha
 """
 
 from datetime import date
@@ -16,7 +18,12 @@ import pytest
 
 from apps.common.models import DomainError
 from apps.evaluation.models import EvaluationUnit
-from apps.evaluation.services import create_evaluation_unit, validate_capture_window_open
+from apps.evaluation.services import (
+    create_evaluation_unit,
+    set_recovery_window,
+    validate_capture_window_open,
+    validate_recovery_window_open,
+)
 from tests.factories.academic import AcademicCycleFactory
 
 pytestmark = pytest.mark.django_db
@@ -256,4 +263,120 @@ class TestCaptureWindowValidation:
                 ends_on=date(2026, 2, 28),
                 capture_starts_on=date(2026, 3, 1),
                 capture_ends_on=date(2026, 1, 1),
+            )
+
+
+class TestRecoveryWindow:
+    """Tests for RF-EVC-003: Ventana de recuperacion."""
+
+    def test_recovery_before_window_opens_is_rejected(self):
+        """
+        Scenario 5: Recuperación fuera de fecha
+        GIVEN una ventana de recuperación aún no abierta
+        WHEN un docente intenta registrar una nota de recuperación
+        THEN el sistema rechaza la operación
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+        set_recovery_window(
+            unit=unit,
+            recovery_starts_on=date(2026, 3, 10),
+            recovery_ends_on=date(2026, 3, 20),
+        )
+
+        with pytest.raises(DomainError, match="Recovery window is closed"):
+            validate_recovery_window_open(unit, on_date=date(2026, 3, 1))
+
+    def test_recovery_after_window_closed_is_rejected(self):
+        """
+        Test that recovery is rejected after the window has closed.
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+        set_recovery_window(
+            unit=unit,
+            recovery_starts_on=date(2026, 3, 10),
+            recovery_ends_on=date(2026, 3, 20),
+        )
+
+        with pytest.raises(DomainError, match="Recovery window is closed"):
+            validate_recovery_window_open(unit, on_date=date(2026, 3, 21))
+
+    def test_recovery_within_window_is_accepted(self):
+        """
+        Test that recovery is accepted while the window is open.
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+        set_recovery_window(
+            unit=unit,
+            recovery_starts_on=date(2026, 3, 10),
+            recovery_ends_on=date(2026, 3, 20),
+        )
+
+        validate_recovery_window_open(unit, on_date=date(2026, 3, 15))
+        # No exception raised
+
+    def test_recovery_without_configured_window_is_rejected(self):
+        """
+        Test that recovery is rejected when no recovery window is configured.
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+
+        with pytest.raises(DomainError, match="No recovery window has been configured"):
+            validate_recovery_window_open(unit, on_date=date(2026, 3, 15))
+
+    def test_reject_invalid_recovery_date_range(self):
+        """
+        Test that recovery_starts_on > recovery_ends_on is rejected.
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+
+        with pytest.raises(DomainError, match="Recovery window start date"):
+            set_recovery_window(
+                unit=unit,
+                recovery_starts_on=date(2026, 3, 20),
+                recovery_ends_on=date(2026, 3, 10),
             )

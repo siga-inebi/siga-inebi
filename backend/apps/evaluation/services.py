@@ -3,6 +3,7 @@ Domain services for evaluation.
 
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
+RF-EVC-003: Ventana de recuperacion
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -60,6 +61,74 @@ def validate_capture_window_open(unit: EvaluationUnit, on_date=None) -> None:
             f"Grade capture window is closed for unit '{unit.name}'. "
             f"Window: {unit.capture_starts_on} to {unit.capture_ends_on}."
         )
+
+
+def validate_recovery_window_open(unit: EvaluationUnit, on_date=None) -> None:
+    """
+    Validate that the recovery window is open for recovery grade entry (RF-EVC-003).
+
+    Args:
+        unit: EvaluationUnit to check.
+        on_date: Date to validate (default: today).
+
+    Raises:
+        DomainError: If no recovery window is configured, or it is closed on
+            the given date.
+    """
+    if unit.recovery_starts_on is None or unit.recovery_ends_on is None:
+        raise DomainError(
+            f"No recovery window has been configured for unit '{unit.name}'."
+        )
+    if not unit.is_recovery_window_open(on_date):
+        raise DomainError(
+            f"Recovery window is closed for unit '{unit.name}'. "
+            f"Window: {unit.recovery_starts_on} to {unit.recovery_ends_on}."
+        )
+
+
+def set_recovery_window(
+    unit: EvaluationUnit,
+    recovery_starts_on: date,
+    recovery_ends_on: date,
+    actor=None,
+) -> EvaluationUnit:
+    """
+    Configure the recovery window for a unit (RF-EVC-003).
+
+    Validates:
+    - recovery_starts_on <= recovery_ends_on
+
+    Args:
+        unit: EvaluationUnit to configure.
+        recovery_starts_on: Date when the recovery window opens.
+        recovery_ends_on: Date when the recovery window closes.
+        actor: User performing the action (for audit trail).
+
+    Returns:
+        EvaluationUnit: The updated unit.
+
+    Raises:
+        DomainError: If validation fails.
+    """
+    if recovery_starts_on > recovery_ends_on:
+        raise DomainError(
+            f"Recovery window start date ({recovery_starts_on}) cannot be after "
+            f"end date ({recovery_ends_on})."
+        )
+
+    unit.recovery_starts_on = recovery_starts_on
+    unit.recovery_ends_on = recovery_ends_on
+    unit.save(update_fields=["recovery_starts_on", "recovery_ends_on", "updated_at"])
+
+    _audit(
+        actor,
+        "evaluation.unit_recovery_window_set",
+        unit,
+        recovery_starts_on=str(recovery_starts_on),
+        recovery_ends_on=str(recovery_ends_on),
+    )
+
+    return unit
 
 
 def create_evaluation_unit(

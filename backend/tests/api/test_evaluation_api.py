@@ -3,11 +3,13 @@ API contract tests for evaluation units.
 
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
+RF-EVC-003: Ventana de recuperacion
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
 Scenario 3: Captura dentro de la ventana
 Scenario 4: Captura con la ventana cerrada
+Scenario 5: Recuperación fuera de fecha
 """
 
 from datetime import date
@@ -17,6 +19,7 @@ from django.urls import reverse
 
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import AcademicCycleFactory
+from tests.factories.evaluation import EvaluationUnitFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -227,3 +230,83 @@ class TestEvaluationUnitAPI:
 
         assert response.status_code == 404
         assert "not found" in response.json()["error"].lower()
+
+
+class TestRecoveryWindowAPI:
+    """Tests for PATCH recovery-window endpoint (RF-EVC-003)."""
+
+    def test_set_recovery_window_success(self, auth_client, institution):
+        """
+        PATCH /api/v1/academics/cycles/{cycle_id}/evaluation-units/{unit_id}/recovery-window/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle, number=1)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-recovery-window",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "recovery_starts_on": "2026-03-10",
+                "recovery_ends_on": "2026-03-20",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["recovery_starts_on"] == "2026-03-10"
+        assert data["recovery_ends_on"] == "2026-03-20"
+
+    def test_reject_invalid_recovery_date_range_api(self, auth_client, institution):
+        """
+        Test that recovery end date before start date is rejected.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle, number=1)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-recovery-window",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "recovery_starts_on": "2026-03-20",
+                "recovery_ends_on": "2026-03-10",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+
+    def test_unit_not_found_returns_404(self, auth_client, institution):
+        """
+        Test endpoint with invalid unit ID.
+        """
+        import uuid
+
+        cycle = AcademicCycleFactory(institution=institution)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-recovery-window",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(uuid.uuid4()),
+                },
+            ),
+            {
+                "recovery_starts_on": "2026-03-10",
+                "recovery_ends_on": "2026-03-20",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404

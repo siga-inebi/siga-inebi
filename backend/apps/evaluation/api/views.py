@@ -3,6 +3,7 @@ API views for evaluation domain.
 
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
+RF-EVC-003: Ventana de recuperacion
 
 Authorization: requires role=director + permission=evaluation.configure_units
 """
@@ -10,12 +11,13 @@ Authorization: requires role=director + permission=evaluation.configure_units
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.academics.models import AcademicCycle
 from apps.common.models import DomainError
-from apps.evaluation.api.serializers import EvaluationUnitSerializer
+from apps.evaluation.api.serializers import EvaluationUnitSerializer, RecoveryWindowSerializer
 from apps.evaluation.models import EvaluationUnit
-from apps.evaluation.services import create_evaluation_unit
+from apps.evaluation.services import create_evaluation_unit, set_recovery_window
 
 
 class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
@@ -99,3 +101,64 @@ class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
 
         serializer = self.get_serializer(unit)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class EvaluationUnitRecoveryWindowView(APIView):
+    """
+    Configure the recovery window of an evaluation unit (RF-EVC-003).
+
+    PATCH /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}/recovery-window/
+    """
+
+    def check_director_permission(self):
+        """
+        Verify user has director role and evaluation.configure_units permission.
+        TODO: implement once permission model is complete.
+        """
+        if not self.request.user or not self.request.user.is_authenticated:
+            return False
+        # TODO: check for role=director and permission=evaluation.configure_units
+        return True
+
+    def patch(self, request, *args, **kwargs):
+        if not self.check_director_permission():
+            return Response(
+                {"error": "Permission denied. Only directors can configure evaluation units."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        cycle_public_id = kwargs.get("cycle_public_id")
+        unit_public_id = kwargs.get("unit_public_id")
+
+        try:
+            unit = EvaluationUnit.objects.get(
+                public_id=unit_public_id,
+                academic_cycle__public_id=cycle_public_id,
+                is_active=True,
+            )
+        except EvaluationUnit.DoesNotExist:
+            return Response(
+                {"error": "Evaluation unit not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = RecoveryWindowSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            unit = set_recovery_window(
+                unit=unit,
+                recovery_starts_on=serializer.validated_data["recovery_starts_on"],
+                recovery_ends_on=serializer.validated_data["recovery_ends_on"],
+            )
+        except DomainError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            EvaluationUnitSerializer(unit).data,
+            status=status.HTTP_200_OK,
+        )

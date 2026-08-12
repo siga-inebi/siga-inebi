@@ -26,11 +26,16 @@ class EvaluationUnit(TimeStampedModel):
     RF-EVC-001: Unit structure (starts_on, ends_on, status).
     RF-EVC-002: Capture window (capture_starts_on, capture_ends_on) is independent
                 of the evaluation period, controlling when grades may be entered.
+    RF-EVC-003: Recovery window (recovery_starts_on, recovery_ends_on) is optional
+                and independent of the capture window, controlling when recovery
+                grades may be entered.
 
     Invariants:
     - Units within the same cycle must not overlap in time.
     - starts_on must be <= ends_on.
     - capture_starts_on must be <= capture_ends_on.
+    - recovery_starts_on and recovery_ends_on are either both set or both null,
+      and recovery_starts_on must be <= recovery_ends_on when set.
     - Hard constraint at DB level to prevent race conditions (AGENTS.md #9).
 
     Soft delete: use is_active (inherited from TimeStampedModel).
@@ -67,6 +72,16 @@ class EvaluationUnit(TimeStampedModel):
     capture_ends_on = models.DateField(
         help_text="Date when grade capture window closes; after this, no capture is allowed.",
     )
+    recovery_starts_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date when the recovery window opens. Optional; unset until configured.",
+    )
+    recovery_ends_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date when the recovery window closes. Optional; unset until configured.",
+    )
 
     class Meta:
         ordering = ["academic_cycle", "number"]
@@ -85,6 +100,18 @@ class EvaluationUnit(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(capture_starts_on__lte=F("capture_ends_on")),
                 name="evaluation_unit_valid_capture_dates",
+            ),
+            # Recovery window: either both dates set with a valid range, or both unset.
+            models.CheckConstraint(
+                condition=(
+                    Q(recovery_starts_on__isnull=True, recovery_ends_on__isnull=True)
+                    | Q(
+                        recovery_starts_on__isnull=False,
+                        recovery_ends_on__isnull=False,
+                        recovery_starts_on__lte=F("recovery_ends_on"),
+                    )
+                ),
+                name="evaluation_unit_valid_recovery_dates",
             ),
             # Units within the same cycle must not overlap (PostgreSQL-specific).
             # Similar to academic_cycle_no_overlapping_dates constraint.
@@ -126,3 +153,20 @@ class EvaluationUnit(TimeStampedModel):
         if on_date is None:
             on_date = timezone.localdate()
         return self.capture_starts_on <= on_date <= self.capture_ends_on
+
+    def is_recovery_window_open(self, on_date=None):
+        """
+        Check if the recovery window is open on a given date.
+
+        Args:
+            on_date: Date to check (default: today).
+
+        Returns:
+            True if a recovery window is configured and
+            recovery_starts_on <= on_date <= recovery_ends_on, False otherwise.
+        """
+        if self.recovery_starts_on is None or self.recovery_ends_on is None:
+            return False
+        if on_date is None:
+            on_date = timezone.localdate()
+        return self.recovery_starts_on <= on_date <= self.recovery_ends_on

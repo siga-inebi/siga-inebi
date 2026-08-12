@@ -27,11 +27,20 @@ class EvaluationUnitSerializer(serializers.ModelSerializer):
             "ends_on",
             "capture_starts_on",
             "capture_ends_on",
+            "recovery_starts_on",
+            "recovery_ends_on",
             "status",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["academic_cycle", "public_id", "created_at", "updated_at"]
+        read_only_fields = [
+            "academic_cycle",
+            "public_id",
+            "recovery_starts_on",
+            "recovery_ends_on",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate(self, data):
         """Validate date ranges before passing to service."""
@@ -42,5 +51,19 @@ class EvaluationUnitSerializer(serializers.ModelSerializer):
         if data["capture_starts_on"] > data["capture_ends_on"]:
             raise serializers.ValidationError(
                 {"capture_ends_on": "Capture window end date must be >= start date."}
+            )
+        return data
+
+
+class RecoveryWindowSerializer(serializers.Serializer):
+    """Contract for configuring a unit's recovery window (RF-EVC-003)."""
+
+    recovery_starts_on = serializers.DateField()
+    recovery_ends_on = serializers.DateField()
+
+    def validate(self, data):
+        if data["recovery_starts_on"] > data["recovery_ends_on"]:
+            raise serializers.ValidationError(
+                {"recovery_ends_on": "Recovery window end date must be >= start date."}
             )
         return data

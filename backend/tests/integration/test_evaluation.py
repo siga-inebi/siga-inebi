@@ -3,6 +3,7 @@ Integration tests for evaluation domain.
 
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
+RF-EVC-003: Ventana de recuperacion
 
 Cross-domain flows: evaluation interacts with academics domain (cycles).
 """
@@ -13,7 +14,12 @@ import pytest
 
 from apps.academics.models import AcademicCycle
 from apps.evaluation.models import EvaluationUnit
-from apps.evaluation.services import create_evaluation_unit, validate_capture_window_open
+from apps.evaluation.services import (
+    create_evaluation_unit,
+    set_recovery_window,
+    validate_capture_window_open,
+    validate_recovery_window_open,
+)
 from apps.common.models import DomainError
 from tests.factories.academic import AcademicCycleFactory
 
@@ -170,3 +176,60 @@ class TestCaptureWindowIntegration:
 
         with pytest.raises(DomainError, match="Grade capture window is closed"):
             validate_capture_window_open(unit, on_date=date(2026, 3, 1))
+
+
+class TestRecoveryWindowIntegration:
+    """Integration tests for RF-EVC-003: Recovery window validation across domain."""
+
+    def test_recovery_out_of_date_rejected_integration(self):
+        """
+        Scenario 5: Recuperación fuera de fecha (RF-EVC-003)
+        GIVEN una ventana de recuperación aún no abierta
+        WHEN un docente intenta registrar una nota de recuperación
+        THEN el sistema rechaza la operación
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+        set_recovery_window(
+            unit=unit,
+            recovery_starts_on=date(2026, 3, 10),
+            recovery_ends_on=date(2026, 3, 20),
+        )
+
+        with pytest.raises(DomainError, match="Recovery window is closed"):
+            validate_recovery_window_open(unit, on_date=date(2026, 3, 5))
+
+    def test_recovery_audit_trail(self):
+        """
+        Test that setting the recovery window is recorded in the audit trail.
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+        set_recovery_window(
+            unit=unit,
+            recovery_starts_on=date(2026, 3, 10),
+            recovery_ends_on=date(2026, 3, 20),
+        )
+
+        from apps.audit.models import AuditEvent
+
+        event = AuditEvent.objects.get(action="evaluation.unit_recovery_window_set")
+        assert event.resource_identifier == str(unit.pk)
+        assert event.context["recovery_starts_on"] == "2026-03-10"
+        assert event.context["recovery_ends_on"] == "2026-03-20"
