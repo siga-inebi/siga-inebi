@@ -26,13 +26,20 @@ class AccountActivationView(GenericAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = AccountActivationSerializer
 
-    @extend_schema(request=AccountActivationSerializer, responses={200: ActivatedAccountSerializer})
+    @extend_schema(
+        request=AccountActivationSerializer,
+        responses={200: ActivatedAccountSerializer},
+    )
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         account = activate_account(**serializer.validated_data)
         return Response(
-            {"id": account.pk, "username": account.username, "status": account.status}
+            {
+                "id": account.pk,
+                "username": account.username,
+                "status": account.status,
+            }
         )
 
 
