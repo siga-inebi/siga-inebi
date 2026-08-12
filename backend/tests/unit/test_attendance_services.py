@@ -3,6 +3,7 @@ RF-JOR-001 — parametros de jornada configurables.
 RF-JOR-002 — derivacion del estado diario.
 RF-JOR-003 — precedencia entre eventos.
 RF-JOR-004 — cierre de jornada.
+RF-JOR-005 — deteccion de inconsistencias entre fuentes.
 
 All in isolation from the API layer.
 """
@@ -16,8 +17,14 @@ from apps.attendance import services
 from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
-from tests.factories.academic import AcademicCycleFactory, CampusFactory, SectionFactory, ShiftFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    CampusFactory,
+    SectionFactory,
+    ShiftFactory,
+)
 from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
+from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
@@ -434,3 +441,103 @@ def test_close_jornada_does_not_flag_students_with_a_matching_exit():
     assert result.alerts == []
     status = next(s for s in result.statuses if s.student == student)
     assert status.permanence_without_closure is False
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-005 — deteccion de inconsistencias entre fuentes
+# --------------------------------------------------------------------------- #
+
+
+def test_declared_exit_without_entry_raises_inconsistency_alert():
+    """
+    Escenario 1 (RF-JOR-005): GIVEN un estudiante sin ingreso registrado en el
+    dia, WHEN un docente lo incluye en el cierre declarado de su seccion,
+    THEN el sistema conserva ambos hechos y genera una alerta de
+    inconsistencia, AND identifica al docente y a la seccion como fuente de
+    la declaracion.
+    """
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    teacher = UserFactory(username="ms-lopez")
+
+    declared_exit = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 15, 0),
+        actor=teacher,
+    )
+
+    alerts = AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    )
+    assert alerts.count() == 1
+    alert = alerts.get()
+    assert alert.section == section
+    assert alert.target_roles == [AttendanceAlert.TargetRole.SECTION_COORDINATOR]
+    assert alert.context["declared_event_id"] == str(declared_exit.public_id)
+    assert alert.context["declared_by"] == "ms-lopez"
+
+    # Both facts remain: the declared event stays stored, and the derived
+    # entry-based status is unaffected by it (no entry was ever registered).
+    assert AttendanceEvent.objects.filter(pk=declared_exit.pk, is_active=True).exists()
+    entry_event = services.resolve_prevailing_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+    assert entry_event is None
+
+
+def test_declared_exit_with_a_prior_entry_does_not_raise_an_inconsistency_alert():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+
+    services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 15, 0),
+    )
+
+    assert not AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    ).exists()
+
+
+def test_scanned_exit_without_entry_does_not_raise_an_inconsistency_alert():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 15, 0),
+    )
+
+    assert not AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    ).exists()

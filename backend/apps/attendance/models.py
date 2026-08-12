@@ -109,6 +109,7 @@ class AttendanceAlert(TimeStampedModel):
 
     class AlertType(models.TextChoices):
         PERMANENCIA_SIN_CIERRE = "permanencia_sin_cierre", "Permanencia sin cierre"
+        INCONSISTENCIA = "inconsistencia", "Inconsistencia entre fuentes"
 
     class TargetRole(models.TextChoices):
         CONTROL_POINT = "control_point", "Personal del punto de control"

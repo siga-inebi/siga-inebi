@@ -162,7 +162,50 @@ def record_attendance_event(
             "transmission": transmission,
         },
     )
+    _flag_declared_exit_without_entry(event=event, actor=actor)
     return event
+
+
+def _flag_declared_exit_without_entry(*, event, actor):
+    """
+    RF-JOR-005: a declared exit for a student with no registered entry is a
+    contradiction between sources — the declaration asserts the student left
+    a jornada they never entered. Both facts stay stored as-is (this never
+    touches ``event`` or the missing entry); it only raises an inconsistency
+    alert identifying the declaring teacher and section as the conflicting
+    source.
+    """
+    if event.origin != AttendanceEvent.Origin.DECLARED:
+        return
+    if event.movement_type != AttendanceEvent.MovementType.EXIT:
+        return
+
+    entry_event = resolve_prevailing_event(
+        student=event.student,
+        shift=event.shift,
+        event_date=event.event_date,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+    if entry_event is not None:
+        return
+
+    enrolment = _active_enrolment_for(
+        student=event.student, shift=event.shift, event_date=event.event_date
+    )
+    _raise_alert(
+        alert_type=AttendanceAlert.AlertType.INCONSISTENCIA,
+        student=event.student,
+        shift=event.shift,
+        event_date=event.event_date,
+        section=enrolment.section if enrolment is not None else None,
+        target_roles=[AttendanceAlert.TargetRole.SECTION_COORDINATOR],
+        context={
+            "declared_event_id": str(event.public_id),
+            "declared_by": getattr(actor, "username", "") if actor else "",
+            "reason": "declared_exit_without_entry",
+        },
+        actor=actor,
+    )
 
 
 def resolve_prevailing_event(*, student, shift, event_date, movement_type):

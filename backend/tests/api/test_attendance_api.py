@@ -3,6 +3,7 @@ RF-JOR-001 — contrato del endpoint de parametros de jornada.
 RF-JOR-002 — contrato del endpoint de estado diario.
 RF-JOR-003 — contrato del endpoint de resolucion de precedencia.
 RF-JOR-004 — contrato del endpoint de cierre de jornada y de alertas.
+RF-JOR-005 — contrato de alertas de inconsistencia generadas al registrar eventos.
 """
 
 from datetime import datetime, time
@@ -352,3 +353,52 @@ def test_close_jornada_creates_alert_for_permanence_without_closure(auth_client)
     assert alerts_response.status_code == 200
     alert_ids = {item["public_id"] for item in alerts_response.json()["results"]}
     assert alert["public_id"] in alert_ids
+
+
+def test_declared_exit_without_entry_creates_inconsistency_alert_visible_via_alerts_endpoint(
+    auth_client,
+):
+    """
+    Escenario 1 (RF-JOR-005): GIVEN un estudiante sin ingreso registrado en el
+    dia, WHEN un docente lo incluye en el cierre declarado de su seccion,
+    THEN el sistema conserva ambos hechos y genera una alerta de
+    inconsistencia, AND identifica al docente y a la seccion como fuente de
+    la declaracion.
+    """
+    _grant(auth_client.user, "attendance_declared_close")
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    _grant_student_scope(auth_client.user, student)
+
+    response = auth_client.post(
+        reverse("attendance-event-list"),
+        _event_payload(
+            student,
+            parameters.shift,
+            event_date=str(parameters.effective_from),
+            origin=AttendanceEvent.Origin.DECLARED,
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    declared_event_id = response.json()["public_id"]
+
+    alerts_response = auth_client.get(reverse("attendance-alert-list"))
+    assert alerts_response.status_code == 200
+    alerts = [
+        item for item in alerts_response.json()["results"] if item["alert_type"] == "inconsistencia"
+    ]
+    assert len(alerts) == 1
+    alert = alerts[0]
+    assert alert["student_id"] == str(student.public_id)
+    assert alert["section_id"] == str(section.public_id)
+    assert alert["context"]["declared_event_id"] == declared_event_id
+    assert alert["context"]["declared_by"] == auth_client.user.username

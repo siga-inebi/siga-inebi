@@ -97,9 +97,7 @@ class AttendanceEventResolutionQuerySerializer(serializers.Serializer):
 class AttendanceAlertSerializer(serializers.ModelSerializer):
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     shift_id = serializers.UUIDField(source="shift.public_id", read_only=True)
-    section_id = serializers.UUIDField(
-        source="section.public_id", read_only=True, allow_null=True
-    )
+    section_id = serializers.UUIDField(source="section.public_id", read_only=True, allow_null=True)
 
     class Meta:
         model = AttendanceAlert

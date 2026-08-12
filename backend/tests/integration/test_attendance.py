@@ -3,6 +3,7 @@ RF-JOR-001 — flujo cruzando dominios (academics + attendance) contra Postgres.
 RF-JOR-002 — derivacion del estado diario, con matricula real de por medio.
 RF-JOR-003 — precedencia entre eventos, con matricula real de por medio.
 RF-JOR-004 — cierre de jornada, con matricula real de por medio.
+RF-JOR-005 — deteccion de inconsistencias entre fuentes, con matricula real de por medio.
 """
 
 from datetime import datetime, time
@@ -19,6 +20,7 @@ from tests.factories.academic import (
     SectionFactory,
     ShiftFactory,
 )
+from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.django_db]
@@ -173,3 +175,39 @@ def test_close_jornada_flags_permanence_without_closure_for_an_actively_enrolled
     assert alert.student == student
     assert alert.section == section
     assert alert.context["entry_event_id"] == str(entry_event.public_id)
+
+
+def test_declared_exit_without_entry_raises_inconsistency_alert_for_an_actively_enrolled_student():
+    """
+    Escenario 1 (RF-JOR-005): GIVEN un estudiante sin ingreso registrado en el
+    dia, WHEN un docente lo incluye en el cierre declarado de su seccion,
+    THEN el sistema conserva ambos hechos y genera una alerta de
+    inconsistencia, AND identifica al docente y a la seccion como fuente de
+    la declaracion.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+    )
+    teacher = UserFactory(username="mr-perez")
+
+    declared_exit = services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(15, 0))),
+        actor=teacher,
+    )
+
+    alert = AttendanceAlert.objects.get(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    )
+    assert alert.section == section
+    assert alert.context["declared_event_id"] == str(declared_exit.public_id)
+    assert alert.context["declared_by"] == "mr-perez"
+    assert AttendanceEvent.objects.filter(pk=declared_exit.pk, is_active=True).exists()

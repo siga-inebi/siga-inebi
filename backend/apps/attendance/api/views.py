@@ -39,6 +39,7 @@ def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
         raise PermissionDenied("Actor lacks the required permission.")
 
+
 # Provisional: one atomic permission per event origin. A separate
 # attendance-capture effort owns the real scanning/ingestion workflow and may
 # replace this mapping; this skeleton exists only so RF-JOR-002/003 have
