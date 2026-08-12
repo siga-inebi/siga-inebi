@@ -4,7 +4,7 @@ import pytest
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.enrolments.services import change_section, create_enrolment
+from apps.enrolments.services import change_section, create_enrolment, matriculate_student
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
@@ -129,3 +129,25 @@ def test_create_enrolment_rejects_end_date_before_effective_date():
             effective_on=timezone.localdate(),
             ends_on=timezone.localdate() - timedelta(days=1),
         )
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_matriculation_crosses_student_and_academic_domains():
+    section = SectionFactory()
+    student = StudentFactory(status="pre_enrolled")
+
+    enrolment = matriculate_student(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+        section=section,
+    )
+
+    student.refresh_from_db()
+    assert enrolment.student_id == student.id
+    assert enrolment.section_id == section.id
+    assert enrolment.section.shift.id == section.shift.id
+    assert student.status == student.StudentStatus.ACTIVE
