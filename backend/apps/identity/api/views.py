@@ -7,16 +7,33 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from apps.identity.api.serializers import (
+    AccountActivationSerializer,
     AccountProvisionSerializer,
+    ActivatedAccountSerializer,
     ActivationChallengeSerializer,
     AtomicPermissionSerializer,
     ProvisionedAccountSerializer,
 )
 from apps.identity.services import (
+    activate_account,
     list_atomic_permissions,
     provision_account_with_activation,
     reissue_activation_challenge,
 )
+
+
+class AccountActivationView(GenericAPIView):
+    permission_classes = [permissions.AllowAny]
+    serializer_class = AccountActivationSerializer
+
+    @extend_schema(request=AccountActivationSerializer, responses={200: ActivatedAccountSerializer})
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        account = activate_account(**serializer.validated_data)
+        return Response(
+            {"id": account.pk, "username": account.username, "status": account.status}
+        )
 
 
 class AtomicPermissionListView(GenericAPIView):

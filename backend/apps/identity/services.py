@@ -4,10 +4,12 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.models import Permission
-from django.core.exceptions import PermissionDenied
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.signing import salted_hmac
 from django.db import transaction
 from django.utils import timezone
+from django.utils.crypto import constant_time_compare
 
 from apps.audit.services import record_event
 from apps.common.models import DomainError
@@ -54,6 +56,14 @@ class InvalidCredentialsError(Exception):
 
 
 class AccountTemporarilyLockedError(Exception):
+    pass
+
+
+class InvalidActivationChallengeError(DomainError):
+    pass
+
+
+class ActivationPasswordError(DomainError):
     pass
 
 
@@ -204,6 +214,114 @@ def reissue_activation_challenge(*, actor, account):
             account=locked_account,
             reason="administrative_reissue",
         )
+
+
+def _audit_activation_denied(*, account, challenge=None, reason, failed_attempts=None):
+    context = {"result": "denied", "reason": reason}
+    if account:
+        context["target_user_id"] = account.pk
+    if challenge:
+        context["challenge_id"] = str(challenge.public_id)
+    if failed_attempts is not None:
+        context["failed_attempts"] = failed_attempts
+    record_event(
+        actor=None,
+        action="identity.activation_challenge.denied",
+        resource="ActivationChallenge",
+        resource_identifier=str(challenge.public_id) if challenge else "",
+        context=context,
+    )
+
+
+def activate_account(*, username, activation_code, password):
+    user_model = get_user_model()
+    account_id = user_model.objects.filter(username=username).values_list("pk", flat=True).first()
+    if account_id is None:
+        _audit_activation_denied(account=None, reason="account_not_found")
+        raise InvalidActivationChallengeError("Código de activación inválido o vencido.")
+
+    error = None
+    activated_account = None
+    with transaction.atomic():
+        account = user_model.objects.select_for_update().get(pk=account_id)
+        challenge = account.activation_challenges.select_for_update().first()
+        now = timezone.now()
+        unusable_reason = None
+        if account.status != account.AccountStatus.PENDING or account.is_active:
+            unusable_reason = "account_not_pending"
+        elif challenge is None:
+            unusable_reason = "challenge_not_found"
+        elif challenge.used_at is not None:
+            unusable_reason = "already_used"
+        elif challenge.revoked_at is not None or not challenge.is_active:
+            unusable_reason = "revoked"
+        elif challenge.expires_at <= now:
+            unusable_reason = "expired"
+        elif challenge.failed_attempts >= settings.ACCOUNT_ACTIVATION_MAX_ATTEMPTS:
+            unusable_reason = "attempts_exhausted"
+
+        if unusable_reason:
+            _audit_activation_denied(
+                account=account,
+                challenge=challenge,
+                reason=unusable_reason,
+                failed_attempts=getattr(challenge, "failed_attempts", None),
+            )
+            error = InvalidActivationChallengeError("Código de activación inválido o vencido.")
+        elif not constant_time_compare(
+            challenge.token_digest, _activation_code_digest(activation_code)
+        ):
+            challenge.failed_attempts += 1
+            challenge.save(update_fields=["failed_attempts", "updated_at"])
+            _audit_activation_denied(
+                account=account,
+                challenge=challenge,
+                reason="invalid_code",
+                failed_attempts=challenge.failed_attempts,
+            )
+            error = InvalidActivationChallengeError("Código de activación inválido o vencido.")
+        else:
+            try:
+                validate_password(password, user=account)
+            except ValidationError as exc:
+                _audit_activation_denied(
+                    account=account,
+                    challenge=challenge,
+                    reason="password_policy",
+                    failed_attempts=challenge.failed_attempts,
+                )
+                error = ActivationPasswordError(" ".join(exc.messages))
+            else:
+                account.set_password(password)
+                account.status = account.AccountStatus.ACTIVE
+                account.is_active = True
+                account.failed_login_attempts = 0
+                account.locked_until = None
+                account.save(
+                    update_fields=[
+                        "password", "status", "is_active",
+                        "failed_login_attempts", "locked_until",
+                    ]
+                )
+                challenge.used_at = now
+                challenge.is_active = False
+                challenge.save(update_fields=["used_at", "is_active", "updated_at"])
+                record_event(
+                    actor=account,
+                    action="identity.account.activated",
+                    resource="UserAccount",
+                    resource_identifier=str(account.pk),
+                    context={
+                        "target_user_id": account.pk,
+                        "challenge_id": str(challenge.public_id),
+                        "result": "success",
+                    },
+                )
+                activated_account = account
+
+    if error:
+        raise error
+    return activated_account
 
 
 def _audit_login_denied(*, account, reason, failed_attempts=None, locked_until=None):
