@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from apps.identity.atomic_permissions import ATOMIC_PERMISSION_CODES_BY_CODENAME
 from apps.people.models import Person
 
 
@@ -42,3 +43,11 @@ class ActivatedAccountSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     username = serializers.CharField()
     status = serializers.CharField()
+
+
+class AtomicPermissionSerializer(serializers.Serializer):
+    code = serializers.SerializerMethodField()
+    name = serializers.CharField()
+
+    def get_code(self, obj):
+        return ATOMIC_PERMISSION_CODES_BY_CODENAME[obj.codename]

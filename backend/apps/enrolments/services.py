@@ -1,10 +1,13 @@
+from django.db import transaction
 from django.utils import timezone
 
 from apps.audit.services import record_event
+from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 
 
+@transaction.atomic
 def create_enrolment(
     *,
     student,
@@ -13,17 +16,34 @@ def create_enrolment(
     section,
     actor=None,
     effective_on=None,
+    ends_on=None,
 ):
+    effective_on = effective_on or timezone.localdate()
+
     if academic_cycle.status == academic_cycle.CycleStatus.CLOSED:
         raise DomainError("Closed academic cycles do not accept enrolment changes.")
+    if section.academic_cycle.id != academic_cycle.pk:
+        raise DomainError("Section must belong to the academic cycle.")
+    if section.grade.id != grade.pk:
+        raise DomainError("Section must belong to the grade.")
+    if ends_on is not None and effective_on > ends_on:
+        raise DomainError("Enrolment end date cannot precede its effective date.")
 
-    enrolment = Enrolment.objects.create(
-        student=student,
-        academic_cycle=academic_cycle,
-        grade=grade,
-        section=section,
-        effective_on=effective_on or timezone.localdate(),
-    )
+    with unique_violation_as(
+        {
+            "unique_active_enrolment_per_student_cycle": (
+                "Student already has an active enrolment in this academic cycle."
+            )
+        }
+    ):
+        enrolment = Enrolment.objects.create(
+            student=student,
+            academic_cycle=academic_cycle,
+            grade=grade,
+            section=section,
+            effective_on=effective_on,
+            ends_on=ends_on,
+        )
     record_event(
         actor=actor,
         action="enrolments.enrolment.created",

@@ -11,7 +11,7 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
     environment:
       DJANGO_DEBUG: "true"
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
@@ -34,7 +34,7 @@ services:
       - "${FRONTEND_PORT:-5173}:5173"
     environment:
       VITE_API_URL: /api/v1
-      VITE_BACKEND_PROXY_TARGET: http://backend:8000
+      VITE_BACKEND_PROXY_TARGET: http://backend:${BACKEND_PORT:-8000}
 
 volumes:
   frontend_node_modules:

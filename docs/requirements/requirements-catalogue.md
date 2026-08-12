@@ -116,11 +116,11 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EMI-007 | Registro de las emisiones | Deberia | audit-compliance | Not implemented | #162 | TBD | Historial |
 | RF-EMI-008 | Archivo de la emision entregada | Deberia | document-generation | Not implemented | #163 | TBD | Politica pendiente |
 | RF-EMI-009 | Codigo de verificacion | Podria | document-generation | Not implemented | #164 | TBD | Verificacion publica futura |
-| RF-PLA-001 | Catalogo de plantillas | Debe | document-generation | Not implemented | #248 | TBD | Configurable |
-| RF-PLA-002 | Campos disponibles como catalogo cerrado | Debe | document-generation | Not implemented | #249 | TBD | Seguridad |
-| RF-PLA-003 | Campos sensibles excluidos por omision | Debe | document-generation | Not implemented | #250 | TBD | Seguridad y privacidad |
-| RF-PLA-004 | Encabezado institucional obligatorio | Debe | document-generation | Not implemented | #251 | TBD | Regla documental |
-| RF-PLA-005 | Versiones de la plantilla | Podria | document-generation | Not implemented | #252 | TBD | Postergado |
+| RF-PLA-001 | Catalogo de plantillas | Debe | document-generation | Implemented | #248 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Configurable; crea la app `documents` con codigo unico por institucion y baja logica |
+| RF-PLA-002 | Campos disponibles como catalogo cerrado | Debe | document-generation | Implemented | #249 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Seguridad; catalogo fijo en `apps/documents/field_catalog.py`, sin campo de contenido en DocumentTemplate todavia |
+| RF-PLA-003 | Campos sensibles excluidos por omision | Debe | document-generation | Implemented | #250 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Seguridad y privacidad; mecanismo de exclusion por marca `sensitive` + permiso `student.view_sensitive`, sin campos medicos reales todavia |
+| RF-PLA-004 | Encabezado institucional obligatorio | Debe | document-generation | Implemented | #251 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Regla documental; encabezado derivado (no almacenado) de Institution, logo_url pendiente del dominio file-storage |
+| RF-PLA-005 | Versiones de la plantilla | Podria | document-generation | Implemented | #252 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Historial inmutable via DocumentTemplateVersion; snapshot automatico en creacion y en cada update con cambios |
 | RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | Not implemented | #253 | TBD | UX posterior |
 | RF-PLA-007 | Plantilla activa por tipo | Debe | document-generation | Not implemented | #254 | TBD | Regla central |
 | RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Not implemented | #99 | TBD | Fase posterior |
@@ -156,7 +156,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ALC-007 | Asociacion principal del estudiante | Deberia | identity-access | Not implemented | #75 | TBD | Ambiguo |
 | RF-ALC-008 | Corte total al terminar la asociacion | Debe | identity-access | Not implemented | #76 | TBD | Seguridad |
 | RF-ALC-009 | Union de alcances en cuentas con varios roles | Debe | identity-access | Not implemented | #77 | TBD | Regla base |
-| RF-PER-001 | Catalogo de permisos atomicos | Debe | identity-access | Not implemented | #241 | TBD | Base authz |
+| RF-PER-001 | Catalogo de permisos atomicos | Debe | identity-access | Implemented | #241 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_permission_catalog_api.py | Catalogo administrativo auditable con acciones atomicas diferenciadas |
 | RF-PER-002 | Roles como agrupacion de permisos | Debe | identity-access | Not implemented | #242 | TBD | Base authz |
 | RF-PER-003 | Asignacion de multiples roles | Debe | identity-access | Not implemented | #243 | TBD | Base authz |
 | RF-PER-004 | Denegacion por defecto | Debe | identity-access | Not implemented | #244 | TBD | Base authz |

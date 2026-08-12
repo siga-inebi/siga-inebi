@@ -29,6 +29,7 @@ class UserFactory(factory.django.DjangoModelFactory):
 class PermissionFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Permission
+        django_get_or_create = ("content_type", "codename")
 
     name = factory.Sequence(lambda n: f"Permission {n}")
     codename = factory.Sequence(lambda n: f"perm_{n}")

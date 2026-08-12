@@ -11,10 +11,12 @@ from apps.identity.api.serializers import (
     AccountProvisionSerializer,
     ActivatedAccountSerializer,
     ActivationChallengeSerializer,
+    AtomicPermissionSerializer,
     ProvisionedAccountSerializer,
 )
 from apps.identity.services import (
     activate_account,
+    list_atomic_permissions,
     provision_account_with_activation,
     reissue_activation_challenge,
 )
@@ -24,21 +26,26 @@ class AccountActivationView(GenericAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = AccountActivationSerializer
 
-    @extend_schema(
-        request=AccountActivationSerializer,
-        responses={200: ActivatedAccountSerializer},
-    )
+    @extend_schema(request=AccountActivationSerializer, responses={200: ActivatedAccountSerializer})
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         account = activate_account(**serializer.validated_data)
         return Response(
-            {
-                "id": account.pk,
-                "username": account.username,
-                "status": account.status,
-            }
+            {"id": account.pk, "username": account.username, "status": account.status}
         )
+
+
+class AtomicPermissionListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AtomicPermissionSerializer
+
+    @extend_schema(responses={200: AtomicPermissionSerializer(many=True)})
+    def get(self, request):
+        queryset = list_atomic_permissions(actor=request.user)
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
 
 class AccountProvisionView(GenericAPIView):

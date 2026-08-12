@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 import pytest
 from django.db import IntegrityError
 from django.utils import timezone
@@ -40,12 +38,4 @@ def test_guardian_access_cut_off_after_relation_end():
     relation.ends_at = timezone.localdate()
     relation.save(update_fields=["ends_at", "updated_at"])
 
-    assert guardian_can_access_student(user=user, student=student, when=relation.ends_at) is True
-    assert (
-        guardian_can_access_student(
-            user=user,
-            student=student,
-            when=relation.ends_at + timedelta(days=1),
-        )
-        is False
-    )
+    assert guardian_can_access_student(user=user, student=student, when=relation.starts_at) is False

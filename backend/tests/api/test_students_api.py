@@ -3,9 +3,17 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
 from django.urls import reverse
 
+from apps.enrolments.services import create_enrolment
 from apps.people.models import Person
 from apps.students.models import Student
-from tests.factories.identity import UserFactory
+from tests.factories.academic import AcademicCycleFactory, InstitutionFactory, SectionFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+    UserFactory,
+)
 from tests.factories.students import StudentFactory
 
 
@@ -13,7 +21,14 @@ from tests.factories.students import StudentFactory
 def logged_in_client(client):
     user = UserFactory(password="test-pass-123")
     client.login(username=user.username, password="test-pass-123")
+    client.user = user
     return client
+
+
+def grant_student_permission(user, codename="student_view_basic", **scope):
+    permission = PermissionFactory(codename=codename)
+    assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    return ScopeGrantFactory(assignment=assignment, **scope)
 
 
 @pytest.mark.api
@@ -69,7 +84,10 @@ def test_create_student_missing_person_fields_is_rejected(logged_in_client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_list_students_is_paginated(logged_in_client):
-    StudentFactory.create_batch(3)
+    students = StudentFactory.create_batch(3)
+    first_grant = grant_student_permission(logged_in_client.user, student=students[0])
+    for student in students[1:]:
+        ScopeGrantFactory(assignment=first_grant.assignment, student=student)
 
     response = logged_in_client.get(reverse("student-list"))
 
@@ -77,13 +95,14 @@ def test_list_students_is_paginated(logged_in_client):
     data = response.json()
     assert "results" in data
     assert "count" in data
-    assert data["count"] == Student.objects.count()
+    assert data["count"] == len(students)
 
 
 @pytest.mark.api
 @pytest.mark.django_db
 def test_list_students_returns_nested_person(logged_in_client):
     student = StudentFactory()
+    grant_student_permission(logged_in_client.user, student=student)
 
     response = logged_in_client.get(reverse("student-list"))
 
@@ -97,8 +116,54 @@ def test_list_students_returns_nested_person(logged_in_client):
 
 @pytest.mark.api
 @pytest.mark.django_db
+def test_list_students_permission_without_scope_is_denied(logged_in_client):
+    permission = PermissionFactory(codename="student_view_basic")
+    RoleAssignmentFactory(user=logged_in_client.user, role=RoleFactory(permissions=[permission]))
+
+    response = logged_in_client.get(reverse("student-list"))
+
+    assert response.status_code == 403
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_list_students_is_restricted_to_section_scope(logged_in_client):
+    institution = InstitutionFactory()
+    academic_cycle = AcademicCycleFactory(institution=institution)
+    allowed_section = SectionFactory(academic_cycle=academic_cycle)
+    denied_section = SectionFactory(academic_cycle=academic_cycle, name="Z")
+    allowed_student = StudentFactory()
+    denied_student = StudentFactory()
+    create_enrolment(
+        student=allowed_student,
+        academic_cycle=academic_cycle,
+        grade=allowed_section.grade,
+        section=allowed_section,
+    )
+    create_enrolment(
+        student=denied_student,
+        academic_cycle=academic_cycle,
+        grade=denied_section.grade,
+        section=denied_section,
+    )
+    grant_student_permission(logged_in_client.user, section=allowed_section)
+
+    response = logged_in_client.get(reverse("student-list"))
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["results"][0]["id"] == allowed_student.pk
+
+
+@pytest.mark.api
+@pytest.mark.django_db
 def test_upload_student_photo(logged_in_client):
     student = StudentFactory()
+    grant_student_permission(
+        logged_in_client.user,
+        codename="student_edit_basic",
+        student=student,
+    )
     photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
 
     response = logged_in_client.patch(
@@ -118,6 +183,7 @@ def test_upload_student_photo(logged_in_client):
 @pytest.mark.django_db
 def test_retrieve_student(logged_in_client):
     student = StudentFactory()
+    grant_student_permission(logged_in_client.user, student=student)
 
     response = logged_in_client.get(reverse("student-detail", args=[student.pk]))
 
@@ -128,6 +194,8 @@ def test_retrieve_student(logged_in_client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_retrieve_missing_student_returns_404(logged_in_client):
+    grant_student_permission(logged_in_client.user, student=StudentFactory())
+
     response = logged_in_client.get(reverse("student-detail", args=[999999]))
 
     assert response.status_code == 404
@@ -137,6 +205,11 @@ def test_retrieve_missing_student_returns_404(logged_in_client):
 @pytest.mark.django_db
 def test_update_student(logged_in_client):
     student = StudentFactory(status=Student.StudentStatus.PRE_ENROLLED)
+    grant_student_permission(
+        logged_in_client.user,
+        codename="student_edit_basic",
+        student=student,
+    )
 
     response = logged_in_client.patch(
         reverse("student-detail", args=[student.pk]),
@@ -153,6 +226,11 @@ def test_update_student(logged_in_client):
 @pytest.mark.django_db
 def test_deactivate_student_via_delete_is_soft(logged_in_client):
     student = StudentFactory(status=Student.StudentStatus.ACTIVE)
+    grant_student_permission(
+        logged_in_client.user,
+        codename="student_edit_basic",
+        student=student,
+    )
 
     response = logged_in_client.delete(reverse("student-detail", args=[student.pk]))
 
@@ -161,6 +239,18 @@ def test_deactivate_student_via_delete_is_soft(logged_in_client):
     assert student.is_active is False
     assert student.status == Student.StudentStatus.INACTIVE
     assert Student.objects.filter(pk=student.pk).exists()
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_retrieve_student_outside_scope_is_denied(logged_in_client):
+    allowed_student = StudentFactory()
+    denied_student = StudentFactory()
+    grant_student_permission(logged_in_client.user, student=allowed_student)
+
+    response = logged_in_client.get(reverse("student-detail", args=[denied_student.pk]))
+
+    assert response.status_code == 404
 
 
 @pytest.mark.api

@@ -7,7 +7,9 @@ from apps.students.api.views import (
     StudentDetailView,
     StudentEmergencyContactListCreateView,
     StudentGuardianRelationDetailView,
+    StudentGuardianRelationEndView,
     StudentGuardianRelationListCreateView,
+    StudentGuardianRelationPrimaryView,
     StudentListCreateView,
 )
 
@@ -25,6 +27,16 @@ urlpatterns = [
         "guardian-relations/<int:pk>/",
         StudentGuardianRelationDetailView.as_view(),
         name="student-guardian-relation-detail",
+    ),
+    path(
+        "guardian-relations/<int:pk>/make-primary/",
+        StudentGuardianRelationPrimaryView.as_view(),
+        name="student-guardian-relation-make-primary",
+    ),
+    path(
+        "guardian-relations/<int:pk>/end/",
+        StudentGuardianRelationEndView.as_view(),
+        name="student-guardian-relation-end",
     ),
     # emergency contacts — always created inside a student (RF-EXP-005)
     path(

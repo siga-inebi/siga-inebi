@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.models import Permission
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.signing import salted_hmac
@@ -12,12 +13,42 @@ from django.utils.crypto import constant_time_compare
 
 from apps.audit.services import record_event
 from apps.common.models import DomainError
+from apps.identity.atomic_permissions import ATOMIC_PERMISSION_CODENAMES
 from apps.identity.models import ActivationChallenge, RoleAssignment, ScopeGrant
 
 ACCOUNT_DISABLE_PERMISSION = "account_disable"
 ACCOUNT_CREATE_PERMISSION = "account_create"
 ACCOUNT_ACTIVATE_PERMISSION = "account_activate"
 ACTIVATION_CODE_DIGITS = 8
+PERMISSION_CATALOG_READ_PERMISSION = "role_assign"
+
+
+def list_atomic_permissions(*, actor):
+    is_authorized = bool(
+        actor
+        and (actor.is_superuser or actor.has_atomic_permission(PERMISSION_CATALOG_READ_PERMISSION))
+    )
+    if not is_authorized:
+        record_event(
+            actor=actor,
+            action="identity.permission_catalog.read_denied",
+            resource="Permission",
+            context={"result": "denied", "reason": "missing_permission"},
+        )
+        raise PermissionDenied("Actor lacks permission to read the permission catalog.")
+
+    permissions = Permission.objects.filter(
+        content_type__app_label="identity",
+        content_type__model="role",
+        codename__in=ATOMIC_PERMISSION_CODENAMES,
+    ).order_by("codename")
+    record_event(
+        actor=actor,
+        action="identity.permission_catalog.read",
+        resource="Permission",
+        context={"result": "success", "permission_count": permissions.count()},
+    )
+    return permissions
 
 
 class InvalidCredentialsError(Exception):
@@ -186,17 +217,13 @@ def reissue_activation_challenge(*, actor, account):
 
 
 def _audit_activation_denied(*, account, challenge=None, reason, failed_attempts=None):
-    context = {
-        "result": "denied",
-        "reason": reason,
-    }
+    context = {"result": "denied", "reason": reason}
     if account:
         context["target_user_id"] = account.pk
     if challenge:
         context["challenge_id"] = str(challenge.public_id)
     if failed_attempts is not None:
         context["failed_attempts"] = failed_attempts
-
     record_event(
         actor=None,
         action="identity.activation_challenge.denied",
@@ -219,7 +246,6 @@ def activate_account(*, username, activation_code, password):
         account = user_model.objects.select_for_update().get(pk=account_id)
         challenge = account.activation_challenges.select_for_update().first()
         now = timezone.now()
-
         unusable_reason = None
         if account.status != account.AccountStatus.PENDING or account.is_active:
             unusable_reason = "account_not_pending"
@@ -243,8 +269,7 @@ def activate_account(*, username, activation_code, password):
             )
             error = InvalidActivationChallengeError("Código de activación inválido o vencido.")
         elif not constant_time_compare(
-            challenge.token_digest,
-            _activation_code_digest(activation_code),
+            challenge.token_digest, _activation_code_digest(activation_code)
         ):
             challenge.failed_attempts += 1
             challenge.save(update_fields=["failed_attempts", "updated_at"])
@@ -274,11 +299,8 @@ def activate_account(*, username, activation_code, password):
                 account.locked_until = None
                 account.save(
                     update_fields=[
-                        "password",
-                        "status",
-                        "is_active",
-                        "failed_login_attempts",
-                        "locked_until",
+                        "password", "status", "is_active",
+                        "failed_login_attempts", "locked_until",
                     ]
                 )
                 challenge.used_at = now

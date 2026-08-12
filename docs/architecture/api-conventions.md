@@ -44,3 +44,19 @@
   mediante `username`, `activation_code` y `password`.
 - La activacion devuelve una respuesta uniforme ante cuenta inexistente, codigo incorrecto,
   vencido, revocado, agotado o ya utilizado.
+
+## Catalogo de permisos atomicos
+
+- `GET /api/v1/identity/permissions/` devuelve el catalogo paginado de permisos atomicos.
+- Requiere sesion y el permiso administrativo logico `role.assign`, representado en Django por
+  `role_assign`; los superusuarios tambien pueden consultarlo.
+- La respuesta publica usa codigos con punto, por ejemplo `attendance.record_entry`.
+- La consulta exitosa y el intento autenticado denegado generan eventos de auditoria.
+## Relaciones estudiante-encargado
+
+- `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por
+  el servicio y no se acepta en el payload.
+- `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como
+  principal.
+- `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
+  Debe incluir `replacement_relation` al terminar la relacion principal.

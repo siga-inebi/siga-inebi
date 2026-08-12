@@ -4,7 +4,7 @@ from django.utils import timezone
 from apps.audit.services import record_event
 from apps.common.models import DomainError
 from apps.people.models import Person
-from apps.students.models import EmergencyContact, Guardian, Student
+from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
 
 
 def create_student(*, person_data, student_code, status=None, actor=None):
@@ -84,25 +84,11 @@ def _changed(instance, actor, action, **candidates):
 
 
 def guardian_can_access_student(*, user, student, when=None):
-    when = when or timezone.localdate()
-    person = getattr(user, "person", None)
-    guardian = getattr(person, "guardian_profile", None)
-    if guardian is None:
-        return False
+    # ``when`` is deliberately ignored. A terminated relationship must never
+    # restore access to historical student information.
+    from apps.identity.scopes import guardian_student_queryset
 
-    return (
-        guardian.student_relations.filter(
-            student=student,
-            starts_at__lte=when,
-        )
-        .filter(ends_at__isnull=True)
-        .exists()
-        or guardian.student_relations.filter(
-            student=student,
-            starts_at__lte=when,
-            ends_at__gte=when,
-        ).exists()
-    )
+    return guardian_student_queryset(user=user).filter(pk=student.pk).exists()
 
 
 def deactivate_student(*, student, actor=None):
@@ -145,16 +131,106 @@ def deactivate_emergency_contact(*, emergency_contact, actor=None):
     return emergency_contact
 
 
-def end_student_guardian_relation(*, relation, actor=None, ends_at=None):
-    ends_at = ends_at or timezone.localdate()
-    relation.ends_at = ends_at
-    relation.save(update_fields=["ends_at", "updated_at"])
-    record_event(
-        actor=actor,
-        action="students.student_guardian_relation.ended",
-        resource="StudentGuardianRelation",
-        resource_identifier=str(relation.pk),
-        context={"student_id": relation.student_id, "guardian_id": relation.guardian_id},
+@transaction.atomic
+def create_student_guardian_relation(
+    *, student, guardian, relationship_label, starts_at=None, actor=None
+):
+    """Create a current guardian link, making the first current link primary."""
+    starts_at = starts_at or timezone.localdate()
+    if starts_at > timezone.localdate():
+        raise DomainError("A guardian relationship cannot start in the future.")
+
+    relationship_label = _clean_text(relationship_label, field="relationship label")
+    student = Student.objects.select_for_update().get(pk=student.pk)
+    current_relations = StudentGuardianRelation.objects.select_for_update().filter(
+        student=student,
+        ends_at__isnull=True,
+    )
+    is_primary = not current_relations.filter(is_primary=True).exists()
+    relation = StudentGuardianRelation.objects.create(
+        student=student,
+        guardian=guardian,
+        relationship_label=relationship_label,
+        is_primary=is_primary,
+        starts_at=starts_at,
+    )
+    _audit(
+        actor,
+        "students.student_guardian_relation.created",
+        relation,
+        student_id=student.pk,
+        guardian_id=guardian.pk,
+        is_primary=is_primary,
+    )
+    return relation
+
+
+@transaction.atomic
+def change_primary_student_guardian_relation(*, relation, actor=None):
+    """Atomically select one current relationship as the student's primary link."""
+    student = Student.objects.select_for_update().get(pk=relation.student_id)
+    relations = StudentGuardianRelation.objects.select_for_update().filter(
+        student=student,
+        ends_at__isnull=True,
+    )
+    relation = relations.filter(pk=relation.pk).first()
+    if relation is None or not relation.is_active:
+        raise DomainError("Only a current active guardian relationship can be primary.")
+
+    relations.filter(is_primary=True).exclude(pk=relation.pk).update(
+        is_primary=False,
+        updated_at=timezone.now(),
+    )
+    if not relation.is_primary:
+        relation.is_primary = True
+        relation.save(update_fields=["is_primary", "updated_at"])
+    _audit(
+        actor,
+        "students.student_guardian_relation.primary_changed",
+        relation,
+        student_id=student.pk,
+        guardian_id=relation.guardian_id,
+    )
+    return relation
+
+
+@transaction.atomic
+def end_student_guardian_relation(*, relation, replacement_relation=None, actor=None):
+    """End a link without deleting history and preserve one current primary link."""
+    student = Student.objects.select_for_update().get(pk=relation.student_id)
+    relations = StudentGuardianRelation.objects.select_for_update().filter(student=student)
+    relation = relations.filter(pk=relation.pk, ends_at__isnull=True).first()
+    if relation is None:
+        raise DomainError("The guardian relationship is already ended.")
+
+    replacement = None
+    if replacement_relation is not None:
+        replacement = relations.filter(
+            pk=replacement_relation.pk,
+            ends_at__isnull=True,
+            is_active=True,
+            starts_at__lte=timezone.localdate(),
+        ).first()
+        if replacement is None or replacement.pk == relation.pk:
+            raise DomainError("Replacement must be another current relationship for this student.")
+
+    if relation.is_primary:
+        if replacement is None:
+            raise DomainError(
+                "A replacement primary relationship is required before ending the primary."
+            )
+        change_primary_student_guardian_relation(relation=replacement, actor=actor)
+
+    relation.ends_at = timezone.localdate()
+    relation.is_primary = False
+    relation.save(update_fields=["ends_at", "is_primary", "updated_at"])
+    _audit(
+        actor,
+        "students.student_guardian_relation.ended",
+        relation,
+        student_id=student.pk,
+        guardian_id=relation.guardian_id,
+        replacement_relation_id=getattr(replacement, "pk", None),
     )
     return relation
 
