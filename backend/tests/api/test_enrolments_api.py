@@ -132,3 +132,20 @@ def test_matriculate_student_rejects_active_student(auth_client):
 
     assert response.status_code == 400
     assert "Only pre-enrolled students" in response.json()["error"]["detail"]
+
+
+def test_matriculate_student_rejects_shift_not_assigned_to_section(auth_client):
+    section = SectionFactory()
+    wrong_shift = SectionFactory().shift
+    _grant_enrolment_creation(auth_client.user)
+    payload = _matriculation_payload(section, StudentFactory(status="pre_enrolled"))
+    payload["shift_id"] = str(wrong_shift.public_id)
+
+    response = auth_client.post(
+        reverse("matriculation-create"),
+        payload,
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "selected shift" in response.json()["error"]["detail"]
