@@ -325,7 +325,10 @@ def reissue_activation_challenge(*, actor, account):
 
 
 def _audit_activation_denied(*, account, challenge=None, reason, failed_attempts=None):
-    context = {"result": "denied", "reason": reason}
+    context = {
+        "result": "denied",
+        "reason": reason,
+    }
     if account:
         context["target_user_id"] = account.pk
     if challenge:
@@ -354,6 +357,7 @@ def activate_account(*, username, activation_code, password):
         account = user_model.objects.select_for_update().get(pk=account_id)
         challenge = account.activation_challenges.select_for_update().first()
         now = timezone.now()
+
         unusable_reason = None
         if account.status != account.AccountStatus.PENDING or account.is_active:
             unusable_reason = "account_not_pending"
@@ -377,7 +381,8 @@ def activate_account(*, username, activation_code, password):
             )
             error = InvalidActivationChallengeError("Código de activación inválido o vencido.")
         elif not constant_time_compare(
-            challenge.token_digest, _activation_code_digest(activation_code)
+            challenge.token_digest,
+            _activation_code_digest(activation_code),
         ):
             challenge.failed_attempts += 1
             challenge.save(update_fields=["failed_attempts", "updated_at"])
@@ -407,8 +412,11 @@ def activate_account(*, username, activation_code, password):
                 account.locked_until = None
                 account.save(
                     update_fields=[
-                        "password", "status", "is_active",
-                        "failed_login_attempts", "locked_until",
+                        "password",
+                        "status",
+                        "is_active",
+                        "failed_login_attempts",
+                        "locked_until",
                     ]
                 )
                 challenge.used_at = now
