@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.academics.models import (
+    AcademicCycle,
     Campus,
     Grade,
     Level,
@@ -9,6 +10,28 @@ from apps.academics.models import (
     Subject,
     TeachingAssignment,
 )
+
+
+class AcademicCycleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AcademicCycle
+        fields = [
+            "public_id",
+            "year",
+            "name",
+            "description",
+            "starts_on",
+            "ends_on",
+            "status",
+        ]
+
+
+class AcademicCycleCreateSerializer(serializers.Serializer):
+    year = serializers.IntegerField(min_value=1900, max_value=9999)
+    name = serializers.CharField(max_length=100)
+    description = serializers.CharField(required=False, allow_blank=True)
+    starts_on = serializers.DateField()
+    ends_on = serializers.DateField()
 
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a catalogue node

@@ -77,6 +77,82 @@ def _audit(actor, action, instance, **context):
     )
 
 
+def _cycle_conflicts(*, year, name):
+    return {
+        "unique_cycle_name_per_institution": (
+            f"Academic cycle name '{name}' already exists for this institution."
+        ),
+        "unique_cycle_year_per_institution": (
+            f"Academic cycle year {year} already exists for this institution."
+        ),
+        "academic_cycle_no_overlapping_dates": (
+            "Academic cycle dates cannot overlap another cycle in the institution."
+        ),
+        "unique_active_cycle_per_institution": (
+            "The current active cycle must be closed before activating another cycle."
+        ),
+    }
+
+
+def create_academic_cycle(
+    *, institution, year, name, starts_on, ends_on, description="", actor=None
+):
+    """Register a non-overlapping cycle in preparation (RF-CIC-001)."""
+    name = _clean_name(name)
+    description = (description or "").strip()
+    if starts_on > ends_on:
+        raise DomainError("Academic cycle end date cannot be before its start date.")
+    if starts_on.year != year:
+        raise DomainError("Academic cycle year must match its start date year.")
+
+    with unique_violation_as(_cycle_conflicts(year=year, name=name)):
+        cycle = AcademicCycle.objects.create(
+            institution=institution,
+            year=year,
+            name=name,
+            description=description,
+            starts_on=starts_on,
+            ends_on=ends_on,
+            status=AcademicCycle.CycleStatus.DRAFT,
+        )
+    _audit(
+        actor,
+        "academics.cycle.created",
+        cycle,
+        year=year,
+        status=cycle.status,
+        starts_on=starts_on.isoformat(),
+        ends_on=ends_on.isoformat(),
+    )
+    return cycle
+
+
+@transaction.atomic
+def activate_academic_cycle(*, cycle, actor=None):
+    """Activate a prepared cycle while preventing a second active cycle (RF-CIC-002)."""
+    locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
+    if locked.status != AcademicCycle.CycleStatus.DRAFT:
+        raise DomainError("Only an academic cycle in preparation can be activated.")
+    if (
+        AcademicCycle.objects.select_for_update()
+        .filter(
+            institution=locked.institution,
+            status=AcademicCycle.CycleStatus.ACTIVE,
+        )
+        .exclude(pk=locked.pk)
+        .exists()
+    ):
+        raise DomainError(
+            "The current active cycle must be closed before activating another cycle."
+        )
+
+    locked.status = AcademicCycle.CycleStatus.ACTIVE
+    with unique_violation_as(_cycle_conflicts(year=locked.year, name=locked.name)):
+        locked.save(update_fields=["status", "updated_at"])
+    _audit(actor, "academics.cycle.activated", locked, status=locked.status)
+    return locked
+
+
 def _changed(instance, actor, action, **candidates):
     """
     Apply the fields whose value was actually supplied, persist only those, and

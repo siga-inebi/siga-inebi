@@ -13,6 +13,7 @@ which service it calls. OpenAPI text is attached with ``extend_schema_view`` so
 the docs stay per-resource even though the handlers are inherited.
 """
 
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import permissions, status
 from rest_framework.exceptions import PermissionDenied
@@ -26,6 +27,8 @@ from apps.common.models import DomainError
 from apps.teachers.models import Teacher
 
 from .serializers import (
+    AcademicCycleCreateSerializer,
+    AcademicCycleSerializer,
     CampusCreateSerializer,
     CampusSerializer,
     CampusUpdateSerializer,
@@ -147,6 +150,58 @@ class DeactivateMixin:
     def delete(self, request, **kwargs):
         self.deactivate(request, self.get_object(**kwargs))
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# --------------------------------------------------------------------------- #
+# academic cycles
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar ciclos escolares",
+        tags=["academics: cycles"],
+        responses={200: AcademicCycleSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar ciclo escolar",
+        tags=["academics: cycles"],
+        request=AcademicCycleCreateSerializer,
+        responses={201: AcademicCycleSerializer},
+    ),
+)
+class AcademicCycleListCreateView(CatalogueListCreateView):
+    list_serializer = AcademicCycleSerializer
+    create_serializer = AcademicCycleCreateSerializer
+
+    def list_queryset(self, request):
+        return AcademicCycle.objects.filter(institution=self.institution).order_by(
+            "-year", "starts_on"
+        )
+
+    def create(self, request, payload):
+        return services.create_academic_cycle(
+            institution=self.institution,
+            actor=request.user,
+            **payload,
+        )
+
+
+class AcademicCycleActivateView(CatalogueView):
+    @extend_schema(
+        summary="Activar ciclo escolar",
+        tags=["academics: cycles"],
+        request=None,
+        responses={200: AcademicCycleSerializer},
+    )
+    def post(self, request, public_id):
+        cycle = get_object_or_404(
+            AcademicCycle,
+            public_id=public_id,
+            institution=self.institution,
+        )
+        activated = services.activate_academic_cycle(cycle=cycle, actor=request.user)
+        return Response(AcademicCycleSerializer(activated).data)
 
 
 # --------------------------------------------------------------------------- #

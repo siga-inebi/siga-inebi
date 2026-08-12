@@ -111,6 +111,7 @@ class Command(BaseCommand):
         institution, _ = Institution.objects.get_or_create(name="Instituto Demo SIGA-INEBI")
         cycle, _ = AcademicCycle.objects.get_or_create(
             institution=institution,
+            year=2026,
             name="2026",
             defaults={
                 "starts_on": date(2026, 1, 15),
