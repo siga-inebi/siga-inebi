@@ -42,7 +42,11 @@ class Enrolment(TimeStampedModel):
                 fields=["student", "academic_cycle"],
                 condition=Q(status="active"),
                 name="unique_active_enrolment_per_student_cycle",
-            )
+            ),
+            models.CheckConstraint(
+                check=Q(ends_on__isnull=True) | Q(effective_on__lte=models.F("ends_on")),
+                name="enrolment_valid_effective_dates",
+            ),
         ]
 
     def __str__(self):

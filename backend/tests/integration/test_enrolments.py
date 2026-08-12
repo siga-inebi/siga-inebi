@@ -1,5 +1,6 @@
+from datetime import timedelta
+
 import pytest
-from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.common.models import DomainError
@@ -38,7 +39,7 @@ def test_cannot_duplicate_incompatible_active_enrolment():
         section=section,
     )
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DomainError, match="already has an active enrolment"):
         create_enrolment(
             student=student,
             academic_cycle=section.academic_cycle,
@@ -92,4 +93,39 @@ def test_closed_cycle_blocks_changes():
             academic_cycle=cycle,
             grade=section.grade,
             section=section,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_create_enrolment_rejects_section_from_another_cycle():
+    section = SectionFactory()
+    other_section = SectionFactory()
+    student = StudentFactory()
+
+    with pytest.raises(DomainError, match="Section must belong to the academic cycle"):
+        create_enrolment(
+            student=student,
+            academic_cycle=section.academic_cycle,
+            grade=other_section.grade,
+            section=other_section,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_create_enrolment_rejects_end_date_before_effective_date():
+    section = SectionFactory()
+    student = StudentFactory()
+
+    with pytest.raises(DomainError, match="end date cannot precede"):
+        create_enrolment(
+            student=student,
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            section=section,
+            effective_on=timezone.localdate(),
+            ends_on=timezone.localdate() - timedelta(days=1),
         )

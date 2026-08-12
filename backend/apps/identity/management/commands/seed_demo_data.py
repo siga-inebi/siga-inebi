@@ -34,7 +34,7 @@ PERMISSIONS = [
     ("scope_assign", "Can assign scopes"),
     ("student_view_basic", "Can view student basic data"),
     ("student_view_sensitive", "Can view sensitive student data"),
-    ("enrolment_create", "Can create enrolments"),
+    ("enrollment_create", "Can create enrollments"),
     ("document_read", "Can read documents"),
     ("audit_read", "Can read audit events"),
 ]
@@ -49,7 +49,7 @@ ROLES = {
         "scope_assign",
         "student_view_basic",
         "student_view_sensitive",
-        "enrolment_create",
+        "enrollment_create",
         "document_read",
         "audit_read",
     ],
