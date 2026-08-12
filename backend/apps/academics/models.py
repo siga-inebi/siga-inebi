@@ -55,13 +55,48 @@ class AcademicCycle(TimeStampedModel):
     institution = models.ForeignKey(
         Institution, on_delete=models.CASCADE, related_name="academic_cycles"
     )
+    year = models.PositiveSmallIntegerField()
     name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
     starts_on = models.DateField()
     ends_on = models.DateField()
     status = models.CharField(max_length=20, choices=CycleStatus.choices, default=CycleStatus.DRAFT)
 
     class Meta:
-        unique_together = [("institution", "name")]
+        ordering = ["-year", "starts_on"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "name"], name="unique_cycle_name_per_institution"
+            ),
+            models.UniqueConstraint(
+                fields=["institution", "year"], name="unique_cycle_year_per_institution"
+            ),
+            models.UniqueConstraint(
+                fields=["institution"],
+                condition=Q(status="active"),
+                name="unique_active_cycle_per_institution",
+            ),
+            models.CheckConstraint(
+                condition=Q(starts_on__lte=F("ends_on")),
+                name="academic_cycle_valid_dates",
+            ),
+            ExclusionConstraint(
+                name="academic_cycle_no_overlapping_dates",
+                expressions=[
+                    ("institution", RangeOperators.EQUAL),
+                    (
+                        Func(
+                            F("starts_on"),
+                            F("ends_on"),
+                            Value("[]"),
+                            function="DATERANGE",
+                            output_field=DateRangeField(),
+                        ),
+                        RangeOperators.OVERLAPS,
+                    ),
+                ],
+            ),
+        ]
 
     def __str__(self):
         return self.name

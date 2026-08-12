@@ -28,6 +28,7 @@ class AcademicCycleFactory(factory.django.DjangoModelFactory):
         model = AcademicCycle
 
     institution = factory.SubFactory(InstitutionFactory)
+    year = factory.LazyAttribute(lambda obj: obj.starts_on.year)
     name = factory.Sequence(lambda n: f"Cycle {n}")
     starts_on = factory.LazyFunction(timezone.localdate)
     ends_on = factory.LazyAttribute(lambda obj: obj.starts_on.replace(month=12, day=31))

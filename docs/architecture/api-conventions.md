@@ -61,6 +61,15 @@
 - `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
   Debe incluir `replacement_relation` al terminar la relacion principal.
 
+## Ciclos escolares
+
+- `GET /api/v1/academics/cycles/` lista ciclos de la institucion configurada.
+- `POST /api/v1/academics/cycles/` registra un ciclo en preparacion con ano, identificacion,
+  descripcion institucional y fechas no solapadas.
+- `POST /api/v1/academics/cycles/{public_id}/activate/` activa un ciclo preparado solo cuando no
+  existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
+- Todos requieren sesion autenticada. La definicion de permisos atomicos para Directora,
+  Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.

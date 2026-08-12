@@ -44,7 +44,13 @@ class AccountActivationView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         account = activate_account(**serializer.validated_data)
-        return Response({"id": account.pk, "username": account.username, "status": account.status})
+        return Response(
+            {
+                "id": account.pk,
+                "username": account.username,
+                "status": account.status,
+            }
+        )
 
 
 class AtomicPermissionListView(GenericAPIView):

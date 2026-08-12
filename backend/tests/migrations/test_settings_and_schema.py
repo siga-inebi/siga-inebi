@@ -22,6 +22,7 @@ def test_core_tables_available_after_migrations():
     institution = Institution.objects.create(name="INEBI")
     cycle = AcademicCycle.objects.create(
         institution=institution,
+        year=2026,
         name="2026",
         starts_on="2026-01-01",
         ends_on="2026-10-31",
