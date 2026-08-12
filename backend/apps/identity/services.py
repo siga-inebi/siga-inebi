@@ -299,8 +299,11 @@ def activate_account(*, username, activation_code, password):
                 account.locked_until = None
                 account.save(
                     update_fields=[
-                        "password", "status", "is_active",
-                        "failed_login_attempts", "locked_until",
+                        "password",
+                        "status",
+                        "is_active",
+                        "failed_login_attempts",
+                        "locked_until",
                     ]
                 )
                 challenge.used_at = now
