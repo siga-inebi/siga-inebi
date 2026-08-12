@@ -30,6 +30,8 @@ class Migration(migrations.Migration):
                 ('starts_on', models.DateField(help_text='First day of evaluation period.')),
                 ('ends_on', models.DateField(help_text='Last day of evaluation period.')),
                 ('status', models.CharField(choices=[('open', 'Open'), ('closed', 'Closed')], default='open', help_text='OPEN: accepts grade capture; CLOSED: no capture unless authorized breach.', max_length=20)),
+                ('capture_starts_on', models.DateField(help_text='Date when grade capture window opens (independent of evaluation dates).')),
+                ('capture_ends_on', models.DateField(help_text='Date when grade capture window closes; after this, no capture is allowed.')),
                 ('academic_cycle', models.ForeignKey(help_text='Cycle this evaluation unit belongs to.', on_delete=django.db.models.deletion.CASCADE, related_name='evaluation_units', to='academics.academiccycle')),
             ],
             options={
@@ -43,6 +45,10 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='evaluationunit',
             constraint=models.CheckConstraint(condition=models.Q(('starts_on__lte', models.F('ends_on'))), name='evaluation_unit_valid_dates'),
+        ),
+        migrations.AddConstraint(
+            model_name='evaluationunit',
+            constraint=models.CheckConstraint(condition=models.Q(('capture_starts_on__lte', models.F('capture_ends_on'))), name='evaluation_unit_valid_capture_dates'),
         ),
         migrations.AddConstraint(
             model_name='evaluationunit',

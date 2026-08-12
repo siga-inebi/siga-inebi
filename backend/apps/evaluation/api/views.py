@@ -2,6 +2,7 @@
 API views for evaluation domain.
 
 RF-EVC-001: Estructura de unidades del ciclo
+RF-EVC-002: Ventana de captura de notas
 
 Authorization: requires role=director + permission=evaluation.configure_units
 """
@@ -87,6 +88,8 @@ class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
                 name=serializer.validated_data["name"],
                 starts_on=serializer.validated_data["starts_on"],
                 ends_on=serializer.validated_data["ends_on"],
+                capture_starts_on=serializer.validated_data["capture_starts_on"],
+                capture_ends_on=serializer.validated_data["capture_ends_on"],
             )
         except DomainError as e:
             return Response(

@@ -25,6 +25,8 @@ class EvaluationUnitSerializer(serializers.ModelSerializer):
             "name",
             "starts_on",
             "ends_on",
+            "capture_starts_on",
+            "capture_ends_on",
             "status",
             "created_at",
             "updated_at",
@@ -32,9 +34,13 @@ class EvaluationUnitSerializer(serializers.ModelSerializer):
         read_only_fields = ["academic_cycle", "public_id", "created_at", "updated_at"]
 
     def validate(self, data):
-        """Validate date range before passing to service."""
+        """Validate date ranges before passing to service."""
         if data["starts_on"] > data["ends_on"]:
             raise serializers.ValidationError(
-                {"ends_on": "End date must be >= start date."}
+                {"ends_on": "Evaluation end date must be >= start date."}
+            )
+        if data["capture_starts_on"] > data["capture_ends_on"]:
+            raise serializers.ValidationError(
+                {"capture_ends_on": "Capture window end date must be >= start date."}
             )
         return data

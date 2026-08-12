@@ -23,9 +23,14 @@ class EvaluationUnit(TimeStampedModel):
     Each unit is a timeframe (e.g., trimester, quarter, semester) where grades
     are captured, closed, or reopened for amendments.
 
+    RF-EVC-001: Unit structure (starts_on, ends_on, status).
+    RF-EVC-002: Capture window (capture_starts_on, capture_ends_on) is independent
+                of the evaluation period, controlling when grades may be entered.
+
     Invariants:
     - Units within the same cycle must not overlap in time.
     - starts_on must be <= ends_on.
+    - capture_starts_on must be <= capture_ends_on.
     - Hard constraint at DB level to prevent race conditions (AGENTS.md #9).
 
     Soft delete: use is_active (inherited from TimeStampedModel).
@@ -56,6 +61,12 @@ class EvaluationUnit(TimeStampedModel):
         default=UnitStatus.OPEN,
         help_text="OPEN: accepts grade capture; CLOSED: no capture unless authorized breach.",
     )
+    capture_starts_on = models.DateField(
+        help_text="Date when grade capture window opens (independent of evaluation dates).",
+    )
+    capture_ends_on = models.DateField(
+        help_text="Date when grade capture window closes; after this, no capture is allowed.",
+    )
 
     class Meta:
         ordering = ["academic_cycle", "number"]
@@ -69,6 +80,11 @@ class EvaluationUnit(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(starts_on__lte=F("ends_on")),
                 name="evaluation_unit_valid_dates",
+            ),
+            # Capture window dates must be valid.
+            models.CheckConstraint(
+                condition=Q(capture_starts_on__lte=F("capture_ends_on")),
+                name="evaluation_unit_valid_capture_dates",
             ),
             # Units within the same cycle must not overlap (PostgreSQL-specific).
             # Similar to academic_cycle_no_overlapping_dates constraint.
@@ -96,3 +112,17 @@ class EvaluationUnit(TimeStampedModel):
     @property
     def is_closed(self):
         return self.status == self.UnitStatus.CLOSED
+
+    def is_capture_window_open(self, on_date=None):
+        """
+        Check if the capture window is open on a given date.
+
+        Args:
+            on_date: Date to check (default: today).
+
+        Returns:
+            True if capture_starts_on <= on_date <= capture_ends_on, False otherwise.
+        """
+        if on_date is None:
+            on_date = timezone.localdate()
+        return self.capture_starts_on <= on_date <= self.capture_ends_on

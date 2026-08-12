@@ -2,9 +2,12 @@
 API contract tests for evaluation units.
 
 RF-EVC-001: Estructura de unidades del ciclo
+RF-EVC-002: Ventana de captura de notas
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
+Scenario 3: Captura dentro de la ventana
+Scenario 4: Captura con la ventana cerrada
 """
 
 from datetime import date
@@ -44,6 +47,8 @@ class TestEvaluationUnitAPI:
                 "name": "Unit 1",
                 "starts_on": "2026-01-15",
                 "ends_on": "2026-03-15",
+                "capture_starts_on": "2026-01-01",
+                "capture_ends_on": "2026-04-30",
                 "status": "open",
             },
             content_type="application/json",
@@ -56,6 +61,8 @@ class TestEvaluationUnitAPI:
         assert data["status"] == EvaluationUnit.UnitStatus.OPEN
         assert data["starts_on"] == "2026-01-15"
         assert data["ends_on"] == "2026-03-15"
+        assert data["capture_starts_on"] == "2026-01-01"
+        assert data["capture_ends_on"] == "2026-04-30"
 
     def test_create_multiple_units_in_same_cycle(self, auth_client, institution):
         """
@@ -80,6 +87,8 @@ class TestEvaluationUnitAPI:
                     "name": f"Unit {i}",
                     "starts_on": f"2026-{1 + (i - 1) * 2:02d}-01",
                     "ends_on": f"2026-{2 + (i - 1) * 2:02d}-28",
+                    "capture_starts_on": f"2026-{1 + (i - 1) * 2:02d}-01",
+                    "capture_ends_on": f"2026-{2 + (i - 1) * 2:02d}-28",
                     "status": "open",
                 },
                 content_type="application/json",
@@ -117,6 +126,8 @@ class TestEvaluationUnitAPI:
                 "name": "Unit 1",
                 "starts_on": "2026-01-01",
                 "ends_on": "2026-02-28",
+                "capture_starts_on": "2026-01-01",
+                "capture_ends_on": "2026-02-28",
                 "status": "open",
             },
             content_type="application/json",
@@ -131,6 +142,8 @@ class TestEvaluationUnitAPI:
                 "name": "Unit 2",
                 "starts_on": "2026-02-01",  # overlaps with unit 1
                 "ends_on": "2026-03-31",
+                "capture_starts_on": "2026-02-01",
+                "capture_ends_on": "2026-03-31",
                 "status": "open",
             },
             content_type="application/json",
@@ -155,6 +168,8 @@ class TestEvaluationUnitAPI:
                 "name": "Unit 1",
                 "starts_on": "2026-03-01",
                 "ends_on": "2026-01-01",  # invalid
+                "capture_starts_on": "2026-01-01",
+                "capture_ends_on": "2026-04-01",
                 "status": "open",
             },
             content_type="application/json",
@@ -204,6 +219,8 @@ class TestEvaluationUnitAPI:
                 "name": "Unit 1",
                 "starts_on": "2026-01-01",
                 "ends_on": "2026-02-28",
+                "capture_starts_on": "2026-01-01",
+                "capture_ends_on": "2026-02-28",
             },
             content_type="application/json",
         )

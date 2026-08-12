@@ -2,6 +2,7 @@
 Domain services for evaluation.
 
 RF-EVC-001: Estructura de unidades del ciclo
+RF-EVC-002: Ventana de captura de notas
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -43,19 +44,40 @@ def _audit(actor, action, instance, **context):
     )
 
 
+def validate_capture_window_open(unit: EvaluationUnit, on_date=None) -> None:
+    """
+    Validate that the capture window is open for grade entry (RF-EVC-002).
+
+    Args:
+        unit: EvaluationUnit to check.
+        on_date: Date to validate (default: today).
+
+    Raises:
+        DomainError: If capture window is closed on the given date.
+    """
+    if not unit.is_capture_window_open(on_date):
+        raise DomainError(
+            f"Grade capture window is closed for unit '{unit.name}'. "
+            f"Window: {unit.capture_starts_on} to {unit.capture_ends_on}."
+        )
+
+
 def create_evaluation_unit(
     academic_cycle: AcademicCycle,
     number: int,
     name: str,
     starts_on: date,
     ends_on: date,
+    capture_starts_on: date,
+    capture_ends_on: date,
     actor=None,
 ) -> EvaluationUnit:
     """
     Create a new evaluation unit within a cycle.
 
     Validates:
-    - starts_on <= ends_on
+    - starts_on <= ends_on (evaluation period)
+    - capture_starts_on <= capture_ends_on (capture window)
     - no overlap with existing units in the same cycle
 
     Args:
@@ -64,6 +86,8 @@ def create_evaluation_unit(
         name: Display name.
         starts_on: First day of evaluation period.
         ends_on: Last day of evaluation period.
+        capture_starts_on: Date when grade capture window opens (RF-EVC-002).
+        capture_ends_on: Date when grade capture window closes (RF-EVC-002).
         actor: User performing the action (for audit trail).
 
     Returns:
@@ -72,10 +96,17 @@ def create_evaluation_unit(
     Raises:
         DomainError: If validation fails or overlap detected.
     """
-    # Validate date range
+    # Validate evaluation period dates
     if starts_on > ends_on:
         raise DomainError(
             f"Unit start date ({starts_on}) cannot be after end date ({ends_on})."
+        )
+
+    # Validate capture window dates (RF-EVC-002)
+    if capture_starts_on > capture_ends_on:
+        raise DomainError(
+            f"Capture window start date ({capture_starts_on}) cannot be after "
+            f"end date ({capture_ends_on})."
         )
 
     # Create unit; DB constraint will reject overlap
@@ -86,6 +117,8 @@ def create_evaluation_unit(
             name=name,
             starts_on=starts_on,
             ends_on=ends_on,
+            capture_starts_on=capture_starts_on,
+            capture_ends_on=capture_ends_on,
             status=EvaluationUnit.UnitStatus.OPEN,
         )
 
@@ -99,6 +132,8 @@ def create_evaluation_unit(
         name=name,
         starts_on=str(starts_on),
         ends_on=str(ends_on),
+        capture_starts_on=str(capture_starts_on),
+        capture_ends_on=str(capture_ends_on),
     )
 
     return unit

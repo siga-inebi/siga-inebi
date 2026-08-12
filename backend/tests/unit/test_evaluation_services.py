@@ -2,9 +2,12 @@
 Unit tests for evaluation services.
 
 RF-EVC-001: Estructura de unidades del ciclo
+RF-EVC-002: Ventana de captura de notas
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
+Scenario 3: Captura dentro de la ventana
+Scenario 4: Captura con la ventana cerrada
 """
 
 from datetime import date
@@ -13,7 +16,7 @@ import pytest
 
 from apps.common.models import DomainError
 from apps.evaluation.models import EvaluationUnit
-from apps.evaluation.services import create_evaluation_unit
+from apps.evaluation.services import create_evaluation_unit, validate_capture_window_open
 from tests.factories.academic import AcademicCycleFactory
 
 pytestmark = pytest.mark.django_db
@@ -47,6 +50,8 @@ class TestCreateEvaluationUnit:
                 name=f"Unit {i}",
                 starts_on=date(2026, start_month, 1),
                 ends_on=date(2026, end_month, 28),
+                capture_starts_on=date(2026, start_month, 1),
+                capture_ends_on=date(2026, end_month, 28),
             )
             units.append(unit)
 
@@ -76,6 +81,8 @@ class TestCreateEvaluationUnit:
             name="Unit 1",
             starts_on=date(2026, 1, 1),
             ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
         )
         assert unit1.id is not None
 
@@ -87,6 +94,8 @@ class TestCreateEvaluationUnit:
                 name="Unit 2",
                 starts_on=date(2026, 2, 1),
                 ends_on=date(2026, 3, 31),
+                capture_starts_on=date(2026, 2, 1),
+                capture_ends_on=date(2026, 3, 31),
             )
 
     def test_reject_invalid_date_range(self):
@@ -102,6 +111,8 @@ class TestCreateEvaluationUnit:
                 name="Unit 1",
                 starts_on=date(2026, 3, 1),
                 ends_on=date(2026, 1, 1),
+                capture_starts_on=date(2026, 1, 1),
+                capture_ends_on=date(2026, 3, 1),
             )
 
     def test_reject_duplicate_unit_number(self):
@@ -117,6 +128,8 @@ class TestCreateEvaluationUnit:
             name="Unit 1",
             starts_on=date(2026, 1, 1),
             ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
         )
 
         # Try to create another with same number
@@ -127,6 +140,8 @@ class TestCreateEvaluationUnit:
                 name="Unit 1 Duplicate",
                 starts_on=date(2026, 3, 1),
                 ends_on=date(2026, 4, 30),
+                capture_starts_on=date(2026, 3, 1),
+                capture_ends_on=date(2026, 4, 30),
             )
 
     def test_allow_units_in_different_cycles(self):
@@ -142,6 +157,8 @@ class TestCreateEvaluationUnit:
             name="Unit 1",
             starts_on=date(2025, 1, 1),
             ends_on=date(2025, 2, 28),
+            capture_starts_on=date(2025, 1, 1),
+            capture_ends_on=date(2025, 2, 28),
         )
 
         unit2 = create_evaluation_unit(
@@ -150,7 +167,93 @@ class TestCreateEvaluationUnit:
             name="Unit 1",
             starts_on=date(2026, 1, 1),
             ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
         )
 
         assert unit1.id != unit2.id
         assert unit1.academic_cycle_id != unit2.academic_cycle_id
+
+
+class TestCaptureWindowValidation:
+    """Tests for RF-EVC-002: Ventana de captura de notas (Capture window validation)."""
+
+    def test_capture_within_window(self):
+        """
+        Scenario 3: Captura dentro de la ventana
+        GIVEN una unidad cuya ventana de captura está abierta
+        WHEN se valida la ventana de captura
+        THEN el sistema acepta la operación
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+
+        # Validate on a date within the window
+        validate_capture_window_open(unit, on_date=date(2026, 1, 15))
+        # Should not raise
+
+    def test_capture_after_window_closed(self):
+        """
+        Scenario 4: Captura con la ventana cerrada
+        GIVEN una unidad cuya ventana de captura ya cerró
+        WHEN se intenta registrar una nota de esa unidad
+        THEN el sistema rechaza la operación indicando que la ventana está cerrada
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 1),
+            capture_ends_on=date(2026, 2, 28),
+        )
+
+        # Try to validate on a date after the window closed
+        with pytest.raises(DomainError, match="Grade capture window is closed"):
+            validate_capture_window_open(unit, on_date=date(2026, 3, 1))
+
+    def test_capture_before_window_opens(self):
+        """
+        Test that capture is rejected when tried before window opens.
+        """
+        cycle = AcademicCycleFactory()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 2, 28),
+            capture_starts_on=date(2026, 1, 15),
+            capture_ends_on=date(2026, 2, 28),
+        )
+
+        # Try to validate before the window opens
+        with pytest.raises(DomainError, match="Grade capture window is closed"):
+            validate_capture_window_open(unit, on_date=date(2026, 1, 1))
+
+    def test_invalid_capture_date_range(self):
+        """
+        Test that capture_starts_on > capture_ends_on is rejected.
+        """
+        cycle = AcademicCycleFactory()
+
+        with pytest.raises(DomainError, match="Capture window start date"):
+            create_evaluation_unit(
+                academic_cycle=cycle,
+                number=1,
+                name="Unit 1",
+                starts_on=date(2026, 1, 1),
+                ends_on=date(2026, 2, 28),
+                capture_starts_on=date(2026, 3, 1),
+                capture_ends_on=date(2026, 1, 1),
+            )
