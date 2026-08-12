@@ -148,6 +148,19 @@ Las pruebas en `backend/tests/permissions/test_identity_permissions.py` y
 - Descargas deben ser trazables.
 - Intentos denegados relevantes deben quedar auditados.
 
+## Contratos internos de roles
+
+- `create_role(...)` crea roles configurables compuestos exclusivamente por permisos del catalogo
+  atomico.
+- `update_role(...)` modifica la composicion sin recrear rol, asignaciones ni cuentas; registra
+  estado anterior y posterior.
+- `assign_role(...)` agrega roles adicionales con vigencia y prohibe autoasignacion.
+- `revoke_role_assignment(...)` termina vigencia sin eliminacion fisica y prohibe
+  autorevocacion.
+- Operaciones administrativas requieren `role.assign` o condicion de superusuario.
+- Evaluacion consulta asignaciones y composicion vigentes en cada operacion; no conserva permisos
+  en sesion.
+
 ## Contratos internos de cuentas
 
 - `create_account(actor, person, username, email="")` provisiona una cuenta exclusivamente por
