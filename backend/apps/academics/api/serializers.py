@@ -33,6 +33,7 @@ class AcademicCycleCreateSerializer(serializers.Serializer):
     starts_on = serializers.DateField()
     ends_on = serializers.DateField()
 
+
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a catalogue node
 # --------------------------------------------------------------------------- #

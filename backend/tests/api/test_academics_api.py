@@ -64,8 +64,9 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
 
 def test_cycle_endpoints_require_authentication(client, institution):
     assert client.get(reverse("academic-cycle-list-create")).status_code == 403
-    assert (
-        client.post(reverse("academic-cycle-list-create"), {}, content_type="application/json")
-        .status_code
-        == 403
+    response = client.post(
+        reverse("academic-cycle-list-create"),
+        {},
+        content_type="application/json",
     )
+    assert response.status_code == 403

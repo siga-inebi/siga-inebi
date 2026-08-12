@@ -34,7 +34,7 @@ def test_create_cycle_rejects_overlapping_dates():
         year=2026,
         name="Ciclo 2026",
         starts_on=date(2026, 1, 15),
-        ends_on=date(2026, 10, 31),
+        ends_on=date(2027, 2, 28),
     )
 
     with pytest.raises(DomainError, match="cannot overlap"):
@@ -42,7 +42,7 @@ def test_create_cycle_rejects_overlapping_dates():
             institution=institution,
             year=2027,
             name="Ciclo solapado",
-            starts_on=date(2026, 10, 1),
+            starts_on=date(2027, 1, 1),
             ends_on=date(2027, 6, 30),
         )
 
