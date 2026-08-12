@@ -73,7 +73,7 @@ class AcademicCycle(TimeStampedModel):
             ),
             models.UniqueConstraint(
                 fields=["institution"],
-                condition=Q(status=CycleStatus.ACTIVE),
+                condition=Q(status="active"),
                 name="unique_active_cycle_per_institution",
             ),
             models.CheckConstraint(
