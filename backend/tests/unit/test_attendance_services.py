@@ -2,8 +2,9 @@
 RF-JOR-001 — parametros de jornada configurables.
 RF-JOR-002 — derivacion del estado diario.
 RF-JOR-003 — precedencia entre eventos.
+RF-JOR-004 — cierre de jornada.
 
-All three in isolation from the API layer.
+All in isolation from the API layer.
 """
 
 from datetime import datetime, time, timedelta
@@ -12,9 +13,10 @@ import pytest
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceEvent, DayStatus, JornadaParameters
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
 from apps.common.models import DomainError
-from tests.factories.academic import AcademicCycleFactory, CampusFactory, ShiftFactory
+from apps.enrolments.services import create_enrolment
+from tests.factories.academic import AcademicCycleFactory, CampusFactory, SectionFactory, ShiftFactory
 from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
 from tests.factories.students import StudentFactory
 
@@ -351,3 +353,84 @@ def test_no_events_before_closing_time_has_no_final_status_yet():
     )
 
     assert result is None
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-004 — cierre de jornada
+# --------------------------------------------------------------------------- #
+
+
+def test_close_jornada_flags_permanence_without_closure():
+    """
+    Escenario 1 (RF-JOR-004): GIVEN un estudiante con ingreso registrado y sin
+    ningun egreso, WHEN se ejecuta el cierre de la jornada, THEN el sistema
+    marca el dia con la condicion de permanencia sin cierre, AND genera una
+    alerta dirigida al personal del punto de control y al coordinador de aula.
+    """
+    parameters = JornadaParametersFactory(closing_time=time(16, 0))
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    entry_event = AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+
+    result = services.close_jornada(shift=parameters.shift, event_date=parameters.effective_from)
+
+    assert len(result.alerts) == 1
+    alert = result.alerts[0]
+    assert alert.alert_type == AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE
+    assert alert.student == student
+    assert alert.section == section
+    assert set(alert.target_roles) == {
+        AttendanceAlert.TargetRole.CONTROL_POINT,
+        AttendanceAlert.TargetRole.SECTION_COORDINATOR,
+    }
+    assert alert.context["entry_event_id"] == str(entry_event.public_id)
+    status = next(s for s in result.statuses if s.student == student)
+    assert status.permanence_without_closure is True
+    assert AttendanceEvent.objects.filter(pk=entry_event.pk, is_active=True).exists()
+
+
+def test_close_jornada_does_not_flag_students_with_a_matching_exit():
+    parameters = JornadaParametersFactory(closing_time=time(16, 0))
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 15, 0),
+    )
+
+    result = services.close_jornada(shift=parameters.shift, event_date=parameters.effective_from)
+
+    assert result.alerts == []
+    status = next(s for s in result.statuses if s.student == student)
+    assert status.permanence_without_closure is False

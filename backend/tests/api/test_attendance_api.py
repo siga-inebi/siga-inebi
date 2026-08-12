@@ -2,6 +2,7 @@
 RF-JOR-001 — contrato del endpoint de parametros de jornada.
 RF-JOR-002 — contrato del endpoint de estado diario.
 RF-JOR-003 — contrato del endpoint de resolucion de precedencia.
+RF-JOR-004 — contrato del endpoint de cierre de jornada y de alertas.
 """
 
 from datetime import datetime, time
@@ -12,7 +13,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.attendance.models import AttendanceEvent
-from tests.factories.academic import AcademicCycleFactory, ShiftFactory
+from apps.enrolments.services import create_enrolment
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
 from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -291,3 +293,62 @@ def test_resolution_with_malformed_query_is_a_bad_request(auth_client):
     response = auth_client.get(f"{reverse('attendance-event-resolution')}?movement_type=exit")
 
     assert response.status_code == 400
+
+
+def test_close_jornada_requires_permission(auth_client):
+    parameters = JornadaParametersFactory()
+
+    response = auth_client.post(
+        reverse("attendance-jornada-closures"),
+        {"shift_id": str(parameters.shift.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_close_jornada_creates_alert_for_permanence_without_closure(auth_client):
+    """
+    Escenario 1 (RF-JOR-004): GIVEN un estudiante con ingreso registrado y sin
+    ningun egreso, WHEN se ejecuta el cierre de la jornada, THEN el sistema
+    marca el dia con la condicion de permanencia sin cierre, AND genera una
+    alerta dirigida al personal del punto de control y al coordinador de aula.
+    """
+    _grant(auth_client.user, CONFIGURE_PERMISSION)
+    parameters = JornadaParametersFactory(closing_time=time(16, 0))
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    _grant_student_scope(auth_client.user, student)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+
+    response = auth_client.post(
+        reverse("attendance-jornada-closures"),
+        {"shift_id": str(parameters.shift.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["alerts"]) == 1
+    alert = data["alerts"][0]
+    assert alert["alert_type"] == "permanencia_sin_cierre"
+    assert alert["student_id"] == str(student.public_id)
+    assert set(alert["target_roles"]) == {"control_point", "section_coordinator"}
+
+    alerts_response = auth_client.get(reverse("attendance-alert-list"))
+    assert alerts_response.status_code == 200
+    alert_ids = {item["public_id"] for item in alerts_response.json()["results"]}
+    assert alert["public_id"] in alert_ids

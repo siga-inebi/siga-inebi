@@ -5,6 +5,9 @@ RF-JOR-001 lives here: configurable jornada parameters, versioned by
 ``effective_from`` and never overwritten (AGENTS.md #8, #12). RF-JOR-002
 (daily status derivation) and RF-JOR-003 (precedence between events) extend
 this same module instead of putting their rules in views or serializers.
+RF-JOR-004 (daily closure) reads the enrolment-lifecycle domain to know who
+is actively enrolled in a jornada; attendance-governance already depends on
+it (see ``docs/architecture/domain-map.md``).
 """
 
 from dataclasses import dataclass
@@ -14,10 +17,11 @@ from django.db.models import Case, IntegerField, Value, When
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle
-from apps.attendance.models import AttendanceEvent, DayStatus, JornadaParameters
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
+from apps.enrolments.models import Enrolment
 
 ORIGIN_PRECEDENCE = {
     AttendanceEvent.Origin.SCAN: 0,
@@ -224,3 +228,142 @@ def derive_day_status(*, student, shift, event_date, as_of=None):
             status=DayStatus.ABSENT_PENDING_JUSTIFICATION, entry_event=None, parameters=parameters
         )
     return None
+
+
+def _active_enrolment_for(*, student, shift, event_date):
+    """The student's active enrolment covering ``event_date`` in ``shift``, if any."""
+    try:
+        academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+    except DomainError:
+        return None
+    return (
+        Enrolment.objects.filter(
+            student=student,
+            academic_cycle=academic_cycle,
+            status=Enrolment.EnrolmentStatus.ACTIVE,
+            section__offering__shift=shift,
+        )
+        .select_related("section")
+        .first()
+    )
+
+
+def _raise_alert(*, alert_type, student, shift, event_date, section, target_roles, context, actor):
+    """
+    Record an ``AttendanceAlert``. Alerts are append-only, like events: a
+    reevaluation raises a new one instead of mutating a prior alert.
+    """
+    alert = AttendanceAlert.objects.create(
+        alert_type=alert_type,
+        student=student,
+        shift=shift,
+        section=section,
+        event_date=event_date,
+        target_roles=target_roles,
+        context=context,
+    )
+    record_event(
+        actor=actor,
+        action="attendance.alert.raised",
+        resource="AttendanceAlert",
+        resource_identifier=str(alert.pk),
+        context={
+            "alert_type": alert_type,
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "event_date": str(event_date),
+            **context,
+        },
+    )
+    return alert
+
+
+@dataclass
+class StudentJornadaClosureStatus:
+    student: object
+    status: str | None
+    entry_event: AttendanceEvent | None
+    exit_event: AttendanceEvent | None
+    permanence_without_closure: bool
+
+
+@dataclass
+class JornadaClosureResult:
+    shift: object
+    academic_cycle: AcademicCycle
+    event_date: object
+    parameters: JornadaParameters
+    statuses: list
+    alerts: list
+
+
+def close_jornada(*, shift, event_date, as_of=None, actor=None):
+    """
+    RF-JOR-004: consolidate the daily status of every actively enrolled
+    student of ``shift`` on ``event_date``, identifying who never registered
+    an entry and who entered without a matching exit ("permanencia sin
+    cierre"). The latter raises an alert for the control point staff and the
+    section's coordinator. Never mutates or removes the events it reads.
+    """
+    _require_active(shift, "Shift")
+    academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+    parameters = get_effective_parameters(
+        shift=shift, academic_cycle=academic_cycle, on_date=event_date
+    )
+    if as_of is None:
+        as_of = timezone.make_aware(datetime.combine(event_date, parameters.closing_time))
+
+    enrolments = Enrolment.objects.filter(
+        academic_cycle=academic_cycle,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+        section__offering__shift=shift,
+        student__is_active=True,
+    ).select_related("student", "section")
+
+    statuses = []
+    alerts = []
+    for enrolment in enrolments:
+        student = enrolment.student
+        result = derive_day_status(student=student, shift=shift, event_date=event_date, as_of=as_of)
+        exit_event = resolve_prevailing_event(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.EXIT,
+        )
+        permanence_without_closure = (
+            result is not None and result.entry_event is not None and exit_event is None
+        )
+        if permanence_without_closure:
+            alert = _raise_alert(
+                alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+                student=student,
+                shift=shift,
+                event_date=event_date,
+                section=enrolment.section,
+                target_roles=[
+                    AttendanceAlert.TargetRole.CONTROL_POINT,
+                    AttendanceAlert.TargetRole.SECTION_COORDINATOR,
+                ],
+                context={"entry_event_id": str(result.entry_event.public_id)},
+                actor=actor,
+            )
+            alerts.append(alert)
+        statuses.append(
+            StudentJornadaClosureStatus(
+                student=student,
+                status=result.status if result is not None else None,
+                entry_event=result.entry_event if result is not None else None,
+                exit_event=exit_event,
+                permanence_without_closure=permanence_without_closure,
+            )
+        )
+
+    return JornadaClosureResult(
+        shift=shift,
+        academic_cycle=academic_cycle,
+        event_date=event_date,
+        parameters=parameters,
+        statuses=statuses,
+        alerts=alerts,
+    )

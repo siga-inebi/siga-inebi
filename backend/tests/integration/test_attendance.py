@@ -2,6 +2,7 @@
 RF-JOR-001 — flujo cruzando dominios (academics + attendance) contra Postgres.
 RF-JOR-002 — derivacion del estado diario, con matricula real de por medio.
 RF-JOR-003 — precedencia entre eventos, con matricula real de por medio.
+RF-JOR-004 — cierre de jornada, con matricula real de por medio.
 """
 
 from datetime import datetime, time
@@ -10,7 +11,7 @@ import pytest
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceEvent, DayStatus, JornadaParameters
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
@@ -129,3 +130,46 @@ def test_scan_prevails_over_declared_for_an_actively_enrolled_student():
 
     assert prevailing == scan_event
     assert AttendanceEvent.objects.filter(pk=declared_event.pk, is_active=True).exists()
+
+
+def test_close_jornada_flags_permanence_without_closure_for_an_actively_enrolled_student():
+    """
+    Escenario 1 (RF-JOR-004): GIVEN un estudiante con ingreso registrado y sin
+    ningun egreso, WHEN se ejecuta el cierre de la jornada, THEN el sistema
+    marca el dia con la condicion de permanencia sin cierre, AND genera una
+    alerta dirigida al personal del punto de control y al coordinador de aula.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+    )
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    entry_event = services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 0))),
+    )
+
+    result = services.close_jornada(shift=shift, event_date=cycle.starts_on)
+
+    assert len(result.alerts) == 1
+    alert = result.alerts[0]
+    assert alert.alert_type == AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE
+    assert alert.student == student
+    assert alert.section == section
+    assert alert.context["entry_event_id"] == str(entry_event.public_id)

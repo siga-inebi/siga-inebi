@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.attendance.models import AttendanceEvent, DayStatus, JornadaParameters
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
 
 
 class JornadaParametersSerializer(serializers.ModelSerializer):
@@ -92,3 +92,45 @@ class AttendanceEventResolutionQuerySerializer(serializers.Serializer):
     shift_id = serializers.UUIDField()
     event_date = serializers.DateField()
     movement_type = serializers.ChoiceField(choices=AttendanceEvent.MovementType.choices)
+
+
+class AttendanceAlertSerializer(serializers.ModelSerializer):
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    shift_id = serializers.UUIDField(source="shift.public_id", read_only=True)
+    section_id = serializers.UUIDField(
+        source="section.public_id", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = AttendanceAlert
+        fields = [
+            "public_id",
+            "alert_type",
+            "student_id",
+            "shift_id",
+            "section_id",
+            "event_date",
+            "target_roles",
+            "context",
+            "created_at",
+        ]
+
+
+class JornadaClosureRequestSerializer(serializers.Serializer):
+    shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
+    event_date = serializers.DateField(help_text="Fecha de la jornada a cerrar.")
+
+
+class StudentJornadaClosureStatusSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(source="student.public_id")
+    status = serializers.ChoiceField(choices=DayStatus.choices, allow_null=True)
+    entry_event = AttendanceEventSerializer(allow_null=True)
+    exit_event = AttendanceEventSerializer(allow_null=True)
+    permanence_without_closure = serializers.BooleanField()
+
+
+class JornadaClosureResultSerializer(serializers.Serializer):
+    shift_id = serializers.UUIDField(source="shift.public_id")
+    event_date = serializers.DateField()
+    statuses = StudentJornadaClosureStatusSerializer(many=True)
+    alerts = AttendanceAlertSerializer(many=True)

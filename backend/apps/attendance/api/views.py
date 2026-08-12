@@ -13,23 +13,31 @@ from rest_framework.response import Response
 
 from apps.academics.models import AcademicCycle, Shift
 from apps.attendance import services
-from apps.attendance.models import AttendanceEvent, JornadaParameters
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, JornadaParameters
 from apps.common.models import DomainError
 from apps.identity.scopes import authorized_student_queryset, can_access_student
 from apps.students.models import Student
 
 from .serializers import (
+    AttendanceAlertSerializer,
     AttendanceEventCreateSerializer,
     AttendanceEventResolutionQuerySerializer,
     AttendanceEventSerializer,
     DayStatusQuerySerializer,
     DayStatusResultSerializer,
+    JornadaClosureRequestSerializer,
+    JornadaClosureResultSerializer,
     JornadaParametersCreateSerializer,
     JornadaParametersSerializer,
 )
 
 CONFIGURE_PERMISSION = "attendance_jornada_configure"
 STUDENT_VIEW_PERMISSION = "student_view_basic"
+
+
+def _require_permission(request, codename):
+    if not request.user.has_atomic_permission(codename):
+        raise PermissionDenied("Actor lacks the required permission.")
 
 # Provisional: one atomic permission per event origin. A separate
 # attendance-capture effort owns the real scanning/ingestion workflow and may
@@ -50,12 +58,12 @@ class JornadaParametersListCreateView(GenericAPIView):
         return JornadaParameters.objects.select_related("shift", "academic_cycle").all()
 
     def get(self, request):
-        self._require_configure_permission()
+        _require_permission(request, CONFIGURE_PERMISSION)
         page = self.paginate_queryset(self.get_queryset())
         return self.get_paginated_response(JornadaParametersSerializer(page, many=True).data)
 
     def post(self, request):
-        self._require_configure_permission()
+        _require_permission(request, CONFIGURE_PERMISSION)
         serializer = JornadaParametersCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
@@ -69,10 +77,6 @@ class JornadaParametersListCreateView(GenericAPIView):
         return Response(
             JornadaParametersSerializer(parameters).data, status=status.HTTP_201_CREATED
         )
-
-    def _require_configure_permission(self):
-        if not self.request.user.has_atomic_permission(CONFIGURE_PERMISSION):
-            raise PermissionDenied("Actor lacks the required permission.")
 
 
 class AttendanceEventListCreateView(GenericAPIView):
@@ -156,6 +160,42 @@ class AttendanceDayStatusView(GenericAPIView):
         if result is None:
             return Response({"status": None, "entry_event": None})
         return Response(DayStatusResultSerializer(result).data)
+
+
+class JornadaClosureView(GenericAPIView):
+    """RF-JOR-004 contract: run the daily closure for a jornada."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JornadaClosureResultSerializer
+
+    def post(self, request):
+        _require_permission(request, CONFIGURE_PERMISSION)
+        serializer = JornadaClosureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        result = services.close_jornada(
+            shift=shift, event_date=payload["event_date"], actor=request.user
+        )
+        return Response(JornadaClosureResultSerializer(result).data)
+
+
+class AttendanceAlertListView(GenericAPIView):
+    """RF-JOR-004/RF-JOR-005 contract: generated attendance alerts."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendanceAlertSerializer
+
+    def get_queryset(self):
+        return AttendanceAlert.objects.filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user, codename=STUDENT_VIEW_PERMISSION
+            )
+        ).select_related("student", "shift", "section")
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(AttendanceAlertSerializer(page, many=True).data)
 
 
 def _resolve(queryset, public_id, label):
