@@ -17,7 +17,7 @@ def deactivate_empty_scope_grants(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("identity", "0004_seed_atomic_permission_catalog")]
+    dependencies = [("identity", "0005_seed_attendance_jornada_configure_permission")]
 
     operations = [
         migrations.RunPython(deactivate_empty_scope_grants, migrations.RunPython.noop),
