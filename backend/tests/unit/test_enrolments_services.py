@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from apps.common.models import DomainError
-from apps.enrolments.services import create_enrolment, matriculate_student
+from apps.enrolments.services import create_enrolment, matriculate_student, reenrol_student
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
@@ -97,5 +97,66 @@ def test_matriculate_student_rejects_shift_not_assigned_to_section():
             academic_cycle=section.academic_cycle,
             grade=section.grade,
             shift=wrong_shift,
+            section=section,
+        )
+
+
+def test_reenrol_student_reuses_student_record_and_previous_enrolment():
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    previous = create_enrolment(
+        student=student,
+        academic_cycle=previous_section.academic_cycle,
+        grade=previous_section.grade,
+        section=previous_section,
+    )
+
+    enrolment = reenrol_student(
+        student=student,
+        academic_cycle=target_cycle,
+        grade=target_section.grade,
+        shift=target_section.shift,
+        section=target_section,
+    )
+
+    assert enrolment.student_id == student.id
+    assert enrolment.academic_cycle_id == target_cycle.id
+    assert student.enrolments.filter(pk=previous.pk).exists()
+
+
+def test_reenrol_student_requires_previous_enrolment():
+    section = SectionFactory(name="A")
+
+    with pytest.raises(DomainError, match="no previous enrolment"):
+        reenrol_student(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+
+def test_reenrol_student_rejects_pre_enrolled_student():
+    section = SectionFactory(name="A")
+
+    with pytest.raises(DomainError, match="Only active students"):
+        reenrol_student(
+            student=StudentFactory(status="pre_enrolled"),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
             section=section,
         )
