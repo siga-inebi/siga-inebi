@@ -7,6 +7,14 @@ from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 
 
+def enrolment_history(*, student):
+    return (
+        Enrolment.objects.filter(student=student)
+        .select_related("student", "academic_cycle", "grade", "section")
+        .order_by("-effective_on", "-created_at", "-pk")
+    )
+
+
 @transaction.atomic
 def create_enrolment(
     *,

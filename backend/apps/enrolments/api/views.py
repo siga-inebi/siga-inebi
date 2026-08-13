@@ -8,6 +8,7 @@ from apps.academics.models import AcademicCycle, Grade, Section, Shift
 from apps.enrolments import services
 from apps.enrolments.api.serializers import (
     EnrolmentCreateSerializer,
+    EnrolmentHistoryQuerySerializer,
     EnrolmentSerializer,
     MatriculationCreateSerializer,
     MatriculationSerializer,
@@ -48,6 +49,28 @@ class EnrolmentCreateView(GenericAPIView):
             actor=request.user,
         )
         return Response(EnrolmentSerializer(enrolment).data, status=status.HTTP_201_CREATED)
+
+
+class EnrolmentHistoryListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EnrolmentHistoryQuerySerializer
+
+    @extend_schema(
+        summary="Consultar historial de inscripciones",
+        description=(
+            "Devuelve todas las inscripciones registradas para un estudiante, "
+            "incluyendo estados históricos y vigencias anteriores."
+        ),
+        parameters=[EnrolmentHistoryQuerySerializer],
+        responses={200: EnrolmentSerializer(many=True)},
+        tags=["enrolments"],
+    )
+    def get(self, request):
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        student = _resolve(Student.objects.all(), query.validated_data["student_id"], "Student")
+        page = self.paginate_queryset(services.enrolment_history(student=student))
+        return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
 
 class MatriculationCreateView(GenericAPIView):

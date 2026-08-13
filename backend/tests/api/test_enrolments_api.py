@@ -4,6 +4,8 @@ import pytest
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
+from apps.enrolments.models import Enrolment
+from apps.enrolments.services import enrolment_history
 from tests.factories.academic import SectionFactory
 from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
 from tests.factories.students import StudentFactory
@@ -58,6 +60,37 @@ def test_create_enrolment_returns_public_references_and_audits(auth_client):
     assert body["effective_on"] == "2026-02-01"
     assert body["ends_on"] == "2026-10-30"
     assert AuditEvent.objects.filter(action="enrolments.enrolment.created").exists()
+
+
+def test_enrolment_history_returns_all_student_records(auth_client):
+    student = StudentFactory()
+    section = SectionFactory()
+    first = enrolment_history(student=student)
+    assert list(first) == []
+    older = Enrolment.objects.create(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+
+    response = auth_client.get(
+        reverse("enrolment-history-list"), {"student_id": str(student.public_id)}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["public_id"] == str(older.public_id)
+    assert response.json()["results"][0]["status"] == "completed"
+
+
+def test_enrolment_history_requires_authentication(client):
+    response = client.get(
+        reverse("enrolment-history-list"),
+        {"student_id": "00000000-0000-0000-0000-000000000000"},
+    )
+
+    assert response.status_code in (401, 403)
 
 
 def test_create_enrolment_requires_domain_permission(auth_client):

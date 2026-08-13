@@ -3,7 +3,8 @@ from datetime import date
 import pytest
 
 from apps.common.models import DomainError
-from apps.enrolments.services import create_enrolment, matriculate_student
+from apps.enrolments.models import Enrolment
+from apps.enrolments.services import create_enrolment, enrolment_history, matriculate_student
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
@@ -26,6 +27,32 @@ def test_create_enrolment_keeps_explicit_vigency_dates():
     assert enrolment.effective_on == date(2026, 2, 1)
     assert enrolment.ends_on == date(2026, 10, 30)
     assert enrolment.status == enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_enrolment_history_includes_all_statuses_and_orders_latest_first():
+    student = StudentFactory()
+    newest_section = SectionFactory()
+    older_section = SectionFactory()
+    older = Enrolment.objects.create(
+        student=student,
+        academic_cycle=older_section.academic_cycle,
+        grade=older_section.grade,
+        section=older_section,
+        effective_on=date(2025, 2, 1),
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    newest = Enrolment.objects.create(
+        student=student,
+        academic_cycle=newest_section.academic_cycle,
+        grade=newest_section.grade,
+        section=newest_section,
+        effective_on=date(2026, 2, 1),
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    )
+    newest.is_active = False
+    newest.save(update_fields=["is_active", "updated_at"])
+
+    assert list(enrolment_history(student=student)) == [newest, older]
 
 
 def test_create_enrolment_rejects_grade_not_owned_by_section():
