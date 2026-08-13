@@ -63,8 +63,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-DOC-008 | Los documentos generados no se archivan | Debe | document-generation | Not implemented | #153 | TBD | Regla de separacion |
 | RF-DOC-009 | Consulta del expediente documental | Debe | document-management | Not implemented | #154 | TBD | Nucleo administrativo |
 | RF-DOC-010 | Conservacion del vinculo | Debe | document-management | Not implemented | #155 | TBD | Historia persistente |
-| RF-CIC-001 | Registro del ciclo escolar | Debe | school-cycle | Not implemented | #126 | TBD | Nucleo fundacional |
-| RF-CIC-002 | Estados del ciclo | Debe | school-cycle | Not implemented | #127 | TBD | Invariante |
+| RF-CIC-001 | Registro del ciclo escolar | Debe | school-cycle | Implemented | #126 | backend/tests/unit/test_academics_services.py; backend/tests/api/test_academics_api.py; backend/tests/integration/test_academics.py | Registro en preparacion, fechas validas y no solapadas por institucion |
+| RF-CIC-002 | Estados del ciclo | Debe | school-cycle | In progress | #127 | backend/tests/unit/test_academics_services.py; backend/tests/integration/test_academics.py | Estados explicitos y un solo ciclo activo; visibilidad por portal y bloqueo transversal de escritura cerrada pendientes |
 | RF-CIC-003 | Apertura del ciclo | Debe | school-cycle | Not implemented | #128 | TBD | Operacion sensible |
 | RF-CIC-004 | Cierre del ciclo | Debe | school-cycle | Not implemented | #129 | TBD | Congelamiento relacionado |
 | RF-CIC-005 | Reapertura excepcional | Deberia | school-cycle | Not implemented | #130 | TBD | Ambiguo; controlar |

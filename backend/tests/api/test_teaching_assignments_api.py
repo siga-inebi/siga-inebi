@@ -83,6 +83,7 @@ def test_history_keeps_a_teacher_trajectory_across_cycles(auth_client, instituti
         institution=institution,
         starts_on=date(2027, 1, 1),
         ends_on=date(2027, 12, 31),
+        status="draft",
     )
     second_section = SectionFactory(academic_cycle=second_cycle)
     second_subject = SubjectFactory(institution=institution)

@@ -54,6 +54,44 @@ def create_enrolment(
     return enrolment
 
 
+@transaction.atomic
+def matriculate_student(
+    *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
+):
+    """Create the first active enrolment for a pre-enrolled student."""
+    if student.status != student.StudentStatus.PRE_ENROLLED:
+        raise DomainError("Only pre-enrolled students can be matriculated.")
+    if not student.is_active:
+        raise DomainError("Inactive students cannot be matriculated.")
+    if section.shift.id != shift.pk:
+        raise DomainError("Section must belong to the selected shift.")
+
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=academic_cycle,
+        grade=grade,
+        section=section,
+        actor=actor,
+        effective_on=effective_on,
+    )
+    student.status = student.StudentStatus.ACTIVE
+    student.save(update_fields=["status", "updated_at"])
+    record_event(
+        actor=actor,
+        action="enrolments.student.matriculated",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={
+            "enrolment_id": enrolment.pk,
+            "academic_cycle_id": academic_cycle.pk,
+            "grade_id": grade.pk,
+            "shift_id": shift.pk,
+            "section_id": section.pk,
+        },
+    )
+    return enrolment
+
+
 def change_section(*, enrolment, new_section, actor=None, effective_on=None):
     if enrolment.academic_cycle.status == enrolment.academic_cycle.CycleStatus.CLOSED:
         raise DomainError("Closed academic cycles do not allow section changes.")

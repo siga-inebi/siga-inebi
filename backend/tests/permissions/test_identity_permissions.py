@@ -109,7 +109,7 @@ def test_scope_limits_permission():
         role=RoleFactory(permissions=[permission]),
     )
     allowed_section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
-    denied_section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    denied_section = SectionFactory(academic_cycle=allowed_section.academic_cycle)
     ScopeGrantFactory(assignment=assignment, section=allowed_section)
 
     assert assignment.user.has_scoped_permission(
