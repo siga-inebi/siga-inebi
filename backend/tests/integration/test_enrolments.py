@@ -4,7 +4,12 @@ import pytest
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.enrolments.services import change_section, create_enrolment, matriculate_student
+from apps.enrolments.services import (
+    active_enrolments,
+    change_section,
+    create_enrolment,
+    matriculate_student,
+)
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
@@ -24,6 +29,7 @@ def test_create_valid_enrolment():
     )
 
     assert enrolment.status == enrolment.EnrolmentStatus.ACTIVE
+    assert list(active_enrolments(student=student)) == [enrolment]
 
 
 @pytest.mark.integration

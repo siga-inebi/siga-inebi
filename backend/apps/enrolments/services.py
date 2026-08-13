@@ -7,6 +7,15 @@ from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 
 
+def active_enrolments(*, student=None):
+    queryset = (
+        Enrolment.objects.filter(is_active=True, status=Enrolment.EnrolmentStatus.ACTIVE)
+        .select_related("student", "academic_cycle", "grade", "section")
+        .order_by("student__student_code", "effective_on", "pk")
+    )
+    return queryset.filter(student=student) if student is not None else queryset
+
+
 @transaction.atomic
 def create_enrolment(
     *,

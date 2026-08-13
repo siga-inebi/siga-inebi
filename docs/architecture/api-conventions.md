@@ -70,6 +70,13 @@
   existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
 - Todos requieren sesion autenticada. La definicion de permisos atomicos para Directora,
   Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
+
+## Inscripciones activas
+
+- `GET /api/v1/enrolments/active/` expone las inscripciones con estado `active` y registro
+  vigente; acepta `student_id` para consultar un estudiante concreto.
+- La respuesta es paginada y constituye la fuente común de estudiantes habilitados para
+  asistencia, evaluación de notas y horarios. No duplica reglas en esos consumidores.
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.

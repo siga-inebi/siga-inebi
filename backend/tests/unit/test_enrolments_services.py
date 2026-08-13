@@ -3,7 +3,8 @@ from datetime import date
 import pytest
 
 from apps.common.models import DomainError
-from apps.enrolments.services import create_enrolment, matriculate_student
+from apps.enrolments.models import Enrolment
+from apps.enrolments.services import active_enrolments, create_enrolment, matriculate_student
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
@@ -99,3 +100,33 @@ def test_matriculate_student_rejects_shift_not_assigned_to_section():
             shift=wrong_shift,
             section=section,
         )
+
+
+def test_active_enrolments_excludes_historical_and_inactive_records():
+    section = SectionFactory()
+    active_student = StudentFactory()
+    historical_student = StudentFactory()
+    inactive_student = StudentFactory()
+    active = create_enrolment(
+        student=active_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    Enrolment.objects.create(
+        student=historical_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    inactive = create_enrolment(
+        student=inactive_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    inactive.is_active = False
+    inactive.save(update_fields=["is_active", "updated_at"])
+
+    assert list(active_enrolments()) == [active]
