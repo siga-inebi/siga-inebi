@@ -23,10 +23,12 @@ from django.db import transaction
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    CurriculumPlan,
     Grade,
     GradeOffering,
     Level,
     LevelSubject,
+    Section,
     Shift,
     Subject,
     TeachingAssignment,
@@ -125,6 +127,97 @@ def create_academic_cycle(
         ends_on=ends_on.isoformat(),
     )
     return cycle
+
+
+@transaction.atomic
+def clone_academic_cycle(
+    *,
+    source_cycle,
+    year,
+    name,
+    starts_on,
+    ends_on,
+    description="",
+    include_teaching_assignments=False,
+    actor=None,
+):
+    """Create an independent draft cycle from existing academic structure (RF-CIC-007)."""
+    source = AcademicCycle.objects.select_for_update().get(pk=source_cycle.pk)
+    if source.status != AcademicCycle.CycleStatus.CLOSED:
+        raise DomainError("Only a closed academic cycle can be cloned.")
+    target = create_academic_cycle(
+        institution=source.institution,
+        year=year,
+        name=name,
+        starts_on=starts_on,
+        ends_on=ends_on,
+        description=description,
+        actor=actor,
+    )
+
+    section_map = {}
+    offerings = source.grade_offerings.select_related("grade", "shift").prefetch_related("sections")
+    for source_offering in offerings:
+        target_offering = GradeOffering.objects.create(
+            academic_cycle=target,
+            grade=source_offering.grade,
+            shift=source_offering.shift,
+            is_active=source_offering.is_active,
+        )
+        for source_section in source_offering.sections.all():
+            target_section = Section.objects.create(
+                offering=target_offering,
+                name=source_section.name,
+                capacity=source_section.capacity,
+                is_active=source_section.is_active,
+            )
+            section_map[source_section.pk] = target_section
+
+    CurriculumPlan.objects.bulk_create(
+        [
+            CurriculumPlan(
+                academic_cycle=target,
+                grade=plan.grade,
+                subject=plan.subject,
+                is_required=plan.is_required,
+                is_active=plan.is_active,
+            )
+            for plan in source.curriculum_plans.select_related("grade", "subject")
+        ]
+    )
+
+    assignment_count = 0
+    if include_teaching_assignments:
+        current_assignments = source.teaching_assignments.filter(
+            ends_on__isnull=True
+        ).select_related("section", "subject", "teacher")
+        assignments = [
+            TeachingAssignment(
+                academic_cycle=target,
+                section=section_map[assignment.section_id],
+                subject=assignment.subject,
+                teacher=assignment.teacher,
+                starts_on=target.starts_on,
+                is_active=assignment.is_active,
+            )
+            for assignment in current_assignments
+            if assignment.section_id in section_map
+        ]
+        TeachingAssignment.objects.bulk_create(assignments)
+        assignment_count = len(assignments)
+
+    _audit(
+        actor,
+        "academics.cycle.cloned",
+        target,
+        source_cycle_id=source.pk,
+        include_teaching_assignments=include_teaching_assignments,
+        grade_offering_count=target.grade_offerings.count(),
+        section_count=len(section_map),
+        curriculum_plan_count=target.curriculum_plans.count(),
+        teaching_assignment_count=assignment_count,
+    )
+    return target
 
 
 @transaction.atomic

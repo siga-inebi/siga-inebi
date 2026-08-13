@@ -34,6 +34,10 @@ class AcademicCycleCreateSerializer(serializers.Serializer):
     ends_on = serializers.DateField()
 
 
+class AcademicCycleCloneSerializer(AcademicCycleCreateSerializer):
+    include_teaching_assignments = serializers.BooleanField(required=False, default=False)
+
+
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a catalogue node
 # --------------------------------------------------------------------------- #

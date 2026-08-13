@@ -69,7 +69,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CIC-004 | Cierre del ciclo | Debe | school-cycle | Not implemented | #129 | TBD | Congelamiento relacionado |
 | RF-CIC-005 | Reapertura excepcional | Deberia | school-cycle | Not implemented | #130 | TBD | Ambiguo; controlar |
 | RF-CIC-006 | Conservacion de la informacion historica | Debe | school-cycle | Not implemented | #131 | TBD | Historia obligatoria |
-| RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Not implemented | #132 | TBD | Fase posterior |
+| RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Implemented | #132 | backend/tests/unit/test_academics_services.py; backend/tests/api/test_academics_api.py | Copia independiente de ofertas, jornadas, secciones, planes y docentes opcionales hacia ciclo preparado |
 | RF-EST-001 | Catalogo de grados | Debe | institutional-structure | Not implemented | #165 | TBD | Nucleo fundacional |
 | RF-EST-002 | Jornadas del establecimiento | Debe | institutional-structure | Not implemented | #166 | TBD | Base de horarios y asistencia |
 | RF-EST-003 | Subareas del ciclo | Debe | institutional-structure | Not implemented | #167 | TBD | Base curricular |

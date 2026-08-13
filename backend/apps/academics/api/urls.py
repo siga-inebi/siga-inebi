@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     AcademicCycleActivateView,
+    AcademicCycleCloneView,
     AcademicCycleListCreateView,
     CampusDetailView,
     CampusListCreateView,
@@ -26,6 +27,11 @@ urlpatterns = [
         "cycles/<uuid:public_id>/activate/",
         AcademicCycleActivateView.as_view(),
         name="academic-cycle-activate",
+    ),
+    path(
+        "cycles/<uuid:public_id>/clone/",
+        AcademicCycleCloneView.as_view(),
+        name="academic-cycle-clone",
     ),
     # institutional structure: sedes y jornadas
     path("campuses/", CampusListCreateView.as_view(), name="campus-list-create"),

@@ -68,6 +68,9 @@
   descripcion institucional y fechas no solapadas.
 - `POST /api/v1/academics/cycles/{public_id}/activate/` activa un ciclo preparado solo cuando no
   existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
+- `POST /api/v1/academics/cycles/{public_id}/clone/` crea un ciclo independiente en preparacion a
+  partir de un ciclo cerrado. Copia ofertas, jornadas referenciadas, secciones y planes; el campo
+  `include_teaching_assignments` decide si tambien copia las asignaciones docentes vigentes.
 - Todos requieren sesion autenticada. La definicion de permisos atomicos para Directora,
   Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
 ## Administracion de roles
