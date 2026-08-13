@@ -7,6 +7,7 @@ from .views import (
     CampusListCreateView,
     CampusShiftListCreateView,
     GradeDetailView,
+    HistoricalAcademicCycleDetailView,
     LevelDetailView,
     LevelGradeListCreateView,
     LevelListCreateView,
@@ -22,6 +23,11 @@ from .views import (
 
 urlpatterns = [
     path("cycles/", AcademicCycleListCreateView.as_view(), name="academic-cycle-list-create"),
+    path(
+        "cycles/<uuid:public_id>/",
+        HistoricalAcademicCycleDetailView.as_view(),
+        name="academic-cycle-historical-detail",
+    ),
     path(
         "cycles/<uuid:public_id>/activate/",
         AcademicCycleActivateView.as_view(),
