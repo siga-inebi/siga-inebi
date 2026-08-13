@@ -3,7 +3,13 @@ from datetime import date
 import pytest
 
 from apps.common.models import DomainError
-from apps.enrolments.services import create_enrolment, matriculate_student, reenrol_student
+from apps.enrolments.models import Enrolment
+from apps.enrolments.services import (
+    change_section,
+    create_enrolment,
+    matriculate_student,
+    reenrol_student,
+)
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
@@ -54,6 +60,44 @@ def test_create_enrolment_rejects_closed_cycle():
         )
 
 
+def test_create_enrolment_rejects_full_section():
+    section = SectionFactory(capacity=1)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(DomainError, match="Section capacity has been reached"):
+        create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+
+def test_create_enrolment_ignores_completed_records_for_capacity():
+    section = SectionFactory(capacity=1)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
 def test_matriculate_student_activates_pre_enrolled_student_and_links_shift():
     section = SectionFactory()
     student = StudentFactory(status="pre_enrolled")
@@ -99,6 +143,34 @@ def test_matriculate_student_rejects_shift_not_assigned_to_section():
             shift=wrong_shift,
             section=section,
         )
+
+
+def test_change_section_rejects_full_target_section_without_closing_current_enrolment():
+    current_section = SectionFactory()
+    target_section = SectionFactory(
+        academic_cycle=current_section.academic_cycle,
+        grade=current_section.grade,
+        shift=current_section.shift,
+        capacity=1,
+    )
+    current_enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=current_section.academic_cycle,
+        grade=current_section.grade,
+        section=current_section,
+    )
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=target_section.academic_cycle,
+        grade=target_section.grade,
+        section=target_section,
+    )
+
+    with pytest.raises(DomainError, match="Section capacity has been reached"):
+        change_section(enrolment=current_enrolment, new_section=target_section)
+
+    current_enrolment.refresh_from_db()
+    assert current_enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
 
 
 def test_reenrol_student_reuses_student_record_and_previous_enrolment():

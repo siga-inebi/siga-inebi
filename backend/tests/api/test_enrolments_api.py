@@ -4,6 +4,7 @@ import pytest
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
+from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
 from tests.factories.students import StudentFactory
@@ -96,6 +97,26 @@ def test_create_enrolment_rejects_invalid_vigency_dates(auth_client):
     assert "end date cannot precede" in response.json()["error"]["detail"]
 
 
+def test_create_enrolment_rejects_full_section(auth_client):
+    section = SectionFactory(capacity=1)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    _grant_enrolment_creation(auth_client.user)
+
+    response = auth_client.post(
+        reverse("enrolment-list-create"),
+        _payload(section, StudentFactory()),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "Section capacity has been reached" in response.json()["error"]["detail"]
+
+
 def test_matriculate_student_returns_academic_assignment_and_activates_student(auth_client):
     section = SectionFactory()
     student = StudentFactory(status="pre_enrolled")
@@ -143,6 +164,29 @@ def test_matriculate_student_rejects_active_student(auth_client):
 
     assert response.status_code == 400
     assert "Only pre-enrolled students" in response.json()["error"]["detail"]
+
+
+def test_matriculate_student_rejects_full_section(auth_client):
+    section = SectionFactory(capacity=1)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    student = StudentFactory(status="pre_enrolled")
+    _grant_enrolment_creation(auth_client.user)
+
+    response = auth_client.post(
+        reverse("matriculation-create"),
+        _matriculation_payload(section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "Section capacity has been reached" in response.json()["error"]["detail"]
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.PRE_ENROLLED
 
 
 def test_matriculate_student_rejects_shift_not_assigned_to_section(auth_client):
