@@ -70,6 +70,8 @@
   existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
 - Todos requieren sesion autenticada. La definicion de permisos atomicos para Directora,
   Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
+- Crear o reasignar una asignacion docente de un ciclo cerrado devuelve HTTP 400. El historial de
+  asignaciones permanece consultable y no se elimina.
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.
