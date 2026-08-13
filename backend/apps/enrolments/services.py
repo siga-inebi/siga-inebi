@@ -92,6 +92,48 @@ def matriculate_student(
     return enrolment
 
 
+@transaction.atomic
+def reenrol_student(
+    *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
+):
+    """Create a new-cycle enrolment using the student's existing record."""
+    if student.status != student.StudentStatus.ACTIVE or not student.is_active:
+        raise DomainError("Only active students can be reenrolled.")
+
+    previous = (
+        Enrolment.objects.filter(student=student)
+        .exclude(academic_cycle=academic_cycle)
+        .exclude(status=Enrolment.EnrolmentStatus.CANCELLED)
+        .order_by("-effective_on", "-created_at")
+        .first()
+    )
+    if previous is None:
+        raise DomainError("Student has no previous enrolment to inherit.")
+    if section.shift.id != shift.pk:
+        raise DomainError("Section must belong to the selected shift.")
+
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=academic_cycle,
+        grade=grade,
+        section=section,
+        actor=actor,
+        effective_on=effective_on,
+    )
+    record_event(
+        actor=actor,
+        action="enrolments.student.reenrolled",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={
+            "enrolment_id": enrolment.pk,
+            "previous_enrolment_id": previous.pk,
+            "academic_cycle_id": academic_cycle.pk,
+        },
+    )
+    return enrolment
+
+
 def change_section(*, enrolment, new_section, actor=None, effective_on=None):
     if enrolment.academic_cycle.status == enrolment.academic_cycle.CycleStatus.CLOSED:
         raise DomainError("Closed academic cycles do not allow section changes.")

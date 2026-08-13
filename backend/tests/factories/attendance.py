@@ -3,7 +3,7 @@ from datetime import time
 import factory
 from django.utils import timezone
 
-from apps.attendance.models import AttendanceEvent, JornadaParameters
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, JornadaParameters
 from tests.factories.academic import AcademicCycleFactory, ShiftFactory
 from tests.factories.students import StudentFactory
 
@@ -35,3 +35,16 @@ class AttendanceEventFactory(factory.django.DjangoModelFactory):
     origin = AttendanceEvent.Origin.SCAN
     transmission = AttendanceEvent.Transmission.INDIVIDUAL
     captured_at = factory.LazyFunction(timezone.now)
+
+
+class AttendanceAlertFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = AttendanceAlert
+
+    alert_type = AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE
+    student = factory.SubFactory(StudentFactory)
+    shift = factory.SubFactory(ShiftFactory)
+    section = None
+    event_date = factory.LazyFunction(timezone.localdate)
+    target_roles = factory.LazyFunction(list)
+    context = factory.LazyFunction(dict)

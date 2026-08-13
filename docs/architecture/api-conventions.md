@@ -85,3 +85,6 @@
 - Permisos de entrada y salida usan codigos publicos con punto.
 - Cambios de composicion y vigencia generan eventos auditables y aplican en la siguiente
   evaluacion de permisos de cualquier sesion activa.
+- Crear una asignacion requiere el objeto `scope` con al menos una dimension soportada:
+  institucion, ciclo, grado, seccion, curso, asignacion docente, estudiante o modulo.
+- Una invocacion directa sin permiso o scope devuelve HTTP 403 y genera auditoria.
