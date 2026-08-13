@@ -7,7 +7,7 @@ from django.contrib.auth.models import Permission
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.signing import salted_hmac
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
@@ -21,13 +21,47 @@ ACCOUNT_CREATE_PERMISSION = "account_create"
 ACCOUNT_ACTIVATE_PERMISSION = "account_activate"
 ACTIVATION_CODE_DIGITS = 8
 PERMISSION_CATALOG_READ_PERMISSION = "role_assign"
+IDENTITY_ADMIN_SCOPE = {"module_key": "identity"}
+SCOPE_DIMENSIONS = {
+    "institution",
+    "academic_cycle",
+    "grade",
+    "section",
+    "subject",
+    "teaching_assignment",
+    "student",
+}
+
+
+def _has_identity_permission(actor, codename):
+    return bool(
+        actor
+        and (
+            actor.is_superuser or actor.has_scoped_permission(codename, scope=IDENTITY_ADMIN_SCOPE)
+        )
+    )
+
+
+def filter_queryset_by_scope(*, actor, codename, queryset, dimension, lookup, when=None):
+    if dimension not in SCOPE_DIMENSIONS:
+        raise DomainError("Unsupported scope dimension.")
+    when = when or timezone.now()
+    allowed_ids = ScopeGrant.objects.filter(
+        assignment__in=RoleAssignment.objects.active_at(when).filter(
+            user=actor,
+            role__permissions__codename=codename,
+        ),
+        is_active=True,
+        starts_at__lte=when,
+    ).filter(models.Q(ends_at__isnull=True) | models.Q(ends_at__gte=when))
+    allowed_ids = allowed_ids.exclude(**{f"{dimension}_id__isnull": True}).values_list(
+        f"{dimension}_id", flat=True
+    )
+    return queryset.filter(**{f"{lookup}__in": allowed_ids}).distinct()
 
 
 def list_atomic_permissions(*, actor):
-    is_authorized = bool(
-        actor
-        and (actor.is_superuser or actor.has_atomic_permission(PERMISSION_CATALOG_READ_PERMISSION))
-    )
+    is_authorized = bool(_has_identity_permission(actor, PERMISSION_CATALOG_READ_PERMISSION))
     if not is_authorized:
         record_event(
             actor=actor,
@@ -52,10 +86,7 @@ def list_atomic_permissions(*, actor):
 
 
 def _can_manage_roles(actor):
-    return bool(
-        actor
-        and (actor.is_superuser or actor.has_atomic_permission(PERMISSION_CATALOG_READ_PERMISSION))
-    )
+    return _has_identity_permission(actor, PERMISSION_CATALOG_READ_PERMISSION)
 
 
 def _audit_role_denied(*, actor, action, role=None, reason="missing_permission"):
@@ -83,6 +114,36 @@ def _resolve_atomic_permissions(permission_codenames):
     if len(permissions) != len(requested):
         raise DomainError("One or more atomic permissions do not exist.")
     return permissions
+
+
+def _active_account_administrators(*, when=None):
+    when = when or timezone.now()
+    return (
+        RoleAssignment.objects.active_at(when)
+        .filter(
+            role__permissions__codename=ACCOUNT_CREATE_PERMISSION,
+            user__is_active=True,
+            user__status=get_user_model().AccountStatus.ACTIVE,
+            scope_grants__is_active=True,
+            scope_grants__starts_at__lte=when,
+        )
+        .filter(
+            models.Q(scope_grants__ends_at__isnull=True) | models.Q(scope_grants__ends_at__gte=when)
+        )
+        .distinct()
+    )
+
+
+def _ensure_account_administrator_remains(*, assignment=None, role=None, user=None):
+    administrators = _active_account_administrators()
+    if assignment is not None:
+        administrators = administrators.exclude(pk=assignment.pk)
+    if role is not None:
+        administrators = administrators.exclude(role=role)
+    if user is not None:
+        administrators = administrators.exclude(user=user)
+    if not administrators.exists():
+        raise DomainError("The last account administrator cannot be removed.")
 
 
 def list_roles(*, actor):
@@ -124,6 +185,12 @@ def update_role(*, actor, role, name=None, description=None, permission_codename
     permissions = None
     if permission_codenames is not None:
         permissions = _resolve_atomic_permissions(permission_codenames)
+        currently_administers_accounts = role.permissions.filter(
+            codename=ACCOUNT_CREATE_PERMISSION
+        ).exists()
+        will_administer_accounts = ACCOUNT_CREATE_PERMISSION in permission_codenames
+        if currently_administers_accounts and not will_administer_accounts:
+            _ensure_account_administrator_remains(role=role)
 
     with transaction.atomic():
         locked_role = Role.objects.select_for_update().get(pk=role.pk)
@@ -176,9 +243,7 @@ class ActivationPasswordError(DomainError):
 
 
 def _can_create_account(actor):
-    return bool(
-        actor and (actor.is_superuser or actor.has_atomic_permission(ACCOUNT_CREATE_PERMISSION))
-    )
+    return _has_identity_permission(actor, ACCOUNT_CREATE_PERMISSION)
 
 
 def _audit_account_create_denied(*, actor, person):
@@ -298,9 +363,7 @@ def provision_account_with_activation(*, actor, person, username, email=""):
 
 
 def reissue_activation_challenge(*, actor, account):
-    is_authorized = bool(
-        actor and (actor.is_superuser or actor.has_atomic_permission(ACCOUNT_ACTIVATE_PERMISSION))
-    )
+    is_authorized = bool(_has_identity_permission(actor, ACCOUNT_ACTIVATE_PERMISSION))
     if not is_authorized:
         record_event(
             actor=actor,
@@ -533,6 +596,20 @@ def assign_role(
             context={"result": "denied", "reason": "self_escalation"},
         )
         raise PermissionDenied("Users cannot assign roles to themselves.")
+    if not scope or not any(
+        scope.get(field_name)
+        for field_name in (
+            "institution",
+            "academic_cycle",
+            "grade",
+            "section",
+            "subject",
+            "teaching_assignment",
+            "student",
+            "module_key",
+        )
+    ):
+        raise DomainError("Role assignments require an explicit scope.")
 
     assignment, created = RoleAssignment.objects.get_or_create(
         user=user,
@@ -597,6 +674,8 @@ def revoke_role_assignment(*, actor, assignment, ends_at=None):
     effective_end = ends_at or timezone.now()
     with transaction.atomic():
         locked_assignment = RoleAssignment.objects.select_for_update().get(pk=assignment.pk)
+        if locked_assignment.role.permissions.filter(codename=ACCOUNT_CREATE_PERMISSION).exists():
+            _ensure_account_administrator_remains(assignment=locked_assignment)
         previous_end = locked_assignment.ends_at
         locked_assignment.ends_at = effective_end
         locked_assignment.save(update_fields=["ends_at", "updated_at"])
@@ -623,9 +702,7 @@ def protect_system_role(*, actor, role):
 
 
 def disable_account(*, actor, user):
-    is_authorized = bool(
-        actor and (actor.is_superuser or actor.has_atomic_permission(ACCOUNT_DISABLE_PERMISSION))
-    )
+    is_authorized = bool(_has_identity_permission(actor, ACCOUNT_DISABLE_PERMISSION))
     if not is_authorized:
         record_event(
             actor=actor,
@@ -641,6 +718,8 @@ def disable_account(*, actor, user):
 
     with transaction.atomic():
         account = user.__class__.objects.select_for_update().get(pk=user.pk)
+        if _active_account_administrators().filter(user=account).exists():
+            _ensure_account_administrator_remains(user=account)
         previous_state = {
             "status": account.status,
             "is_active": account.is_active,

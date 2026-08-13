@@ -118,7 +118,11 @@ def test_list_students_returns_nested_person(logged_in_client):
 @pytest.mark.django_db
 def test_list_students_permission_without_scope_is_denied(logged_in_client):
     permission = PermissionFactory(codename="student_view_basic")
-    RoleAssignmentFactory(user=logged_in_client.user, role=RoleFactory(permissions=[permission]))
+    RoleAssignmentFactory(
+        user=logged_in_client.user,
+        role=RoleFactory(permissions=[permission]),
+        identity_scope=False,
+    )
 
     response = logged_in_client.get(reverse("student-list"))
 
