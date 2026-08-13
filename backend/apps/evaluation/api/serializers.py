@@ -6,7 +6,12 @@ Contracts for POST/PATCH operations. Validation happens here before calling serv
 
 from rest_framework import serializers
 
-from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
+from apps.evaluation.models import (
+    CaptureExceptionGrant,
+    CycleEvaluationConfig,
+    EvaluationGlobalConfig,
+    EvaluationUnit,
+)
 
 
 class EvaluationUnitSerializer(serializers.ModelSerializer):
@@ -87,3 +92,33 @@ class CaptureExceptionGrantSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["public_id", "evaluation_unit", "created_at"]
+
+
+class EvaluationGlobalConfigSerializer(serializers.ModelSerializer):
+    """Contract for the institution-wide evaluation configuration (RF-EVC-005)."""
+
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = EvaluationGlobalConfig
+        fields = ["default_unit_count", "updated_at"]
+
+    def validate_default_unit_count(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("default_unit_count must be a positive integer.")
+        return value
+
+
+class CycleEvaluationConfigSerializer(serializers.ModelSerializer):
+    """Contract for a cycle's evaluation configuration override (RF-EVC-005)."""
+
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = CycleEvaluationConfig
+        fields = ["unit_count", "updated_at"]
+
+    def validate_unit_count(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("unit_count must be a positive integer.")
+        return value

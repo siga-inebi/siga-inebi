@@ -5,6 +5,7 @@ RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
+RF-EVC-005: Configuracion global heredable
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -21,7 +22,12 @@ from apps.academics.models import AcademicCycle, Subject
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
-from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
+from apps.evaluation.models import (
+    CaptureExceptionGrant,
+    CycleEvaluationConfig,
+    EvaluationGlobalConfig,
+    EvaluationUnit,
+)
 from apps.people.models import Person
 
 
@@ -238,6 +244,96 @@ def validate_capture_allowed(
         f"Grade capture window is closed for unit '{evaluation_unit.name}' and no "
         f"exceptional grant authorizes teacher '{teacher}' for subject '{subject}'."
     )
+
+
+def get_global_evaluation_config() -> EvaluationGlobalConfig:
+    """Return the single institution-wide evaluation config, creating it if missing."""
+    config = EvaluationGlobalConfig.objects.first()
+    if config is None:
+        config = EvaluationGlobalConfig.objects.create()
+    return config
+
+
+def update_global_evaluation_config(
+    default_unit_count: int,
+    actor=None,
+) -> EvaluationGlobalConfig:
+    """
+    Update the global evaluation configuration (RF-EVC-005).
+
+    This is the starting point for new cycles only; it never alters any
+    cycle's own override.
+
+    Args:
+        default_unit_count: New default number of units for new cycles.
+        actor: User performing the action (for audit trail).
+
+    Raises:
+        DomainError: If default_unit_count is not a positive integer.
+    """
+    if default_unit_count <= 0:
+        raise DomainError("default_unit_count must be a positive integer.")
+
+    config = get_global_evaluation_config()
+    config.default_unit_count = default_unit_count
+    config.save(update_fields=["default_unit_count", "updated_at"])
+
+    _audit(
+        actor,
+        "evaluation.global_config_updated",
+        config,
+        default_unit_count=default_unit_count,
+    )
+
+    return config
+
+
+def get_effective_unit_count(academic_cycle: AcademicCycle) -> int:
+    """
+    Return the unit count that applies to a cycle: its own override if set,
+    otherwise the global default (RF-EVC-005).
+    """
+    override = getattr(academic_cycle, "evaluation_config", None)
+    if override is not None and override.unit_count is not None:
+        return override.unit_count
+    return get_global_evaluation_config().default_unit_count
+
+
+def set_cycle_unit_count(
+    academic_cycle: AcademicCycle,
+    unit_count: int,
+    actor=None,
+) -> CycleEvaluationConfig:
+    """
+    Make a cycle depart from the global unit count (RF-EVC-005).
+
+    Only the given cycle is affected; the global config and every other
+    cycle's configuration remain unchanged.
+
+    Args:
+        academic_cycle: Cycle to override.
+        unit_count: New unit count for this cycle only.
+        actor: User performing the action (for audit trail).
+
+    Raises:
+        DomainError: If unit_count is not a positive integer.
+    """
+    if unit_count <= 0:
+        raise DomainError("unit_count must be a positive integer.")
+
+    config, _ = CycleEvaluationConfig.objects.get_or_create(academic_cycle=academic_cycle)
+    config.unit_count = unit_count
+    config.save(update_fields=["unit_count", "updated_at"])
+
+    _audit(
+        actor,
+        "evaluation.cycle_config_overridden",
+        config,
+        cycle_id=str(academic_cycle.public_id),
+        unit_count=unit_count,
+    )
+
+    return config
 
 
 def create_evaluation_unit(

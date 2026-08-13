@@ -5,6 +5,7 @@ RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
+RF-EVC-005: Configuracion global heredable
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
@@ -13,6 +14,7 @@ Scenario 4: Captura con la ventana cerrada
 Scenario 5: Recuperación fuera de fecha
 Scenario 6: Docente que no alcanzó a subir notas
 Scenario 7: Expiración automática
+Scenario 8: Ciclo que se aparta del valor global
 """
 
 from datetime import date, timedelta
@@ -410,4 +412,77 @@ class TestCaptureExceptionGrantAPI:
             content_type="application/json",
         )
 
+        assert response.status_code == 404
+
+
+class TestEvaluationConfigAPI:
+    """Tests for global/cycle evaluation configuration endpoints (RF-EVC-005)."""
+
+    def test_cycle_departs_from_global_value_api(self, auth_client, institution):
+        """
+        Scenario 8: Ciclo que se aparta del valor global
+        """
+        # Set the global default.
+        response = auth_client.patch(
+            reverse("evaluation-global-config"),
+            {"default_unit_count": 4},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert response.json()["default_unit_count"] == 4
+
+        cycle_a = AcademicCycleFactory(institution=institution, year=2030, starts_on=date(2030, 1, 1), ends_on=date(2030, 12, 31), status="draft")
+        cycle_b = AcademicCycleFactory(institution=institution, year=2031, starts_on=date(2031, 1, 1), ends_on=date(2031, 12, 31), status="draft")
+
+        # Before any override, both cycles inherit the global default.
+        for cycle in (cycle_a, cycle_b):
+            response = auth_client.get(
+                reverse("cycle-evaluation-config", kwargs={"cycle_public_id": str(cycle.public_id)})
+            )
+            assert response.status_code == 200
+            assert response.json()["unit_count"] is None
+            assert response.json()["effective_unit_count"] == 4
+
+        # Cycle A departs from the global value.
+        response = auth_client.patch(
+            reverse(
+                "cycle-evaluation-config", kwargs={"cycle_public_id": str(cycle_a.public_id)}
+            ),
+            {"unit_count": 3},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert response.json()["unit_count"] == 3
+        assert response.json()["effective_unit_count"] == 3
+
+        # Cycle B and the global config remain unchanged.
+        response = auth_client.get(
+            reverse("cycle-evaluation-config", kwargs={"cycle_public_id": str(cycle_b.public_id)})
+        )
+        assert response.json()["unit_count"] is None
+        assert response.json()["effective_unit_count"] == 4
+
+        response = auth_client.get(reverse("evaluation-global-config"))
+        assert response.json()["default_unit_count"] == 4
+
+    def test_reject_non_positive_global_unit_count_api(self, auth_client):
+        """
+        Test that a non-positive default_unit_count is rejected.
+        """
+        response = auth_client.patch(
+            reverse("evaluation-global-config"),
+            {"default_unit_count": 0},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_cycle_config_not_found_returns_404(self, auth_client):
+        """
+        Test endpoint with invalid cycle ID.
+        """
+        import uuid
+
+        response = auth_client.get(
+            reverse("cycle-evaluation-config", kwargs={"cycle_public_id": str(uuid.uuid4())})
+        )
         assert response.status_code == 404

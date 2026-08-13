@@ -1,5 +1,7 @@
 from django.urls import include, path
 
+from apps.evaluation.api.views import CycleEvaluationConfigView, EvaluationGlobalConfigView
+
 from .views import (
     AcademicCycleActivateView,
     AcademicCycleListCreateView,
@@ -30,6 +32,16 @@ urlpatterns = [
     path(
         "cycles/<uuid:cycle_public_id>/evaluation-units/",
         include("apps.evaluation.api.urls"),
+    ),
+    path(
+        "evaluation-config/",
+        EvaluationGlobalConfigView.as_view(),
+        name="evaluation-global-config",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/evaluation-config/",
+        CycleEvaluationConfigView.as_view(),
+        name="cycle-evaluation-config",
     ),
     # institutional structure: sedes y jornadas
     path("campuses/", CampusListCreateView.as_view(), name="campus-list-create"),

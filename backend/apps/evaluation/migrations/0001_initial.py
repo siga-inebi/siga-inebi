@@ -79,4 +79,36 @@ class Migration(migrations.Migration):
                 'ordering': ['-created_at'],
             },
         ),
+        migrations.CreateModel(
+            name='EvaluationGlobalConfig',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('public_id', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('is_active', models.BooleanField(default=True)),
+                ('singleton_key', models.BooleanField(default=True, editable=False, unique=True)),
+                ('default_unit_count', models.PositiveSmallIntegerField(default=4, help_text='Default number of evaluation units suggested for new cycles.')),
+            ],
+        ),
+        migrations.AddConstraint(
+            model_name='evaluationglobalconfig',
+            constraint=models.CheckConstraint(condition=models.Q(('default_unit_count__gt', 0)), name='evaluation_global_config_positive_unit_count'),
+        ),
+        migrations.CreateModel(
+            name='CycleEvaluationConfig',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('public_id', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('is_active', models.BooleanField(default=True)),
+                ('unit_count', models.PositiveSmallIntegerField(blank=True, help_text='Cycle-specific unit count override. Null inherits the global default.', null=True)),
+                ('academic_cycle', models.OneToOneField(help_text='Cycle this configuration override belongs to.', on_delete=django.db.models.deletion.CASCADE, related_name='evaluation_config', to='academics.academiccycle')),
+            ],
+        ),
+        migrations.AddConstraint(
+            model_name='cycleevaluationconfig',
+            constraint=models.CheckConstraint(condition=(models.Q(('unit_count__isnull', True)) | models.Q(('unit_count__gt', 0))), name='cycle_evaluation_config_positive_unit_count'),
+        ),
     ]

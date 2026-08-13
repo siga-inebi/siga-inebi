@@ -5,6 +5,7 @@ RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
+RF-EVC-005: Configuracion global heredable
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
@@ -13,6 +14,7 @@ Scenario 4: Captura con la ventana cerrada
 Scenario 5: Recuperación fuera de fecha
 Scenario 6: Docente que no alcanzó a subir notas
 Scenario 7: Expiración automática
+Scenario 8: Ciclo que se aparta del valor global
 """
 
 from datetime import date, timedelta
@@ -29,6 +31,10 @@ from apps.evaluation.services import (
     validate_capture_allowed,
     validate_capture_window_open,
     validate_recovery_window_open,
+    get_effective_unit_count,
+    get_global_evaluation_config,
+    set_cycle_unit_count,
+    update_global_evaluation_config,
 )
 from tests.factories.academic import AcademicCycleFactory, SubjectFactory
 from tests.factories.people import PersonFactory
@@ -495,3 +501,62 @@ class TestCaptureExceptionGrant:
                 reason="Motivo válido.",
                 expires_at=timezone.now() - timedelta(hours=1),
             )
+
+
+class TestGlobalEvaluationConfig:
+    """Tests for RF-EVC-005: Configuracion global heredable."""
+
+    def test_cycle_departs_from_global_value(self):
+        """
+        Scenario 8: Ciclo que se aparta del valor global
+        GIVEN una configuración global de cuatro unidades
+        WHEN un usuario autorizado edita un ciclo determinado para que tenga
+             otra cantidad
+        THEN ese ciclo conserva su propia configuración
+        AND los demás ciclos y la configuración global permanecen sin cambios
+        """
+        update_global_evaluation_config(default_unit_count=4)
+
+        cycle_a = AcademicCycleFactory()
+        cycle_b = AcademicCycleFactory()
+
+        # Before any override, both cycles inherit the global default.
+        assert get_effective_unit_count(cycle_a) == 4
+        assert get_effective_unit_count(cycle_b) == 4
+
+        # Cycle A departs from the global value.
+        set_cycle_unit_count(academic_cycle=cycle_a, unit_count=3)
+
+        # Cycle A keeps its own configuration.
+        assert get_effective_unit_count(cycle_a) == 3
+
+        # Cycle B and the global config remain unchanged.
+        assert get_effective_unit_count(cycle_b) == 4
+        assert get_global_evaluation_config().default_unit_count == 4
+
+    def test_global_config_is_singleton(self):
+        """
+        Test that repeated reads/writes operate on the same global config row.
+        """
+        first = get_global_evaluation_config()
+        update_global_evaluation_config(default_unit_count=5)
+        second = get_global_evaluation_config()
+
+        assert first.pk == second.pk
+        assert second.default_unit_count == 5
+
+    def test_reject_non_positive_global_unit_count(self):
+        """
+        Test that a non-positive default_unit_count is rejected.
+        """
+        with pytest.raises(DomainError, match="positive integer"):
+            update_global_evaluation_config(default_unit_count=0)
+
+    def test_reject_non_positive_cycle_unit_count(self):
+        """
+        Test that a non-positive cycle override is rejected.
+        """
+        cycle = AcademicCycleFactory()
+
+        with pytest.raises(DomainError, match="positive integer"):
+            set_cycle_unit_count(academic_cycle=cycle, unit_count=0)

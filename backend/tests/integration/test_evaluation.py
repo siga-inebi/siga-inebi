@@ -5,6 +5,7 @@ RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
+RF-EVC-005: Configuracion global heredable
 
 Cross-domain flows: evaluation interacts with academics domain (cycles).
 """
@@ -18,8 +19,12 @@ from apps.academics.models import AcademicCycle
 from apps.evaluation.models import EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_effective_unit_count,
+    get_global_evaluation_config,
     grant_capture_exception,
+    set_cycle_unit_count,
     set_recovery_window,
+    update_global_evaluation_config,
     validate_capture_allowed,
     validate_capture_window_open,
     validate_recovery_window_open,
@@ -331,3 +336,56 @@ class TestCaptureExceptionGrantIntegration:
         assert event.context["unit_id"] == str(unit.public_id)
         assert event.context["subject_id"] == str(subject.public_id)
         assert event.context["teacher_id"] == str(teacher.public_id)
+
+
+class TestGlobalEvaluationConfigIntegration:
+    """Integration tests for RF-EVC-005: Configuracion global heredable."""
+
+    def test_cycle_departs_from_global_value_integration(self):
+        """
+        Scenario 8: Ciclo que se aparta del valor global (cross-domain)
+        GIVEN una configuración global de cuatro unidades
+        WHEN un usuario autorizado edita un ciclo determinado para que tenga
+             otra cantidad
+        THEN ese ciclo conserva su propia configuración
+        AND los demás ciclos y la configuración global permanecen sin cambios
+        """
+        update_global_evaluation_config(default_unit_count=4)
+
+        cycle_a = AcademicCycleFactory()
+        cycle_b = AcademicCycleFactory()
+
+        assert get_effective_unit_count(cycle_a) == 4
+        assert get_effective_unit_count(cycle_b) == 4
+
+        set_cycle_unit_count(academic_cycle=cycle_a, unit_count=3)
+
+        assert get_effective_unit_count(cycle_a) == 3
+        assert get_effective_unit_count(cycle_b) == 4
+        assert get_global_evaluation_config().default_unit_count == 4
+
+    def test_global_config_update_audit_trail(self):
+        """
+        Test that updating the global config is recorded in the audit trail.
+        """
+        config = update_global_evaluation_config(default_unit_count=6)
+
+        from apps.audit.models import AuditEvent
+
+        event = AuditEvent.objects.get(action="evaluation.global_config_updated")
+        assert event.resource_identifier == str(config.pk)
+        assert event.context["default_unit_count"] == 6
+
+    def test_cycle_override_audit_trail(self):
+        """
+        Test that a cycle's override is recorded in the audit trail.
+        """
+        cycle = AcademicCycleFactory()
+        config = set_cycle_unit_count(academic_cycle=cycle, unit_count=2)
+
+        from apps.audit.models import AuditEvent
+
+        event = AuditEvent.objects.get(action="evaluation.cycle_config_overridden")
+        assert event.resource_identifier == str(config.pk)
+        assert event.context["cycle_id"] == str(cycle.public_id)
+        assert event.context["unit_count"] == 2

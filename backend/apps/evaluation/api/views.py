@@ -5,6 +5,7 @@ RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
+RF-EVC-005: Configuracion global heredable
 
 Authorization: requires role=director + permission=evaluation.configure_units
 """
@@ -18,14 +19,20 @@ from apps.academics.models import AcademicCycle
 from apps.common.models import DomainError
 from apps.evaluation.api.serializers import (
     CaptureExceptionGrantSerializer,
+    CycleEvaluationConfigSerializer,
+    EvaluationGlobalConfigSerializer,
     EvaluationUnitSerializer,
     RecoveryWindowSerializer,
 )
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_effective_unit_count,
+    get_global_evaluation_config,
     grant_capture_exception,
+    set_cycle_unit_count,
     set_recovery_window,
+    update_global_evaluation_config,
 )
 
 
@@ -252,3 +259,124 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
 
         serializer = self.get_serializer(grant)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class EvaluationGlobalConfigView(APIView):
+    """
+    Read and update the institution-wide evaluation configuration (RF-EVC-005).
+
+    GET   /api/v1/academics/evaluation-config/
+    PATCH /api/v1/academics/evaluation-config/
+    """
+
+    def check_director_permission(self):
+        """
+        Verify user has director role and evaluation.configure_units permission.
+        TODO: implement once permission model is complete.
+        """
+        if not self.request.user or not self.request.user.is_authenticated:
+            return False
+        # TODO: check for role=director and permission=evaluation.configure_units
+        return True
+
+    def get(self, request, *args, **kwargs):
+        config = get_global_evaluation_config()
+        return Response(EvaluationGlobalConfigSerializer(config).data)
+
+    def patch(self, request, *args, **kwargs):
+        if not self.check_director_permission():
+            return Response(
+                {"error": "Permission denied. Only directors can configure evaluation settings."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = EvaluationGlobalConfigSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            config = update_global_evaluation_config(
+                default_unit_count=serializer.validated_data["default_unit_count"],
+            )
+        except DomainError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(EvaluationGlobalConfigSerializer(config).data, status=status.HTTP_200_OK)
+
+
+class CycleEvaluationConfigView(APIView):
+    """
+    Read the effective unit count and override it for a specific cycle (RF-EVC-005).
+
+    A cycle without its own override inherits the global default. Overriding
+    a cycle here never changes the global config nor any other cycle.
+
+    GET   /api/v1/academics/cycles/{cycle_public_id}/evaluation-config/
+    PATCH /api/v1/academics/cycles/{cycle_public_id}/evaluation-config/
+    """
+
+    def check_director_permission(self):
+        """
+        Verify user has director role and evaluation.configure_units permission.
+        TODO: implement once permission model is complete.
+        """
+        if not self.request.user or not self.request.user.is_authenticated:
+            return False
+        # TODO: check for role=director and permission=evaluation.configure_units
+        return True
+
+    def _get_cycle_or_none(self, cycle_public_id):
+        try:
+            return AcademicCycle.objects.get(public_id=cycle_public_id)
+        except AcademicCycle.DoesNotExist:
+            return None
+
+    def get(self, request, *args, **kwargs):
+        cycle = self._get_cycle_or_none(kwargs.get("cycle_public_id"))
+        if cycle is None:
+            return Response({"error": "Cycle not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        override = getattr(cycle, "evaluation_config", None)
+        return Response(
+            {
+                "unit_count": override.unit_count if override else None,
+                "effective_unit_count": get_effective_unit_count(cycle),
+            }
+        )
+
+    def patch(self, request, *args, **kwargs):
+        if not self.check_director_permission():
+            return Response(
+                {"error": "Permission denied. Only directors can configure evaluation settings."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        cycle = self._get_cycle_or_none(kwargs.get("cycle_public_id"))
+        if cycle is None:
+            return Response({"error": "Cycle not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = CycleEvaluationConfigSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            config = set_cycle_unit_count(
+                academic_cycle=cycle,
+                unit_count=serializer.validated_data["unit_count"],
+            )
+        except DomainError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "unit_count": config.unit_count,
+                "effective_unit_count": get_effective_unit_count(cycle),
+            },
+            status=status.HTTP_200_OK,
+        )

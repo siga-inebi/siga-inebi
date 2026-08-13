@@ -8,6 +8,10 @@ RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-004: Brecha excepcional autorizada
 - CaptureExceptionGrant authorizes one teacher, for one subject, in one unit, to
   capture grades outside the unit's capture window, for a determined term.
+RF-EVC-005: Configuracion global heredable
+- EvaluationGlobalConfig is the single, institution-wide starting point for new
+  cycles. CycleEvaluationConfig lets one cycle override it without touching the
+  global config or any other cycle.
 """
 
 from django.contrib.postgres.constraints import ExclusionConstraint
@@ -227,3 +231,63 @@ class CaptureExceptionGrant(TimeStampedModel):
         if at is None:
             at = timezone.now()
         return at <= self.expires_at
+
+
+class EvaluationGlobalConfig(TimeStampedModel):
+    """
+    Institution-wide evaluation configuration (RF-EVC-005).
+
+    Single row, enforced by the unique ``singleton_key``. Serves as the
+    starting point for new cycles; a cycle may override it via
+    ``CycleEvaluationConfig`` without changing this row.
+    """
+
+    singleton_key = models.BooleanField(default=True, unique=True, editable=False)
+    default_unit_count = models.PositiveSmallIntegerField(
+        default=4,
+        help_text="Default number of evaluation units suggested for new cycles.",
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(default_unit_count__gt=0),
+                name="evaluation_global_config_positive_unit_count",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Global evaluation config (default_unit_count={self.default_unit_count})"
+
+
+class CycleEvaluationConfig(TimeStampedModel):
+    """
+    Per-cycle override of the global evaluation configuration (RF-EVC-005).
+
+    ``unit_count`` of ``None`` means the cycle has not departed from the
+    global default; editing it here never alters the global config nor any
+    other cycle's override.
+    """
+
+    academic_cycle = models.OneToOneField(
+        "academics.AcademicCycle",
+        on_delete=models.CASCADE,
+        related_name="evaluation_config",
+        help_text="Cycle this configuration override belongs to.",
+    )
+    unit_count = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Cycle-specific unit count override. Null inherits the global default.",
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(unit_count__isnull=True) | Q(unit_count__gt=0),
+                name="cycle_evaluation_config_positive_unit_count",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Evaluation config override for {self.academic_cycle.name}"
