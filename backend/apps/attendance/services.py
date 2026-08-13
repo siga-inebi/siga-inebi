@@ -17,7 +17,13 @@ from django.db.models import Case, IntegerField, Value, When
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
+from apps.attendance.models import (
+    AttendanceAlert,
+    AttendanceEvent,
+    DayStatus,
+    JornadaParameters,
+    RecalculationReason,
+)
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
@@ -87,6 +93,9 @@ def set_jornada_parameters(
             "academic_cycle_id": str(academic_cycle.public_id),
             "effective_from": str(effective_from),
         },
+    )
+    recalculate_days_for_parameters_change(
+        shift=shift, academic_cycle=academic_cycle, effective_from=effective_from, actor=actor
     )
     return parameters
 
@@ -163,6 +172,14 @@ def record_attendance_event(
         },
     )
     _flag_declared_exit_without_entry(event=event, actor=actor)
+    if event_date < timezone.localdate():
+        recalculate_day(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            reason=RecalculationReason.LATE_EVENT,
+            actor=actor,
+        )
     return event
 
 
@@ -410,3 +427,271 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
         statuses=statuses,
         alerts=alerts,
     )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-006 — recalculo ante cambios
+# --------------------------------------------------------------------------- #
+
+
+def _supersede_alert(*, alert, reason, actor=None):
+    """
+    Deactivate a persisted alert whose triggering condition no longer holds,
+    without touching its content (AGENTS.md #12: corrections add new
+    entries, they don't rewrite history) — the alert stays stored and
+    queryable, just no longer active.
+    """
+    alert.is_active = False
+    alert.save(update_fields=["is_active", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.alert.superseded",
+        resource="AttendanceAlert",
+        resource_identifier=str(alert.pk),
+        context={
+            "alert_type": alert.alert_type,
+            "student_id": str(alert.student.public_id),
+            "event_date": str(alert.event_date),
+            "reason": reason,
+        },
+    )
+
+
+@dataclass
+class DayRecalculationResult:
+    student: object
+    shift: object
+    event_date: object
+    status: str | None
+    entry_event: AttendanceEvent | None
+    exit_event: AttendanceEvent | None
+    superseded_alerts: list
+    raised_alerts: list
+    reason: str
+
+
+def recalculate_day(*, student, shift, event_date, reason, actor=None):
+    """
+    Re-evaluate a student's derived state for one jornada day (RF-JOR-006).
+
+    ``DayStatus`` itself is never persisted (RF-JOR-002), so it is always
+    "recalculated" simply by reading it again — this function never writes
+    to ``AttendanceEvent``. What can go stale is a previously *persisted*
+    alert whose triggering condition no longer holds once a later-arriving
+    event or a parameter change is taken into account: a
+    ``permanencia_sin_cierre`` alert is superseded once a matching exit
+    shows up (or raised if the entry only arrived after closure already
+    ran), and an ``inconsistencia`` alert is superseded once a prevailing
+    entry resolves the declared exit that caused it. Raising a new
+    ``inconsistencia`` alert stays exclusively the job of
+    ``_flag_declared_exit_without_entry`` at event-creation time, since
+    events are never removed, so a previously-unflagged inconsistency can't
+    newly appear here.
+
+    ``reason`` is a ``RecalculationReason`` value used only for the audit
+    trail. This is also the entry point a future asistencia-justificaciones
+    app should call (with ``reason=RecalculationReason.JUSTIFICATION_RESOLVED``)
+    once a justification resolves for a day — nothing here assumes that
+    domain exists.
+    """
+    result = derive_day_status(student=student, shift=shift, event_date=event_date)
+    entry_event = result.entry_event if result is not None else None
+    exit_event = resolve_prevailing_event(
+        student=student,
+        shift=shift,
+        event_date=event_date,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+    )
+
+    superseded_alerts = []
+    raised_alerts = []
+
+    permanence_without_closure = (
+        result is not None and entry_event is not None and exit_event is None
+    )
+    active_permanence_alerts = list(
+        AttendanceAlert.objects.filter(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+            is_active=True,
+        )
+    )
+    if permanence_without_closure and not active_permanence_alerts:
+        enrolment = _active_enrolment_for(student=student, shift=shift, event_date=event_date)
+        raised_alerts.append(
+            _raise_alert(
+                alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+                student=student,
+                shift=shift,
+                event_date=event_date,
+                section=enrolment.section if enrolment is not None else None,
+                target_roles=[
+                    AttendanceAlert.TargetRole.CONTROL_POINT,
+                    AttendanceAlert.TargetRole.SECTION_COORDINATOR,
+                ],
+                context={"entry_event_id": str(entry_event.public_id), "reason": reason},
+                actor=actor,
+            )
+        )
+    elif not permanence_without_closure and active_permanence_alerts:
+        # Every still-active alert of this type gets superseded together: a
+        # repeated close_jornada run raises a new one each time by design
+        # (append-only), so more than one can be active at once.
+        for alert in active_permanence_alerts:
+            _supersede_alert(alert=alert, reason=reason, actor=actor)
+            superseded_alerts.append(alert)
+
+    active_inconsistencia_alerts = AttendanceAlert.objects.filter(
+        student=student,
+        shift=shift,
+        event_date=event_date,
+        alert_type=AttendanceAlert.AlertType.INCONSISTENCIA,
+        is_active=True,
+    )
+    if entry_event is not None:
+        for alert in active_inconsistencia_alerts:
+            _supersede_alert(alert=alert, reason=reason, actor=actor)
+            superseded_alerts.append(alert)
+
+    record_event(
+        actor=actor,
+        action="attendance.day.recalculated",
+        resource="AttendanceEvent",
+        resource_identifier=f"{student.pk}:{shift.pk}:{event_date}",
+        context={
+            "reason": reason,
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "event_date": str(event_date),
+            "status": result.status if result is not None else None,
+            "superseded_alert_ids": [str(alert.pk) for alert in superseded_alerts],
+            "raised_alert_ids": [str(alert.pk) for alert in raised_alerts],
+        },
+    )
+
+    return DayRecalculationResult(
+        student=student,
+        shift=shift,
+        event_date=event_date,
+        status=result.status if result is not None else None,
+        entry_event=entry_event,
+        exit_event=exit_event,
+        superseded_alerts=superseded_alerts,
+        raised_alerts=raised_alerts,
+        reason=reason,
+    )
+
+
+def recalculate_days_for_parameters_change(
+    *, shift, academic_cycle, effective_from, actor=None, until_date=None
+):
+    """
+    Reconcile every day that could be affected by a new ``JornadaParameters``
+    version (RF-JOR-006): only days on or after ``effective_from`` that
+    already have a persisted alert are candidates, since those are the only
+    artifacts a parameter change can make stale — a day with no alert has
+    nothing to reconcile, and ``derive_day_status`` already reads the
+    correct vigente version on its own.
+    """
+    until_date = until_date or timezone.localdate()
+    seen = set()
+    results = []
+    candidates = AttendanceAlert.objects.filter(
+        shift=shift,
+        event_date__gte=effective_from,
+        event_date__lte=until_date,
+        is_active=True,
+    ).select_related("student")
+    for alert in candidates:
+        key = (alert.student_id, alert.event_date)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(
+            recalculate_day(
+                student=alert.student,
+                shift=shift,
+                event_date=alert.event_date,
+                reason=RecalculationReason.PARAMETERS_CHANGED,
+                actor=actor,
+            )
+        )
+    return results
+
+
+def list_alerts(*, shift=None, event_date=None, alert_type=None, student=None, is_active=None):
+    """
+    Read-only alert lookup. Other domains (e.g. RF-JOR-007's
+    ``reporting-notifications`` alert surface) consume alerts through this
+    function instead of querying ``AttendanceAlert`` directly, per the
+    domain-map's "no tablas acopladas sin API interna clara" boundary.
+    """
+    queryset = AttendanceAlert.objects.select_related("student", "shift", "section")
+    if shift is not None:
+        queryset = queryset.filter(shift=shift)
+    if event_date is not None:
+        queryset = queryset.filter(event_date=event_date)
+    if alert_type is not None:
+        if isinstance(alert_type, (list, tuple, set)):
+            queryset = queryset.filter(alert_type__in=alert_type)
+        else:
+            queryset = queryset.filter(alert_type=alert_type)
+    if student is not None:
+        queryset = queryset.filter(student=student)
+    if is_active is not None:
+        queryset = queryset.filter(is_active=is_active)
+    return queryset
+
+
+@dataclass
+class RosterDayStatus:
+    student: object
+    section: object | None
+    status: str | None
+    entry_event: AttendanceEvent | None
+    exit_event: AttendanceEvent | None
+    parameters: JornadaParameters
+
+
+def list_roster_day_statuses(*, shift, event_date, as_of=None):
+    """
+    The derived status of every actively enrolled student of ``shift`` on
+    ``event_date`` (a read RF-JOR-007 consumes to evaluate absence alerts).
+    Unlike ``close_jornada``, this is a pure read: no closing-time gating
+    beyond what ``derive_day_status`` already applies on its own, and no
+    alert side effects.
+    """
+    academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+    parameters = get_effective_parameters(
+        shift=shift, academic_cycle=academic_cycle, on_date=event_date
+    )
+    enrolments = Enrolment.objects.filter(
+        academic_cycle=academic_cycle,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+        section__offering__shift=shift,
+        student__is_active=True,
+    ).select_related("student", "section")
+
+    statuses = []
+    for enrolment in enrolments:
+        student = enrolment.student
+        result = derive_day_status(student=student, shift=shift, event_date=event_date, as_of=as_of)
+        exit_event = resolve_prevailing_event(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.EXIT,
+        )
+        statuses.append(
+            RosterDayStatus(
+                student=student,
+                section=enrolment.section,
+                status=result.status if result is not None else None,
+                entry_event=result.entry_event if result is not None else None,
+                exit_event=exit_event,
+                parameters=parameters,
+            )
+        )
+    return statuses

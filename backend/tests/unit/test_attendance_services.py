@@ -4,6 +4,7 @@ RF-JOR-002 — derivacion del estado diario.
 RF-JOR-003 — precedencia entre eventos.
 RF-JOR-004 — cierre de jornada.
 RF-JOR-005 — deteccion de inconsistencias entre fuentes.
+RF-JOR-006 — recalculo ante cambios.
 
 All in isolation from the API layer.
 """
@@ -14,7 +15,14 @@ import pytest
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
+from apps.attendance.models import (
+    AttendanceAlert,
+    AttendanceEvent,
+    DayStatus,
+    JornadaParameters,
+    RecalculationReason,
+)
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import (
@@ -23,7 +31,11 @@ from tests.factories.academic import (
     SectionFactory,
     ShiftFactory,
 )
-from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
+from tests.factories.attendance import (
+    AttendanceAlertFactory,
+    AttendanceEventFactory,
+    JornadaParametersFactory,
+)
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
@@ -541,3 +553,420 @@ def test_scanned_exit_without_entry_does_not_raise_an_inconsistency_alert():
     assert not AttendanceAlert.objects.filter(
         student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
     ).exists()
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-006 — recalculo ante cambios
+# --------------------------------------------------------------------------- #
+
+
+def _enrolled_student(cycle):
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+    )
+    return student, section, section.offering.shift
+
+
+def test_parameter_change_mid_cycle_leaves_earlier_days_on_the_old_value():
+    """
+    Escenario 1 (RF-JOR-006): GIVEN un ciclo escolar con estados ya derivados
+    bajo un primer valor de parametros, WHEN el valor cambia con vigencia a
+    partir de una fecha, THEN los dias anteriores a esa fecha conservan su
+    estado original, AND los dias desde esa fecha se derivan con el nuevo
+    valor.
+
+    ``derive_day_status`` does not factor ``tolerance_minutes`` into the
+    present/late boundary (only ``entry_limit_time`` does — RF-JOR-002's
+    existing behavior, unchanged here), so this exercises the vigencia rule
+    with ``entry_limit_time``, the field that actually drives the outcome.
+    """
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=60), ends_on=today + timedelta(days=120)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    change_date = today + timedelta(days=10)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=15,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=change_date,
+    )
+
+    day_before = change_date - timedelta(days=1)
+    day_on_or_after = change_date
+    for event_date in (day_before, day_on_or_after):
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=_at(event_date, 7, 15),
+        )
+
+    before_result = services.derive_day_status(student=student, shift=shift, event_date=day_before)
+    after_result = services.derive_day_status(
+        student=student, shift=shift, event_date=day_on_or_after
+    )
+
+    assert before_result.status == DayStatus.LATE
+    assert after_result.status == DayStatus.PRESENT
+
+
+def test_recalculate_day_does_not_mutate_original_events():
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=yesterday - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    entry_event = AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=yesterday,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(yesterday, 7, 0),
+    )
+    original_updated_at = entry_event.updated_at
+    original_captured_at = entry_event.captured_at
+
+    services.recalculate_day(
+        student=student, shift=shift, event_date=yesterday, reason=RecalculationReason.LATE_EVENT
+    )
+
+    entry_event.refresh_from_db()
+    assert entry_event.updated_at == original_updated_at
+    assert entry_event.captured_at == original_captured_at
+
+
+def test_late_arriving_exit_supersedes_permanencia_sin_cierre_alert():
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=yesterday - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=yesterday,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(yesterday, 7, 0),
+    )
+    closure = services.close_jornada(shift=shift, event_date=yesterday)
+    assert len(closure.alerts) == 1
+    alert = closure.alerts[0]
+
+    services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=yesterday,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(yesterday, 15, 0),
+    )
+
+    alert.refresh_from_db()
+    assert alert.is_active is False
+    assert alert.alert_type == AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE
+
+
+def test_late_arriving_entry_supersedes_inconsistencia_alert():
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=yesterday - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+
+    services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=yesterday,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(yesterday, 15, 0),
+    )
+    alert = AttendanceAlert.objects.get(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    )
+    assert alert.is_active is True
+
+    services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=yesterday,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(yesterday, 7, 0),
+    )
+
+    alert.refresh_from_db()
+    assert alert.is_active is False
+
+
+def test_recalculate_day_raises_new_permanencia_sin_cierre_alert_after_closing():
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=yesterday - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    assert not AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE
+    ).exists()
+
+    services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=yesterday,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(yesterday, 7, 0),
+    )
+
+    alert = AttendanceAlert.objects.get(
+        student=student, alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE
+    )
+    assert alert.is_active is True
+    assert alert.context["reason"] == RecalculationReason.LATE_EVENT
+
+
+def test_recalculate_day_is_idempotent():
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=yesterday - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=yesterday,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(yesterday, 7, 0),
+    )
+
+    services.recalculate_day(
+        student=student, shift=shift, event_date=yesterday, reason=RecalculationReason.LATE_EVENT
+    )
+    services.recalculate_day(
+        student=student, shift=shift, event_date=yesterday, reason=RecalculationReason.LATE_EVENT
+    )
+
+    assert (
+        AttendanceAlert.objects.filter(
+            student=student,
+            alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+            is_active=True,
+        ).count()
+        == 1
+    )
+
+
+def test_recalculate_day_always_records_audit_event_even_when_nothing_changes():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    services.recalculate_day(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        reason=RecalculationReason.LATE_EVENT,
+    )
+
+    assert AuditEvent.objects.filter(action="attendance.day.recalculated").exists()
+
+
+def test_recalculate_days_for_parameters_change_only_touches_days_on_or_after_effective_from():
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=60), ends_on=today + timedelta(days=60)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+
+    day_before = today - timedelta(days=10)
+    day_on_or_after = today
+    for event_date in (day_before, day_on_or_after):
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=_at(event_date, 7, 0),
+        )
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.EXIT,
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=_at(event_date, 15, 0),
+        )
+    alert_before = AttendanceAlertFactory(
+        student=student,
+        shift=shift,
+        event_date=day_before,
+        alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+    )
+    alert_on_or_after = AttendanceAlertFactory(
+        student=student,
+        shift=shift,
+        event_date=day_on_or_after,
+        alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+    )
+
+    services.recalculate_days_for_parameters_change(
+        shift=shift,
+        academic_cycle=cycle,
+        effective_from=today,
+        until_date=today + timedelta(days=30),
+    )
+
+    alert_before.refresh_from_db()
+    alert_on_or_after.refresh_from_db()
+    assert alert_before.is_active is True
+    assert alert_on_or_after.is_active is False
+
+
+def test_list_roster_day_statuses_returns_entry_for_every_active_enrolment_without_side_effects():
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+
+    statuses = services.list_roster_day_statuses(
+        shift=shift, event_date=cycle.starts_on, as_of=_at(cycle.starts_on, 10, 0)
+    )
+
+    assert len(statuses) == 1
+    assert statuses[0].student == student
+    assert statuses[0].section == section
+    assert statuses[0].status is None
+    assert not AttendanceAlert.objects.exists()
+
+
+def test_list_alerts_filters_by_shift_event_date_and_alert_type():
+    shift = ShiftFactory()
+    other_shift = ShiftFactory()
+    event_date = timezone.localdate()
+    matching = AttendanceAlertFactory(
+        shift=shift,
+        event_date=event_date,
+        alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+    )
+    AttendanceAlertFactory(
+        shift=shift, event_date=event_date, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    )
+    AttendanceAlertFactory(
+        shift=other_shift,
+        event_date=event_date,
+        alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+    )
+
+    results = services.list_alerts(
+        shift=shift,
+        event_date=event_date,
+        alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+    )
+
+    assert list(results) == [matching]
+
+    both_types = services.list_alerts(
+        shift=shift,
+        event_date=event_date,
+        alert_type=[
+            AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+            AttendanceAlert.AlertType.INCONSISTENCIA,
+        ],
+    )
+    assert both_types.count() == 2
