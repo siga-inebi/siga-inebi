@@ -106,6 +106,15 @@
   del contenido.
 - Registrar o modificar documentos de una matricula de un ciclo cerrado devuelve HTTP 400.
 
+## Elegibilidad de emisión oficial
+
+- `POST /api/v1/documents/official-issuance/eligibility/` valida si una matrícula puede
+  continuar con la emisión de un documento oficial.
+- Recibe `enrolment_id` y devuelve `{ "eligible": true }` cuando no existen requisitos
+  obligatorios pendientes. Si existen pendientes, responde `400` con la regla bloqueante.
+- Requiere sesión autenticada y el permiso atómico `document_issue`; los intentos permitidos
+  y bloqueados generan auditoría.
+
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.

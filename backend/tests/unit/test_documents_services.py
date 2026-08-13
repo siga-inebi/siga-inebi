@@ -9,10 +9,13 @@ from apps.documents.models import DocumentTemplate
 from apps.documents.services import (
     create_document_template,
     deactivate_document_template,
+    ensure_official_document_issuance_allowed,
     list_field_tags,
     update_document_template,
 )
-from tests.factories.academic import InstitutionFactory
+from apps.enrolments.models import EnrolmentDocumentRequirement
+from apps.enrolments.services import create_enrolment
+from tests.factories.academic import InstitutionFactory, SectionFactory
 from tests.factories.documents import DocumentTemplateFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -20,6 +23,7 @@ from tests.factories.identity import (
     RoleFactory,
     UserFactory,
 )
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
@@ -86,6 +90,37 @@ def test_create_document_template_rejects_blank_code():
 def test_create_document_template_rejects_blank_name():
     with pytest.raises(DomainError, match="name"):
         create_document_template(institution=InstitutionFactory(), name="  ", code="CONST")
+
+
+def test_official_document_issuance_is_allowed_without_pending_required_documents():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    assert ensure_official_document_issuance_allowed(enrolment=enrolment) is True
+
+
+def test_official_document_issuance_is_blocked_by_pending_required_documents():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    EnrolmentDocumentRequirement.objects.create(
+        enrolment=enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+    )
+
+    with pytest.raises(DomainError, match="BIRTH-CERT"):
+        ensure_official_document_issuance_allowed(enrolment=enrolment)
 
 
 # --------------------------------------------------------------------------- #

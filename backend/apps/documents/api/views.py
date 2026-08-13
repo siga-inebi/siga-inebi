@@ -13,7 +13,9 @@ rather than duplicated.
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import permissions
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
 
 from apps.academics.api.views import (
     CatalogueDetailView,
@@ -25,6 +27,7 @@ from apps.academics.api.views import (
 )
 from apps.documents import services
 from apps.documents.api import queries
+from apps.enrolments.models import Enrolment
 
 from .serializers import (
     DocumentTemplateCreateSerializer,
@@ -32,6 +35,8 @@ from .serializers import (
     DocumentTemplateUpdateSerializer,
     DocumentTemplateVersionSerializer,
     FieldTagSerializer,
+    OfficialDocumentEligibilityResponseSerializer,
+    OfficialDocumentEligibilitySerializer,
 )
 
 CATALOGUE = ["documents: catalogue"]
@@ -174,3 +179,34 @@ class FieldTagListView(GenericAPIView):
         page = self.paginate_queryset(tags)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
+
+
+class OfficialDocumentEligibilityView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OfficialDocumentEligibilitySerializer
+
+    @extend_schema(
+        summary="Validar emisión de documento oficial",
+        description=(
+            "Bloquea la emisión cuando la matrícula tiene documentos obligatorios pendientes."
+        ),
+        request=OfficialDocumentEligibilitySerializer,
+        responses={200: OfficialDocumentEligibilityResponseSerializer},
+        tags=["documents"],
+    )
+    def post(self, request):
+        if not request.user.has_atomic_permission("document_issue"):
+            raise PermissionDenied("Actor lacks the required permission.")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        enrolment = _resolve_enrolment(serializer.validated_data["enrolment_id"])
+        services.ensure_official_document_issuance_allowed(enrolment=enrolment, actor=request.user)
+        return Response({"eligible": True})
+
+
+def _resolve_enrolment(public_id):
+    try:
+        return Enrolment.objects.get(public_id=public_id)
+    except Enrolment.DoesNotExist as exc:
+        raise NotFound("Enrolment not found.") from exc

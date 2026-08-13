@@ -3,6 +3,14 @@ from rest_framework import serializers
 from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
 
 
+class OfficialDocumentEligibilitySerializer(serializers.Serializer):
+    enrolment_id = serializers.UUIDField(help_text="Public ID de la matrícula.")
+
+
+class OfficialDocumentEligibilityResponseSerializer(serializers.Serializer):
+    eligible = serializers.BooleanField()
+
+
 class InstitutionalHeaderSerializer(serializers.Serializer):
     institution_name = serializers.CharField()
     institution_short_name = serializers.CharField()

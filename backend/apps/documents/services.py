@@ -17,6 +17,7 @@ from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAGS
 from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
+from apps.enrolments.models import EnrolmentDocumentRequirement
 
 SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
 
@@ -182,3 +183,33 @@ def deactivate_document_template(*, template, actor=None):
     template.save(update_fields=["is_active", "updated_at"])
     _audit(actor, "documents.template.deactivated", template)
     return template
+
+
+def ensure_official_document_issuance_allowed(*, enrolment, actor=None):
+    pending_codes = list(
+        EnrolmentDocumentRequirement.objects.filter(
+            enrolment=enrolment, is_active=True, is_required=True
+        )
+        .exclude(status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED)
+        .values_list("code", flat=True)
+    )
+    if pending_codes:
+        record_event(
+            actor=actor,
+            action="documents.official_issuance.blocked",
+            resource="Enrolment",
+            resource_identifier=str(enrolment.pk),
+            context={"pending_document_codes": pending_codes},
+        )
+        raise DomainError(
+            "Official document issuance is blocked by pending required documents: "
+            f"{', '.join(pending_codes)}."
+        )
+
+    record_event(
+        actor=actor,
+        action="documents.official_issuance.allowed",
+        resource="Enrolment",
+        resource_identifier=str(enrolment.pk),
+    )
+    return True
