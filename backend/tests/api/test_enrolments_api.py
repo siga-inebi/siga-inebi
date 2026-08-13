@@ -4,7 +4,7 @@ import pytest
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
-from tests.factories.academic import SectionFactory
+from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
 from tests.factories.students import StudentFactory
 
@@ -35,6 +35,17 @@ def _matriculation_payload(section, student):
         "shift_id": str(section.shift.public_id),
         "section_id": str(section.public_id),
         "effective_on": "2026-02-01",
+    }
+
+
+def _reenrolment_payload(section, student):
+    return {
+        "student_id": str(student.public_id),
+        "academic_cycle_id": str(section.academic_cycle.public_id),
+        "grade_id": str(section.grade.public_id),
+        "shift_id": str(section.shift.public_id),
+        "section_id": str(section.public_id),
+        "effective_on": "2027-02-01",
     }
 
 
@@ -149,3 +160,64 @@ def test_matriculate_student_rejects_shift_not_assigned_to_section(auth_client):
 
     assert response.status_code == 400
     assert "selected shift" in response.json()["error"]["detail"]
+
+
+def test_reenrolment_reuses_student_record_and_audits_source(auth_client):
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    _grant_enrolment_creation(auth_client.user)
+    auth_client.post(
+        reverse("enrolment-list-create"),
+        _payload(previous_section, student),
+        content_type="application/json",
+    )
+
+    response = auth_client.post(
+        reverse("reenrolment-create"),
+        _reenrolment_payload(target_section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["student_id"] == str(student.public_id)
+    assert student.enrolments.count() == 2
+    assert AuditEvent.objects.filter(action="enrolments.student.reenrolled").exists()
+
+
+def test_reenrolment_requires_domain_permission(auth_client):
+    section = SectionFactory(name="A")
+
+    response = auth_client.post(
+        reverse("reenrolment-create"),
+        _reenrolment_payload(section, StudentFactory()),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_reenrolment_requires_previous_enrolment(auth_client):
+    section = SectionFactory(name="A")
+    student = StudentFactory()
+    _grant_enrolment_creation(auth_client.user)
+
+    response = auth_client.post(
+        reverse("reenrolment-create"),
+        _reenrolment_payload(section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "no previous enrolment" in response.json()["error"]["detail"]

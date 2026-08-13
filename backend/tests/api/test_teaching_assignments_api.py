@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 from django.urls import reverse
 
+from apps.academics.models import AcademicCycle
 from apps.academics.services import create_teaching_assignment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.identity import (
@@ -186,3 +187,44 @@ def test_teaching_assignment_endpoints_require_matching_institution_scope(auth_c
         == 403
     )
     assert auth_client.get(reverse("teaching-assignment-history")).status_code == 403
+
+
+def test_closed_cycle_rejects_teaching_assignment_api_writes(auth_client, institution):
+    cycle, section, subject, teacher = _assignment_context(institution)
+    assignment = create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher.person,
+    )
+    cycle.status = AcademicCycle.CycleStatus.CLOSED
+    cycle.save(update_fields=["status", "updated_at"])
+    _grant_assignment_scope(auth_client.user, institution)
+
+    create_response = auth_client.post(
+        reverse("teaching-assignment-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "section_id": str(section.public_id),
+            "subject_id": str(subject.public_id),
+            "teacher_id": str(TeacherFactory().public_id),
+        },
+        content_type="application/json",
+    )
+    reassign_response = auth_client.post(
+        reverse("teaching-assignment-reassign", args=[assignment.public_id]),
+        {"teacher_id": str(TeacherFactory().public_id), "ends_on": "2026-06-30"},
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 400
+    assert reassign_response.status_code == 400
+    assert "Closed academic cycles" in create_response.json()["error"]["detail"]
+    assert "Closed academic cycles" in reassign_response.json()["error"]["detail"]
+
+    history_response = auth_client.get(
+        reverse("teaching-assignment-history"),
+        {"academic_cycle_id": str(cycle.public_id)},
+    )
+    assert history_response.status_code == 200
+    assert len(history_response.json()["results"]) == 1

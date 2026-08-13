@@ -6,6 +6,7 @@ from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from apps.identity.api.permissions import ScopedAtomicPermission
 from apps.identity.api.serializers import (
     AccountActivationSerializer,
     AccountProvisionSerializer,
@@ -66,7 +67,9 @@ class AtomicPermissionListView(GenericAPIView):
 
 
 class RoleListCreateView(GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "role_assign"
+    permission_scope = {"module_key": "identity"}
     serializer_class = RoleWriteSerializer
 
     @extend_schema(responses={200: RoleSerializer(many=True)})
@@ -84,7 +87,9 @@ class RoleListCreateView(GenericAPIView):
 
 
 class RoleDetailView(GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "role_assign"
+    permission_scope = {"module_key": "identity"}
     serializer_class = RoleWriteSerializer
 
     @extend_schema(request=RoleWriteSerializer, responses={200: RoleSerializer})
@@ -102,7 +107,9 @@ class RoleDetailView(GenericAPIView):
 
 
 class RoleAssignmentCreateView(GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "role_assign"
+    permission_scope = {"module_key": "identity"}
     serializer_class = RoleAssignmentWriteSerializer
 
     @extend_schema(request=RoleAssignmentWriteSerializer, responses={201: RoleAssignmentSerializer})
@@ -111,17 +118,21 @@ class RoleAssignmentCreateView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         role = get_object_or_404(Role, public_id=serializer.validated_data.pop("role"))
+        scope = serializer.validated_data.pop("scope")
         assignment = assign_role(
             actor=request.user,
             user=account,
             role=role,
+            scope=scope,
             **serializer.validated_data,
         )
         return Response(RoleAssignmentSerializer(assignment).data, status=status.HTTP_201_CREATED)
 
 
 class RoleAssignmentRevokeView(GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "role_assign"
+    permission_scope = {"module_key": "identity"}
     serializer_class = RoleAssignmentSerializer
 
     @extend_schema(request=None, responses={200: RoleAssignmentSerializer})

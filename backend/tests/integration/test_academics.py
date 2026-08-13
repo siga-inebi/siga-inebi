@@ -3,10 +3,6 @@ from datetime import date
 import pytest
 
 from apps.academics.api.queries import historical_cycle_or_404
-from apps.academics.models import AcademicCycle, GradeOffering
-from apps.academics.services import activate_academic_cycle, create_academic_cycle
-from apps.audit.models import AuditEvent
-from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
@@ -14,7 +10,12 @@ from tests.factories.academic import (
     InstitutionFactory,
     SectionFactory,
     ShiftFactory,
+    SubjectFactory
 )
+from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, Section
+from apps.academics.services import activate_academic_cycle, create_academic_cycle
+from apps.audit.models import AuditEvent
+from apps.common.models import DomainError
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
@@ -31,6 +32,19 @@ def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
         starts_on=date(2026, 1, 1),
         ends_on=date(2026, 10, 31),
         actor=actor,
+    )
+    active_grade = GradeFactory(level__institution=institution)
+    active_shift = ShiftFactory(campus__institution=institution)
+    active_offering = GradeOffering.objects.create(
+        academic_cycle=active,
+        grade=active_grade,
+        shift=active_shift,
+    )
+    Section.objects.create(offering=active_offering, name="A")
+    CurriculumPlan.objects.create(
+        academic_cycle=active,
+        grade=active_grade,
+        subject=SubjectFactory(institution=institution),
     )
     activate_academic_cycle(cycle=active, actor=actor)
     prepared = create_academic_cycle(

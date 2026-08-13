@@ -70,9 +70,13 @@
 - `POST /api/v1/academics/cycles/` registra un ciclo en preparacion con ano, identificacion,
   descripcion institucional y fechas no solapadas.
 - `POST /api/v1/academics/cycles/{public_id}/activate/` activa un ciclo preparado solo cuando no
-  existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
+  existe otro ciclo activo y la estructura disponible contiene grados ofertados, secciones y plan
+  de estudios por grado. La validacion de unidades de evaluacion queda pendiente hasta que exista
+  el modelo del dominio `academic-evaluation`.
 - Todos requieren sesion autenticada. La definicion de permisos atomicos para Directora,
   Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
+- Crear o reasignar una asignacion docente de un ciclo cerrado devuelve HTTP 400. El historial de
+  asignaciones permanece consultable y no se elimina.
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.
@@ -86,3 +90,6 @@
 - Permisos de entrada y salida usan codigos publicos con punto.
 - Cambios de composicion y vigencia generan eventos auditables y aplican en la siguiente
   evaluacion de permisos de cualquier sesion activa.
+- Crear una asignacion requiere el objeto `scope` con al menos una dimension soportada:
+  institucion, ciclo, grado, seccion, curso, asignacion docente, estudiante o modulo.
+- Una invocacion directa sin permiso o scope devuelve HTTP 403 y genera auditoria.
