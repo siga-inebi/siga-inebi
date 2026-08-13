@@ -121,9 +121,7 @@ def test_closed_cycle_historical_detail_preserves_structure_and_aggregates_enrol
             status=status,
         )
 
-    response = auth_client.get(
-        reverse("academic-cycle-historical-detail", args=[cycle.public_id])
-    )
+    response = auth_client.get(reverse("academic-cycle-historical-detail", args=[cycle.public_id]))
 
     assert response.status_code == 200
     payload = response.json()
