@@ -3,12 +3,13 @@ from datetime import date
 import pytest
 
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import (
     change_section,
     create_enrolment,
     matriculate_student,
     reenrol_student,
+    set_document_requirement,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
@@ -232,3 +233,41 @@ def test_reenrol_student_rejects_pre_enrolled_student():
             shift=section.shift,
             section=section,
         )
+
+
+def test_set_document_requirement_records_and_updates_delivery_status():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    requirement = set_document_requirement(
+        enrolment=enrolment, code="birth-cert", name="Birth certificate"
+    )
+    updated = set_document_requirement(
+        enrolment=enrolment,
+        code="birth-cert",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+
+    assert requirement.pk == updated.pk
+    assert updated.code == "BIRTH-CERT"
+    assert updated.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+    assert enrolment.document_requirements.count() == 1
+
+
+def test_set_document_requirement_rejects_blank_code():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(DomainError, match="Document code cannot be empty"):
+        set_document_requirement(enrolment=enrolment, code="  ", name="Birth certificate")

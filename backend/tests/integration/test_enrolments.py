@@ -4,11 +4,13 @@ import pytest
 from django.utils import timezone
 
 from apps.common.models import DomainError
+from apps.enrolments.models import EnrolmentDocumentRequirement
 from apps.enrolments.services import (
     change_section,
     create_enrolment,
     matriculate_student,
     reenrol_student,
+    set_document_requirement,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
@@ -221,3 +223,27 @@ def test_reenrolment_crosses_student_and_academic_domains():
     assert current.student_id == previous.student_id
     assert current.academic_cycle_id == target_cycle.id
     assert student.enrolments.count() == 2
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_document_requirements_cross_enrolment_and_keep_delivery_state():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    requirement = set_document_requirement(
+        enrolment=enrolment,
+        code="guardian-id",
+        name="Guardian identity document",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+
+    assert requirement.enrolment.student_id == enrolment.student_id
+    assert requirement.is_required is True
+    assert requirement.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED

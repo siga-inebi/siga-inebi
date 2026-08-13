@@ -4,7 +4,7 @@ from django.utils import timezone
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 
 
 def _ensure_section_has_capacity(section):
@@ -177,3 +177,41 @@ def change_section(*, enrolment, new_section, actor=None, effective_on=None):
         },
     )
     return replacement
+
+
+@transaction.atomic
+def set_document_requirement(
+    *,
+    enrolment,
+    code,
+    name,
+    status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+    is_required=True,
+    actor=None,
+):
+    code = code.strip().upper()
+    name = name.strip()
+    if not code:
+        raise DomainError("Document code cannot be empty.")
+    if not name:
+        raise DomainError("Document name cannot be empty.")
+    if status not in EnrolmentDocumentRequirement.DeliveryStatus.values:
+        raise DomainError("Invalid document delivery status.")
+
+    requirement, created = EnrolmentDocumentRequirement.objects.update_or_create(
+        enrolment=enrolment,
+        code=code,
+        defaults={"name": name, "status": status, "is_required": is_required},
+    )
+    record_event(
+        actor=actor,
+        action=(
+            "enrolments.document_requirement.created"
+            if created
+            else "enrolments.document_requirement.updated"
+        ),
+        resource="EnrolmentDocumentRequirement",
+        resource_identifier=str(requirement.pk),
+        context={"enrolment_id": enrolment.pk, "code": code, "status": status},
+    )
+    return requirement

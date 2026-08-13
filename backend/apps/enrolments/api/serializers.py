@@ -1,6 +1,30 @@
 from rest_framework import serializers
 
-from apps.enrolments.models import Enrolment
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+
+
+class EnrolmentDocumentRequirementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EnrolmentDocumentRequirement
+        fields = [
+            "public_id",
+            "code",
+            "name",
+            "is_required",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class EnrolmentDocumentRequirementCreateSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50, help_text="Codigo del documento requerido.")
+    name = serializers.CharField(max_length=150, help_text="Nombre del documento requerido.")
+    is_required = serializers.BooleanField(default=True)
+    status = serializers.ChoiceField(
+        choices=EnrolmentDocumentRequirement.DeliveryStatus.choices,
+        default=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+    )
 
 
 class EnrolmentSerializer(serializers.ModelSerializer):

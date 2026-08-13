@@ -4,6 +4,7 @@ import pytest
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
+from apps.enrolments.models import EnrolmentDocumentRequirement
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
@@ -246,6 +247,55 @@ def test_reenrolment_requires_domain_permission(auth_client):
     response = auth_client.post(
         reverse("reenrolment-create"),
         _reenrolment_payload(section, StudentFactory()),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_document_requirement_registers_and_updates_status(auth_client):
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    _grant_enrolment_creation(auth_client.user)
+    url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
+
+    response = auth_client.post(
+        url, {"code": "id-card", "name": "Identity card"}, content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == EnrolmentDocumentRequirement.DeliveryStatus.PENDING
+
+    response = auth_client.post(
+        url,
+        {"code": "id-card", "name": "Identity card", "status": "delivered"},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert response.json()["code"] == "ID-CARD"
+    assert response.json()["status"] == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+    assert AuditEvent.objects.filter(action="enrolments.document_requirement.updated").exists()
+
+    response = auth_client.get(url)
+    assert response.status_code == 200
+    assert response.json()[0]["status"] == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+
+
+def test_document_requirement_requires_domain_permission(auth_client):
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    response = auth_client.post(
+        reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id]),
+        {"code": "id-card", "name": "Identity card"},
         content_type="application/json",
     )
 
