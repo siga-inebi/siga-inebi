@@ -64,6 +64,9 @@
 ## Ciclos escolares
 
 - `GET /api/v1/academics/cycles/` lista ciclos de la institucion configurada.
+- `GET /api/v1/academics/cycles/{public_id}/` devuelve el detalle historico del ciclo con ofertas
+  de grado, jornadas, secciones, planes de estudio, asignaciones docentes y resumen agregado de
+  matriculas. Incluye registros inactivos y no expone identidades estudiantiles.
 - `POST /api/v1/academics/cycles/` registra un ciclo en preparacion con ano, identificacion,
   descripcion institucional y fechas no solapadas.
 - `POST /api/v1/academics/cycles/{public_id}/activate/` activa un ciclo preparado solo cuando no

@@ -3,9 +3,12 @@ from rest_framework import serializers
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    CurriculumPlan,
     Grade,
+    GradeOffering,
     Level,
     LevelSubject,
+    Section,
     Shift,
     Subject,
     TeachingAssignment,
@@ -282,3 +285,58 @@ class TeachingAssignmentReassignSerializer(serializers.Serializer):
     ends_on = serializers.DateField(
         help_text="Ultimo dia inclusivo del docente vigente; el nuevo inicia al dia siguiente."
     )
+
+
+# --------------------------------------------------------------------------- #
+# historical cycle detail (RF-CIC-006)
+# --------------------------------------------------------------------------- #
+
+
+class HistoricalSectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Section
+        fields = ["public_id", "name", "capacity", "is_active"]
+
+
+class HistoricalGradeOfferingSerializer(serializers.ModelSerializer):
+    grade = GradeRefSerializer(read_only=True)
+    shift = ShiftRefSerializer(read_only=True)
+    campus = CampusRefSerializer(read_only=True)
+    sections = HistoricalSectionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = GradeOffering
+        fields = ["public_id", "grade", "shift", "campus", "sections", "is_active"]
+
+
+class HistoricalCurriculumPlanSerializer(serializers.ModelSerializer):
+    grade = GradeRefSerializer(read_only=True)
+    subject = SubjectRefSerializer(read_only=True)
+
+    class Meta:
+        model = CurriculumPlan
+        fields = ["public_id", "grade", "subject", "is_required", "is_active"]
+
+
+class HistoricalEnrolmentSummarySerializer(serializers.Serializer):
+    total = serializers.IntegerField(source="_enrolment_total")
+    active = serializers.IntegerField(source="_enrolment_active")
+    withdrawn = serializers.IntegerField(source="_enrolment_withdrawn")
+    completed = serializers.IntegerField(source="_enrolment_completed")
+    cancelled = serializers.IntegerField(source="_enrolment_cancelled")
+
+
+class HistoricalAcademicCycleSerializer(AcademicCycleSerializer):
+    grade_offerings = HistoricalGradeOfferingSerializer(many=True, read_only=True)
+    curriculum_plans = HistoricalCurriculumPlanSerializer(many=True, read_only=True)
+    teaching_assignments = TeachingAssignmentSerializer(many=True, read_only=True)
+    enrolments = HistoricalEnrolmentSummarySerializer(source="*", read_only=True)
+
+    class Meta(AcademicCycleSerializer.Meta):
+        fields = [
+            *AcademicCycleSerializer.Meta.fields,
+            "grade_offerings",
+            "curriculum_plans",
+            "teaching_assignments",
+            "enrolments",
+        ]
