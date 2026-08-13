@@ -59,6 +59,9 @@ RoleAssignment -> ScopeGrant
 - Alcance de encargado deriva de `StudentGuardianRelation` vigente; una relacion terminada no
   concede acceso historico, sin importar una fecha solicitada por el consumidor.
 - Cuentas sin alcance efectivo no operan aunque tengan rol asignado.
+- Una asignacion sin `ScopeGrant` vigente nunca concede permisos.
+- Consultas acotadas usan `filter_queryset_by_scope(...)`; los dominios consumidores no duplican
+  filtros de alcance.
 
 ## Implementacion de alcance contextual
 
@@ -160,6 +163,11 @@ Las pruebas en `backend/tests/permissions/test_identity_permissions.py` y
 - Operaciones administrativas requieren `role.assign` o condicion de superusuario.
 - Evaluacion consulta asignaciones y composicion vigentes en cada operacion; no conserva permisos
   en sesion.
+- `ScopedAtomicPermission` ofrece denegacion por defecto en DRF y audita invocaciones directas.
+- Crear una asignacion exige al menos una dimension de alcance; la base de datos rechaza grants
+  sin dimensiones.
+- No puede revocarse el ultimo rol administrador, quitarle `account.create` al ultimo rol que lo
+  concede ni desactivar la ultima cuenta administradora.
 
 ## Contratos internos de cuentas
 
