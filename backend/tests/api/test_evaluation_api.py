@@ -4,22 +4,27 @@ API contract tests for evaluation units.
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
+RF-EVC-004: Brecha excepcional autorizada
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
 Scenario 3: Captura dentro de la ventana
 Scenario 4: Captura con la ventana cerrada
 Scenario 5: Recuperación fuera de fecha
+Scenario 6: Docente que no alcanzó a subir notas
+Scenario 7: Expiración automática
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 
-from apps.evaluation.models import EvaluationUnit
-from tests.factories.academic import AcademicCycleFactory
+from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
+from tests.factories.academic import AcademicCycleFactory, SubjectFactory
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.people import PersonFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -305,6 +310,102 @@ class TestRecoveryWindowAPI:
             {
                 "recovery_starts_on": "2026-03-10",
                 "recovery_ends_on": "2026-03-20",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+
+
+class TestCaptureExceptionGrantAPI:
+    """Tests for POST capture-exceptions endpoint (RF-EVC-004)."""
+
+    def test_grant_capture_exception_success(self, auth_client, institution):
+        """
+        Scenario 6: Docente que no alcanzó a subir notas
+        POST /api/v1/academics/cycles/{cycle_id}/evaluation-units/{unit_id}/capture-exceptions/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle, number=1)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        expires_at = timezone.now() + timedelta(days=1)
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-capture-exceptions",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "reason": "No alcanzó a subir notas por falla eléctrica.",
+                "expires_at": expires_at.isoformat(),
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201, response.json()
+        data = response.json()
+        assert data["reason"] == "No alcanzó a subir notas por falla eléctrica."
+        assert CaptureExceptionGrant.objects.filter(
+            evaluation_unit=unit, subject=subject, teacher=teacher
+        ).exists()
+
+    def test_reject_empty_reason_api(self, auth_client, institution):
+        """
+        Test that granting an exception without a reason is rejected.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle, number=1)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-capture-exceptions",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "reason": "   ",
+                "expires_at": (timezone.now() + timedelta(days=1)).isoformat(),
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+
+    def test_unit_not_found_returns_404_for_grant(self, auth_client, institution):
+        """
+        Test endpoint with invalid unit ID.
+        """
+        import uuid
+
+        cycle = AcademicCycleFactory(institution=institution)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-capture-exceptions",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(uuid.uuid4()),
+                },
+            ),
+            {
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "reason": "Motivo válido.",
+                "expires_at": (timezone.now() + timedelta(days=1)).isoformat(),
             },
             content_type="application/json",
         )

@@ -5,6 +5,9 @@ RF-EVC-001: Estructura de unidades del ciclo
 - Each AcademicCycle has one or more EvaluationUnits.
 - Units define periods within the cycle where grades are captured and finalized.
 - Units must not overlap; validation enforced at database level.
+RF-EVC-004: Brecha excepcional autorizada
+- CaptureExceptionGrant authorizes one teacher, for one subject, in one unit, to
+  capture grades outside the unit's capture window, for a determined term.
 """
 
 from django.contrib.postgres.constraints import ExclusionConstraint
@@ -170,3 +173,57 @@ class EvaluationUnit(TimeStampedModel):
         if on_date is None:
             on_date = timezone.localdate()
         return self.recovery_starts_on <= on_date <= self.recovery_ends_on
+
+
+class CaptureExceptionGrant(TimeStampedModel):
+    """
+    Exceptional, time-boxed authorization to capture grades outside a unit's
+    capture window (RF-EVC-004).
+
+    Scoped to exactly one teacher, one subject and one unit. Validity is
+    computed from ``expires_at``, so the grant lapses on its own without any
+    closing action.
+    """
+
+    evaluation_unit = models.ForeignKey(
+        EvaluationUnit,
+        on_delete=models.CASCADE,
+        related_name="capture_exceptions",
+        help_text="Unit this exceptional capture grant applies to.",
+    )
+    subject = models.ForeignKey(
+        "academics.Subject",
+        on_delete=models.PROTECT,
+        related_name="capture_exceptions",
+        help_text="Subarea the grant is scoped to.",
+    )
+    teacher = models.ForeignKey(
+        "people.Person",
+        on_delete=models.PROTECT,
+        related_name="capture_exceptions",
+        help_text="Teacher authorized to capture grades during the grant.",
+    )
+    reason = models.TextField(help_text="Justification required to grant the exception.")
+    expires_at = models.DateTimeField(help_text="Moment the grant lapses automatically.")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Exception for {self.teacher} / {self.subject} ({self.evaluation_unit})"
+
+    def is_valid(self, at=None):
+        """
+        Check if the grant is currently in effect.
+
+        Args:
+            at: Instant to check (default: now).
+
+        Returns:
+            True if the grant is active and has not expired, False otherwise.
+        """
+        if not self.is_active:
+            return False
+        if at is None:
+            at = timezone.now()
+        return at <= self.expires_at

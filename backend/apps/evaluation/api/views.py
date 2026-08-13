@@ -4,6 +4,7 @@ API views for evaluation domain.
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
+RF-EVC-004: Brecha excepcional autorizada
 
 Authorization: requires role=director + permission=evaluation.configure_units
 """
@@ -15,9 +16,17 @@ from rest_framework.views import APIView
 
 from apps.academics.models import AcademicCycle
 from apps.common.models import DomainError
-from apps.evaluation.api.serializers import EvaluationUnitSerializer, RecoveryWindowSerializer
-from apps.evaluation.models import EvaluationUnit
-from apps.evaluation.services import create_evaluation_unit, set_recovery_window
+from apps.evaluation.api.serializers import (
+    CaptureExceptionGrantSerializer,
+    EvaluationUnitSerializer,
+    RecoveryWindowSerializer,
+)
+from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
+from apps.evaluation.services import (
+    create_evaluation_unit,
+    grant_capture_exception,
+    set_recovery_window,
+)
 
 
 class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
@@ -162,3 +171,84 @@ class EvaluationUnitRecoveryWindowView(APIView):
             EvaluationUnitSerializer(unit).data,
             status=status.HTTP_200_OK,
         )
+
+
+class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
+    """
+    List and grant exceptional capture authorizations for a unit (RF-EVC-004).
+
+    GET  /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}/capture-exceptions/
+    POST /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}/capture-exceptions/
+    """
+
+    serializer_class = CaptureExceptionGrantSerializer
+    lookup_field = "public_id"
+
+    def check_director_permission(self):
+        """
+        Verify user has permission for academic authorization.
+        TODO: implement once permission model is complete.
+        """
+        if not self.request.user or not self.request.user.is_authenticated:
+            return False
+        # TODO: check for permission=evaluation.grant_capture_exception
+        return True
+
+    def get_queryset(self):
+        """Filter grants by unit and cycle from URL parameters."""
+        cycle_public_id = self.kwargs.get("cycle_public_id")
+        unit_public_id = self.kwargs.get("unit_public_id")
+        return CaptureExceptionGrant.objects.filter(
+            evaluation_unit__public_id=unit_public_id,
+            evaluation_unit__academic_cycle__public_id=cycle_public_id,
+            is_active=True,
+        )
+
+    def create(self, request, *args, **kwargs):
+        """
+        POST .../capture-exceptions/
+
+        Grants a new exceptional capture authorization. Only users with
+        academic authorization permission can grant one.
+        """
+        if not self.check_director_permission():
+            return Response(
+                {"error": "Permission denied. Only academic authorization can grant capture exceptions."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        cycle_public_id = kwargs.get("cycle_public_id")
+        unit_public_id = kwargs.get("unit_public_id")
+
+        try:
+            unit = EvaluationUnit.objects.get(
+                public_id=unit_public_id,
+                academic_cycle__public_id=cycle_public_id,
+                is_active=True,
+            )
+        except EvaluationUnit.DoesNotExist:
+            return Response(
+                {"error": "Evaluation unit not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            grant = grant_capture_exception(
+                evaluation_unit=unit,
+                subject=serializer.validated_data["subject"],
+                teacher=serializer.validated_data["teacher"],
+                reason=serializer.validated_data["reason"],
+                expires_at=serializer.validated_data["expires_at"],
+            )
+        except DomainError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.get_serializer(grant)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

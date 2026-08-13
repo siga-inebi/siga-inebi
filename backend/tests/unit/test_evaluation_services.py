@@ -4,27 +4,34 @@ Unit tests for evaluation services.
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
+RF-EVC-004: Brecha excepcional autorizada
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
 Scenario 3: Captura dentro de la ventana
 Scenario 4: Captura con la ventana cerrada
 Scenario 5: Recuperación fuera de fecha
+Scenario 6: Docente que no alcanzó a subir notas
+Scenario 7: Expiración automática
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+from django.utils import timezone
 
 from apps.common.models import DomainError
 from apps.evaluation.models import EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
+    grant_capture_exception,
     set_recovery_window,
+    validate_capture_allowed,
     validate_capture_window_open,
     validate_recovery_window_open,
 )
-from tests.factories.academic import AcademicCycleFactory
+from tests.factories.academic import AcademicCycleFactory, SubjectFactory
+from tests.factories.people import PersonFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -379,4 +386,112 @@ class TestRecoveryWindow:
                 unit=unit,
                 recovery_starts_on=date(2026, 3, 20),
                 recovery_ends_on=date(2026, 3, 10),
+            )
+
+
+class TestCaptureExceptionGrant:
+    """Tests for RF-EVC-004: Brecha excepcional autorizada."""
+
+    def _closed_unit(self):
+        """A unit whose capture window closed yesterday."""
+        cycle = AcademicCycleFactory()
+        yesterday = timezone.localdate() - timedelta(days=1)
+        return create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+
+    def test_teacher_with_grant_can_capture_after_window_closed(self):
+        """
+        Scenario 6: Docente que no alcanzó a subir notas
+        GIVEN una unidad con la ventana de captura cerrada
+        WHEN un usuario con permiso de autorización académica habilita una
+             brecha para un docente y una subárea indicando el motivo
+        THEN ese docente puede registrar las notas de esa subárea durante el
+             plazo concedido
+        AND ningún otro docente obtiene acceso por esa brecha
+        """
+        unit = self._closed_unit()
+        subject = SubjectFactory()
+        teacher = PersonFactory()
+        other_teacher = PersonFactory()
+
+        grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="No alcanzó a subir notas por falla eléctrica.",
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        # The authorized teacher can capture despite the closed window.
+        validate_capture_allowed(unit, subject, teacher)
+        # No exception raised.
+
+        # No other teacher gains access through this grant.
+        with pytest.raises(DomainError, match="Grade capture window is closed"):
+            validate_capture_allowed(unit, subject, other_teacher)
+
+    def test_grant_expires_automatically(self):
+        """
+        Scenario 7: Expiración automática
+        GIVEN una brecha excepcional cuyo plazo venció
+        WHEN el docente intenta registrar una nota
+        THEN el sistema rechaza la operación sin que nadie haya tenido que
+             revocar la brecha
+        """
+        unit = self._closed_unit()
+        subject = SubjectFactory()
+        teacher = PersonFactory()
+
+        grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="No alcanzó a subir notas por falla eléctrica.",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        # Still active is_active=True; only expires_at determines validity.
+        past_expiration = timezone.now() + timedelta(hours=2)
+        with pytest.raises(DomainError, match="Grade capture window is closed"):
+            validate_capture_allowed(unit, subject, teacher, on_datetime=past_expiration)
+
+    def test_reject_empty_reason(self):
+        """
+        Test that granting an exception without a reason is rejected.
+        """
+        unit = self._closed_unit()
+        subject = SubjectFactory()
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="reason is required"):
+            grant_capture_exception(
+                evaluation_unit=unit,
+                subject=subject,
+                teacher=teacher,
+                reason="   ",
+                expires_at=timezone.now() + timedelta(days=1),
+            )
+
+    def test_reject_expiration_in_the_past(self):
+        """
+        Test that granting an exception with a past expiration is rejected.
+        """
+        unit = self._closed_unit()
+        subject = SubjectFactory()
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="must be in the future"):
+            grant_capture_exception(
+                evaluation_unit=unit,
+                subject=subject,
+                teacher=teacher,
+                reason="Motivo válido.",
+                expires_at=timezone.now() - timedelta(hours=1),
             )

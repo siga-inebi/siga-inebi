@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('academics', '0004_academic_cycle_foundation'),
+        ('people', '0001_initial'),
     ]
 
     operations = [
@@ -59,5 +60,23 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='evaluationunit',
             constraint=ExclusionConstraint(expressions=[('academic_cycle', RangeOperators.EQUAL), (models.Func(models.F('starts_on'), models.F('ends_on'), models.Value('[]'), function='DATERANGE', output_field=DateRangeField()), RangeOperators.OVERLAPS)], name='evaluation_unit_no_overlapping_dates'),
+        ),
+        migrations.CreateModel(
+            name='CaptureExceptionGrant',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('public_id', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('is_active', models.BooleanField(default=True)),
+                ('reason', models.TextField(help_text='Justification required to grant the exception.')),
+                ('expires_at', models.DateTimeField(help_text='Moment the grant lapses automatically.')),
+                ('evaluation_unit', models.ForeignKey(help_text='Unit this exceptional capture grant applies to.', on_delete=django.db.models.deletion.CASCADE, related_name='capture_exceptions', to='evaluation.evaluationunit')),
+                ('subject', models.ForeignKey(help_text='Subarea the grant is scoped to.', on_delete=django.db.models.deletion.PROTECT, related_name='capture_exceptions', to='academics.subject')),
+                ('teacher', models.ForeignKey(help_text='Teacher authorized to capture grades during the grant.', on_delete=django.db.models.deletion.PROTECT, related_name='capture_exceptions', to='people.person')),
+            ],
+            options={
+                'ordering': ['-created_at'],
+            },
         ),
     ]

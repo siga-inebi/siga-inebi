@@ -4,6 +4,7 @@ Domain services for evaluation.
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
+RF-EVC-004: Brecha excepcional autorizada
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -12,13 +13,16 @@ DomainError by unique_violation_as. Reading first and writing afterwards
 would leave a window for two concurrent requests to both pass the check.
 """
 
-from datetime import date
+from datetime import date, datetime
 
-from apps.academics.models import AcademicCycle
+from django.utils import timezone
+
+from apps.academics.models import AcademicCycle, Subject
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
-from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
+from apps.people.models import Person
 
 
 def _unit_conflicts(*, number: int) -> dict:
@@ -129,6 +133,111 @@ def set_recovery_window(
     )
 
     return unit
+
+
+def grant_capture_exception(
+    evaluation_unit: EvaluationUnit,
+    subject: Subject,
+    teacher: Person,
+    reason: str,
+    expires_at: datetime,
+    actor=None,
+) -> CaptureExceptionGrant:
+    """
+    Grant an exceptional, time-boxed capture authorization (RF-EVC-004).
+
+    Scoped to exactly one teacher, one subject and one unit. Expires on its
+    own; no closing action is required.
+
+    Args:
+        evaluation_unit: Unit the grant applies to.
+        subject: Subarea the grant is scoped to.
+        teacher: Teacher authorized by the grant.
+        reason: Justification for the exception (required).
+        expires_at: Moment the grant lapses; must be in the future.
+        actor: User granting the exception (for audit trail).
+
+    Returns:
+        CaptureExceptionGrant: The newly created grant.
+
+    Raises:
+        DomainError: If the reason is empty or expires_at is not in the future.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise DomainError("A reason is required to grant a capture exception.")
+    if expires_at <= timezone.now():
+        raise DomainError("Capture exception expiration must be in the future.")
+
+    grant = CaptureExceptionGrant.objects.create(
+        evaluation_unit=evaluation_unit,
+        subject=subject,
+        teacher=teacher,
+        reason=reason,
+        expires_at=expires_at,
+    )
+
+    _audit(
+        actor,
+        "evaluation.capture_exception_granted",
+        grant,
+        unit_id=str(evaluation_unit.public_id),
+        subject_id=str(subject.public_id),
+        teacher_id=str(teacher.public_id),
+        reason=reason,
+        expires_at=expires_at.isoformat(),
+    )
+
+    return grant
+
+
+def has_active_capture_exception(
+    evaluation_unit: EvaluationUnit,
+    subject: Subject,
+    teacher: Person,
+    at: datetime = None,
+) -> bool:
+    """Check whether a non-expired capture exception grant covers this combination."""
+    if at is None:
+        at = timezone.now()
+    return CaptureExceptionGrant.objects.filter(
+        evaluation_unit=evaluation_unit,
+        subject=subject,
+        teacher=teacher,
+        is_active=True,
+        expires_at__gt=at,
+    ).exists()
+
+
+def validate_capture_allowed(
+    evaluation_unit: EvaluationUnit,
+    subject: Subject,
+    teacher: Person,
+    on_datetime: datetime = None,
+) -> None:
+    """
+    Validate that a teacher may capture grades for a subject in a unit, either
+    because the capture window is open (RF-EVC-002) or because an active
+    exceptional grant authorizes it (RF-EVC-004).
+
+    Args:
+        evaluation_unit: Unit the grade belongs to.
+        subject: Subarea of the grade.
+        teacher: Teacher attempting to capture the grade.
+        on_datetime: Instant to validate against (default: now).
+
+    Raises:
+        DomainError: If the window is closed and no active grant covers it.
+    """
+    at = on_datetime or timezone.now()
+    if evaluation_unit.is_capture_window_open(at.date()):
+        return
+    if has_active_capture_exception(evaluation_unit, subject, teacher, at=at):
+        return
+    raise DomainError(
+        f"Grade capture window is closed for unit '{evaluation_unit.name}' and no "
+        f"exceptional grant authorizes teacher '{teacher}' for subject '{subject}'."
+    )
 
 
 def create_evaluation_unit(

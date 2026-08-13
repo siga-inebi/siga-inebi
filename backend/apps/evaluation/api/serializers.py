@@ -6,7 +6,7 @@ Contracts for POST/PATCH operations. Validation happens here before calling serv
 
 from rest_framework import serializers
 
-from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
 
 
 class EvaluationUnitSerializer(serializers.ModelSerializer):
@@ -67,3 +67,23 @@ class RecoveryWindowSerializer(serializers.Serializer):
                 {"recovery_ends_on": "Recovery window end date must be >= start date."}
             )
         return data
+
+
+class CaptureExceptionGrantSerializer(serializers.ModelSerializer):
+    """Contract for granting an exceptional capture window (RF-EVC-004)."""
+
+    public_id = serializers.UUIDField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = CaptureExceptionGrant
+        fields = [
+            "public_id",
+            "evaluation_unit",
+            "subject",
+            "teacher",
+            "reason",
+            "expires_at",
+            "created_at",
+        ]
+        read_only_fields = ["public_id", "evaluation_unit", "created_at"]

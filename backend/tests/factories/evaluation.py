@@ -7,7 +7,7 @@ from datetime import timedelta
 import factory
 from django.utils import timezone
 
-from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
 
 
 class EvaluationUnitFactory(factory.django.DjangoModelFactory):
@@ -31,3 +31,14 @@ class EvaluationUnitFactory(factory.django.DjangoModelFactory):
         lambda obj: obj.starts_on + timedelta(days=55)
     )
     status = EvaluationUnit.UnitStatus.OPEN
+
+
+class CaptureExceptionGrantFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = CaptureExceptionGrant
+
+    evaluation_unit = factory.SubFactory(EvaluationUnitFactory)
+    subject = factory.SubFactory("tests.factories.academic.SubjectFactory")
+    teacher = factory.SubFactory("tests.factories.people.PersonFactory")
+    reason = "Docente no alcanzó a subir notas por falla de conectividad."
+    expires_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=1))

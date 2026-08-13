@@ -4,24 +4,29 @@ Integration tests for evaluation domain.
 RF-EVC-001: Estructura de unidades del ciclo
 RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
+RF-EVC-004: Brecha excepcional autorizada
 
 Cross-domain flows: evaluation interacts with academics domain (cycles).
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+from django.utils import timezone
 
 from apps.academics.models import AcademicCycle
 from apps.evaluation.models import EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
+    grant_capture_exception,
     set_recovery_window,
+    validate_capture_allowed,
     validate_capture_window_open,
     validate_recovery_window_open,
 )
 from apps.common.models import DomainError
-from tests.factories.academic import AcademicCycleFactory
+from tests.factories.academic import AcademicCycleFactory, SubjectFactory
+from tests.factories.people import PersonFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -233,3 +238,96 @@ class TestRecoveryWindowIntegration:
         assert event.resource_identifier == str(unit.pk)
         assert event.context["recovery_starts_on"] == "2026-03-10"
         assert event.context["recovery_ends_on"] == "2026-03-20"
+
+
+class TestCaptureExceptionGrantIntegration:
+    """Integration tests for RF-EVC-004: Brecha excepcional autorizada."""
+
+    def _closed_unit(self, cycle):
+        yesterday = timezone.localdate() - timedelta(days=1)
+        return create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+
+    def test_teacher_capture_scoped_to_grant_integration(self):
+        """
+        Scenario 6: Docente que no alcanzó a subir notas (cross-domain)
+        GIVEN una unidad con la ventana de captura cerrada
+        WHEN se habilita una brecha para un docente y una subárea
+        THEN ese docente puede registrar notas de esa subárea durante el plazo
+        AND ningún otro docente obtiene acceso por esa brecha
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._closed_unit(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        other_teacher = PersonFactory()
+
+        grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="No alcanzó a subir notas por falla eléctrica.",
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        validate_capture_allowed(unit, subject, teacher)
+
+        with pytest.raises(DomainError, match="Grade capture window is closed"):
+            validate_capture_allowed(unit, subject, other_teacher)
+
+    def test_grant_expires_automatically_integration(self):
+        """
+        Scenario 7: Expiración automática (cross-domain)
+        GIVEN una brecha excepcional cuyo plazo venció
+        WHEN el docente intenta registrar una nota
+        THEN el sistema rechaza la operación sin que nadie haya tenido que
+             revocar la brecha
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._closed_unit(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="No alcanzó a subir notas por falla eléctrica.",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        after_expiration = timezone.now() + timedelta(hours=2)
+        with pytest.raises(DomainError, match="Grade capture window is closed"):
+            validate_capture_allowed(unit, subject, teacher, on_datetime=after_expiration)
+
+    def test_capture_exception_audit_trail(self):
+        """
+        Test that granting a capture exception is recorded in the audit trail.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._closed_unit(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        grant = grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="No alcanzó a subir notas por falla eléctrica.",
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        from apps.audit.models import AuditEvent
+
+        event = AuditEvent.objects.get(action="evaluation.capture_exception_granted")
+        assert event.resource_identifier == str(grant.pk)
+        assert event.context["unit_id"] == str(unit.public_id)
+        assert event.context["subject_id"] == str(subject.public_id)
+        assert event.context["teacher_id"] == str(teacher.public_id)
