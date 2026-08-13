@@ -127,9 +127,37 @@ def create_academic_cycle(
     return cycle
 
 
+def _academic_cycle_opening_gaps(cycle):
+    offerings = list(
+        cycle.grade_offerings.filter(is_active=True)
+        .select_related("grade", "shift")
+        .prefetch_related("sections")
+    )
+    if not offerings:
+        return ["at least one grade offering"]
+
+    gaps = []
+    grades_with_plan = set(
+        cycle.curriculum_plans.filter(is_active=True).values_list("grade_id", flat=True)
+    )
+    reported_plan_gaps = set()
+    for offering in offerings:
+        if not offering.sections.filter(is_active=True).exists():
+            gaps.append(
+                f"sections for grade '{offering.grade.name}' in shift '{offering.shift.name}'"
+            )
+        if (
+            offering.grade_id not in grades_with_plan
+            and offering.grade_id not in reported_plan_gaps
+        ):
+            gaps.append(f"curriculum plan for grade '{offering.grade.name}'")
+            reported_plan_gaps.add(offering.grade_id)
+    return gaps
+
+
 @transaction.atomic
 def activate_academic_cycle(*, cycle, actor=None):
-    """Activate a prepared cycle while preventing a second active cycle (RF-CIC-002)."""
+    """Activate a prepared cycle with its available opening structure validated."""
     locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
     if locked.status != AcademicCycle.CycleStatus.DRAFT:
         raise DomainError("Only an academic cycle in preparation can be activated.")
@@ -144,6 +172,11 @@ def activate_academic_cycle(*, cycle, actor=None):
     ):
         raise DomainError(
             "The current active cycle must be closed before activating another cycle."
+        )
+    opening_gaps = _academic_cycle_opening_gaps(locked)
+    if opening_gaps:
+        raise DomainError(
+            "Academic cycle structure is incomplete: " + "; ".join(opening_gaps) + "."
         )
 
     locked.status = AcademicCycle.CycleStatus.ACTIVE

@@ -67,7 +67,9 @@
 - `POST /api/v1/academics/cycles/` registra un ciclo en preparacion con ano, identificacion,
   descripcion institucional y fechas no solapadas.
 - `POST /api/v1/academics/cycles/{public_id}/activate/` activa un ciclo preparado solo cuando no
-  existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
+  existe otro ciclo activo y la estructura disponible contiene grados ofertados, secciones y plan
+  de estudios por grado. La validacion de unidades de evaluacion queda pendiente hasta que exista
+  el modelo del dominio `academic-evaluation`.
 - Todos requieren sesion autenticada. La definicion de permisos atomicos para Directora,
   Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
 ## Administracion de roles
