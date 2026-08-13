@@ -36,6 +36,7 @@ from .serializers import (
     GradeCreateSerializer,
     GradeSerializer,
     GradeUpdateSerializer,
+    HistoricalAcademicCycleSerializer,
     LevelCreateSerializer,
     LevelSerializer,
     LevelSubjectCreateSerializer,
@@ -186,6 +187,23 @@ class AcademicCycleListCreateView(CatalogueListCreateView):
             actor=request.user,
             **payload,
         )
+
+
+class HistoricalAcademicCycleDetailView(CatalogueView):
+    serializer_class = HistoricalAcademicCycleSerializer
+
+    @extend_schema(
+        summary="Consultar detalle historico de un ciclo escolar",
+        description=(
+            "Devuelve estructura, planes, asignaciones docentes y resumen agregado de matriculas. "
+            "Incluye registros inactivos para conservar la historia institucional."
+        ),
+        tags=["academics: cycles"],
+        responses={200: HistoricalAcademicCycleSerializer},
+    )
+    def get(self, request, public_id):
+        cycle = queries.historical_cycle_or_404(self.institution, public_id)
+        return Response(self.get_serializer(cycle).data)
 
 
 class AcademicCycleActivateView(CatalogueView):

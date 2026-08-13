@@ -11,6 +11,7 @@ from apps.enrolments.api.serializers import (
     EnrolmentSerializer,
     MatriculationCreateSerializer,
     MatriculationSerializer,
+    ReenrolmentCreateSerializer,
 )
 from apps.students.models import Student
 
@@ -72,6 +73,41 @@ class MatriculationCreateView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         enrolment = services.matriculate_student(
+            student=_resolve(Student.objects.all(), payload["student_id"], "Student"),
+            academic_cycle=_resolve(
+                AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
+            ),
+            grade=_resolve(Grade.objects.all(), payload["grade_id"], "Grade"),
+            shift=_resolve(Shift.objects.all(), payload["shift_id"], "Shift"),
+            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            effective_on=payload["effective_on"],
+            actor=request.user,
+        )
+        return Response(MatriculationSerializer(enrolment).data, status=status.HTTP_201_CREATED)
+
+
+class ReenrolmentCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ReenrolmentCreateSerializer
+
+    @extend_schema(
+        summary="Reinscribir estudiante",
+        description=(
+            "Reinscribe un estudiante activo en un nuevo ciclo reutilizando su expediente "
+            "base y la historia de su matricula previa."
+        ),
+        request=ReenrolmentCreateSerializer,
+        responses={201: MatriculationSerializer},
+        tags=["enrolments"],
+    )
+    def post(self, request):
+        if not request.user.has_atomic_permission("enrollment_create"):
+            raise PermissionDenied("Actor lacks the required permission.")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        enrolment = services.reenrol_student(
             student=_resolve(Student.objects.all(), payload["student_id"], "Student"),
             academic_cycle=_resolve(
                 AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"

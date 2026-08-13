@@ -8,6 +8,8 @@ from apps.academics.services import (
     clone_academic_cycle,
     create_academic_cycle,
 )
+from apps.academics.models import AcademicCycle, CurriculumPlan
+from apps.academics.services import activate_academic_cycle, create_academic_cycle
 from apps.common.models import DomainError
 from tests.factories.academic import (
     AcademicCycleFactory,
@@ -149,3 +151,28 @@ def test_clone_cycle_can_omit_teaching_assignments_and_requires_closed_source():
             starts_on=date(2027, 1, 1),
             ends_on=date(2027, 12, 31),
         )
+def test_activate_cycle_reports_grade_without_curriculum_plan():
+    prepared = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    offering = GradeOfferingFactory(academic_cycle=prepared)
+    SectionFactory(academic_cycle=prepared, grade=offering.grade, shift=offering.shift)
+
+    with pytest.raises(DomainError, match=offering.grade.name):
+        activate_academic_cycle(cycle=prepared)
+
+    prepared.refresh_from_db()
+    assert prepared.status == AcademicCycle.CycleStatus.DRAFT
+
+
+def test_activate_cycle_accepts_available_complete_structure():
+    prepared = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    offering = GradeOfferingFactory(academic_cycle=prepared)
+    SectionFactory(academic_cycle=prepared, grade=offering.grade, shift=offering.shift)
+    CurriculumPlan.objects.create(
+        academic_cycle=prepared,
+        grade=offering.grade,
+        subject=SubjectFactory(institution=prepared.institution),
+    )
+
+    activated = activate_academic_cycle(cycle=prepared)
+
+    assert activated.status == AcademicCycle.CycleStatus.ACTIVE
