@@ -1,4 +1,5 @@
 import pytest
+from django.test import Client
 from django.urls import reverse
 
 from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
@@ -140,13 +141,15 @@ def test_closed_cycle_historical_detail_preserves_structure_and_aggregates_enrol
 
 
 def test_historical_cycle_detail_is_institution_bound_and_requires_authentication(
-    client, auth_client, institution
+    auth_client, institution
 ):
     foreign_cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    anonymous_client = Client()
 
     assert (
-        client.get(reverse("academic-cycle-historical-detail", args=[foreign_cycle.public_id]))
-        .status_code
+        anonymous_client.get(
+            reverse("academic-cycle-historical-detail", args=[foreign_cycle.public_id])
+        ).status_code
         == 403
     )
     assert (
