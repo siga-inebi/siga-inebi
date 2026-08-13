@@ -164,6 +164,24 @@ class ScopeGrant(TimeStampedModel):
     starts_at = models.DateTimeField(default=timezone.now)
     ends_at = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_active=False)
+                    | models.Q(institution__isnull=False)
+                    | models.Q(academic_cycle__isnull=False)
+                    | models.Q(grade__isnull=False)
+                    | models.Q(section__isnull=False)
+                    | models.Q(subject__isnull=False)
+                    | models.Q(teaching_assignment__isnull=False)
+                    | models.Q(student__isnull=False)
+                    | ~models.Q(module_key="")
+                ),
+                name="identity_scope_grant_has_dimension",
+            )
+        ]
+
     def is_active_at(self, when):
         return (
             self.is_active

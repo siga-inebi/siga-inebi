@@ -22,7 +22,7 @@ from apps.academics.models import (
     Shift,
     Subject,
 )
-from apps.identity.models import Role, RoleAssignment
+from apps.identity.models import Role, RoleAssignment, ScopeGrant
 from apps.people.models import Person
 
 PERMISSIONS = [
@@ -269,7 +269,8 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(generated_password)
             admin_role = Role.objects.get(slug="system-administrator")
-            RoleAssignment.objects.get_or_create(user=user, role=admin_role)
+            assignment, _ = RoleAssignment.objects.get_or_create(user=user, role=admin_role)
+            ScopeGrant.objects.get_or_create(assignment=assignment, module_key="identity")
             self.stdout.write(self.style.SUCCESS(f"Demo admin ready: {username}"))
         else:
             self.stdout.write(

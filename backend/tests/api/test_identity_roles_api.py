@@ -26,6 +26,23 @@ def test_role_endpoints_require_authentication(client):
     assert response.status_code in (401, 403)
 
 
+def test_direct_role_operation_without_permission_is_denied_and_audited(client):
+    actor = UserFactory()
+    client.force_login(actor)
+
+    response = client.post(
+        reverse("identity-role-list-create"),
+        {"name": "Denied", "slug": "denied", "permissions": []},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert AuditEvent.objects.filter(
+        actor=actor,
+        action="identity.authorization.denied",
+    ).exists()
+
+
 def test_authorized_administrator_creates_and_updates_role_composition(client):
     actor = _role_administrator(client)
     created = client.post(
@@ -63,24 +80,28 @@ def test_account_can_receive_multiple_roles_and_revocation_applies_immediately(c
 
     first_response = client.post(
         reverse("identity-role-assignment-create", args=[target.pk]),
-        {"role": str(first.public_id)},
+        {"role": str(first.public_id), "scope": {"module_key": "identity"}},
         content_type="application/json",
     )
     second_response = client.post(
         reverse("identity-role-assignment-create", args=[target.pk]),
-        {"role": str(second.public_id)},
+        {"role": str(second.public_id), "scope": {"module_key": "identity"}},
         content_type="application/json",
     )
 
     assert first_response.status_code == 201
     assert second_response.status_code == 201
-    assert target.has_atomic_permission("student_view_basic") is True
-    assert target.has_atomic_permission("audit_read") is True
+    assert (
+        target.has_scoped_permission("student_view_basic", scope={"module_key": "identity"}) is True
+    )
+    assert target.has_scoped_permission("audit_read", scope={"module_key": "identity"}) is True
 
     revoked = client.delete(
         reverse("identity-role-assignment-revoke", args=[second_response.json()["public_id"]])
     )
 
     assert revoked.status_code == 200
-    assert target.has_atomic_permission("student_view_basic") is True
-    assert target.has_atomic_permission("audit_read") is False
+    assert (
+        target.has_scoped_permission("student_view_basic", scope={"module_key": "identity"}) is True
+    )
+    assert target.has_scoped_permission("audit_read", scope={"module_key": "identity"}) is False
