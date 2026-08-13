@@ -3,6 +3,7 @@ from django.test import Client
 from django.urls import reverse
 
 from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
+from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
@@ -81,6 +82,58 @@ def test_cycle_endpoints_require_authentication(client, institution):
     assert response.status_code == 403
 
 
+def test_clone_cycle_api_copies_structure_and_teachers(auth_client, institution):
+    source = AcademicCycleFactory(
+        institution=institution,
+        year=2026,
+        starts_on="2026-01-01",
+        ends_on="2026-12-31",
+        status=AcademicCycle.CycleStatus.CLOSED,
+    )
+    offering = GradeOfferingFactory(academic_cycle=source)
+    section = SectionFactory(
+        academic_cycle=source,
+        grade=offering.grade,
+        shift=offering.shift,
+    )
+    subject = SubjectFactory(institution=institution)
+    CurriculumPlan.objects.create(
+        academic_cycle=source,
+        grade=offering.grade,
+        subject=subject,
+    )
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=source,
+        section=section,
+        subject=subject,
+        teacher=teacher.person,
+        starts_on=source.starts_on,
+    )
+
+    response = auth_client.post(
+        reverse("academic-cycle-clone", args=[source.public_id]),
+        {
+            "year": 2027,
+            "name": "Ciclo 2027",
+            "description": "Clonado de 2026",
+            "starts_on": "2027-01-01",
+            "ends_on": "2027-12-31",
+            "include_teaching_assignments": True,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    cloned = AcademicCycle.objects.get(public_id=response.json()["public_id"])
+    assert cloned.status == AcademicCycle.CycleStatus.DRAFT
+    assert cloned.grade_offerings.count() == 1
+    assert cloned.grade_offerings.get().sections.count() == 1
+    assert cloned.curriculum_plans.count() == 1
+    assert cloned.teaching_assignments.count() == 1
+    event = AuditEvent.objects.get(action="academics.cycle.cloned")
+    assert event.context["source_cycle_id"] == source.pk
+    assert event.context["teaching_assignment_count"] == 1
 def test_closed_cycle_historical_detail_preserves_structure_and_aggregates_enrolments(
     auth_client, institution
 ):

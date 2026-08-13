@@ -27,6 +27,7 @@ from apps.common.models import DomainError
 from apps.teachers.models import Teacher
 
 from .serializers import (
+    AcademicCycleCloneSerializer,
     AcademicCycleCreateSerializer,
     AcademicCycleSerializer,
     CampusCreateSerializer,
@@ -220,6 +221,30 @@ class AcademicCycleActivateView(CatalogueView):
         )
         activated = services.activate_academic_cycle(cycle=cycle, actor=request.user)
         return Response(AcademicCycleSerializer(activated).data)
+
+
+class AcademicCycleCloneView(CatalogueView):
+    serializer_class = AcademicCycleCloneSerializer
+
+    @extend_schema(
+        summary="Clonar estructura hacia un ciclo nuevo",
+        tags=["academics: cycles"],
+        request=AcademicCycleCloneSerializer,
+        responses={201: AcademicCycleSerializer},
+    )
+    def post(self, request, public_id):
+        source = get_object_or_404(
+            AcademicCycle,
+            public_id=public_id,
+            institution=self.institution,
+        )
+        payload = self.validated(AcademicCycleCloneSerializer, request)
+        cloned = services.clone_academic_cycle(
+            source_cycle=source,
+            actor=request.user,
+            **payload,
+        )
+        return Response(AcademicCycleSerializer(cloned).data, status=status.HTTP_201_CREATED)
 
 
 # --------------------------------------------------------------------------- #

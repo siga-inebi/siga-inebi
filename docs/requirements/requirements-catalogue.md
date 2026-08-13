@@ -70,6 +70,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CIC-003 | Apertura del ciclo | Debe | school-cycle | In Progress | #128 | backend/tests/unit/test_academics_services.py | Valida grados ofertados, secciones y plan por grado; unidades de evaluacion pendientes de modelo |
 | RF-CIC-004 | Cierre del ciclo | Debe | school-cycle | Not implemented | #129 | TBD | Congelamiento relacionado |
 | RF-CIC-005 | Reapertura excepcional | Deberia | school-cycle | Not implemented | #130 | TBD | Ambiguo; controlar |
+| RF-CIC-006 | Conservacion de la informacion historica | Debe | school-cycle | Not implemented | #131 | TBD | Historia obligatoria |
+| RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Implemented | #132 | backend/tests/unit/test_academics_services.py; backend/tests/api/test_academics_api.py | Copia independiente de ofertas, jornadas, secciones, planes y docentes opcionales hacia ciclo preparado |
 | RF-CIC-006 | Conservacion de la informacion historica | Debe | school-cycle | In Progress | #131 | backend/tests/api/test_academics_api.py; backend/tests/integration/test_academics.py | Consulta historica de estructura y resumen de matricula; resultados de evaluacion pendientes de dominio |
 | RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Not implemented | #132 | TBD | Fase posterior |
 | RF-EST-001 | Catalogo de grados | Debe | institutional-structure | Not implemented | #165 | TBD | Nucleo fundacional |

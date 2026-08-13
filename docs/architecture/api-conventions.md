@@ -70,6 +70,10 @@
 - `POST /api/v1/academics/cycles/` registra un ciclo en preparacion con ano, identificacion,
   descripcion institucional y fechas no solapadas.
 - `POST /api/v1/academics/cycles/{public_id}/activate/` activa un ciclo preparado solo cuando no
+  existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
+- `POST /api/v1/academics/cycles/{public_id}/clone/` crea un ciclo independiente en preparacion a
+  partir de un ciclo cerrado. Copia ofertas, jornadas referenciadas, secciones y planes; el campo
+  `include_teaching_assignments` decide si tambien copia las asignaciones docentes vigentes.
   existe otro ciclo activo y la estructura disponible contiene grados ofertados, secciones y plan
   de estudios por grado. La validacion de unidades de evaluacion queda pendiente hasta que exista
   el modelo del dominio `academic-evaluation`.
