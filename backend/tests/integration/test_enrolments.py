@@ -1,10 +1,15 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.enrolments.services import change_section, create_enrolment, matriculate_student
+from apps.enrolments.services import (
+    change_section,
+    create_enrolment,
+    matriculate_student,
+    reenrol_student,
+)
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
@@ -57,7 +62,7 @@ def test_change_section_keeps_history():
         academic_cycle=first_section.academic_cycle,
         grade=first_section.grade,
         shift=first_section.shift,
-        name="Z",
+        name="Replacement",
     )
     student = StudentFactory()
     enrolment = create_enrolment(
@@ -151,3 +156,41 @@ def test_matriculation_crosses_student_and_academic_domains():
     assert enrolment.section_id == section.id
     assert enrolment.section.shift.id == section.shift.id
     assert student.status == student.StudentStatus.ACTIVE
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_reenrolment_crosses_student_and_academic_domains():
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    previous = create_enrolment(
+        student=student,
+        academic_cycle=previous_section.academic_cycle,
+        grade=previous_section.grade,
+        section=previous_section,
+    )
+
+    current = reenrol_student(
+        student=student,
+        academic_cycle=target_cycle,
+        grade=target_section.grade,
+        shift=target_section.shift,
+        section=target_section,
+    )
+
+    assert current.student_id == previous.student_id
+    assert current.academic_cycle_id == target_cycle.id
+    assert student.enrolments.count() == 2
