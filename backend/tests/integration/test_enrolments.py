@@ -57,7 +57,7 @@ def test_cannot_duplicate_incompatible_active_enrolment():
 @pytest.mark.postgres
 @pytest.mark.django_db
 def test_change_section_keeps_history():
-    first_section = SectionFactory()
+    first_section = SectionFactory(name="A")
     second_section = SectionFactory(
         academic_cycle=first_section.academic_cycle,
         grade=first_section.grade,

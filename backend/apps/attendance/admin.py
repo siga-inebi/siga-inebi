@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from apps.attendance.models import AttendanceEvent, JornadaParameters
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, JornadaParameters
 
 
 @admin.register(JornadaParameters)
@@ -13,4 +13,11 @@ class JornadaParametersAdmin(admin.ModelAdmin):
 class AttendanceEventAdmin(admin.ModelAdmin):
     list_display = ["student", "shift", "event_date", "movement_type", "origin", "captured_at"]
     list_filter = ["shift", "movement_type", "origin"]
+    date_hierarchy = "event_date"
+
+
+@admin.register(AttendanceAlert)
+class AttendanceAlertAdmin(admin.ModelAdmin):
+    list_display = ["student", "shift", "event_date", "alert_type", "created_at"]
+    list_filter = ["shift", "alert_type"]
     date_hierarchy = "event_date"
