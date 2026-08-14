@@ -13,7 +13,6 @@ rather than duplicated.
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import permissions
-from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
@@ -27,7 +26,6 @@ from apps.academics.api.views import (
 )
 from apps.documents import services
 from apps.documents.api import queries
-from apps.enrolments.models import Enrolment
 
 from .serializers import (
     DocumentTemplateCreateSerializer,
@@ -35,11 +33,12 @@ from .serializers import (
     DocumentTemplateUpdateSerializer,
     DocumentTemplateVersionSerializer,
     FieldTagSerializer,
+    OfficialDocumentEligibilityQuerySerializer,
     OfficialDocumentEligibilityResponseSerializer,
-    OfficialDocumentEligibilitySerializer,
 )
 
 CATALOGUE = ["documents: catalogue"]
+OFFICIAL_ISSUANCE = ["documents: official issuance"]
 
 INCLUDE_INACTIVE = OpenApiParameter(
     name="include_inactive",
@@ -58,6 +57,14 @@ INCLUDE_SENSITIVE = OpenApiParameter(
         "Incluye etiquetas sensibles/confidenciales. Requiere el permiso "
         "student.view_sensitive. Excluidas por defecto."
     ),
+)
+
+ENROLMENT_ID = OpenApiParameter(
+    name="enrolment_id",
+    type=str,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="Public ID de la matricula que se evalua.",
 )
 
 
@@ -181,32 +188,32 @@ class FieldTagListView(GenericAPIView):
         return self.get_paginated_response(serializer.data)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar elegibilidad de emision oficial",
+        description=(
+            "Indica si una matricula puede continuar con la emision de un documento oficial. "
+            "La emision queda bloqueada mientras existan documentos obligatorios pendientes "
+            "(RF-MAT-006)."
+        ),
+        tags=OFFICIAL_ISSUANCE,
+        parameters=[ENROLMENT_ID],
+        responses={200: OfficialDocumentEligibilityResponseSerializer},
+    ),
+)
 class OfficialDocumentEligibilityView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = OfficialDocumentEligibilitySerializer
+    serializer_class = OfficialDocumentEligibilityQuerySerializer
 
-    @extend_schema(
-        summary="Validar emisión de documento oficial",
-        description=(
-            "Bloquea la emisión cuando la matrícula tiene documentos obligatorios pendientes."
-        ),
-        request=OfficialDocumentEligibilitySerializer,
-        responses={200: OfficialDocumentEligibilityResponseSerializer},
-        tags=["documents"],
-    )
-    def post(self, request):
-        if not request.user.has_atomic_permission("document_issue"):
-            raise PermissionDenied("Actor lacks the required permission.")
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        enrolment = _resolve_enrolment(serializer.validated_data["enrolment_id"])
-        services.ensure_official_document_issuance_allowed(enrolment=enrolment, actor=request.user)
-        return Response({"eligible": True})
-
-
-def _resolve_enrolment(public_id):
-    try:
-        return Enrolment.objects.get(public_id=public_id)
-    except Enrolment.DoesNotExist as exc:
-        raise NotFound("Enrolment not found.") from exc
+    def get(self, request):
+        # The permission is checked before the enrolment is resolved: otherwise a
+        # caller without `document_issue` could probe which enrolments exist by
+        # telling a 404 apart from a 403.
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        enrolment = queries.enrolment_or_404(query.validated_data["enrolment_id"])
+        blocking_codes = services.evaluate_official_document_issuance(
+            enrolment=enrolment, actor=request.user
+        )
+        return Response({"eligible": not blocking_codes, "blocking_document_codes": blocking_codes})

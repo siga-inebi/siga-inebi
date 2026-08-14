@@ -26,6 +26,6 @@ urlpatterns = [
     path(
         "official-issuance/eligibility/",
         OfficialDocumentEligibilityView.as_view(),
-        name="official-document-eligibility",
+        name="document-official-issuance-eligibility",
     ),
 ]

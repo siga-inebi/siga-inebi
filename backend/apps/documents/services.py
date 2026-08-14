@@ -17,9 +17,10 @@ from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAGS
 from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
-from apps.enrolments.models import EnrolmentDocumentRequirement
+from apps.enrolments.services import pending_required_document_codes
 
 SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
+OFFICIAL_ISSUANCE_PERMISSION = "document_issue"
 
 
 def list_field_tags(*, actor=None, include_sensitive=False):
@@ -185,31 +186,54 @@ def deactivate_document_template(*, template, actor=None):
     return template
 
 
-def ensure_official_document_issuance_allowed(*, enrolment, actor=None):
-    pending_codes = list(
-        EnrolmentDocumentRequirement.objects.filter(
-            enrolment=enrolment, is_active=True, is_required=True
-        )
-        .exclude(status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED)
-        .values_list("code", flat=True)
+def ensure_official_document_issuance_permission(*, actor):
+    """
+    Authorization gate for the official document issuance decision (RF-MAT-006).
+    Denied attempts are audited, like the sensitive field tag catalogue.
+    """
+    is_authorized = bool(
+        actor and (actor.is_superuser or actor.has_atomic_permission(OFFICIAL_ISSUANCE_PERMISSION))
     )
-    if pending_codes:
+    if not is_authorized:
         record_event(
             actor=actor,
-            action="documents.official_issuance.blocked",
-            resource="Enrolment",
-            resource_identifier=str(enrolment.pk),
-            context={"pending_document_codes": pending_codes},
+            action="documents.official_issuance.denied",
+            resource="OfficialDocumentIssuance",
+            context={"result": "denied", "reason": "missing_permission"},
         )
+        raise PermissionDenied("Actor lacks permission to issue official documents.")
+
+    return True
+
+
+def evaluate_official_document_issuance(*, enrolment, actor=None):
+    """
+    Codes of the required documents that block official issuance (RF-MAT-006);
+    an empty list means the enrolment is eligible. The decision is audited
+    either way. Authorization is a separate concern, see
+    ``ensure_official_document_issuance_permission``.
+    """
+    blocking_codes = pending_required_document_codes(enrolment=enrolment)
+    if blocking_codes:
+        _audit(
+            actor,
+            "documents.official_issuance.blocked",
+            enrolment,
+            pending_document_codes=blocking_codes,
+        )
+    else:
+        _audit(actor, "documents.official_issuance.allowed", enrolment)
+
+    return blocking_codes
+
+
+def ensure_official_document_issuance_allowed(*, enrolment, actor=None):
+    """Guard for issuance callers: raise when the enrolment is not eligible."""
+    blocking_codes = evaluate_official_document_issuance(enrolment=enrolment, actor=actor)
+    if blocking_codes:
         raise DomainError(
             "Official document issuance is blocked by pending required documents: "
-            f"{', '.join(pending_codes)}."
+            f"{', '.join(blocking_codes)}."
         )
 
-    record_event(
-        actor=actor,
-        action="documents.official_issuance.allowed",
-        resource="Enrolment",
-        resource_identifier=str(enrolment.pk),
-    )
     return True

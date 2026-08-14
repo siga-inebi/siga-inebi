@@ -108,12 +108,16 @@
 
 ## Elegibilidad de emisión oficial
 
-- `POST /api/v1/documents/official-issuance/eligibility/` valida si una matrícula puede
+- `GET /api/v1/documents/official-issuance/eligibility/` consulta si una matrícula puede
   continuar con la emisión de un documento oficial.
-- Recibe `enrolment_id` y devuelve `{ "eligible": true }` cuando no existen requisitos
-  obligatorios pendientes. Si existen pendientes, responde `400` con la regla bloqueante.
-- Requiere sesión autenticada y el permiso atómico `document_issue`; los intentos permitidos
-  y bloqueados generan auditoría.
+- Recibe la matrícula en el parámetro de consulta `enrolment_id` y responde `200` con
+  `{ "eligible": true, "blocking_document_codes": [] }` cuando no existen requisitos
+  obligatorios pendientes.
+- Si existen pendientes responde `200` con `eligible` en `false` y los códigos bloqueantes
+  en `blocking_document_codes`; la consulta informa, no ejecuta la emisión.
+- Un `enrolment_id` que no corresponde a ninguna matrícula devuelve `404`.
+- Requiere sesión autenticada y el permiso atómico `document.issue`, validado antes de
+  resolver la matrícula; los intentos permitidos, bloqueados y denegados generan auditoría.
 
 ## Administracion de roles
 

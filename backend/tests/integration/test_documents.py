@@ -5,7 +5,7 @@ from apps.common.models import DomainError
 from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
 from apps.documents.services import ensure_official_document_issuance_allowed
 from apps.enrolments.models import EnrolmentDocumentRequirement
-from apps.enrolments.services import create_enrolment
+from apps.enrolments.services import create_enrolment, set_document_requirement
 from tests.factories.academic import InstitutionFactory, SectionFactory
 from tests.factories.documents import DocumentTemplateFactory, DocumentTemplateVersionFactory
 from tests.factories.students import StudentFactory
@@ -61,7 +61,7 @@ def test_official_document_issuance_uses_enrolment_document_state():
         grade=section.grade,
         section=section,
     )
-    requirement = EnrolmentDocumentRequirement.objects.create(
+    set_document_requirement(
         enrolment=enrolment,
         code="GUARDIAN-ID",
         name="Guardian identity document",
@@ -70,6 +70,11 @@ def test_official_document_issuance_uses_enrolment_document_state():
     with pytest.raises(DomainError, match="GUARDIAN-ID"):
         ensure_official_document_issuance_allowed(enrolment=enrolment)
 
-    requirement.status = EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
-    requirement.save(update_fields=["status", "updated_at"])
+    set_document_requirement(
+        enrolment=enrolment,
+        code="GUARDIAN-ID",
+        name="Guardian identity document",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+
     assert ensure_official_document_issuance_allowed(enrolment=enrolment) is True
