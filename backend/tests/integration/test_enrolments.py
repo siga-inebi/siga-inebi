@@ -161,6 +161,33 @@ def test_matriculation_crosses_student_and_academic_domains():
 @pytest.mark.integration
 @pytest.mark.postgres
 @pytest.mark.django_db
+def test_matriculation_blocks_full_section_and_preserves_student_status():
+    section = SectionFactory(capacity=1)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    student = StudentFactory(status="pre_enrolled")
+
+    with pytest.raises(DomainError, match="Section capacity has been reached"):
+        matriculate_student(
+            student=student,
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.PRE_ENROLLED
+    assert student.enrolments.count() == 0
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
 def test_reenrolment_crosses_student_and_academic_domains():
     previous_section = SectionFactory(name="A")
     target_cycle = AcademicCycleFactory(

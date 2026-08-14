@@ -24,7 +24,8 @@ class EnrolmentCreateView(GenericAPIView):
         summary="Registrar inscripción",
         description=(
             "Registra una inscripción con estudiante, ciclo, grado, sección y vigencia. "
-            "No permite duplicar una inscripción activa en el mismo ciclo."
+            "Valida cupo disponible y no permite duplicar una inscripción activa en el "
+            "mismo ciclo."
         ),
         request=EnrolmentCreateSerializer,
         responses={201: EnrolmentSerializer},
@@ -59,7 +60,7 @@ class MatriculationCreateView(GenericAPIView):
         summary="Matricular estudiante",
         description=(
             "Matricula un estudiante pre-enrolled y lo vincula al ciclo, grado, jornada y "
-            "sección seleccionados."
+            "sección seleccionados despues de validar cupo disponible."
         ),
         request=MatriculationCreateSerializer,
         responses={201: MatriculationSerializer},

@@ -7,6 +7,19 @@ from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 
 
+def _ensure_section_has_capacity(section):
+    locked_section = section.__class__.objects.select_for_update().get(pk=section.pk)
+    if locked_section.capacity == 0:
+        return
+
+    active_count = Enrolment.objects.filter(
+        section=locked_section,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    ).count()
+    if active_count >= locked_section.capacity:
+        raise DomainError("Section capacity has been reached.")
+
+
 @transaction.atomic
 def create_enrolment(
     *,
@@ -28,6 +41,7 @@ def create_enrolment(
         raise DomainError("Section must belong to the grade.")
     if ends_on is not None and effective_on > ends_on:
         raise DomainError("Enrolment end date cannot precede its effective date.")
+    _ensure_section_has_capacity(section)
 
     with unique_violation_as(
         {
@@ -137,6 +151,7 @@ def reenrol_student(
 def change_section(*, enrolment, new_section, actor=None, effective_on=None):
     if enrolment.academic_cycle.status == enrolment.academic_cycle.CycleStatus.CLOSED:
         raise DomainError("Closed academic cycles do not allow section changes.")
+    _ensure_section_has_capacity(new_section)
 
     effective_on = effective_on or timezone.localdate()
     enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
