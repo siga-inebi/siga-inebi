@@ -7,6 +7,8 @@ All in isolation from the API layer.
 from datetime import datetime, time, timedelta
 
 import pytest
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.attendance import services as attendance_services
@@ -42,7 +44,7 @@ def _at(event_date, hour, minute):
 # --------------------------------------------------------------------------- #
 
 
-def test_no_registered_entry_after_entry_limit_time_generates_absence_alert_for_section_coordinator():
+def test_no_entry_after_limit_time_generates_absence_alert_for_coordinator():
     """
     Escenario 1 (RF-JOR-007): GIVEN un estudiante sin ingreso registrado al
     vencer la hora limite de su jornada, WHEN el sistema evalua las alertas
@@ -102,7 +104,7 @@ def test_absence_alert_not_raised_before_entry_limit_time_elapses():
 # --------------------------------------------------------------------------- #
 
 
-def test_sync_attendance_alerts_projects_new_permanencia_sin_cierre_alert_without_reraising_detection_logic():
+def test_sync_attendance_alerts_projects_permanencia_alert_without_redetecting():
     shift = SectionFactory().offering.shift
     student = StudentFactory()
     event_date = timezone.localdate()
@@ -372,3 +374,164 @@ def test_evaluate_daily_alerts_covers_all_four_alert_types_in_one_call():
         Alert.AlertType.ABSENCE_NOT_REGISTERED,
         Alert.AlertType.FREQUENT_ABSENCES,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Cost and concurrency guardrails
+# --------------------------------------------------------------------------- #
+
+
+def _shift_for_absence_window(*, cycle, lookback_days, students):
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    attendance_services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[],
+        effective_from=cycle.starts_on,
+    )
+    reporting_services.set_absence_threshold_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        max_absences=3,
+        lookback_days=lookback_days,
+        effective_from=cycle.starts_on,
+    )
+    for _ in range(students):
+        create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.offering.grade,
+            section=section,
+        )
+    return shift
+
+
+def _queries_evaluating(*, shift, event_date):
+    with CaptureQueriesContext(connection) as captured:
+        reporting_services.evaluate_frequent_absence_alerts(shift=shift, event_date=event_date)
+    return len(captured.captured_queries)
+
+
+def test_frequent_absence_evaluation_cost_does_not_grow_with_the_window():
+    """
+    Deriving each (student, day) pair on its own costs three queries per
+    pair, so the evaluation used to grow as roster times window — thousands
+    of queries for one jornada. Widening the window must now cost nothing.
+    """
+    today = timezone.localdate()
+    event_date = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=event_date - timedelta(days=90), ends_on=today + timedelta(days=30)
+    )
+
+    narrow = _shift_for_absence_window(cycle=cycle, lookback_days=3, students=3)
+    wide = _shift_for_absence_window(cycle=cycle, lookback_days=30, students=3)
+
+    assert _queries_evaluating(shift=wide, event_date=event_date) == _queries_evaluating(
+        shift=narrow, event_date=event_date
+    )
+
+
+def test_frequent_absence_evaluation_cost_grows_only_with_the_alerts_it_writes():
+    """
+    Adding students may only cost what raising their alerts costs; the
+    derivation behind them must stay flat.
+    """
+    today = timezone.localdate()
+    event_date = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=event_date - timedelta(days=90), ends_on=today + timedelta(days=30)
+    )
+
+    small = _shift_for_absence_window(cycle=cycle, lookback_days=10, students=1)
+    large = _shift_for_absence_window(cycle=cycle, lookback_days=10, students=6)
+
+    baseline = _queries_evaluating(shift=small, event_date=event_date)
+    grown = _queries_evaluating(shift=large, event_date=event_date)
+
+    # Five extra students, each raising one alert: the dedupe read, the
+    # savepoint guarding the insert, the insert itself and the audit entry.
+    # Nothing may scale with the window on top of that.
+    assert grown - baseline <= 5 * 6
+
+
+def test_evaluating_the_same_day_twice_never_duplicates_an_active_alert():
+    today = timezone.localdate()
+    event_date = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=event_date - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    student, _, shift = _enrolled_student(cycle)
+    attendance_services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[],
+        effective_from=cycle.starts_on,
+    )
+
+    reporting_services.evaluate_absence_alerts(shift=shift, event_date=event_date)
+    reporting_services.evaluate_absence_alerts(shift=shift, event_date=event_date)
+
+    assert (
+        Alert.objects.filter(
+            student=student,
+            event_date=event_date,
+            alert_type=Alert.AlertType.ABSENCE_NOT_REGISTERED,
+            is_active=True,
+        ).count()
+        == 1
+    )
+
+
+def test_the_database_refuses_a_second_active_alert_for_the_same_student_and_day():
+    """
+    Two evaluations racing each other both find no existing alert and both
+    insert. The service's read-before-write cannot see that, so the rule is
+    enforced by the database instead.
+    """
+    alert = ReportingAlertFactory()
+
+    with pytest.raises(IntegrityError):
+        ReportingAlertFactory(
+            student=alert.student,
+            shift=alert.shift,
+            event_date=alert.event_date,
+            alert_type=alert.alert_type,
+        )
+
+
+def test_a_superseded_alert_does_not_block_raising_a_fresh_one():
+    """The constraint is partial: it only guards the *active* row."""
+    alert = ReportingAlertFactory()
+    alert.is_active = False
+    alert.save(update_fields=["is_active", "updated_at"])
+
+    replacement = ReportingAlertFactory(
+        student=alert.student,
+        shift=alert.shift,
+        event_date=alert.event_date,
+        alert_type=alert.alert_type,
+    )
+
+    assert replacement.is_active
+
+
+def test_acknowledging_an_already_acknowledged_alert_is_rejected():
+    user = UserFactory()
+    alert = ReportingAlertFactory()
+    reporting_services.acknowledge_alert(alert=alert, actor=user)
+
+    with pytest.raises(DomainError):
+        reporting_services.acknowledge_alert(alert=alert, actor=UserFactory())
+
+    alert.refresh_from_db()
+    assert alert.acknowledged_by == user

@@ -28,7 +28,8 @@ class AbsenceThresholdParametersCreateSerializer(serializers.Serializer):
         min_value=1, help_text="Cantidad de ausencias que activa la alerta."
     )
     lookback_days = serializers.IntegerField(
-        min_value=1, help_text="Ventana de dias lectivos evaluados, terminando en la fecha evaluada."
+        min_value=1,
+        help_text="Ventana de dias lectivos evaluados, terminando en la fecha evaluada.",
     )
     effective_from = serializers.DateField(help_text="Fecha desde la que rige este umbral.")
 

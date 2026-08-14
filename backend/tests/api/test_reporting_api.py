@@ -60,7 +60,9 @@ def test_get_alerts_requires_permission_and_returns_paginated_list(auth_client):
 
 def test_post_acknowledge_sets_acknowledged_by_to_requesting_user(auth_client):
     _grant(auth_client.user, ALERT_ACKNOWLEDGE_PERMISSION)
-    alert = ReportingAlertFactory()
+    student = StudentFactory()
+    alert = ReportingAlertFactory(student=student)
+    _grant_student_scope(auth_client.user, student)
 
     response = auth_client.post(
         reverse("reporting-alert-acknowledge", kwargs={"public_id": alert.public_id}),
@@ -72,6 +74,28 @@ def test_post_acknowledge_sets_acknowledged_by_to_requesting_user(auth_client):
     data = response.json()
     assert data["acknowledged_by_username"] == auth_client.user.username
     assert data["acknowledged_at"] is not None
+
+
+def test_post_acknowledge_is_denied_for_a_student_outside_the_actors_scope(auth_client):
+    """
+    Holding ``reporting_alert_acknowledge`` must not be enough on its own:
+    the alert is about a student, so the actor's student scope decides too,
+    exactly as it does for the list endpoint.
+    """
+    _grant(auth_client.user, ALERT_ACKNOWLEDGE_PERMISSION)
+    _grant_student_scope(auth_client.user, StudentFactory())
+    foreign_alert = ReportingAlertFactory(student=StudentFactory())
+
+    response = auth_client.post(
+        reverse("reporting-alert-acknowledge", kwargs={"public_id": foreign_alert.public_id}),
+        {},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    foreign_alert.refresh_from_db()
+    assert foreign_alert.acknowledged_at is None
+    assert foreign_alert.acknowledged_by is None
 
 
 def test_post_alert_evaluations_triggers_evaluation_and_returns_summary(auth_client):

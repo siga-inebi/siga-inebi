@@ -63,7 +63,7 @@ def test_absence_alert_end_to_end_with_real_enrolment_and_section_coordinator_ta
     assert alert.target_roles == [Alert.TargetRole.SECTION_COORDINATOR]
 
 
-def test_reporting_alert_surface_stays_consistent_after_attendance_recalculation_supersedes_source_alert():
+def test_reporting_alert_surface_consistent_after_recalculation_supersedes_source():
     """
     Ties RF-JOR-006 and RF-JOR-007 together: a late-arriving exit resolves a
     ``permanencia_sin_cierre`` condition in ``attendance`` (RF-JOR-006), and

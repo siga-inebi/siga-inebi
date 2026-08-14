@@ -108,6 +108,17 @@ class Alert(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            # An evaluation run is idempotent: it must not raise a second
+            # active alert of the same type for the same student and day.
+            # Enforced here rather than by the service's read-before-write,
+            # which two concurrent evaluations can both pass.
+            models.UniqueConstraint(
+                fields=["student", "shift", "event_date", "alert_type"],
+                condition=models.Q(is_active=True),
+                name="unique_active_alert_per_student_day_type",
+            )
+        ]
         indexes = [
             models.Index(
                 fields=["student", "shift", "event_date", "alert_type"],

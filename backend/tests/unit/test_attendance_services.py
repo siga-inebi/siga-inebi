@@ -791,6 +791,62 @@ def test_recalculate_day_raises_new_permanencia_sin_cierre_alert_after_closing()
     assert alert.context["reason"] == RecalculationReason.LATE_EVENT
 
 
+def test_recalculate_day_does_not_raise_permanencia_before_the_jornada_closes():
+    """
+    An entry with no exit yet is only "permanencia sin cierre" once the
+    closing time has gone by — before that it just means the student is
+    still inside. ``close_jornada`` gets this for free by running at closing
+    time; a recalculation can land on a day still in progress.
+    """
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=today,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(today, 7, 0),
+    )
+
+    result = services.recalculate_day(
+        student=student,
+        shift=shift,
+        event_date=today,
+        reason=RecalculationReason.PARAMETERS_CHANGED,
+        as_of=_at(today, 10, 0),
+    )
+
+    assert result.raised_alerts == []
+    assert not AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE
+    ).exists()
+
+    # Past the closing time the very same day does raise it.
+    result = services.recalculate_day(
+        student=student,
+        shift=shift,
+        event_date=today,
+        reason=RecalculationReason.PARAMETERS_CHANGED,
+        as_of=_at(today, 17, 0),
+    )
+
+    assert len(result.raised_alerts) == 1
+
+
 def test_recalculate_day_is_idempotent():
     today = timezone.localdate()
     yesterday = today - timedelta(days=1)
@@ -970,3 +1026,80 @@ def test_list_alerts_filters_by_shift_event_date_and_alert_type():
         ],
     )
     assert both_types.count() == 2
+
+
+def test_derive_day_statuses_agrees_with_deriving_each_pair_on_its_own():
+    """
+    The batched reader exists only to cut the query fan-out, so it must
+    return exactly what the per-pair reader would — precedence between
+    conflicting events included.
+    """
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[],
+        effective_from=cycle.starts_on,
+    )
+    present, late, absent = (StudentFactory() for _ in range(3))
+    for student in (present, late, absent):
+        create_enrolment(
+            student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+        )
+    days = [today - timedelta(days=offset) for offset in (1, 2)]
+
+    services.record_attendance_event(
+        student=present,
+        shift=shift,
+        event_date=days[0],
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(days[0], 7, 0),
+    )
+    services.record_attendance_event(
+        student=late,
+        shift=shift,
+        event_date=days[0],
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.MANUAL,
+        captured_at=_at(days[0], 9, 0),
+    )
+    # A declared event loses to the scan above under RF-JOR-003 precedence.
+    services.record_attendance_event(
+        student=present,
+        shift=shift,
+        event_date=days[0],
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(days[0], 11, 0),
+    )
+
+    as_of = _at(today, 17, 0)
+    batched = services.derive_day_statuses(
+        students=[present, late, absent], shift=shift, event_dates=days, as_of=as_of
+    )
+
+    for student in (present, late, absent):
+        for day in days:
+            expected = services.derive_day_status(
+                student=student, shift=shift, event_date=day, as_of=as_of
+            )
+            actual = batched[(student.pk, day)]
+            assert (actual is None) == (expected is None)
+            if expected is not None:
+                assert actual.status == expected.status
+                assert actual.entry_event == expected.entry_event
+                assert actual.parameters == expected.parameters
+
+    assert batched[(present.pk, days[0])].status == DayStatus.PRESENT
+    assert batched[(late.pk, days[0])].status == DayStatus.LATE
+    assert batched[(absent.pk, days[0])].status == DayStatus.ABSENT_PENDING_JUSTIFICATION

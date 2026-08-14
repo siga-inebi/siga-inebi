@@ -13,6 +13,7 @@ it (see ``docs/architecture/domain-map.md``).
 from dataclasses import dataclass
 from datetime import datetime
 
+from django.db import transaction
 from django.db.models import Case, IntegerField, Value, When
 from django.utils import timezone
 
@@ -41,6 +42,7 @@ def _require_active(instance, label):
         raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
 
 
+@transaction.atomic
 def set_jornada_parameters(
     *,
     shift,
@@ -129,6 +131,7 @@ def resolve_academic_cycle_for(*, shift, event_date):
     return academic_cycle
 
 
+@transaction.atomic
 def record_attendance_event(
     *,
     student,
@@ -248,11 +251,72 @@ def resolve_prevailing_event(*, student, shift, event_date, movement_type):
     return candidates.order_by("_origin_rank", "-captured_at").first()
 
 
+def resolve_prevailing_events(*, students, shift, event_dates, movement_type):
+    """
+    Batched ``resolve_prevailing_event``: the prevailing event of one
+    movement type for many students across many days, in a single query.
+
+    Returns ``{(student.pk, event_date): AttendanceEvent}``, leaving out the
+    pairs that have no matching event at all.
+    """
+    students = list(students)
+    event_dates = list(event_dates)
+    if not students or not event_dates:
+        return {}
+
+    # One pass over the globally ordered candidates: the first row seen for a
+    # (student, day) group is that group's prevailing event, because the
+    # ordering is exactly the one ``resolve_prevailing_event`` applies per
+    # pair — scan over manual over declared, then the most recent capture.
+    candidates = (
+        AttendanceEvent.objects.filter(
+            student__in=students,
+            shift=shift,
+            event_date__in=event_dates,
+            movement_type=movement_type,
+            is_active=True,
+        )
+        .annotate(
+            _origin_rank=Case(
+                *[
+                    When(origin=origin, then=Value(rank))
+                    for origin, rank in ORIGIN_PRECEDENCE.items()
+                ],
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("_origin_rank", "-captured_at")
+    )
+    prevailing = {}
+    for event in candidates:
+        prevailing.setdefault((event.student_id, event.event_date), event)
+    return prevailing
+
+
 @dataclass
 class DayStatusResult:
     status: str
     entry_event: AttendanceEvent | None
     parameters: JornadaParameters
+
+
+def _classify_day(*, entry_event, parameters, event_date, as_of):
+    """
+    RF-JOR-002's classification rule, applied to an already-resolved
+    prevailing entry event and the parameters in force. Kept apart so the
+    single-pair and batched readers below can never drift apart.
+    """
+    if entry_event is not None:
+        entry_time = timezone.localtime(entry_event.captured_at).time()
+        status = DayStatus.PRESENT if entry_time <= parameters.entry_limit_time else DayStatus.LATE
+        return DayStatusResult(status=status, entry_event=entry_event, parameters=parameters)
+
+    closing_datetime = timezone.make_aware(datetime.combine(event_date, parameters.closing_time))
+    if as_of >= closing_datetime:
+        return DayStatusResult(
+            status=DayStatus.ABSENT_PENDING_JUSTIFICATION, entry_event=None, parameters=parameters
+        )
+    return None
 
 
 def derive_day_status(*, student, shift, event_date, as_of=None):
@@ -276,18 +340,82 @@ def derive_day_status(*, student, shift, event_date, as_of=None):
         event_date=event_date,
         movement_type=AttendanceEvent.MovementType.ENTRY,
     )
+    return _classify_day(
+        entry_event=entry_event, parameters=parameters, event_date=event_date, as_of=as_of
+    )
 
-    if entry_event is not None:
-        entry_time = timezone.localtime(entry_event.captured_at).time()
-        status = DayStatus.PRESENT if entry_time <= parameters.entry_limit_time else DayStatus.LATE
-        return DayStatusResult(status=status, entry_event=entry_event, parameters=parameters)
 
-    closing_datetime = timezone.make_aware(datetime.combine(event_date, parameters.closing_time))
-    if as_of >= closing_datetime:
-        return DayStatusResult(
-            status=DayStatus.ABSENT_PENDING_JUSTIFICATION, entry_event=None, parameters=parameters
+def derive_day_statuses(*, students, shift, event_dates, as_of=None):
+    """
+    Batched ``derive_day_status`` over a set of students and a set of days —
+    same RF-JOR-002 rules, same results, same ``None`` meaning.
+
+    A caller that needs a whole roster across a whole window (RF-JOR-007's
+    "ausencias frecuentes" evaluation, for one) would otherwise pay three
+    queries per (student, day) pair, which grows as the product of both. Here
+    the prevailing entries resolve in a single query and each cycle's
+    parameter versions load once, so the cost no longer depends on the size
+    of the roster or the length of the window.
+
+    Returns ``{(student.pk, event_date): DayStatusResult | None}``.
+    """
+    as_of = as_of or timezone.now()
+    students = list(students)
+    event_dates = list(dict.fromkeys(event_dates))
+    if not students or not event_dates:
+        return {}
+
+    resolved_cycles = []
+    versions_by_cycle = {}
+    parameters_by_date = {}
+    for event_date in event_dates:
+        academic_cycle = next(
+            (cycle for cycle in resolved_cycles if cycle.starts_on <= event_date <= cycle.ends_on),
+            None,
         )
-    return None
+        if academic_cycle is None:
+            academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+            resolved_cycles.append(academic_cycle)
+        if academic_cycle.pk not in versions_by_cycle:
+            versions_by_cycle[academic_cycle.pk] = list(
+                JornadaParameters.objects.filter(
+                    shift=shift, academic_cycle=academic_cycle, is_active=True
+                ).order_by("-effective_from")
+            )
+        # Same vigencia rule as ``get_effective_parameters``: the newest
+        # version already in force on the day, picked from the versions
+        # loaded once per cycle rather than re-queried per day.
+        parameters = next(
+            (
+                version
+                for version in versions_by_cycle[academic_cycle.pk]
+                if version.effective_from <= event_date
+            ),
+            None,
+        )
+        if parameters is None:
+            raise DomainError(
+                f"No jornada parameters are configured for shift '{shift}' on {event_date}."
+            )
+        parameters_by_date[event_date] = parameters
+
+    prevailing_entries = resolve_prevailing_events(
+        students=students,
+        shift=shift,
+        event_dates=event_dates,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+
+    return {
+        (student.pk, event_date): _classify_day(
+            entry_event=prevailing_entries.get((student.pk, event_date)),
+            parameters=parameters_by_date[event_date],
+            event_date=event_date,
+            as_of=as_of,
+        )
+        for student in students
+        for event_date in event_dates
+    }
 
 
 def _active_enrolment_for(*, student, shift, event_date):
@@ -470,7 +598,8 @@ class DayRecalculationResult:
     reason: str
 
 
-def recalculate_day(*, student, shift, event_date, reason, actor=None):
+@transaction.atomic
+def recalculate_day(*, student, shift, event_date, reason, as_of=None, actor=None):
     """
     Re-evaluate a student's derived state for one jornada day (RF-JOR-006).
 
@@ -494,7 +623,8 @@ def recalculate_day(*, student, shift, event_date, reason, actor=None):
     once a justification resolves for a day — nothing here assumes that
     domain exists.
     """
-    result = derive_day_status(student=student, shift=shift, event_date=event_date)
+    as_of = as_of or timezone.now()
+    result = derive_day_status(student=student, shift=shift, event_date=event_date, as_of=as_of)
     entry_event = result.entry_event if result is not None else None
     exit_event = resolve_prevailing_event(
         student=student,
@@ -509,6 +639,14 @@ def recalculate_day(*, student, shift, event_date, reason, actor=None):
     permanence_without_closure = (
         result is not None and entry_event is not None and exit_event is None
     )
+    # "Sin cierre" only means anything once the jornada's closing time has
+    # gone by: before that, an entry with no exit yet is simply a student
+    # still inside. ``close_jornada`` gets this for free by running at
+    # closing time; a recalculation can land on a day still in progress, so
+    # it has to check.
+    closure_has_passed = result is not None and as_of >= timezone.make_aware(
+        datetime.combine(event_date, result.parameters.closing_time)
+    )
     active_permanence_alerts = list(
         AttendanceAlert.objects.filter(
             student=student,
@@ -518,7 +656,7 @@ def recalculate_day(*, student, shift, event_date, reason, actor=None):
             is_active=True,
         )
     )
-    if permanence_without_closure and not active_permanence_alerts:
+    if permanence_without_closure and closure_has_passed and not active_permanence_alerts:
         enrolment = _active_enrolment_for(student=student, shift=shift, event_date=event_date)
         raised_alerts.append(
             _raise_alert(
@@ -584,6 +722,7 @@ def recalculate_day(*, student, shift, event_date, reason, actor=None):
     )
 
 
+@transaction.atomic
 def recalculate_days_for_parameters_change(
     *, shift, academic_cycle, effective_from, actor=None, until_date=None
 ):
@@ -634,7 +773,7 @@ def list_alerts(*, shift=None, event_date=None, alert_type=None, student=None, i
     if event_date is not None:
         queryset = queryset.filter(event_date=event_date)
     if alert_type is not None:
-        if isinstance(alert_type, (list, tuple, set)):
+        if isinstance(alert_type, list | tuple | set):
             queryset = queryset.filter(alert_type__in=alert_type)
         else:
             queryset = queryset.filter(alert_type=alert_type)
@@ -667,30 +806,40 @@ def list_roster_day_statuses(*, shift, event_date, as_of=None):
     parameters = get_effective_parameters(
         shift=shift, academic_cycle=academic_cycle, on_date=event_date
     )
-    enrolments = Enrolment.objects.filter(
-        academic_cycle=academic_cycle,
-        status=Enrolment.EnrolmentStatus.ACTIVE,
-        section__offering__shift=shift,
-        student__is_active=True,
-    ).select_related("student", "section")
+    enrolments = list(
+        Enrolment.objects.filter(
+            academic_cycle=academic_cycle,
+            status=Enrolment.EnrolmentStatus.ACTIVE,
+            section__offering__shift=shift,
+            student__is_active=True,
+        ).select_related("student", "section")
+    )
+    students = [enrolment.student for enrolment in enrolments]
+
+    # Two batched reads for the whole roster instead of two per student: a
+    # jornada's roster is the size of a school, and this read backs an
+    # endpoint.
+    results = derive_day_statuses(
+        students=students, shift=shift, event_dates=[event_date], as_of=as_of
+    )
+    exit_events = resolve_prevailing_events(
+        students=students,
+        shift=shift,
+        event_dates=[event_date],
+        movement_type=AttendanceEvent.MovementType.EXIT,
+    )
 
     statuses = []
     for enrolment in enrolments:
         student = enrolment.student
-        result = derive_day_status(student=student, shift=shift, event_date=event_date, as_of=as_of)
-        exit_event = resolve_prevailing_event(
-            student=student,
-            shift=shift,
-            event_date=event_date,
-            movement_type=AttendanceEvent.MovementType.EXIT,
-        )
+        result = results.get((student.pk, event_date))
         statuses.append(
             RosterDayStatus(
                 student=student,
                 section=enrolment.section,
                 status=result.status if result is not None else None,
                 entry_event=result.entry_event if result is not None else None,
-                exit_event=exit_event,
+                exit_event=exit_events.get((student.pk, event_date)),
                 parameters=parameters,
             )
         )

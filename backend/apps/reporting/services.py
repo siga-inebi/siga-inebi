@@ -15,14 +15,17 @@ query.
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.attendance import services as attendance_services
 from apps.attendance.models import AttendanceAlert, DayStatus
 from apps.audit.services import record_event
-from apps.common.db import unique_violation_as
+from apps.common.db import constraint_name, unique_violation_as
 from apps.common.models import DomainError
 from apps.reporting.models import AbsenceThresholdParameters, Alert
+
+ACTIVE_ALERT_CONSTRAINT = "unique_active_alert_per_student_day_type"
 
 
 def _require_active(instance, label):
@@ -30,6 +33,7 @@ def _require_active(instance, label):
         raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
 
 
+@transaction.atomic
 def set_absence_threshold_parameters(
     *, shift, academic_cycle, max_absences, lookback_days, effective_from, actor=None
 ):
@@ -108,6 +112,11 @@ def _raise_alert(
     ``attendance`` counterparts, but each evaluation run is idempotent so
     re-running it doesn't pile up duplicates. Returns ``None`` when the
     dedupe guard skips the raise.
+
+    The query below is only a fast path. What actually enforces the rule is
+    the partial unique constraint on the model: two evaluations running at
+    once would both find nothing and both insert, so the loser is recognised
+    by the constraint it violates and skipped just the same.
     """
     if Alert.objects.filter(
         student=student,
@@ -118,16 +127,22 @@ def _raise_alert(
     ).exists():
         return None
 
-    alert = Alert.objects.create(
-        alert_type=alert_type,
-        student=student,
-        shift=shift,
-        section=section,
-        event_date=event_date,
-        target_roles=target_roles,
-        context=context,
-        source_attendance_alert=source_attendance_alert,
-    )
+    try:
+        with transaction.atomic():
+            alert = Alert.objects.create(
+                alert_type=alert_type,
+                student=student,
+                shift=shift,
+                section=section,
+                event_date=event_date,
+                target_roles=target_roles,
+                context=context,
+                source_attendance_alert=source_attendance_alert,
+            )
+    except IntegrityError as exc:
+        if constraint_name(exc) != ACTIVE_ALERT_CONSTRAINT:
+            raise
+        return None
     record_event(
         actor=actor,
         action="reporting.alert.raised",
@@ -162,6 +177,7 @@ def _supersede_alert(*, alert, reason, actor=None):
     )
 
 
+@transaction.atomic
 def sync_attendance_alerts(*, shift, event_date=None, actor=None):
     """
     Project attendance's own ``permanencia_sin_cierre``/``inconsistencia``
@@ -206,6 +222,7 @@ def sync_attendance_alerts(*, shift, event_date=None, actor=None):
     return created, superseded
 
 
+@transaction.atomic
 def evaluate_absence_alerts(*, shift, event_date, as_of=None, actor=None):
     """
     RF-JOR-007: a student with no registered entry once the jornada's entry
@@ -237,6 +254,7 @@ def evaluate_absence_alerts(*, shift, event_date, as_of=None, actor=None):
     return created
 
 
+@transaction.atomic
 def evaluate_frequent_absence_alerts(*, shift, event_date, actor=None):
     """
     RF-JOR-007: a student who accumulates ``max_absences`` (or more)
@@ -261,21 +279,36 @@ def evaluate_frequent_absence_alerts(*, shift, event_date, actor=None):
     )
     school_days = set(parameters.school_days)
 
+    # A day that is not lectivo is skipped, so the walk back covers more
+    # calendar days than ``lookback_days``. The bound keeps a school_days
+    # value outside 1..7 — which the API rejects but a direct service call
+    # could still pass — from spinning forever instead of failing.
     window_dates = []
     cursor = event_date
-    while len(window_dates) < threshold.lookback_days:
+    max_calendar_days = threshold.lookback_days * 7
+    while len(window_dates) < threshold.lookback_days and max_calendar_days > 0:
         if not school_days or cursor.isoweekday() in school_days:
             window_dates.append(cursor)
         cursor -= timedelta(days=1)
+        max_calendar_days -= 1
+    if len(window_dates) < threshold.lookback_days:
+        raise DomainError(
+            f"Jornada parameters for shift '{shift}' declare no usable school days, "
+            f"so a {threshold.lookback_days}-day absence window cannot be built."
+        )
 
     roster = attendance_services.list_roster_day_statuses(shift=shift, event_date=event_date)
+    # One batched read for the whole roster across the whole window: a
+    # per-pair derive_day_status here costs three queries times students
+    # times days, which is what makes a full jornada unservable.
+    statuses = attendance_services.derive_day_statuses(
+        students=[entry.student for entry in roster], shift=shift, event_dates=window_dates
+    )
     created = []
     for entry in roster:
         absence_count = 0
         for day in window_dates:
-            result = attendance_services.derive_day_status(
-                student=entry.student, shift=shift, event_date=day
-            )
+            result = statuses.get((entry.student.pk, day))
             if result is not None and result.status == DayStatus.ABSENT_PENDING_JUSTIFICATION:
                 absence_count += 1
         if absence_count >= threshold.max_absences:
@@ -304,6 +337,7 @@ class DailyAlertEvaluationResult:
     frequent_absence_alerts: list
 
 
+@transaction.atomic
 def evaluate_daily_alerts(*, shift, event_date, as_of=None, actor=None):
     """Run every RF-JOR-007 alert evaluation for one jornada day in one call."""
     synced_alerts, superseded_source_alerts = sync_attendance_alerts(
@@ -325,6 +359,7 @@ def evaluate_daily_alerts(*, shift, event_date, as_of=None, actor=None):
     )
 
 
+@transaction.atomic
 def acknowledge_alert(*, alert, actor):
     """Mark an alert as atendida, recording who attended it and when."""
     if not alert.is_active:
@@ -332,9 +367,18 @@ def acknowledge_alert(*, alert, actor):
     if alert.acknowledged_at is not None:
         raise DomainError("Alert has already been acknowledged.")
 
-    alert.acknowledged_at = timezone.now()
-    alert.acknowledged_by = actor
-    alert.save(update_fields=["acknowledged_at", "acknowledged_by", "updated_at"])
+    # Compare-and-set rather than read-then-save: two concurrent requests
+    # both clear the checks above, and only the one whose UPDATE still
+    # matches an unacknowledged row may claim the alert. The other gets the
+    # same DomainError a sequential retry would have got, instead of
+    # silently overwriting who attended it.
+    now = timezone.now()
+    claimed = Alert.objects.filter(
+        pk=alert.pk, is_active=True, acknowledged_at__isnull=True
+    ).update(acknowledged_at=now, acknowledged_by=actor, updated_at=now)
+    if not claimed:
+        raise DomainError("Alert has already been acknowledged.")
+    alert.refresh_from_db()
     record_event(
         actor=actor,
         action="reporting.alert.acknowledged",

@@ -63,6 +63,7 @@ class Migration(migrations.Migration):
             options={
                 'ordering': ['-created_at'],
                 'indexes': [models.Index(fields=['student', 'shift', 'event_date', 'alert_type'], name='reporting_alert_lookup_idx')],
+                'constraints': [models.UniqueConstraint(condition=models.Q(('is_active', True)), fields=('student', 'shift', 'event_date', 'alert_type'), name='unique_active_alert_per_student_day_type')],
             },
         ),
     ]

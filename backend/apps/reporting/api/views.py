@@ -13,7 +13,7 @@ from rest_framework.response import Response
 
 from apps.academics.models import AcademicCycle, Shift
 from apps.common.models import DomainError
-from apps.identity.scopes import authorized_student_queryset
+from apps.identity.scopes import authorized_student_queryset, can_access_student
 from apps.reporting import services
 from apps.reporting.models import AbsenceThresholdParameters, Alert
 
@@ -118,7 +118,16 @@ class ReportingAlertAcknowledgeView(GenericAPIView):
 
     def post(self, request, public_id):
         _require_permission(request, ALERT_ACKNOWLEDGE_PERMISSION)
-        alert = _resolve(Alert.objects.all(), public_id, "Alert")
+        alert = _resolve(Alert.objects.select_related("student"), public_id, "Alert")
+        # Holding the acknowledge permission is not enough: the alert is
+        # about a student, so the actor's student scope decides too, the same
+        # way the list view above and attendance's own single-resource
+        # endpoints do it. Without this an actor scoped to one section can
+        # attend alerts of the whole institution.
+        if not can_access_student(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=alert.student
+        ):
+            raise PermissionDenied("Actor lacks the required permission or student scope.")
         alert = services.acknowledge_alert(alert=alert, actor=request.user)
         return Response(ReportingAlertSerializer(alert).data)
 
