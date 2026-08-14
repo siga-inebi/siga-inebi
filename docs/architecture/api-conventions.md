@@ -126,6 +126,13 @@
 - Requiere sesión autenticada y el permiso atómico `document.issue`, validado antes de
   resolver la matrícula; los intentos permitidos, bloqueados y denegados generan auditoría.
 
+## Historial de inscripciones
+
+- `GET /api/v1/enrolments/history/?student_id={public_id}` devuelve todas las inscripciones
+  registradas del estudiante, sin filtrar por estado ni por `is_active`.
+- La respuesta es paginada y se ordena desde la vigencia más reciente hacia la más antigua.
+  Los estados y fechas se conservan para mantener la trazabilidad histórica.
+
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.

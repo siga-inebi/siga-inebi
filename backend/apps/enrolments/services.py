@@ -30,6 +30,14 @@ def active_enrolments(*, student=None):
     return queryset.filter(student=student) if student is not None else queryset
 
 
+def enrolment_history(*, student):
+    return (
+        Enrolment.objects.filter(student=student)
+        .select_related("student", "academic_cycle", "grade", "section")
+        .order_by("-effective_on", "-created_at", "-pk")
+    )
+
+
 @transaction.atomic
 def create_enrolment(
     *,

@@ -4,11 +4,12 @@ import pytest
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.enrolments.models import EnrolmentDocumentRequirement
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import (
     active_enrolments,
     change_section,
     create_enrolment,
+    enrolment_history,
     matriculate_student,
     reenrol_student,
     set_document_requirement,
@@ -33,6 +34,32 @@ def test_create_valid_enrolment():
 
     assert enrolment.status == enrolment.EnrolmentStatus.ACTIVE
     assert list(active_enrolments(student=student)) == [enrolment]
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_enrolment_history_preserves_cycle_records():
+    student = StudentFactory()
+    first_section = SectionFactory()
+    second_section = SectionFactory()
+    first = Enrolment.objects.create(
+        student=student,
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        section=first_section,
+        effective_on=date(2025, 2, 1),
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    second = create_enrolment(
+        student=student,
+        academic_cycle=second_section.academic_cycle,
+        grade=second_section.grade,
+        section=second_section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    assert list(enrolment_history(student=student)) == [second, first]
 
 
 @pytest.mark.integration

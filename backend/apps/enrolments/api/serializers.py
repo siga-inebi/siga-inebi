@@ -74,6 +74,10 @@ class ActiveEnrolmentQuerySerializer(serializers.Serializer):
     student_id = serializers.UUIDField(required=False, help_text="Filtra por estudiante.")
 
 
+class EnrolmentHistoryQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(required=True, help_text="Public ID del estudiante.")
+
+
 class MatriculationSerializer(EnrolmentSerializer):
     shift_id = serializers.UUIDField(source="section.shift.public_id", read_only=True)
 
