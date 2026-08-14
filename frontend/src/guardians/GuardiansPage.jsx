@@ -1,88 +1,64 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
-import { DataTable } from "../components/DataTable.jsx";
-import { DetailPanel } from "../components/DetailPanel.jsx";
-import { FormModal } from "../components/FormModal.jsx";
-import { ListToolbar } from "../components/ListToolbar.jsx";
-import { Pagination } from "../components/Pagination.jsx";
-import { guardiansService } from "../services/guardiansService.js";
-import { downloadCsv } from "../utils/csv.js";
+import Button from "@mui/material/Button";
+import AddIcon from "@mui/icons-material/Add";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 
-const PAGE_SIZE = 5;
+import { guardiansService } from "@guardians/guardiansService.js";
+import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { useLocalList } from "@shared/crud/useLocalList.js";
+import { downloadCsv } from "@shared/utils/csv.js";
+import { FilterBar } from "@ui/filters/FilterBar.jsx";
+import { SearchField } from "@ui/filters/SearchField.jsx";
+import { DataTable } from "@ui/table/DataTable.jsx";
+import { MutedCell } from "@ui/table/cells.jsx";
+import { DetailDrawer } from "@ui/layout/DetailDrawer.jsx";
+import { PageHeader } from "@ui/layout/PageHeader.jsx";
+import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 
-const CREATE_FIELDS = [
+const GUARDIAN_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
   { name: "last_name", label: "Apellidos", required: true },
-  { name: "email", label: "Correo", type: "email" },
-  { name: "phone_number", label: "Telefono" },
+  { name: "email", label: "Correo (opcional)", type: "email" },
+  { name: "phone_number", label: "Telefono (opcional)", type: "tel" },
 ];
 
+const EMPTY_GUARDIAN = {
+  first_name: "",
+  last_name: "",
+  email: "",
+  phone_number: "",
+};
+
 function fullName(guardian) {
-  return `${guardian.person.first_name} ${guardian.person.last_name}`;
+  return `${guardian.person.first_name} ${guardian.person.last_name}`.trim();
 }
 
 const COLUMNS = [
-  { key: "nombre", label: "Nombre", render: fullName },
-  { key: "correo", label: "Correo", render: (item) => item.person.email },
+  { key: "nombre", label: "Nombre completo", render: fullName },
+  {
+    key: "correo",
+    label: "Correo",
+    render: (item) => item.person.email || <MutedCell>Sin registrar</MutedCell>,
+  },
   {
     key: "telefono",
     label: "Telefono",
-    render: (item) => item.person.phone_number,
+    render: (item) => item.person.phone_number || <MutedCell>Sin registrar</MutedCell>,
   },
 ];
 
 export function GuardiansPage() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const loadGuardians = useCallback(() => guardiansService.list(), []);
+  const matches = useCallback(
+    (guardian, query) => fullName(guardian).toLowerCase().includes(query),
+    []
+  );
+  const list = useLocalList(loadGuardians, { matches });
+
   const [selected, setSelected] = useState(null);
-  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
-
-  useEffect(() => {
-    let active = true;
-    guardiansService
-      .list()
-      .then((data) => {
-        if (active) {
-          setItems(data);
-        }
-      })
-      .catch((requestError) => {
-        if (active) {
-          setError(requestError.message);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search]);
-
-  const filtered = useMemo(
-    () =>
-      items.filter((guardian) =>
-        fullName(guardian).toLowerCase().includes(search.trim().toLowerCase())
-      ),
-    [items, search]
-  );
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
+  const [creating, setCreating] = useState(false);
 
   const handleExport = () => {
     downloadCsv(
@@ -92,7 +68,7 @@ export function GuardiansPage() {
         { label: "Correo", value: (item) => item.person.email },
         { label: "Telefono", value: (item) => item.person.phone_number },
       ],
-      filtered
+      list.filtered
     );
   };
 
@@ -105,7 +81,7 @@ export function GuardiansPage() {
         phone_number: values.phone_number,
       },
     });
-    setItems((current) => [...current, created]);
+    list.addItem(created);
     setCreating(false);
   };
 
@@ -119,108 +95,115 @@ export function GuardiansPage() {
         phone_number: values.phone_number,
       },
     });
-    setItems((current) =>
-      current.map((item) => (item.id === updated.id ? updated : item))
-    );
+    list.replaceItem(updated, (item) => item.id === updated.id);
     setSelected(updated);
     setEditing(null);
   };
 
   return (
-    <section className="list-page">
-      <header className="list-page-header">
-        <p className="eyebrow">Sistema academico / Padres y Encargados</p>
-        <h1>Padres y Encargados</h1>
-        <p className="muted">Listado de padres y encargados.</p>
-      </header>
-
-      <ListToolbar
-        createLabel="+ Agregar nuevo"
-        onCreate={() => setCreating(true)}
-        onExportCsv={handleExport}
-        onSearchChange={setSearch}
-        searchValue={search}
+    <>
+      <PageHeader
+        action={
+          <Button
+            onClick={() => setCreating(true)}
+            startIcon={<AddIcon fontSize="small" />}
+            variant="contained"
+          >
+            Nuevo encargado
+          </Button>
+        }
+        breadcrumb="Comunidad educativa"
+        subtitle={`${list.filtered.length} de ${list.all.length} encargados registrados.`}
+        title="Padres de familia"
       />
 
-      {loading ? <p className="muted">Cargando padres de familia...</p> : null}
-      {error ? <div className="message message-error">{error}</div> : null}
-
-      {!loading && !error ? (
-        <>
-          <DataTable
-            columns={[
-              ...COLUMNS,
-              {
-                key: "detalle",
-                label: "Detalle",
-                render: (guardian) => (
-                  <button
-                    className="button secondary"
-                    onClick={() => setSelected(guardian)}
-                    type="button"
-                  >
-                    Ver detalle
-                  </button>
-                ),
-              },
-            ]}
-            emptyMessage="No hay padres o encargados que coincidan con la busqueda."
-            rows={paged}
-          />
-          <Pagination
-            onPageChange={setPage}
-            page={currentPage}
-            pageSize={PAGE_SIZE}
-            total={filtered.length}
-          />
-        </>
-      ) : null}
-
-      {selected ? (
-        <DetailPanel
+      <SectionCard fillHeight>
+        <FilterBar
           actions={
-            <button
-              className="button secondary"
-              onClick={() => setEditing(selected)}
-              type="button"
+            <Button
+              onClick={handleExport}
+              size="small"
+              startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
+              variant="outlined"
             >
-              Editar
-            </button>
+              Exportar CSV
+            </Button>
           }
-          fields={[
-            { label: "Nombre completo", value: fullName(selected) },
-            { label: "Correo", value: selected.person.email },
-            { label: "Telefono", value: selected.person.phone_number },
-          ]}
-          onClose={() => setSelected(null)}
-          title={fullName(selected)}
-        />
-      ) : null}
+        >
+          <SearchField
+            onChange={list.setSearch}
+            placeholder="Buscar por nombre…"
+            value={list.search}
+          />
+        </FilterBar>
 
-      {creating ? (
-        <FormModal
-          fields={CREATE_FIELDS}
-          onCancel={() => setCreating(false)}
-          onSubmit={handleCreate}
-          title="Agregar padre o encargado"
-        />
-      ) : null}
+        <SectionTableArea>
+          <DataTable
+            columns={COLUMNS}
+            emptyMessage={
+              list.search
+                ? "Sin resultados para la busqueda."
+                : "Todavia no hay encargados registrados."
+            }
+            fillHeight
+            loading={list.loading}
+            onRowClick={setSelected}
+            pagination={list.pagination}
+            rows={list.items}
+          />
+        </SectionTableArea>
+      </SectionCard>
+
+      <DetailDrawer
+        actions={
+          selected ? (
+            <Button onClick={() => setEditing(selected)} variant="contained">
+              Editar
+            </Button>
+          ) : null
+        }
+        fields={
+          selected
+            ? [
+                { label: "Nombre completo", value: fullName(selected) },
+                { label: "Correo", value: selected.person.email },
+                { label: "Telefono", value: selected.person.phone_number },
+              ]
+            : []
+        }
+        onClose={() => setSelected(null)}
+        open={Boolean(selected)}
+        title={selected ? fullName(selected) : ""}
+      />
+
+      <EntityFormDrawer
+        fields={GUARDIAN_FIELDS}
+        initialValues={EMPTY_GUARDIAN}
+        key={creating ? "create-open" : "create-closed"}
+        onCancel={() => setCreating(false)}
+        onSubmit={handleCreate}
+        open={creating}
+        submitLabel="Crear encargado"
+        title="Nuevo encargado"
+      />
 
       {editing ? (
-        <FormModal
-          fields={CREATE_FIELDS}
+        <EntityFormDrawer
+          fields={GUARDIAN_FIELDS}
           initialValues={{
             first_name: editing.person.first_name,
             last_name: editing.person.last_name,
-            email: editing.person.email,
-            phone_number: editing.person.phone_number,
+            email: editing.person.email ?? "",
+            phone_number: editing.person.phone_number ?? "",
           }}
+          key={editing.id}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
+          open
           submitLabel="Guardar cambios"
-          title="Editar padre o encargado"
+          title={`Editar ${fullName(editing)}`}
         />
       ) : null}
-    </section>
+    </>
   );
 }

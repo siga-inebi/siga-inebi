@@ -1,41 +1,58 @@
 import { useCallback, useState } from "react";
 
-import { CatalogueForm } from "../features/catalogue/CatalogueForm.jsx";
-import { CataloguePager } from "../features/catalogue/CataloguePager.jsx";
-import {
-  CatalogueTable,
-  StatusBadge,
-} from "../features/catalogue/CatalogueTable.jsx";
-import { ConfirmButton } from "../features/catalogue/ConfirmButton.jsx";
-import { useCatalogue } from "../features/catalogue/useCatalogue.js";
-import { academicsService } from "../services/academicsService.js";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import AddIcon from "@mui/icons-material/Add";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+
+import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
+import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { ListSection } from "@shared/crud/ListSection.jsx";
+import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
+import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
+import { PageHeader } from "@ui/layout/PageHeader.jsx";
+import { StatusChip } from "@ui/display/StatusChip.jsx";
 
 const SUBJECT_COLUMNS = [
-  { key: "name", header: "Curso", render: (row) => row.name },
-  { key: "code", header: "Codigo", render: (row) => <code>{row.code}</code> },
+  { key: "name", label: "Curso", render: (row) => row.name },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => (
+      <Typography component="code" sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
+        {row.code}
+      </Typography>
+    ),
+  },
   {
     key: "levels",
-    header: "Se imparte en",
+    label: "Se imparte en",
     render: (row) =>
       row.levels?.length ? (
         row.levels.map((level) => level.name).join(", ")
       ) : (
-        <span className="muted">Sin vincular</span>
+        <Typography color="text.disabled" component="span" sx={{ fontSize: "0.8125rem" }}>
+          Sin vincular
+        </Typography>
       ),
   },
   {
     key: "is_active",
-    header: "Estado",
-    render: (row) => <StatusBadge active={row.is_active} />,
+    label: "Estado",
+    render: (row) => (
+      <StatusChip
+        label={row.is_active ? "Activo" : "Desactivado"}
+        variant={row.is_active ? "success" : "neutral"}
+      />
+    ),
   },
 ];
 
 export function SubjectsPage() {
-  const loadSubjects = useCallback(
-    (params) => academicsService.listSubjects(params),
-    []
-  );
-  const catalogue = useCatalogue(loadSubjects);
+  const loadSubjects = useCallback((params) => academicsService.listSubjects(params), []);
+  const list = usePaginatedList(loadSubjects, { pageSize: PAGE_SIZE });
 
   const [editing, setEditing] = useState(null);
   const [actionError, setActionError] = useState("");
@@ -43,145 +60,109 @@ export function SubjectsPage() {
   const handleCreate = async (payload) => {
     await academicsService.createSubject(payload);
     setEditing(null);
-    catalogue.refresh();
+    list.refresh();
   };
 
   const handleUpdate = async (payload) => {
     await academicsService.updateSubject(editing.subject.public_id, payload);
     setEditing(null);
-    catalogue.refresh();
+    list.refresh();
   };
 
   const handleDeactivate = async (subject) => {
     setActionError("");
     try {
       await academicsService.deactivateSubject(subject.public_id);
-      catalogue.refresh();
+      list.refresh();
     } catch (requestError) {
       setActionError(requestError.message);
+      throw requestError;
     }
   };
 
   return (
-    <section className="catalogue">
-      <header className="panel catalogue-header">
-        <div>
-          <p className="eyebrow">Estructura academica</p>
-          <h1>Cursos</h1>
-          <p className="muted">
-            Catalogo de cursos de la institucion. Los niveles en los que se
-            imparte cada uno se declaran desde el plan de estudios del nivel.
-          </p>
-        </div>
-        <div className="actions">
-          <button
-            className="button"
+    <>
+      <PageHeader
+        breadcrumb="Estructura academica"
+        subtitle="Catalogo de cursos de la institucion. Los niveles en los que se imparte cada uno se declaran desde el plan de estudios del nivel."
+        title="Cursos"
+      />
+
+      <ListSection
+        action={
+          <Button
             onClick={() => setEditing({ mode: "create" })}
-            type="button"
+            size="small"
+            startIcon={<AddIcon fontSize="small" />}
+            variant="contained"
           >
             Nuevo curso
-          </button>
-        </div>
-      </header>
+          </Button>
+        }
+        actionError={actionError}
+        list={list}
+        columns={SUBJECT_COLUMNS}
+        emptyMessage="Todavia no hay cursos registrados."
+        fillHeight
+        getRowKey={(subject) => subject.public_id}
+        renderActions={(subject) => (
+          <Stack direction="row" gap={0.5} justifyContent="flex-end">
+            <ActionIconButton
+              label="Editar"
+              onClick={() => setEditing({ mode: "edit", subject })}
+            >
+              <EditOutlinedIcon fontSize="small" />
+            </ActionIconButton>
+            {subject.is_active ? (
+              <ConfirmActionButton
+                confirmLabel="Si, desactivar"
+                label="Desactivar"
+                onConfirm={() => handleDeactivate(subject)}
+                question={`Se desactivara "${subject.name}". Podra reactivarse despues, pero dejara de estar disponible en el plan de estudios.`}
+                title="Desactivar curso"
+              />
+            ) : null}
+          </Stack>
+        )}
+        subtitle="Cursos de la institucion"
+        title="Cursos registrados"
+      />
 
-      {editing?.mode === "create" ? (
-        <CatalogueForm
-          description="El codigo es unico por institucion y no se puede cambiar despues."
-          fields={[
-            {
-              name: "name",
-              label: "Nombre",
-              required: true,
-              placeholder: "Ejemplo: Matematica",
-            },
-            {
-              name: "code",
-              label: "Codigo",
-              required: true,
-              placeholder: "Ejemplo: MAT",
-            },
-          ]}
-          initialValues={{ name: "", code: "" }}
-          onCancel={() => setEditing(null)}
-          onSubmit={handleCreate}
-          submitLabel="Crear curso"
-          title="Nuevo curso"
-        />
-      ) : null}
+      {/* Los formularios se remontan por `key` al abrir para que su estado nazca
+          limpio; renovar la key al cerrar mostraria el form vacio durante la
+          animacion de salida. */}
+      <EntityFormDrawer
+        description="El codigo es unico por institucion y no se puede cambiar despues."
+        fields={CREATE_FIELDS}
+        initialValues={{ name: "", code: "" }}
+        key={editing?.mode === "create" ? "create" : "create-closed"}
+        onCancel={() => setEditing(null)}
+        onSubmit={handleCreate}
+        open={editing?.mode === "create"}
+        submitLabel="Crear curso"
+        title="Nuevo curso"
+      />
 
       {editing?.mode === "edit" ? (
-        <CatalogueForm
+        <EntityFormDrawer
           description={`El codigo ${editing.subject.code} es inmutable.`}
-          fields={[{ name: "name", label: "Nombre", required: true }]}
+          fields={EDIT_FIELDS}
           initialValues={{ name: editing.subject.name }}
+          key={editing.subject.public_id}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
+          open
           submitLabel="Guardar cambios"
           title={`Editar ${editing.subject.name}`}
         />
       ) : null}
-
-      <div className="panel">
-        <div className="catalogue-toolbar">
-          <h2>Cursos registrados</h2>
-          <label className="field field-inline">
-            <input
-              checked={catalogue.includeInactive}
-              onChange={(event) =>
-                catalogue.setIncludeInactive(event.target.checked)
-              }
-              type="checkbox"
-            />
-            <span>Mostrar desactivados</span>
-          </label>
-        </div>
-
-        {catalogue.error ? (
-          <div className="message message-error" role="alert">
-            {catalogue.error}
-          </div>
-        ) : null}
-        {actionError ? (
-          <div className="message message-error" role="alert">
-            {actionError}
-          </div>
-        ) : null}
-
-        <CatalogueTable
-          caption="Cursos de la institucion"
-          columns={SUBJECT_COLUMNS}
-          emptyMessage="Todavia no hay cursos registrados."
-          loading={catalogue.loading}
-          renderActions={(subject) => (
-            <>
-              <button
-                className="button secondary button-small"
-                onClick={() => setEditing({ mode: "edit", subject })}
-                type="button"
-              >
-                Editar
-              </button>
-              {subject.is_active ? (
-                <ConfirmButton
-                  confirmLabel="Si, desactivar"
-                  label="Desactivar"
-                  onConfirm={() => handleDeactivate(subject)}
-                  question={`Desactivar ${subject.name}?`}
-                />
-              ) : null}
-            </>
-          )}
-          rowKey={(subject) => subject.public_id}
-          rows={catalogue.items}
-        />
-
-        <CataloguePager
-          count={catalogue.count}
-          onChange={catalogue.goToPage}
-          page={catalogue.page}
-          pageCount={catalogue.pageCount}
-        />
-      </div>
-    </section>
+    </>
   );
 }
+
+const CREATE_FIELDS = [
+  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Matematica" },
+  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: MAT" },
+];
+
+const EDIT_FIELDS = [{ name: "name", label: "Nombre", required: true }];

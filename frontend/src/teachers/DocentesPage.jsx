@@ -1,22 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
-import { DataTable } from "../components/DataTable.jsx";
-import { DetailPanel } from "../components/DetailPanel.jsx";
-import { FormModal } from "../components/FormModal.jsx";
-import { ImageLightbox } from "../components/ImageLightbox.jsx";
-import { ListToolbar } from "../components/ListToolbar.jsx";
-import { Pagination } from "../components/Pagination.jsx";
-import { POSITION_OPTIONS } from "../mocks/teachers.js";
-import { teachersService } from "../services/teachersService.js";
-import { downloadCsv } from "../utils/csv.js";
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import ButtonBase from "@mui/material/ButtonBase";
+import AddIcon from "@mui/icons-material/Add";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
-const PAGE_SIZE = 5;
+import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
+import { teachersService } from "@teachers/teachersService.js";
+import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { useLocalList } from "@shared/crud/useLocalList.js";
+import { downloadCsv } from "@shared/utils/csv.js";
+import { formatDate } from "@shared/utils/format.js";
+import { FilterBar } from "@ui/filters/FilterBar.jsx";
+import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
+import { SearchField } from "@ui/filters/SearchField.jsx";
+import { ImageDialog } from "@ui/display/ImageDialog.jsx";
+import { StatusChip } from "@ui/display/StatusChip.jsx";
+import { DataTable } from "@ui/table/DataTable.jsx";
+import { MutedCell } from "@ui/table/cells.jsx";
+import { DetailDrawer } from "@ui/layout/DetailDrawer.jsx";
+import { PageHeader } from "@ui/layout/PageHeader.jsx";
+import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 
-const CREATE_FIELDS = [
+const TEACHER_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
   { name: "last_name", label: "Apellidos", required: true },
-  { name: "email", label: "Correo", type: "email" },
-  { name: "phone_number", label: "Telefono" },
+  { name: "email", label: "Correo (opcional)", type: "email" },
+  { name: "phone_number", label: "Telefono (opcional)", type: "tel" },
   { name: "specialty", label: "Especialidad", required: true },
   {
     name: "position",
@@ -25,99 +38,46 @@ const CREATE_FIELDS = [
     options: POSITION_OPTIONS,
     required: true,
   },
-  { name: "appointment_date", label: "Fecha de Nombramiento", type: "date" },
-  { name: "employee_code", label: "Codigo de Empleado", required: true },
-  { name: "photo", label: "Foto", type: "file", accept: "image/*" },
+  { name: "appointment_date", label: "Fecha de nombramiento (opcional)", type: "date" },
+  { name: "employee_code", label: "Codigo de empleado", required: true },
+  { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
+];
+
+const ALL_POSITIONS = "";
+
+const POSITION_FILTER_OPTIONS = [
+  { value: ALL_POSITIONS, label: "Todos los puestos" },
+  ...POSITION_OPTIONS.map((option) => ({ value: option, label: option })),
 ];
 
 function fullName(teacher) {
-  return `${teacher.person.first_name} ${teacher.person.last_name}`;
+  return `${teacher.person.first_name} ${teacher.person.last_name}`.trim();
 }
 
-const COLUMNS = [
-  {
-    key: "foto",
-    label: "Foto",
-    render: (item) =>
-      item.photo ? (
-        <img alt="" className="avatar-thumb" src={item.photo} />
-      ) : (
-        "Sin foto"
-      ),
-  },
-  { key: "nombre", label: "Nombre", render: fullName },
-  {
-    key: "especialidad",
-    label: "Especialidad",
-    render: (item) => item.specialty,
-  },
-  { key: "puesto", label: "Puesto", render: (item) => item.position },
-  {
-    key: "codigo",
-    label: "Codigo Empleado",
-    render: (item) => item.employee_code,
-  },
-];
-
 export function DocentesPage() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [positionFilter, setPositionFilter] = useState("");
-  const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [viewingPhoto, setViewingPhoto] = useState(null);
+  const [positionFilter, setPositionFilter] = useState(ALL_POSITIONS);
 
-  useEffect(() => {
-    let active = true;
-    teachersService
-      .list()
-      .then((data) => {
-        if (active) {
-          setItems(data);
-        }
-      })
-      .catch((requestError) => {
-        if (active) {
-          setError(requestError.message);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, positionFilter]);
-
-  const filtered = useMemo(
+  const loadTeachers = useCallback(() => teachersService.list(), []);
+  const matches = useCallback(
+    (teacher, query) => fullName(teacher).toLowerCase().includes(query),
+    []
+  );
+  // Memorizado porque `useLocalList` lo usa como dependencia del filtrado: una
+  // funcion nueva en cada render recalcularia la lista sin necesidad.
+  const filters = useMemo(
     () =>
-      items.filter((teacher) => {
-        const matchesSearch = fullName(teacher)
-          .toLowerCase()
-          .includes(search.trim().toLowerCase());
-        const matchesPosition =
-          !positionFilter || teacher.position === positionFilter;
-        return matchesSearch && matchesPosition;
-      }),
-    [items, search, positionFilter]
+      positionFilter
+        ? (teacher) => teacher.position === positionFilter
+        : undefined,
+    [positionFilter]
   );
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
+  const list = useLocalList(loadTeachers, { filters, matches });
+
+  const [selected, setSelected] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [viewingPhoto, setViewingPhoto] = useState(null);
 
   const handleExport = () => {
     downloadCsv(
@@ -128,187 +88,248 @@ export function DocentesPage() {
         { label: "Puesto", value: (item) => item.position },
         { label: "Codigo Empleado", value: (item) => item.employee_code },
       ],
-      filtered
+      list.filtered
     );
   };
 
+  const buildPayload = (values, personId) => ({
+    person: {
+      ...(personId ? { id: personId } : null),
+      first_name: values.first_name,
+      last_name: values.last_name,
+      email: values.email,
+      phone_number: values.phone_number,
+    },
+    employee_code: values.employee_code,
+    specialty: values.specialty,
+    position: values.position,
+    appointment_date: values.appointment_date || null,
+    photo: values.photo,
+  });
+
   const handleCreate = async (values) => {
-    const created = await teachersService.create({
-      person: {
-        first_name: values.first_name,
-        last_name: values.last_name,
-        email: values.email,
-        phone_number: values.phone_number,
-      },
-      employee_code: values.employee_code,
-      specialty: values.specialty,
-      position: values.position,
-      appointment_date: values.appointment_date || null,
-      photo: values.photo,
-    });
-    setItems((current) => [...current, created]);
+    const created = await teachersService.create(buildPayload(values));
+    list.addItem(created);
     setCreating(false);
   };
 
   const handleUpdate = async (values) => {
-    const updated = await teachersService.update(editing.id, {
-      person: {
-        id: editing.person.id,
-        first_name: values.first_name,
-        last_name: values.last_name,
-        email: values.email,
-        phone_number: values.phone_number,
-      },
-      employee_code: values.employee_code,
-      specialty: values.specialty,
-      position: values.position,
-      appointment_date: values.appointment_date || null,
-      photo: values.photo,
-    });
-    setItems((current) =>
-      current.map((item) => (item.id === updated.id ? updated : item))
+    const updated = await teachersService.update(
+      editing.id,
+      buildPayload(values, editing.person.id)
     );
+    list.replaceItem(updated, (item) => item.id === updated.id);
     setSelected(updated);
     setEditing(null);
   };
 
-  return (
-    <section className="list-page">
-      <header className="list-page-header">
-        <p className="eyebrow">
-          Sistema academico / Docentes y Administrativos
-        </p>
-        <h1>Docentes y Administrativos</h1>
-        <p className="muted">Listado de personal docente y administrativo.</p>
-      </header>
+  const columns = [
+    {
+      key: "foto",
+      label: "Foto",
+      render: (teacher) =>
+        teacher.photo ? (
+          <Avatar src={teacher.photo} sx={{ width: 32, height: 32 }} variant="rounded" />
+        ) : (
+          <Avatar sx={{ width: 32, height: 32 }} variant="rounded">
+            <PersonOutlineIcon fontSize="small" />
+          </Avatar>
+        ),
+    },
+    { key: "nombre", label: "Nombre completo", render: fullName },
+    { key: "especialidad", label: "Especialidad", render: (item) => item.specialty },
+    {
+      key: "puesto",
+      label: "Puesto",
+      render: (item) => <StatusChip label={item.position} variant="primary" />,
+    },
+    { key: "codigo", label: "Codigo empleado", render: (item) => item.employee_code },
+  ];
 
-      <ListToolbar
-        createLabel="+ Agregar nuevo"
-        filterOptions={POSITION_OPTIONS}
-        filterValue={positionFilter}
-        onCreate={() => setCreating(true)}
-        onExportCsv={handleExport}
-        onFilterChange={setPositionFilter}
-        onSearchChange={setSearch}
-        searchValue={search}
+  return (
+    <>
+      <PageHeader
+        action={
+          <Button
+            onClick={() => setCreating(true)}
+            startIcon={<AddIcon fontSize="small" />}
+            variant="contained"
+          >
+            Nuevo registro
+          </Button>
+        }
+        breadcrumb="Comunidad educativa"
+        subtitle={`${list.filtered.length} de ${list.all.length} registros de personal docente y administrativo.`}
+        title="Docentes y administrativos"
       />
 
-      {loading ? <p className="muted">Cargando docentes...</p> : null}
-      {error ? <div className="message message-error">{error}</div> : null}
-
-      {!loading && !error ? (
-        <>
-          <DataTable
-            columns={[
-              ...COLUMNS,
-              {
-                key: "detalle",
-                label: "Detalle",
-                render: (teacher) => (
-                  <button
-                    className="button secondary"
-                    onClick={() => setSelected(teacher)}
-                    type="button"
-                  >
-                    Ver detalle
-                  </button>
-                ),
-              },
-            ]}
-            emptyMessage="No hay docentes que coincidan con la busqueda."
-            rows={paged}
-          />
-          <Pagination
-            onPageChange={setPage}
-            page={currentPage}
-            pageSize={PAGE_SIZE}
-            total={filtered.length}
-          />
-        </>
-      ) : null}
-
-      {selected ? (
-        <DetailPanel
+      <SectionCard fillHeight>
+        <FilterBar
           actions={
-            <button
-              className="button secondary"
-              onClick={() => setEditing(selected)}
-              type="button"
+            <Button
+              onClick={handleExport}
+              size="small"
+              startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
+              variant="outlined"
             >
-              Editar
-            </button>
+              Exportar CSV
+            </Button>
           }
-          fields={[
-            { label: "Nombre completo", value: fullName(selected) },
-            { label: "Especialidad", value: selected.specialty },
-            { label: "Puesto", value: selected.position },
-            { label: "Codigo de Empleado", value: selected.employee_code },
-            {
-              label: "Fecha de Nombramiento",
-              value: selected.appointment_date,
-            },
-            { label: "Correo", value: selected.person.email },
-            { label: "Telefono", value: selected.person.phone_number },
-            {
-              label: "Foto",
-              value: selected.photo ? (
-                <button
-                  className="photo-preview-trigger"
-                  onClick={() => setViewingPhoto(selected.photo)}
-                  type="button"
-                >
-                  <img alt="" className="avatar-preview" src={selected.photo} />
-                </button>
-              ) : (
-                "Sin foto"
-              ),
-            },
-          ]}
-          onClose={() => {
-            setSelected(null);
-            setViewingPhoto(null);
-          }}
-          title={fullName(selected)}
-        />
-      ) : null}
+          onClear={
+            list.search || positionFilter
+              ? () => {
+                  list.setSearch("");
+                  setPositionFilter(ALL_POSITIONS);
+                }
+              : undefined
+          }
+        >
+          <SearchField
+            onChange={list.setSearch}
+            placeholder="Buscar por nombre…"
+            value={list.search}
+          />
+          <FilterSelect
+            label="Puesto"
+            minWidth={190}
+            onChange={setPositionFilter}
+            options={POSITION_FILTER_OPTIONS}
+            value={positionFilter}
+          />
+        </FilterBar>
 
-      {viewingPhoto ? (
-        <ImageLightbox
-          alt={fullName(selected)}
-          downloadName={viewingPhoto.split("/").pop()}
-          onClose={() => setViewingPhoto(null)}
-          src={viewingPhoto}
-        />
-      ) : null}
+        <SectionTableArea>
+          <DataTable
+            columns={columns}
+            emptyMessage={
+              list.search || positionFilter
+                ? "Sin datos para los filtros seleccionados."
+                : "Todavia no hay personal registrado."
+            }
+            fillHeight
+            loading={list.loading}
+            onRowClick={setSelected}
+            pagination={list.pagination}
+            rows={list.items}
+          />
+        </SectionTableArea>
+      </SectionCard>
 
-      {creating ? (
-        <FormModal
-          fields={CREATE_FIELDS}
-          onCancel={() => setCreating(false)}
-          onSubmit={handleCreate}
-          title="Agregar docente"
-        />
-      ) : null}
+      <DetailDrawer
+        actions={
+          selected ? (
+            <Button onClick={() => setEditing(selected)} variant="contained">
+              Editar
+            </Button>
+          ) : null
+        }
+        fields={
+          selected
+            ? [
+                { label: "Nombre completo", value: fullName(selected) },
+                { label: "Especialidad", value: selected.specialty },
+                {
+                  label: "Puesto",
+                  value: <StatusChip label={selected.position} variant="primary" />,
+                },
+                { label: "Codigo de empleado", value: selected.employee_code },
+                {
+                  label: "Fecha de nombramiento",
+                  value: selected.appointment_date
+                    ? formatDate(selected.appointment_date)
+                    : null,
+                },
+                { label: "Correo", value: selected.person.email },
+                { label: "Telefono", value: selected.person.phone_number },
+                {
+                  label: "Foto",
+                  value: selected.photo ? (
+                    <ButtonBase
+                      onClick={() => setViewingPhoto(selected.photo)}
+                      sx={(theme) => ({ borderRadius: theme.tokens.radii.chip, mt: 0.5 })}
+                    >
+                      <Box
+                        alt={`Foto de ${fullName(selected)}`}
+                        component="img"
+                        src={selected.photo}
+                        sx={(theme) => ({
+                          width: 112,
+                          height: 112,
+                          objectFit: "cover",
+                          borderRadius: theme.tokens.radii.chip,
+                          border: "1px solid",
+                          borderColor: "divider",
+                        })}
+                      />
+                    </ButtonBase>
+                  ) : (
+                    <MutedCell>Sin foto</MutedCell>
+                  ),
+                },
+              ]
+            : []
+        }
+        onClose={() => {
+          setSelected(null);
+          setViewingPhoto(null);
+        }}
+        open={Boolean(selected)}
+        title={selected ? fullName(selected) : ""}
+      />
+
+      <ImageDialog
+        alt={selected ? fullName(selected) : ""}
+        downloadName={viewingPhoto?.split("/").pop()}
+        onClose={() => setViewingPhoto(null)}
+        open={Boolean(viewingPhoto)}
+        src={viewingPhoto ?? ""}
+      />
+
+      <EntityFormDrawer
+        fields={TEACHER_FIELDS}
+        initialValues={EMPTY_TEACHER}
+        key={creating ? "create-open" : "create-closed"}
+        onCancel={() => setCreating(false)}
+        onSubmit={handleCreate}
+        open={creating}
+        submitLabel="Crear registro"
+        title="Nuevo docente o administrativo"
+      />
 
       {editing ? (
-        <FormModal
-          fields={CREATE_FIELDS}
+        <EntityFormDrawer
+          fields={TEACHER_FIELDS}
           initialValues={{
             first_name: editing.person.first_name,
             last_name: editing.person.last_name,
-            email: editing.person.email,
-            phone_number: editing.person.phone_number,
+            email: editing.person.email ?? "",
+            phone_number: editing.person.phone_number ?? "",
             specialty: editing.specialty,
             position: editing.position,
-            appointment_date: editing.appointment_date,
+            appointment_date: editing.appointment_date ?? "",
             employee_code: editing.employee_code,
+            photo: null,
           }}
+          key={editing.id}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
+          open
           submitLabel="Guardar cambios"
-          title="Editar docente"
+          title={`Editar ${fullName(editing)}`}
         />
       ) : null}
-    </section>
+    </>
   );
 }
+
+const EMPTY_TEACHER = {
+  first_name: "",
+  last_name: "",
+  email: "",
+  phone_number: "",
+  specialty: "",
+  position: "",
+  appointment_date: "",
+  employee_code: "",
+  photo: null,
+};

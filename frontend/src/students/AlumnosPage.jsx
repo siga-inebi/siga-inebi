@@ -1,98 +1,61 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
-import { DataTable } from "../components/DataTable.jsx";
-import { DetailPanel } from "../components/DetailPanel.jsx";
-import { FormModal } from "../components/FormModal.jsx";
-import { ImageLightbox } from "../components/ImageLightbox.jsx";
-import { ListToolbar } from "../components/ListToolbar.jsx";
-import { Pagination } from "../components/Pagination.jsx";
-import { studentsService } from "../services/studentsService.js";
-import { downloadCsv } from "../utils/csv.js";
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import ButtonBase from "@mui/material/ButtonBase";
+import AddIcon from "@mui/icons-material/Add";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
-const PAGE_SIZE = 5;
+import { studentsService } from "@students/studentsService.js";
+import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { useLocalList } from "@shared/crud/useLocalList.js";
+import { downloadCsv } from "@shared/utils/csv.js";
+import { FilterBar } from "@ui/filters/FilterBar.jsx";
+import { SearchField } from "@ui/filters/SearchField.jsx";
+import { ImageDialog } from "@ui/display/ImageDialog.jsx";
+import { StatusChip } from "@ui/display/StatusChip.jsx";
+import { DataTable } from "@ui/table/DataTable.jsx";
+import { MutedCell } from "@ui/table/cells.jsx";
+import { DetailDrawer } from "@ui/layout/DetailDrawer.jsx";
+import { PageHeader } from "@ui/layout/PageHeader.jsx";
+import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 
-const CREATE_FIELDS = [
+const STUDENT_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
   { name: "last_name", label: "Apellidos", required: true },
-  { name: "email", label: "Correo", type: "email" },
-  { name: "phone_number", label: "Telefono" },
+  { name: "email", label: "Correo (opcional)", type: "email" },
+  { name: "phone_number", label: "Telefono (opcional)", type: "tel" },
   { name: "student_code", label: "Codigo de estudiante", required: true },
-  { name: "photo", label: "Foto", type: "file", accept: "image/*" },
+  { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
 ];
+
+/** Estados de expediente del estudiante -> variante semantica de chip. */
+const STATUS_VARIANT = {
+  enrolled: "success",
+  pre_enrolled: "primary",
+  withdrawn: "danger",
+  suspended: "warning",
+  graduated: "purple",
+};
 
 function fullName(student) {
-  return `${student.person.first_name} ${student.person.last_name}`;
+  return `${student.person.first_name} ${student.person.last_name}`.trim();
 }
 
-const COLUMNS = [
-  {
-    key: "foto",
-    label: "Foto",
-    render: (item) =>
-      item.photo ? (
-        <img alt="" className="avatar-thumb" src={item.photo} />
-      ) : (
-        "Sin foto"
-      ),
-  },
-  { key: "nombre", label: "Nombre", render: fullName },
-  { key: "codigo", label: "Codigo", render: (item) => item.student_code },
-  { key: "estado", label: "Estado", render: (item) => item.status },
-];
-
 export function AlumnosPage() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const loadStudents = useCallback(() => studentsService.list(), []);
+  const matches = useCallback(
+    (student, query) => fullName(student).toLowerCase().includes(query),
+    []
+  );
+  const list = useLocalList(loadStudents, { matches });
+
   const [selected, setSelected] = useState(null);
-  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState(null);
-
-  useEffect(() => {
-    let active = true;
-    studentsService
-      .list()
-      .then((data) => {
-        if (active) {
-          setItems(data);
-        }
-      })
-      .catch((requestError) => {
-        if (active) {
-          setError(requestError.message);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search]);
-
-  const filtered = useMemo(
-    () =>
-      items.filter((student) =>
-        fullName(student).toLowerCase().includes(search.trim().toLowerCase())
-      ),
-    [items, search]
-  );
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
 
   const handleExport = () => {
     downloadCsv(
@@ -102,7 +65,7 @@ export function AlumnosPage() {
         { label: "Codigo", value: (item) => item.student_code },
         { label: "Estado", value: (item) => item.status },
       ],
-      filtered
+      list.filtered
     );
   };
 
@@ -118,7 +81,7 @@ export function AlumnosPage() {
       status: "pre_enrolled",
       photo: values.photo,
     });
-    setItems((current) => [...current, created]);
+    list.addItem(created);
     setCreating(false);
   };
 
@@ -134,137 +97,199 @@ export function AlumnosPage() {
       student_code: values.student_code,
       photo: values.photo,
     });
-    setItems((current) =>
-      current.map((item) => (item.id === updated.id ? updated : item))
-    );
+    list.replaceItem(updated, (item) => item.id === updated.id);
     setSelected(updated);
     setEditing(null);
   };
 
-  return (
-    <section className="list-page">
-      <header className="list-page-header">
-        <p className="eyebrow">Sistema academico / Alumnos</p>
-        <h1>Alumnos</h1>
-        <p className="muted">Listado general de estudiantes.</p>
-      </header>
+  const columns = [
+    {
+      key: "foto",
+      label: "Foto",
+      render: (student) =>
+        student.photo ? (
+          <Avatar src={student.photo} sx={{ width: 32, height: 32 }} variant="rounded" />
+        ) : (
+          <Avatar sx={{ width: 32, height: 32 }} variant="rounded">
+            <PersonOutlineIcon fontSize="small" />
+          </Avatar>
+        ),
+    },
+    { key: "nombre", label: "Nombre completo", render: fullName },
+    { key: "codigo", label: "Codigo", render: (student) => student.student_code },
+    {
+      key: "estado",
+      label: "Estado",
+      render: (student) => (
+        <StatusChip
+          label={student.status}
+          variant={STATUS_VARIANT[student.status] ?? "neutral"}
+        />
+      ),
+    },
+  ];
 
-      <ListToolbar
-        createLabel="+ Agregar nuevo"
-        onCreate={() => setCreating(true)}
-        onExportCsv={handleExport}
-        onSearchChange={setSearch}
-        searchValue={search}
+  return (
+    <>
+      <PageHeader
+        action={
+          <Button
+            onClick={() => setCreating(true)}
+            startIcon={<AddIcon fontSize="small" />}
+            variant="contained"
+          >
+            Nuevo estudiante
+          </Button>
+        }
+        breadcrumb="Comunidad educativa"
+        subtitle={`${list.filtered.length} de ${list.all.length} registros dentro de tu alcance.`}
+        title="Estudiantes"
       />
 
-      {loading ? <p className="muted">Cargando alumnos...</p> : null}
-      {error ? <div className="message message-error">{error}</div> : null}
-
-      {!loading && !error ? (
-        <>
-          <DataTable
-            columns={[
-              ...COLUMNS,
-              {
-                key: "detalle",
-                label: "Detalle",
-                render: (student) => (
-                  <button
-                    className="button secondary"
-                    onClick={() => setSelected(student)}
-                    type="button"
-                  >
-                    Ver detalle
-                  </button>
-                ),
-              },
-            ]}
-            emptyMessage="No hay alumnos que coincidan con la busqueda."
-            rows={paged}
-          />
-          <Pagination
-            onPageChange={setPage}
-            page={currentPage}
-            pageSize={PAGE_SIZE}
-            total={filtered.length}
-          />
-        </>
-      ) : null}
-
-      {selected ? (
-        <DetailPanel
+      <SectionCard fillHeight>
+        <FilterBar
           actions={
-            <button
-              className="button secondary"
-              onClick={() => setEditing(selected)}
-              type="button"
+            <Button
+              onClick={handleExport}
+              size="small"
+              startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
+              variant="outlined"
             >
-              Editar
-            </button>
+              Exportar CSV
+            </Button>
           }
-          fields={[
-            { label: "Nombre completo", value: fullName(selected) },
-            { label: "Codigo de estudiante", value: selected.student_code },
-            { label: "Estado", value: selected.status },
-            { label: "Correo", value: selected.person.email },
-            { label: "Telefono", value: selected.person.phone_number },
-            {
-              label: "Foto",
-              value: selected.photo ? (
-                <button
-                  className="photo-preview-trigger"
-                  onClick={() => setViewingPhoto(selected.photo)}
-                  type="button"
-                >
-                  <img alt="" className="avatar-preview" src={selected.photo} />
-                </button>
-              ) : (
-                "Sin foto"
-              ),
-            },
-          ]}
-          onClose={() => {
-            setSelected(null);
-            setViewingPhoto(null);
-          }}
-          title={fullName(selected)}
-        />
-      ) : null}
+        >
+          <SearchField
+            onChange={list.setSearch}
+            placeholder="Buscar por nombre…"
+            value={list.search}
+          />
+        </FilterBar>
 
-      {viewingPhoto ? (
-        <ImageLightbox
-          alt={fullName(selected)}
-          downloadName={viewingPhoto.split("/").pop()}
-          onClose={() => setViewingPhoto(null)}
-          src={viewingPhoto}
-        />
-      ) : null}
+        <SectionTableArea>
+          <DataTable
+            columns={columns}
+            emptyMessage={
+              list.search
+                ? "Sin resultados para la busqueda."
+                : "Todavia no hay estudiantes registrados."
+            }
+            fillHeight
+            loading={list.loading}
+            onRowClick={setSelected}
+            pagination={list.pagination}
+            rows={list.items}
+          />
+        </SectionTableArea>
+      </SectionCard>
 
-      {creating ? (
-        <FormModal
-          fields={CREATE_FIELDS}
-          onCancel={() => setCreating(false)}
-          onSubmit={handleCreate}
-          title="Agregar alumno"
-        />
-      ) : null}
+      <DetailDrawer
+        actions={
+          selected ? (
+            <Button onClick={() => setEditing(selected)} variant="contained">
+              Editar
+            </Button>
+          ) : null
+        }
+        fields={
+          selected
+            ? [
+                { label: "Nombre completo", value: fullName(selected) },
+                { label: "Codigo de estudiante", value: selected.student_code },
+                {
+                  label: "Estado",
+                  value: (
+                    <StatusChip
+                      label={selected.status}
+                      variant={STATUS_VARIANT[selected.status] ?? "neutral"}
+                    />
+                  ),
+                },
+                { label: "Correo", value: selected.person.email },
+                { label: "Telefono", value: selected.person.phone_number },
+                {
+                  label: "Foto",
+                  value: selected.photo ? (
+                    <ButtonBase
+                      onClick={() => setViewingPhoto(selected.photo)}
+                      sx={(theme) => ({ borderRadius: theme.tokens.radii.chip, mt: 0.5 })}
+                    >
+                      <Box
+                        alt={`Foto de ${fullName(selected)}`}
+                        component="img"
+                        src={selected.photo}
+                        sx={(theme) => ({
+                          width: 112,
+                          height: 112,
+                          objectFit: "cover",
+                          borderRadius: theme.tokens.radii.chip,
+                          border: "1px solid",
+                          borderColor: "divider",
+                        })}
+                      />
+                    </ButtonBase>
+                  ) : (
+                    <MutedCell>Sin foto</MutedCell>
+                  ),
+                },
+              ]
+            : []
+        }
+        onClose={() => {
+          setSelected(null);
+          setViewingPhoto(null);
+        }}
+        open={Boolean(selected)}
+        title={selected ? fullName(selected) : ""}
+      />
+
+      <ImageDialog
+        alt={selected ? fullName(selected) : ""}
+        downloadName={viewingPhoto?.split("/").pop()}
+        onClose={() => setViewingPhoto(null)}
+        open={Boolean(viewingPhoto)}
+        src={viewingPhoto ?? ""}
+      />
+
+      <EntityFormDrawer
+        fields={STUDENT_FIELDS}
+        initialValues={EMPTY_STUDENT}
+        key={creating ? "create-open" : "create-closed"}
+        onCancel={() => setCreating(false)}
+        onSubmit={handleCreate}
+        open={creating}
+        submitLabel="Crear estudiante"
+        title="Nuevo estudiante"
+      />
 
       {editing ? (
-        <FormModal
-          fields={CREATE_FIELDS}
+        <EntityFormDrawer
+          fields={STUDENT_FIELDS}
           initialValues={{
             first_name: editing.person.first_name,
             last_name: editing.person.last_name,
-            email: editing.person.email,
-            phone_number: editing.person.phone_number,
+            email: editing.person.email ?? "",
+            phone_number: editing.person.phone_number ?? "",
             student_code: editing.student_code,
+            photo: null,
           }}
+          key={editing.id}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
+          open
           submitLabel="Guardar cambios"
-          title="Editar alumno"
+          title={`Editar ${fullName(editing)}`}
         />
       ) : null}
-    </section>
+    </>
   );
 }
+
+const EMPTY_STUDENT = {
+  first_name: "",
+  last_name: "",
+  email: "",
+  phone_number: "",
+  student_code: "",
+  photo: null,
+};

@@ -1,43 +1,58 @@
 import { useCallback, useState } from "react";
 
-import { CatalogueForm } from "../features/catalogue/CatalogueForm.jsx";
-import { CataloguePager } from "../features/catalogue/CataloguePager.jsx";
-import {
-  CatalogueTable,
-  StatusBadge,
-} from "../features/catalogue/CatalogueTable.jsx";
-import { ConfirmButton } from "../features/catalogue/ConfirmButton.jsx";
-import { useCatalogue } from "../features/catalogue/useCatalogue.js";
-import { academicsService } from "../services/academicsService.js";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import AddIcon from "@mui/icons-material/Add";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
+
+import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
+import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { ListSection } from "@shared/crud/ListSection.jsx";
+import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
+import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
+import { ActiveCell, BooleanCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
+import { PageHeader } from "@ui/layout/PageHeader.jsx";
 
 const CAMPUS_COLUMNS = [
-  { key: "name", header: "Sede", render: (row) => row.name },
-  { key: "code", header: "Codigo", render: (row) => <code>{row.code}</code> },
+  { key: "name", label: "Sede", render: (row) => row.name },
+  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
   {
     key: "address",
-    header: "Direccion",
-    render: (row) =>
-      row.address || <span className="muted">Sin registrar</span>,
+    label: "Direccion",
+    render: (row) => row.address || <MutedCell>Sin registrar</MutedCell>,
   },
-  {
-    key: "is_main",
-    header: "Principal",
-    render: (row) => (row.is_main ? "Si" : "No"),
-  },
-  { key: "shift_count", header: "Jornadas", render: (row) => row.shift_count },
+  { key: "is_main", label: "Principal", render: (row) => <BooleanCell value={row.is_main} /> },
+  { key: "shift_count", label: "Jornadas", align: "right", render: (row) => row.shift_count },
   {
     key: "is_active",
-    header: "Estado",
-    render: (row) => <StatusBadge active={row.is_active} />,
+    label: "Estado",
+    render: (row) => <ActiveCell active={row.is_active} inactiveLabel="Desactivada" />,
   },
 ];
 
+const CREATE_CAMPUS_FIELDS = [
+  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Sede Central" },
+  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: CENTRAL" },
+  { name: "address", label: "Direccion (opcional)" },
+  {
+    name: "is_main",
+    label: "Es la sede principal",
+    type: "checkbox",
+    help: "Solo puede haber una; marcarla degrada a la anterior.",
+  },
+];
+
+const EDIT_CAMPUS_FIELDS = [
+  { name: "name", label: "Nombre", required: true },
+  { name: "address", label: "Direccion (opcional)" },
+  { name: "is_main", label: "Es la sede principal", type: "checkbox" },
+];
+
 export function CampusesPage() {
-  const loadCampuses = useCallback(
-    (params) => academicsService.listCampuses(params),
-    []
-  );
-  const catalogue = useCatalogue(loadCampuses);
+  const loadCampuses = useCallback((params) => academicsService.listCampuses(params), []);
+  const list = usePaginatedList(loadCampuses, { pageSize: PAGE_SIZE });
 
   const [editing, setEditing] = useState(null);
   const [selectedId, setSelectedId] = useState("");
@@ -46,224 +61,165 @@ export function CampusesPage() {
   // La sede seleccionada se re-lee del listado para que no quede desfasada
   // despues de editarla o de recargar la pagina de resultados.
   const selected =
-    catalogue.items.find((campus) => campus.public_id === selectedId) || null;
+    list.items.find((campus) => campus.public_id === selectedId) || null;
 
   const handleCreate = async (payload) => {
     await academicsService.createCampus(payload);
     setEditing(null);
-    catalogue.refresh();
+    list.refresh();
   };
 
   const handleUpdate = async (payload) => {
     await academicsService.updateCampus(editing.campus.public_id, payload);
     setEditing(null);
-    catalogue.refresh();
+    list.refresh();
   };
 
   const handleDeactivate = async (campus) => {
     setActionError("");
     try {
       await academicsService.deactivateCampus(campus.public_id);
-      if (campus.public_id === selectedId) {
-        setSelectedId("");
-      }
-      catalogue.refresh();
+      if (campus.public_id === selectedId) setSelectedId("");
+      list.refresh();
     } catch (requestError) {
       setActionError(requestError.message);
+      throw requestError;
     }
   };
 
   return (
-    <section className="catalogue">
-      <header className="panel catalogue-header">
-        <div>
-          <p className="eyebrow">Estructura institucional</p>
-          <h1>Sedes y jornadas</h1>
-          <p className="muted">
-            Registra las sedes del establecimiento y las jornadas que atiende
-            cada una. Dar de baja una sede la desactiva junto con sus jornadas.
-          </p>
-        </div>
-        <div className="actions">
-          <button
-            className="button"
+    <>
+      <PageHeader
+        breadcrumb="Estructura institucional"
+        subtitle="Registra las sedes del establecimiento y las jornadas que atiende cada una. Dar de baja una sede la desactiva junto con sus jornadas."
+        title="Sedes y jornadas"
+      />
+
+      <ListSection
+        action={
+          <Button
             onClick={() => setEditing({ mode: "create" })}
-            type="button"
+            size="small"
+            startIcon={<AddIcon fontSize="small" />}
+            variant="contained"
           >
             Nueva sede
-          </button>
-        </div>
-      </header>
+          </Button>
+        }
+        actionError={actionError}
+        list={list}
+        columns={CAMPUS_COLUMNS}
+        emptyMessage="Todavia no hay sedes registradas."
+        getRowKey={(campus) => campus.public_id}
+        renderActions={(campus) => (
+          <Stack direction="row" gap={0.5} justifyContent="flex-end">
+            <ActionIconButton
+              color={campus.public_id === selectedId ? "primary" : "default"}
+              label={
+                campus.public_id === selectedId ? "Ocultar jornadas" : "Ver jornadas"
+              }
+              onClick={() =>
+                setSelectedId(campus.public_id === selectedId ? "" : campus.public_id)
+              }
+            >
+              <ScheduleOutlinedIcon fontSize="small" />
+            </ActionIconButton>
+            <ActionIconButton
+              label="Editar"
+              onClick={() => setEditing({ mode: "edit", campus })}
+            >
+              <EditOutlinedIcon fontSize="small" />
+            </ActionIconButton>
+            {campus.is_active ? (
+              <ConfirmActionButton
+                confirmLabel="Si, desactivar"
+                label="Desactivar"
+                onConfirm={() => handleDeactivate(campus)}
+                question={`Se desactivara "${campus.name}" junto con todas sus jornadas.`}
+                title="Desactivar sede"
+              />
+            ) : null}
+          </Stack>
+        )}
+        subtitle="Sedes de la institucion"
+        title="Sedes registradas"
+      />
 
-      {editing?.mode === "create" ? (
-        <CatalogueForm
-          description="El codigo se normaliza a mayusculas y no se puede cambiar despues."
-          fields={[
-            {
-              name: "name",
-              label: "Nombre",
-              required: true,
-              placeholder: "Ejemplo: Sede Central",
-            },
-            {
-              name: "code",
-              label: "Codigo",
-              required: true,
-              placeholder: "Ejemplo: CENTRAL",
-            },
-            { name: "address", label: "Direccion" },
-            {
-              name: "is_main",
-              label: "Es la sede principal",
-              type: "checkbox",
-              help: "Solo puede haber una; marcarla degrada a la anterior.",
-            },
-          ]}
-          initialValues={{ name: "", code: "", address: "", is_main: false }}
-          onCancel={() => setEditing(null)}
-          onSubmit={handleCreate}
-          submitLabel="Crear sede"
-          title="Nueva sede"
+      {selected ? (
+        <CampusShiftsSection
+          campus={selected}
+          key={selected.public_id}
+          onChanged={list.refresh}
         />
       ) : null}
 
+      <EntityFormDrawer
+        description="El codigo se normaliza a mayusculas y no se puede cambiar despues."
+        fields={CREATE_CAMPUS_FIELDS}
+        initialValues={{ name: "", code: "", address: "", is_main: false }}
+        key={editing?.mode === "create" ? "create-open" : "create-closed"}
+        onCancel={() => setEditing(null)}
+        onSubmit={handleCreate}
+        open={editing?.mode === "create"}
+        submitLabel="Crear sede"
+        title="Nueva sede"
+      />
+
       {editing?.mode === "edit" ? (
-        <CatalogueForm
+        <EntityFormDrawer
           description={`El codigo ${editing.campus.code} es inmutable.`}
-          fields={[
-            { name: "name", label: "Nombre", required: true },
-            { name: "address", label: "Direccion" },
-            {
-              name: "is_main",
-              label: "Es la sede principal",
-              type: "checkbox",
-            },
-          ]}
+          fields={EDIT_CAMPUS_FIELDS}
           initialValues={{
             name: editing.campus.name,
             address: editing.campus.address || "",
             is_main: editing.campus.is_main,
           }}
+          key={editing.campus.public_id}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
+          open
           submitLabel="Guardar cambios"
           title={`Editar ${editing.campus.name}`}
         />
       ) : null}
-
-      <div className="panel">
-        <div className="catalogue-toolbar">
-          <h2>Sedes registradas</h2>
-          <label className="field field-inline">
-            <input
-              checked={catalogue.includeInactive}
-              onChange={(event) =>
-                catalogue.setIncludeInactive(event.target.checked)
-              }
-              type="checkbox"
-            />
-            <span>Mostrar desactivadas</span>
-          </label>
-        </div>
-
-        {catalogue.error ? (
-          <div className="message message-error" role="alert">
-            {catalogue.error}
-          </div>
-        ) : null}
-        {actionError ? (
-          <div className="message message-error" role="alert">
-            {actionError}
-          </div>
-        ) : null}
-
-        <CatalogueTable
-          caption="Sedes de la institucion"
-          columns={CAMPUS_COLUMNS}
-          emptyMessage="Todavia no hay sedes registradas."
-          loading={catalogue.loading}
-          renderActions={(campus) => (
-            <>
-              <button
-                className="button secondary button-small"
-                onClick={() =>
-                  setSelectedId(
-                    campus.public_id === selectedId ? "" : campus.public_id
-                  )
-                }
-                type="button"
-              >
-                {campus.public_id === selectedId
-                  ? "Ocultar jornadas"
-                  : "Ver jornadas"}
-              </button>
-              <button
-                className="button secondary button-small"
-                onClick={() => setEditing({ mode: "edit", campus })}
-                type="button"
-              >
-                Editar
-              </button>
-              {campus.is_active ? (
-                <ConfirmButton
-                  confirmLabel="Si, desactivar"
-                  label="Desactivar"
-                  onConfirm={() => handleDeactivate(campus)}
-                  question={`Desactivar ${campus.name}?`}
-                />
-              ) : null}
-            </>
-          )}
-          rowKey={(campus) => campus.public_id}
-          rows={catalogue.items}
-        />
-
-        <CataloguePager
-          count={catalogue.count}
-          onChange={catalogue.goToPage}
-          page={catalogue.page}
-          pageCount={catalogue.pageCount}
-        />
-      </div>
-
-      {selected ? (
-        <CampusShiftsPanel
-          campus={selected}
-          key={selected.public_id}
-          onChanged={catalogue.refresh}
-        />
-      ) : null}
-    </section>
+    </>
   );
 }
 
 const SHIFT_COLUMNS = [
-  { key: "name", header: "Jornada", render: (row) => row.name },
-  { key: "code", header: "Codigo", render: (row) => <code>{row.code}</code> },
+  { key: "name", label: "Jornada", render: (row) => row.name },
+  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
   {
     key: "is_active",
-    header: "Estado",
-    render: (row) => <StatusBadge active={row.is_active} />,
+    label: "Estado",
+    render: (row) => <ActiveCell active={row.is_active} inactiveLabel="Desactivada" />,
   },
 ];
+
+const CREATE_SHIFT_FIELDS = [
+  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Matutina" },
+  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: MAT" },
+];
+
+const EDIT_SHIFT_FIELDS = [{ name: "name", label: "Nombre", required: true }];
 
 /**
  * Jornadas de una sede. Se remonta con `key` al cambiar de sede, de modo que la
  * paginacion y el formulario arrancan limpios.
  */
-function CampusShiftsPanel({ campus, onChanged }) {
+function CampusShiftsSection({ campus, onChanged }) {
   const loadShifts = useCallback(
     (params) => academicsService.listCampusShifts(campus.public_id, params),
     [campus.public_id]
   );
-  const catalogue = useCatalogue(loadShifts);
+  const list = usePaginatedList(loadShifts, { pageSize: PAGE_SIZE });
 
   const [editing, setEditing] = useState(null);
   const [actionError, setActionError] = useState("");
 
   const afterChange = () => {
     setEditing(null);
-    catalogue.refresh();
+    list.refresh();
     onChanged();
   };
 
@@ -284,116 +240,76 @@ function CampusShiftsPanel({ campus, onChanged }) {
       afterChange();
     } catch (requestError) {
       setActionError(requestError.message);
+      throw requestError;
     }
   };
 
   return (
-    <div className="panel">
-      <div className="catalogue-toolbar">
-        <h2>Jornadas de {campus.name}</h2>
-        <div className="actions">
-          <label className="field field-inline">
-            <input
-              checked={catalogue.includeInactive}
-              onChange={(event) =>
-                catalogue.setIncludeInactive(event.target.checked)
-              }
-              type="checkbox"
-            />
-            <span>Mostrar desactivadas</span>
-          </label>
-          <button
-            className="button"
+    <>
+      <ListSection
+        action={
+          <Button
             onClick={() => setEditing({ mode: "create" })}
-            type="button"
+            size="small"
+            startIcon={<AddIcon fontSize="small" />}
+            variant="contained"
           >
             Nueva jornada
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+        actionError={actionError}
+        list={list}
+        columns={SHIFT_COLUMNS}
+        emptyMessage="Esta sede todavia no tiene jornadas."
+        getRowKey={(shift) => shift.public_id}
+        renderActions={(shift) => (
+          <Stack direction="row" gap={0.5} justifyContent="flex-end">
+            <ActionIconButton
+              label="Editar"
+              onClick={() => setEditing({ mode: "edit", shift })}
+            >
+              <EditOutlinedIcon fontSize="small" />
+            </ActionIconButton>
+            {shift.is_active ? (
+              <ConfirmActionButton
+                confirmLabel="Si, desactivar"
+                label="Desactivar"
+                onConfirm={() => handleDeactivate(shift)}
+                question={`Se desactivara la jornada "${shift.name}".`}
+                title="Desactivar jornada"
+              />
+            ) : null}
+          </Stack>
+        )}
+        subtitle={campus.name}
+        title="Jornadas de la sede"
+      />
 
-      {catalogue.error ? (
-        <div className="message message-error" role="alert">
-          {catalogue.error}
-        </div>
-      ) : null}
-      {actionError ? (
-        <div className="message message-error" role="alert">
-          {actionError}
-        </div>
-      ) : null}
-
-      {editing?.mode === "create" ? (
-        <CatalogueForm
-          description="El codigo es unico dentro de la sede: dos sedes pueden tener MAT."
-          fields={[
-            {
-              name: "name",
-              label: "Nombre",
-              required: true,
-              placeholder: "Ejemplo: Matutina",
-            },
-            {
-              name: "code",
-              label: "Codigo",
-              required: true,
-              placeholder: "Ejemplo: MAT",
-            },
-          ]}
-          initialValues={{ name: "", code: "" }}
-          onCancel={() => setEditing(null)}
-          onSubmit={handleCreate}
-          submitLabel="Crear jornada"
-          title="Nueva jornada"
-        />
-      ) : null}
+      <EntityFormDrawer
+        description="El codigo es unico dentro de la sede: dos sedes pueden tener MAT."
+        fields={CREATE_SHIFT_FIELDS}
+        initialValues={{ name: "", code: "" }}
+        key={editing?.mode === "create" ? "shift-create-open" : "shift-create-closed"}
+        onCancel={() => setEditing(null)}
+        onSubmit={handleCreate}
+        open={editing?.mode === "create"}
+        submitLabel="Crear jornada"
+        title="Nueva jornada"
+      />
 
       {editing?.mode === "edit" ? (
-        <CatalogueForm
+        <EntityFormDrawer
           description="Solo se puede renombrar; el codigo es inmutable."
-          fields={[{ name: "name", label: "Nombre", required: true }]}
+          fields={EDIT_SHIFT_FIELDS}
           initialValues={{ name: editing.shift.name }}
+          key={editing.shift.public_id}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
+          open
           submitLabel="Guardar cambios"
           title={`Editar ${editing.shift.name}`}
         />
       ) : null}
-
-      <CatalogueTable
-        caption={`Jornadas de ${campus.name}`}
-        columns={SHIFT_COLUMNS}
-        emptyMessage="Esta sede todavia no tiene jornadas."
-        loading={catalogue.loading}
-        renderActions={(shift) => (
-          <>
-            <button
-              className="button secondary button-small"
-              onClick={() => setEditing({ mode: "edit", shift })}
-              type="button"
-            >
-              Editar
-            </button>
-            {shift.is_active ? (
-              <ConfirmButton
-                confirmLabel="Si, desactivar"
-                label="Desactivar"
-                onConfirm={() => handleDeactivate(shift)}
-                question={`Desactivar ${shift.name}?`}
-              />
-            ) : null}
-          </>
-        )}
-        rowKey={(shift) => shift.public_id}
-        rows={catalogue.items}
-      />
-
-      <CataloguePager
-        count={catalogue.count}
-        onChange={catalogue.goToPage}
-        page={catalogue.page}
-        pageCount={catalogue.pageCount}
-      />
-    </div>
+    </>
   );
 }

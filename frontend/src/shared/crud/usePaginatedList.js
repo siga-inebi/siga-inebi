@@ -16,7 +16,7 @@ export const DEFAULT_PAGE_SIZE = 25;
  * La pagina no se reinicia cuando cambia el registro padre; las pantallas
  * remontan el panel hijo con `key` para que su estado nazca limpio.
  */
-export function useCatalogue(
+export function usePaginatedList(
   loader,
   { canIncludeInactive = true, pageSize = DEFAULT_PAGE_SIZE } = {}
 ) {
