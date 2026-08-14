@@ -36,7 +36,6 @@ def create_enrolment(
 
     require_cycle_academic_writes(
         cycle=academic_cycle,
-        actor=actor,
         operation="enrolment.create",
     )
     if section.academic_cycle.id != academic_cycle.pk:
@@ -155,9 +154,12 @@ def reenrol_student(
 def change_section(*, enrolment, new_section, actor=None, effective_on=None):
     require_cycle_academic_writes(
         cycle=enrolment.academic_cycle,
-        actor=actor,
         operation="enrolment.change_section",
     )
+    if new_section.academic_cycle.id != enrolment.academic_cycle_id:
+        raise DomainError("Section must belong to the academic cycle.")
+    if new_section.grade.id != enrolment.grade_id:
+        raise DomainError("Section must belong to the grade.")
     _ensure_section_has_capacity(new_section)
 
     effective_on = effective_on or timezone.localdate()
