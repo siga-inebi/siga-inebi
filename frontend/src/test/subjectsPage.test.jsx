@@ -2,12 +2,12 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("../services/academicsService.js", async () => {
+vi.mock("@academics/academicsService.js", async () => {
   const { academicsServiceMock } = await import("./mocks/academicsService.js");
   return { academicsService: academicsServiceMock, PAGE_SIZE: 25 };
 });
 
-import { SubjectsPage } from "../pages/SubjectsPage.jsx";
+import { SubjectsPage } from "@academics/SubjectsPage.jsx";
 import { artSubject, mathSubject, paginated } from "./fixtures/academics.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import {
@@ -46,8 +46,8 @@ describe("pantalla de cursos", () => {
     await screen.findByText("Matematica");
 
     await user.click(screen.getByRole("button", { name: "Nuevo curso" }));
-    await user.type(screen.getByLabelText("Nombre"), "  Comunicacion  ");
-    await user.type(screen.getByLabelText("Codigo"), "COM");
+    await user.type(screen.getByLabelText(/^Nombre/), "  Comunicacion  ");
+    await user.type(screen.getByLabelText(/^Codigo/), "COM");
     await user.click(screen.getByRole("button", { name: "Crear curso" }));
 
     await waitFor(() =>
@@ -67,10 +67,10 @@ describe("pantalla de cursos", () => {
     await screen.findByText("Matematica");
 
     await user.click(screen.getByRole("button", { name: "Editar" }));
-    expect(screen.queryByLabelText("Codigo")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Codigo/)).not.toBeInTheDocument();
 
-    await user.clear(screen.getByLabelText("Nombre"));
-    await user.type(screen.getByLabelText("Nombre"), "Matematicas");
+    await user.clear(screen.getByLabelText(/^Nombre/));
+    await user.type(screen.getByLabelText(/^Nombre/), "Matematicas");
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() =>

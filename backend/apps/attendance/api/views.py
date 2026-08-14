@@ -4,8 +4,16 @@ HTTP layer for Jornada Diaria y Estados.
 Views only translate between HTTP and ``apps.attendance.services``; every
 invariant lives there (AGENTS.md #8). ``DomainError`` becomes a 400 envelope
 via ``config.api.exception_handler``, so no view here catches it.
+
+These handlers are written by hand on ``GenericAPIView`` instead of the generic
+list/create machinery, so drf-spectacular cannot infer their contract: it only
+sees ``serializer_class`` and would document the paginated listings as a single
+object and the write bodies with the read serializer. Every operation therefore
+declares its contract with ``extend_schema``. Without that the published schema
+lies, and anything generated from it (typed clients, SDKs) inherits the lie.
 """
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions, status
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import GenericAPIView
@@ -50,7 +58,27 @@ ORIGIN_PERMISSIONS = {
     AttendanceEvent.Origin.DECLARED: "attendance_declared_close",
 }
 
+TAGS = ["attendance: jornada"]
 
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar parametros de jornada",
+        description="Parametros vigentes e historicos por jornada y ciclo escolar.",
+        tags=TAGS,
+        responses={200: JornadaParametersSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar parametros de jornada",
+        description=(
+            "Registra un juego nuevo de parametros. No reemplaza en el lugar: el "
+            "anterior se conserva como historia y deja de estar vigente."
+        ),
+        tags=TAGS,
+        request=JornadaParametersCreateSerializer,
+        responses={201: JornadaParametersSerializer},
+    ),
+)
 class JornadaParametersListCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = JornadaParametersSerializer
@@ -80,6 +108,25 @@ class JornadaParametersListCreateView(GenericAPIView):
         )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar movimientos de asistencia",
+        description=(
+            "Entradas y salidas dentro del alcance del actor. Incluye los "
+            "movimientos suprimidos por duplicado (`is_active=false`): el registro "
+            "se conserva, no se borra."
+        ),
+        tags=TAGS,
+        responses={200: AttendanceEventSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar movimiento de asistencia",
+        description="El permiso exigido depende del origen del movimiento.",
+        tags=TAGS,
+        request=AttendanceEventCreateSerializer,
+        responses={201: AttendanceEventSerializer},
+    ),
+)
 class AttendanceEventListCreateView(GenericAPIView):
     """Deliberately thin skeleton: see ``ORIGIN_PERMISSIONS`` above."""
 
@@ -112,6 +159,19 @@ class AttendanceEventListCreateView(GenericAPIView):
         return Response(AttendanceEventSerializer(event).data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el movimiento que prevalece",
+        description=(
+            "Devuelve el movimiento vigente para un estudiante, jornada, fecha y "
+            "tipo de movimiento, aplicando las reglas de precedencia. 404 cuando no "
+            "hay ninguno."
+        ),
+        tags=TAGS,
+        parameters=[AttendanceEventResolutionQuerySerializer],
+        responses={200: AttendanceEventSerializer},
+    ),
+)
 class AttendanceEventResolutionView(GenericAPIView):
     """RF-JOR-003 contract: the event that prevails by precedence."""
 
@@ -139,6 +199,18 @@ class AttendanceEventResolutionView(GenericAPIView):
         return Response(AttendanceEventSerializer(event).data)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el estado del dia de un estudiante",
+        description=(
+            "Deriva el estado del dia a partir de los movimientos registrados. "
+            "Responde `status: null` cuando no hay nada que derivar."
+        ),
+        tags=TAGS,
+        parameters=[DayStatusQuerySerializer],
+        responses={200: DayStatusResultSerializer},
+    ),
+)
 class AttendanceDayStatusView(GenericAPIView):
     """RF-JOR-002 contract: derive a student's daily status for a jornada."""
 
@@ -163,6 +235,19 @@ class AttendanceDayStatusView(GenericAPIView):
         return Response(DayStatusResultSerializer(result).data)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Cerrar la jornada del dia",
+        description=(
+            "Recalcula los estados del dia y emite las alertas correspondientes. El "
+            "cuerpo solo lleva jornada y fecha; los estados y alertas del resultado "
+            "los calcula el servicio."
+        ),
+        tags=TAGS,
+        request=JornadaClosureRequestSerializer,
+        responses={200: JornadaClosureResultSerializer},
+    ),
+)
 class JornadaClosureView(GenericAPIView):
     """RF-JOR-004 contract: run the daily closure for a jornada."""
 
@@ -181,6 +266,14 @@ class JornadaClosureView(GenericAPIView):
         return Response(JornadaClosureResultSerializer(result).data)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar alertas de asistencia",
+        description="Alertas emitidas por el cierre de jornada, dentro del alcance del actor.",
+        tags=TAGS,
+        responses={200: AttendanceAlertSerializer(many=True)},
+    ),
+)
 class AttendanceAlertListView(GenericAPIView):
     """RF-JOR-004/RF-JOR-005 contract: generated attendance alerts."""
 

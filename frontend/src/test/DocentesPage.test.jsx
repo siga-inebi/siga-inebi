@@ -2,8 +2,9 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
-import { DocentesPage } from "../pages/DocentesPage.jsx";
+import { DocentesPage } from "@teachers/DocentesPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
+import { selectOption } from "./helpers/selectOption.jsx";
 
 const teachersServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
@@ -12,13 +13,13 @@ const teachersServiceMock = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
-vi.mock("../services/teachersService.js", () => ({
+vi.mock("@teachers/teachersService.js", () => ({
   teachersService: teachersServiceMock,
 }));
 
 const downloadCsvMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
+vi.mock("@shared/utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
 
 const SAMPLE = [
   {
@@ -85,9 +86,7 @@ describe("DocentesPage", () => {
     expect(
       within(screen.getByRole("table")).getByText("EMP-0142")
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Mostrando 1-2 de 2 registros/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 1–2 de 2/)).toBeInTheDocument();
   });
 
   test("shows an empty state when the search does not match", async () => {
@@ -96,13 +95,10 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.type(
-      screen.getByPlaceholderText("Buscar por nombre..."),
-      "Nadie"
-    );
+    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "Nadie");
 
     expect(
-      screen.getByText("No hay docentes que coincidan con la busqueda.")
+      await screen.findByText("Sin datos para los filtros seleccionados.")
     ).toBeInTheDocument();
   });
 
@@ -112,7 +108,7 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.selectOptions(screen.getByLabelText("Filtrar"), "Orientador/a");
+    await selectOption(user, /^Filtrar por puesto/, "Orientador/a");
 
     expect(
       screen.queryByText("Marvin Estuardo Lopez Cifuentes")
@@ -137,7 +133,7 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
 
     expect(
       screen.getByRole("heading", { name: "Marvin Estuardo Lopez Cifuentes" })
@@ -151,17 +147,20 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
 
-    const detailPanel = screen.getByRole("complementary", {
-      name: "Detalle de Marvin Estuardo Lopez Cifuentes",
-    });
-    await user.click(within(detailPanel).getByRole("button", { name: "" }));
-
-    const lightbox = screen.getByRole("dialog", {
+    const detailWindow = screen.getByRole("dialog", {
       name: "Marvin Estuardo Lopez Cifuentes",
     });
-    expect(lightbox).toBeInTheDocument();
+    await user.click(
+      within(detailWindow).getByAltText(
+        "Foto de Marvin Estuardo Lopez Cifuentes"
+      )
+    );
+
+    const lightbox = screen.getByRole("dialog", {
+      name: "Foto de Marvin Estuardo Lopez Cifuentes",
+    });
     const downloadLink = within(lightbox).getByRole("link", {
       name: "Descargar",
     });
@@ -174,9 +173,14 @@ describe("DocentesPage", () => {
     await user.click(
       within(lightbox).getByRole("button", { name: "Cerrar imagen" })
     );
-    expect(
-      screen.queryByRole("dialog", { name: "Marvin Estuardo Lopez Cifuentes" })
-    ).not.toBeInTheDocument();
+    // El dialogo se desmonta al terminar su animacion de salida, no en el clic.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", {
+          name: "Foto de Marvin Estuardo Lopez Cifuentes",
+        })
+      ).not.toBeInTheDocument()
+    );
   });
 
   test("submits the create form against the mock service", async () => {
@@ -200,17 +204,14 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
+    await user.click(screen.getByRole("button", { name: /Nuevo registro/ }));
 
-    await user.type(screen.getByLabelText("Nombres"), "Nueva");
-    await user.type(screen.getByLabelText("Apellidos"), "Docente");
-    await user.type(screen.getByLabelText("Especialidad"), "Fisica");
-    await user.selectOptions(
-      screen.getByLabelText("Puesto"),
-      "Docente Interino"
-    );
-    await user.type(screen.getByLabelText("Codigo de Empleado"), "EMP-0300");
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await user.type(screen.getByLabelText(/^Nombres/), "Nueva");
+    await user.type(screen.getByLabelText(/^Apellidos/), "Docente");
+    await user.type(screen.getByLabelText(/^Especialidad/), "Fisica");
+    await selectOption(user, /^Puesto/, "Docente Interino");
+    await user.type(screen.getByLabelText(/^Codigo de empleado/i), "EMP-0300");
+    await user.click(screen.getByRole("button", { name: /Crear registro/ }));
 
     await waitFor(() =>
       expect(teachersServiceMock.create).toHaveBeenCalledTimes(1)
@@ -237,14 +238,14 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
+    await user.click(screen.getByRole("button", { name: /Nuevo registro/ }));
 
     expect(screen.queryByAltText("Vista previa")).not.toBeInTheDocument();
 
     const file = new File(["fake-image-bytes"], "avatar.png", {
       type: "image/png",
     });
-    await user.upload(screen.getByLabelText("Foto"), file);
+    await user.upload(screen.getByLabelText(/^Foto/), file);
 
     expect(await screen.findByAltText("Vista previa")).toHaveAttribute(
       "src",
@@ -273,10 +274,10 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
     await user.click(screen.getByRole("button", { name: "Editar" }));
 
-    const lastNameInput = screen.getByLabelText("Apellidos");
+    const lastNameInput = screen.getByLabelText(/^Apellidos/);
     expect(lastNameInput).toHaveValue("Lopez Cifuentes");
     await user.clear(lastNameInput);
     await user.type(lastNameInput, "Lopez Mendez");
@@ -313,10 +314,10 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await user.click(screen.getByRole("button", { name: /Nuevo registro/ }));
+    await user.click(screen.getByRole("button", { name: /Crear registro/ }));
 
-    expect(screen.getByText(/es obligatorio/)).toBeInTheDocument();
+    expect(screen.getByText(/Complete el campo/)).toBeInTheDocument();
     expect(teachersServiceMock.create).not.toHaveBeenCalled();
   });
 });

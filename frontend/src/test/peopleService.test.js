@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { apiClient } from "../services/apiClient.js";
-import { peopleService } from "../services/peopleService.js";
+import { apiClient } from "@shared/api/apiClient.js";
+import { peopleService } from "@people/peopleService.js";
 
 const PERSON = "11111111-1111-1111-1111-111111111111";
 

@@ -3,10 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#FAF8F4" />
     <title>SIGA-INEBI</title>
+
+    <!--
+      Dos familias con roles fijos (ver shared/theme/tokens/typography.js):
+      Source Serif 4 para titulos, Public Sans para interfaz, IBM Plex Mono para
+      codigos. Solo se piden los pesos que el tema usa: cada peso extra es
+      descarga que el usuario paga sin verla.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+
+    <script>
+      // Anti-flash de modo oscuro: MUI escribe la clase en <html> despues de
+      // hidratar, asi que sin esto la primera pintura sale en claro y parpadea.
+      // La clave "mui-mode" la gestiona MUI via useColorScheme(); aqui solo se lee.
+      (function () {
+        try {
+          var mode = localStorage.getItem("mui-mode");
+          var dark =
+            mode === "dark" ||
+            ((!mode || mode === "system") &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* modo privado del navegador: sin persistencia, no es un error */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/src/app/main.jsx"></script>
   </body>
 </html>

@@ -156,6 +156,27 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "SIGA-INEBI API",
     "DESCRIPTION": "Fundacion ejecutable inicial del sistema SIGA-INEBI",
     "VERSION": "0.1.0",
+    # Componentes separados para peticion y respuesta. Sin esto un serializer
+    # produce UN solo componente compartido por las dos direcciones, asi que los
+    # campos de solo lectura (`public_id`, `created_at`, `updated_at`) aparecen
+    # como requeridos en el cuerpo de un POST o PUT, y cualquier cliente
+    # generado a partir del schema obliga a enviarlos aunque el backend los
+    # ignore.
+    "COMPONENT_SPLIT_REQUEST": True,
+    # Un campo de solo lectura nunca es obligatorio en una peticion.
+    "COMPONENT_NO_READ_ONLY_REQUIRED": True,
+    "SCHEMA_PATH_PREFIX": "/api/v1",
+    # Pendiente conocido, NO intentar con `ENUM_NAME_OVERRIDES` a secas: cuatro
+    # dominios tienen un campo `status`, y drf-spectacular resuelve la colision
+    # con nombres por hash (`Status113Enum`, `StatusE41Enum`). Es feo pero es
+    # solo el nombre del componente; los valores son correctos.
+    #
+    # No se arregla aqui porque `ENUM_NAME_OVERRIDES` resuelve las rutas con
+    # `import_string`, que no puede recorrer clases anidadas: apuntar a
+    # `Enrolment.EnrolmentStatus.choices` falla en silencio y deja el schema con
+    # un error de duplicacion. La solucion correcta es exponer las choices como
+    # variable de modulo en cada `models.py` y apuntar a esa, y toca hacerlo
+    # cuando se generen tipos desde el schema (ahi el nombre si importa).
 }
 
 LOGGING = {

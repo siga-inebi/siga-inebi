@@ -4,12 +4,13 @@ import { Route, Routes } from "react-router-dom";
 import { vi } from "vitest";
 
 import { App } from "../app/App.jsx";
-import { AppErrorBoundary } from "../components/AppErrorBoundary.jsx";
-import { AuthProvider } from "../features/auth/AuthContext.jsx";
-import { AppLayout } from "../layouts/AppLayout.jsx";
-import { LoginPage } from "../pages/LoginPage.jsx";
-import { NotFoundPage } from "../pages/NotFoundPage.jsx";
-import { apiClient } from "../services/apiClient.js";
+import { AppErrorBoundary } from "@ui/feedback/AppErrorBoundary.jsx";
+import { AuthProvider } from "@auth/AuthProvider.jsx";
+import { AppShell } from "@layout/AppShell.jsx";
+import { PublicShell } from "@layout/PublicShell.jsx";
+import { LoginPage } from "@auth/LoginPage.jsx";
+import { NotFoundPage } from "@ui/feedback/NotFoundPage.jsx";
+import { apiClient } from "@shared/api/apiClient.js";
 import { authenticatedSession, anonymousSession } from "./fixtures/auth.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 
@@ -20,7 +21,7 @@ const authServiceMock = vi.hoisted(() => ({
   csrf: vi.fn(),
 }));
 
-vi.mock("../services/authService", () => ({
+vi.mock("@auth/authService.js", () => ({
   authService: authServiceMock,
 }));
 
@@ -41,82 +42,79 @@ describe("app shell", () => {
     ).toBeInTheDocument();
   });
 
-  test("renders layout actions", async () => {
-    const user = userEvent.setup();
+  test("public shell offers login and hides the module navigation", async () => {
     renderWithRouter(
       <AuthProvider>
-        <AppLayout>
+        <PublicShell>
           <div>Contenido</div>
-        </AppLayout>
+        </PublicShell>
       </AuthProvider>
     );
 
     expect(await screen.findByText("SIGA-INEBI")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Abrir menu/i }));
     expect(
       screen.getByRole("link", { name: /Iniciar sesion/i })
     ).toBeInTheDocument();
-  });
-
-  test("hides LISTADOS navigation when not authenticated", async () => {
-    const user = userEvent.setup();
-    renderWithRouter(
-      <AuthProvider>
-        <AppLayout>
-          <div>Contenido</div>
-        </AppLayout>
-      </AuthProvider>
-    );
-
-    await user.click(
-      await screen.findByRole("button", { name: /Abrir menu/i })
-    );
+    // Sin sesion no hay modulos que mostrar, asi que no debe haber grupos de nav.
     expect(
-      screen.getByRole("link", { name: /Iniciar sesion/i })
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Listados")).not.toBeInTheDocument();
+      screen.queryByRole("navigation", { name: "Comunidad educativa" })
+    ).not.toBeInTheDocument();
   });
 
-  test("shows LISTADOS navigation when authenticated", async () => {
-    authServiceMock.me.mockResolvedValueOnce(authenticatedSession);
-
+  test("private shell shows the module groups and the session identity", async () => {
     renderWithRouter(
-      <AuthProvider>
-        <AppLayout>
-          <div>Contenido</div>
-        </AppLayout>
-      </AuthProvider>
+      <AppShell onLogout={() => {}} user={authenticatedSession.user}>
+        <div>Contenido</div>
+      </AppShell>
     );
 
-    expect(await screen.findByText("Listados")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("navigation", { name: "Comunidad educativa" })
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Padres de familia" })
     ).toHaveAttribute("href", "/app/padres-de-familia");
+    expect(screen.getByRole("button", { name: "Cuenta" })).toBeInTheDocument();
+  });
+
+  test("private shell logs out from the account menu", async () => {
+    const user = userEvent.setup();
+    const onLogout = vi.fn();
+    renderWithRouter(
+      <AppShell onLogout={onLogout} user={authenticatedSession.user}>
+        <div>Contenido</div>
+      </AppShell>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Cuenta" }));
+    await user.click(screen.getByRole("menuitem", { name: /Cerrar sesion/i }));
+
+    expect(onLogout).toHaveBeenCalledTimes(1);
   });
 
   test("renders login page", async () => {
     renderWithRouter(<App />, { route: "/login" });
+
     expect(
       await screen.findByRole("heading", { name: /Iniciar sesion/i })
     ).toBeInTheDocument();
-    expect(screen.getAllByAltText(/Logo de INEBI Salcaja/i)).toHaveLength(2);
+    expect(
+      screen.getAllByAltText(/Logotipo del INEBI de Salcaja/i)
+    ).toHaveLength(1);
   });
 
-  test("validates empty login form", async () => {
-    const user = userEvent.setup();
+  test("keeps submit disabled while the login form is incomplete", async () => {
     renderWithRouter(
       <AuthProvider>
         <LoginPage />
       </AuthProvider>
     );
 
-    await user.click(
-      screen.getByRole("button", { name: /Entrar al sistema/i })
-    );
-
+    // El formulario no deja enviar vacio en vez de aceptar y luego reclamar:
+    // el usuario ve antes de actuar que falta algo.
     expect(
-      screen.getByText(/Ingrese usuario y contrasena/i)
-    ).toBeInTheDocument();
+      await screen.findByRole("button", { name: /Ingresar/i })
+    ).toBeDisabled();
     expect(authServiceMock.login).not.toHaveBeenCalled();
   });
 
@@ -136,9 +134,7 @@ describe("app shell", () => {
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
     await user.type(screen.getByLabelText(/Contrasena/i), "demo-pass-123");
-    await user.click(
-      screen.getByRole("button", { name: /Entrar al sistema/i })
-    );
+    await user.click(screen.getByRole("button", { name: /Ingresar/i }));
 
     expect(authServiceMock.csrf).toHaveBeenCalledTimes(1);
     expect(authServiceMock.login).toHaveBeenCalledWith({
@@ -166,9 +162,7 @@ describe("app shell", () => {
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
     await user.type(screen.getByLabelText(/Contrasena/i), "incorrecta");
-    await user.click(
-      screen.getByRole("button", { name: /Entrar al sistema/i })
-    );
+    await user.click(screen.getByRole("button", { name: /Ingresar/i }));
 
     expect(
       await screen.findByText(/Credenciales invalidas./i)
@@ -181,7 +175,7 @@ describe("app shell", () => {
 
   test("renders 404 page", () => {
     renderWithRouter(<NotFoundPage />);
-    expect(screen.getByText("404")).toBeInTheDocument();
+    expect(screen.getByText(/Pagina no encontrada/i)).toBeInTheDocument();
   });
 
   test("private route redirects when session missing", async () => {
@@ -202,7 +196,7 @@ describe("app shell", () => {
 
     renderWithRouter(<App />, { route: "/app" });
 
-    expect(await screen.findByText(/Bienvenido, Demo./i)).toBeInTheDocument();
+    expect(await screen.findByText(/Buen dia, Demo/i)).toBeInTheDocument();
   });
 
   test("does not store password or session token in localStorage on login", async () => {
@@ -223,12 +217,16 @@ describe("app shell", () => {
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
     await user.type(screen.getByLabelText(/Contrasena/i), "admin");
-    await user.click(
-      screen.getByRole("button", { name: /Entrar al sistema/i })
-    );
+    await user.click(screen.getByRole("button", { name: /Ingresar/i }));
 
     await waitFor(() => expect(authServiceMock.login).toHaveBeenCalled());
-    expect(setItemSpy).not.toHaveBeenCalled();
+    // Nada de credenciales ni de sesion en localStorage: la sesion vive en la
+    // cookie del backend. MUI si escribe la preferencia de tema, y eso no es
+    // dato de sesion.
+    const sessionWrites = setItemSpy.mock.calls.filter(
+      ([key]) => key !== "mui-mode"
+    );
+    expect(sessionWrites).toHaveLength(0);
   });
 
   test("error boundary renders fallback", () => {

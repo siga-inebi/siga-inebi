@@ -1,4 +1,4 @@
-import { buildCsv } from "../utils/csv.js";
+import { buildCsv } from "@shared/utils/csv.js";
 
 describe("buildCsv", () => {
   const columns = [
