@@ -1,4 +1,5 @@
 from django.core.exceptions import PermissionDenied
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
@@ -226,6 +227,22 @@ class DeactivateMixin:
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar contactos de emergencia de un estudiante",
+        tags=["students: emergency contacts"],
+        # `StudentRecordListCreateView.get` pagina dentro del handler, algo que
+        # drf-spectacular no puede inferir desde `get_serializer_class`: sin esta
+        # anotacion documenta un objeto suelto en vez del sobre paginado.
+        responses={200: EmergencyContactSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar contacto de emergencia",
+        tags=["students: emergency contacts"],
+        request=EmergencyContactCreateSerializer,
+        responses={201: EmergencyContactSerializer},
+    ),
+)
 class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
     list_serializer = EmergencyContactSerializer
     create_serializer = EmergencyContactCreateSerializer
