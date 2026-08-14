@@ -49,6 +49,8 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/evaluation-config/",
         CycleEvaluationConfigView.as_view(),
         name="cycle-evaluation-config",
+    ),
+    path(
         "cycles/<uuid:public_id>/clone/",
         AcademicCycleCloneView.as_view(),
         name="academic-cycle-clone",
