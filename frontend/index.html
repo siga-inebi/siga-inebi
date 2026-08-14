@@ -3,10 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#F4F6FB" />
     <title>SIGA-INEBI</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,400&display=swap"
+    />
+
+    <script>
+      // Anti-flash de modo oscuro: MUI escribe la clase en <html> despues de
+      // hidratar, asi que sin esto la primera pintura sale en claro y parpadea.
+      // La clave "mui-mode" la gestiona MUI via useColorScheme(); aqui solo se lee.
+      (function () {
+        try {
+          var mode = localStorage.getItem("mui-mode");
+          var dark =
+            mode === "dark" ||
+            ((!mode || mode === "system") &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* modo privado del navegador: sin persistencia, no es un error */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/src/app/main.jsx"></script>
   </body>
 </html>

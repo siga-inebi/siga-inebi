@@ -42,6 +42,29 @@ export default [
       "import-x/no-unresolved": "error",
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "no-unused-vars": "off",
+      // El sistema de color vive en un solo lugar. Un hex suelto en un
+      // componente es la forma en que un design system se muere: no se puede
+      // cambiar la marca ni agregar modo oscuro sin cazar literales.
+      // Excepcion unica: src/shared/theme/ (ver override mas abajo).
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "Literal[value=/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/]",
+          message:
+            "Los literales de color solo pueden vivir en src/shared/theme/palette/raw.js. Usa un token del tema (ej. sx={{ color: 'text.secondary' }}) o una variante de StatusChip.",
+        },
+        {
+          selector: "Literal[value=/rgba?\\(/]",
+          message:
+            "Los literales de color solo pueden vivir en src/shared/theme/. Usa alpha() sobre un token del tema, o softTone(theme, tono).",
+        },
+      ],
     },
+  },
+  {
+    // El tema es, por definicion, el lugar donde los colores son literales.
+    files: ["src/shared/theme/**/*.js"],
+    rules: { "no-restricted-syntax": "off" },
   },
 ];
