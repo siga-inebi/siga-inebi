@@ -90,6 +90,13 @@
 - Crear o reasignar una asignacion docente de un ciclo cerrado devuelve HTTP 400. El historial de
   asignaciones permanece consultable y no se elimina.
 
+## Inscripciones activas
+
+- `GET /api/v1/enrolments/active/` expone las inscripciones con estado `active` y registro
+  vigente; acepta `student_id` para consultar un estudiante concreto.
+- La respuesta es paginada y constituye la fuente común de estudiantes habilitados para
+  asistencia, evaluación de notas y horarios. No duplica reglas en esos consumidores.
+
 ## Requisitos documentales de matrícula
 
 - `GET /api/v1/enrolments/{enrolment_id}/documents/` lista los requisitos documentales activos

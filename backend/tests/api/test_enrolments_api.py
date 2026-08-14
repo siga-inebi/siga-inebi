@@ -73,6 +73,47 @@ def test_create_enrolment_returns_public_references_and_audits(auth_client):
     assert AuditEvent.objects.filter(action="enrolments.enrolment.created").exists()
 
 
+def test_active_enrolment_list_exposes_only_current_records(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    response = auth_client.get(reverse("active-enrolment-list"))
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["public_id"] == str(enrolment.public_id)
+
+
+def test_active_enrolment_list_filters_by_student(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    response = auth_client.get(
+        reverse("active-enrolment-list"), {"student_id": str(student.public_id)}
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["results"]) == 1
+    assert response.json()["results"][0]["student_id"] == str(student.public_id)
+
+
+def test_active_enrolment_list_requires_authentication(client):
+    response = client.get(reverse("active-enrolment-list"))
+
+    assert response.status_code in (401, 403)
+
+
 def test_create_enrolment_requires_domain_permission(auth_client):
     section = SectionFactory()
     response = auth_client.post(

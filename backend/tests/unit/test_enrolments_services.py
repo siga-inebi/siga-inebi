@@ -5,6 +5,7 @@ import pytest
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import (
+    active_enrolments,
     change_section,
     create_enrolment,
     matriculate_student,
@@ -347,3 +348,33 @@ def test_set_document_requirement_revives_deactivated_row():
 
     assert revived.pk == requirement.pk
     assert revived.is_active is True
+
+
+def test_active_enrolments_excludes_historical_and_inactive_records():
+    section = SectionFactory()
+    active_student = StudentFactory()
+    historical_student = StudentFactory()
+    inactive_student = StudentFactory()
+    active = create_enrolment(
+        student=active_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    Enrolment.objects.create(
+        student=historical_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    inactive = create_enrolment(
+        student=inactive_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    inactive.is_active = False
+    inactive.save(update_fields=["is_active", "updated_at"])
+
+    assert list(active_enrolments()) == [active]

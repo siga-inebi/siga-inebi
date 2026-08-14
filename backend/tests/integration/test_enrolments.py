@@ -6,6 +6,7 @@ from django.utils import timezone
 from apps.common.models import DomainError
 from apps.enrolments.models import EnrolmentDocumentRequirement
 from apps.enrolments.services import (
+    active_enrolments,
     change_section,
     create_enrolment,
     matriculate_student,
@@ -31,6 +32,7 @@ def test_create_valid_enrolment():
     )
 
     assert enrolment.status == enrolment.EnrolmentStatus.ACTIVE
+    assert list(active_enrolments(student=student)) == [enrolment]
 
 
 @pytest.mark.integration

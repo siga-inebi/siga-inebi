@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from apps.academics.models import AcademicCycle, Grade, Section, Shift
 from apps.enrolments import services
 from apps.enrolments.api.serializers import (
+    ActiveEnrolmentQuerySerializer,
     EnrolmentCreateSerializer,
     EnrolmentDocumentRequirementCreateSerializer,
     EnrolmentDocumentRequirementSerializer,
@@ -55,6 +56,31 @@ class EnrolmentCreateView(GenericAPIView):
             actor=request.user,
         )
         return Response(EnrolmentSerializer(enrolment).data, status=status.HTTP_201_CREATED)
+
+
+class ActiveEnrolmentListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ActiveEnrolmentQuerySerializer
+
+    @extend_schema(
+        summary="Listar inscripciones activas",
+        description=(
+            "Devuelve la fuente vigente de estudiantes habilitados para asistencia, "
+            "notas y horarios. Puede filtrarse por estudiante."
+        ),
+        parameters=[ActiveEnrolmentQuerySerializer],
+        responses={200: EnrolmentSerializer(many=True)},
+        tags=["enrolments"],
+    )
+    def get(self, request):
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        student = None
+        student_id = query.validated_data.get("student_id")
+        if student_id:
+            student = _resolve(Student.objects.all(), student_id, "Student")
+        page = self.paginate_queryset(services.active_enrolments(student=student))
+        return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
 
 class MatriculationCreateView(GenericAPIView):
