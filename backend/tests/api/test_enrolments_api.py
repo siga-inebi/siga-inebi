@@ -4,6 +4,7 @@ import pytest
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
+from apps.enrolments.models import EnrolmentDocumentRequirement
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
@@ -252,6 +253,57 @@ def test_reenrolment_requires_domain_permission(auth_client):
     assert response.status_code == 403
 
 
+def test_document_requirement_registers_and_updates_status(auth_client):
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    _grant_enrolment_creation(auth_client.user)
+    url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
+
+    response = auth_client.post(
+        url, {"code": "id-card", "name": "Identity card"}, content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == EnrolmentDocumentRequirement.DeliveryStatus.PENDING
+
+    response = auth_client.post(
+        url,
+        {"code": "id-card", "name": "Identity card", "status": "delivered"},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert response.json()["code"] == "ID-CARD"
+    assert response.json()["status"] == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+    assert AuditEvent.objects.filter(action="enrolments.document_requirement.updated").exists()
+
+    response = auth_client.get(url)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["results"][0]["status"] == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+
+
+def test_document_requirement_requires_domain_permission(auth_client):
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    response = auth_client.post(
+        reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id]),
+        {"code": "id-card", "name": "Identity card"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
 def test_reenrolment_requires_previous_enrolment(auth_client):
     section = SectionFactory(name="A")
     student = StudentFactory()
@@ -265,3 +317,71 @@ def test_reenrolment_requires_previous_enrolment(auth_client):
 
     assert response.status_code == 400
     assert "no previous enrolment" in response.json()["error"]["detail"]
+
+
+def _grant_enrolment_update(user):
+    permission = PermissionFactory(codename="enrollment_update")
+    return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+
+
+def _enrolment_for_documents():
+    section = SectionFactory()
+    return create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+
+def test_document_requirement_list_uses_shared_pagination_envelope(auth_client):
+    enrolment = _enrolment_for_documents()
+    _grant_enrolment_creation(auth_client.user)
+    url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
+    auth_client.post(
+        url, {"code": "id-card", "name": "Identity card"}, content_type="application/json"
+    )
+    auth_client.post(
+        url, {"code": "birth-cert", "name": "Birth certificate"}, content_type="application/json"
+    )
+
+    response = auth_client.get(url)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 2
+    assert [item["code"] for item in body["results"]] == ["BIRTH-CERT", "ID-CARD"]
+
+
+def test_document_requirement_partial_update_keeps_delivery_state(auth_client):
+    enrolment = _enrolment_for_documents()
+    _grant_enrolment_creation(auth_client.user)
+    url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
+    auth_client.post(
+        url,
+        {"code": "id-card", "name": "Identity card", "status": "delivered"},
+        content_type="application/json",
+    )
+
+    response = auth_client.post(
+        url, {"code": "id-card", "name": "Identity card (DPI)"}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Identity card (DPI)"
+    assert response.json()["status"] == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+
+
+def test_document_requirement_accepts_enrolment_update_permission(auth_client):
+    enrolment = _enrolment_for_documents()
+    _grant_enrolment_update(auth_client.user)
+    url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
+
+    response = auth_client.post(
+        url,
+        {"code": "id-card", "name": "Identity card", "status": "delivered"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert auth_client.get(url).json()["count"] == 1
