@@ -58,9 +58,7 @@ class EvaluationUnit(TimeStampedModel):
         related_name="evaluation_units",
         help_text="Cycle this evaluation unit belongs to.",
     )
-    number = models.PositiveSmallIntegerField(
-        help_text="Order within the cycle: 1, 2, 3, 4, etc."
-    )
+    number = models.PositiveSmallIntegerField(help_text="Order within the cycle: 1, 2, 3, 4, etc.")
     name = models.CharField(
         max_length=100,
         help_text="Display name: 'Unit 1', 'First Trimester', etc.",

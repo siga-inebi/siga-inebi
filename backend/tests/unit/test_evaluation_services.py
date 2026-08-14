@@ -26,15 +26,15 @@ from apps.common.models import DomainError
 from apps.evaluation.models import EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_effective_unit_count,
+    get_global_evaluation_config,
     grant_capture_exception,
+    set_cycle_unit_count,
     set_recovery_window,
+    update_global_evaluation_config,
     validate_capture_allowed,
     validate_capture_window_open,
     validate_recovery_window_open,
-    get_effective_unit_count,
-    get_global_evaluation_config,
-    set_cycle_unit_count,
-    update_global_evaluation_config,
 )
 from tests.factories.academic import AcademicCycleFactory, SubjectFactory
 from tests.factories.people import PersonFactory
@@ -63,7 +63,7 @@ class TestCreateEvaluationUnit:
             end_month = start_month + 1
             if end_month > 12:
                 end_month = 12
-            
+
             unit = create_evaluation_unit(
                 academic_cycle=cycle,
                 number=i,

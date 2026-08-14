@@ -20,16 +20,10 @@ class EvaluationUnitFactory(factory.django.DjangoModelFactory):
     starts_on = factory.LazyAttribute(
         lambda obj: timezone.localdate() + timedelta(days=(obj.number - 1) * 65)
     )
-    ends_on = factory.LazyAttribute(
-        lambda obj: obj.starts_on + timedelta(days=60)
-    )
+    ends_on = factory.LazyAttribute(lambda obj: obj.starts_on + timedelta(days=60))
     # Capture window: starts 5 days before evaluation starts, ends 55 days into evaluation
-    capture_starts_on = factory.LazyAttribute(
-        lambda obj: obj.starts_on + timedelta(days=-5)
-    )
-    capture_ends_on = factory.LazyAttribute(
-        lambda obj: obj.starts_on + timedelta(days=55)
-    )
+    capture_starts_on = factory.LazyAttribute(lambda obj: obj.starts_on + timedelta(days=-5))
+    capture_ends_on = factory.LazyAttribute(lambda obj: obj.starts_on + timedelta(days=55))
     status = EvaluationUnit.UnitStatus.OPEN
 
 

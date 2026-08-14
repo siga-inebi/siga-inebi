@@ -134,6 +134,8 @@ def test_clone_cycle_api_copies_structure_and_teachers(auth_client, institution)
     event = AuditEvent.objects.get(action="academics.cycle.cloned")
     assert event.context["source_cycle_id"] == source.pk
     assert event.context["teaching_assignment_count"] == 1
+
+
 def test_closed_cycle_historical_detail_preserves_structure_and_aggregates_enrolments(
     auth_client, institution
 ):

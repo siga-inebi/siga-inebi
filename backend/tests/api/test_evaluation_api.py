@@ -186,20 +186,21 @@ class TestEvaluationUnitAPI:
         )
 
         assert response.status_code == 400
-        assert "end" in response.json().get("ends_on", [{}])[0].lower() if response.json().get("ends_on") else True
+        payload = response.json()
+        if payload.get("ends_on"):
+            assert "end" in payload["ends_on"][0].lower()
 
     def test_list_units_by_cycle(self, auth_client, institution):
         """
         GET /api/v1/academics/cycles/{cycle_id}/evaluation-units/
         """
         cycle = AcademicCycleFactory(institution=institution)
-        
+
         # Create some units
         from tests.factories.evaluation import EvaluationUnitFactory
-        units = [
+
+        for i in range(1, 4):
             EvaluationUnitFactory(academic_cycle=cycle, number=i)
-            for i in range(1, 4)
-        ]
 
         response = auth_client.get(
             reverse(
@@ -431,8 +432,20 @@ class TestEvaluationConfigAPI:
         assert response.status_code == 200
         assert response.json()["default_unit_count"] == 4
 
-        cycle_a = AcademicCycleFactory(institution=institution, year=2030, starts_on=date(2030, 1, 1), ends_on=date(2030, 12, 31), status="draft")
-        cycle_b = AcademicCycleFactory(institution=institution, year=2031, starts_on=date(2031, 1, 1), ends_on=date(2031, 12, 31), status="draft")
+        cycle_a = AcademicCycleFactory(
+            institution=institution,
+            year=2030,
+            starts_on=date(2030, 1, 1),
+            ends_on=date(2030, 12, 31),
+            status="draft",
+        )
+        cycle_b = AcademicCycleFactory(
+            institution=institution,
+            year=2031,
+            starts_on=date(2031, 1, 1),
+            ends_on=date(2031, 12, 31),
+            status="draft",
+        )
 
         # Before any override, both cycles inherit the global default.
         for cycle in (cycle_a, cycle_b):
@@ -445,9 +458,7 @@ class TestEvaluationConfigAPI:
 
         # Cycle A departs from the global value.
         response = auth_client.patch(
-            reverse(
-                "cycle-evaluation-config", kwargs={"cycle_public_id": str(cycle_a.public_id)}
-            ),
+            reverse("cycle-evaluation-config", kwargs={"cycle_public_id": str(cycle_a.public_id)}),
             {"unit_count": 3},
             content_type="application/json",
         )

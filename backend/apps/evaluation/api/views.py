@@ -63,10 +63,8 @@ class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
         TODO: implement once permission model is complete.
         """
         # For now, require authenticated user; permissions enforced later.
-        if not self.request.user or not self.request.user.is_authenticated:
-            return False
         # TODO: check for role=director and permission=evaluation.configure_units
-        return True
+        return bool(self.request.user and self.request.user.is_authenticated)
 
     def create(self, request, *args, **kwargs):
         """
@@ -123,7 +121,9 @@ class EvaluationUnitRecoveryWindowView(APIView):
     """
     Configure the recovery window of an evaluation unit (RF-EVC-003).
 
-    PATCH /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}/recovery-window/
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    PATCH {base}/recovery-window/
     """
 
     def check_director_permission(self):
@@ -131,10 +131,8 @@ class EvaluationUnitRecoveryWindowView(APIView):
         Verify user has director role and evaluation.configure_units permission.
         TODO: implement once permission model is complete.
         """
-        if not self.request.user or not self.request.user.is_authenticated:
-            return False
         # TODO: check for role=director and permission=evaluation.configure_units
-        return True
+        return bool(self.request.user and self.request.user.is_authenticated)
 
     def patch(self, request, *args, **kwargs):
         if not self.check_director_permission():
@@ -184,8 +182,10 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
     """
     List and grant exceptional capture authorizations for a unit (RF-EVC-004).
 
-    GET  /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}/capture-exceptions/
-    POST /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}/capture-exceptions/
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    GET  {base}/capture-exceptions/
+    POST {base}/capture-exceptions/
     """
 
     serializer_class = CaptureExceptionGrantSerializer
@@ -196,10 +196,8 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
         Verify user has permission for academic authorization.
         TODO: implement once permission model is complete.
         """
-        if not self.request.user or not self.request.user.is_authenticated:
-            return False
         # TODO: check for permission=evaluation.grant_capture_exception
-        return True
+        return bool(self.request.user and self.request.user.is_authenticated)
 
     def get_queryset(self):
         """Filter grants by unit and cycle from URL parameters."""
@@ -220,7 +218,12 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
         """
         if not self.check_director_permission():
             return Response(
-                {"error": "Permission denied. Only academic authorization can grant capture exceptions."},
+                {
+                    "error": (
+                        "Permission denied. Only academic authorization can grant "
+                        "capture exceptions."
+                    )
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -274,10 +277,8 @@ class EvaluationGlobalConfigView(APIView):
         Verify user has director role and evaluation.configure_units permission.
         TODO: implement once permission model is complete.
         """
-        if not self.request.user or not self.request.user.is_authenticated:
-            return False
         # TODO: check for role=director and permission=evaluation.configure_units
-        return True
+        return bool(self.request.user and self.request.user.is_authenticated)
 
     def get(self, request, *args, **kwargs):
         config = get_global_evaluation_config()
@@ -323,10 +324,8 @@ class CycleEvaluationConfigView(APIView):
         Verify user has director role and evaluation.configure_units permission.
         TODO: implement once permission model is complete.
         """
-        if not self.request.user or not self.request.user.is_authenticated:
-            return False
         # TODO: check for role=director and permission=evaluation.configure_units
-        return True
+        return bool(self.request.user and self.request.user.is_authenticated)
 
     def _get_cycle_or_none(self, cycle_public_id):
         try:
