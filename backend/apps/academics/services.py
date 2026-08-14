@@ -23,10 +23,12 @@ from django.db import transaction
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    CurriculumPlan,
     Grade,
     GradeOffering,
     Level,
     LevelSubject,
+    Section,
     Shift,
     Subject,
     TeachingAssignment,
@@ -127,9 +129,128 @@ def create_academic_cycle(
     return cycle
 
 
+def _academic_cycle_opening_gaps(cycle):
+    offerings = list(
+        cycle.grade_offerings.filter(is_active=True)
+        .select_related("grade", "shift")
+        .prefetch_related("sections")
+    )
+    if not offerings:
+        return ["at least one grade offering"]
+
+    gaps = []
+    grades_with_plan = set(
+        cycle.curriculum_plans.filter(is_active=True).values_list("grade_id", flat=True)
+    )
+    reported_plan_gaps = set()
+    for offering in offerings:
+        if not offering.sections.filter(is_active=True).exists():
+            gaps.append(
+                f"sections for grade '{offering.grade.name}' in shift '{offering.shift.name}'"
+            )
+        if (
+            offering.grade_id not in grades_with_plan
+            and offering.grade_id not in reported_plan_gaps
+        ):
+            gaps.append(f"curriculum plan for grade '{offering.grade.name}'")
+            reported_plan_gaps.add(offering.grade_id)
+    return gaps
+
+
+@transaction.atomic
+def clone_academic_cycle(
+    *,
+    source_cycle,
+    year,
+    name,
+    starts_on,
+    ends_on,
+    description="",
+    include_teaching_assignments=False,
+    actor=None,
+):
+    """Create an independent draft cycle from existing academic structure (RF-CIC-007)."""
+    source = AcademicCycle.objects.select_for_update().get(pk=source_cycle.pk)
+    if source.status != AcademicCycle.CycleStatus.CLOSED:
+        raise DomainError("Only a closed academic cycle can be cloned.")
+    target = create_academic_cycle(
+        institution=source.institution,
+        year=year,
+        name=name,
+        starts_on=starts_on,
+        ends_on=ends_on,
+        description=description,
+        actor=actor,
+    )
+
+    section_map = {}
+    offerings = source.grade_offerings.select_related("grade", "shift").prefetch_related("sections")
+    for source_offering in offerings:
+        target_offering = GradeOffering.objects.create(
+            academic_cycle=target,
+            grade=source_offering.grade,
+            shift=source_offering.shift,
+            is_active=source_offering.is_active,
+        )
+        for source_section in source_offering.sections.all():
+            target_section = Section.objects.create(
+                offering=target_offering,
+                name=source_section.name,
+                capacity=source_section.capacity,
+                is_active=source_section.is_active,
+            )
+            section_map[source_section.pk] = target_section
+
+    CurriculumPlan.objects.bulk_create(
+        [
+            CurriculumPlan(
+                academic_cycle=target,
+                grade=plan.grade,
+                subject=plan.subject,
+                is_required=plan.is_required,
+                is_active=plan.is_active,
+            )
+            for plan in source.curriculum_plans.select_related("grade", "subject")
+        ]
+    )
+
+    assignment_count = 0
+    if include_teaching_assignments:
+        current_assignments = source.teaching_assignments.filter(
+            ends_on__isnull=True
+        ).select_related("section", "subject", "teacher")
+        assignments = [
+            TeachingAssignment(
+                academic_cycle=target,
+                section=section_map[assignment.section_id],
+                subject=assignment.subject,
+                teacher=assignment.teacher,
+                starts_on=target.starts_on,
+                is_active=assignment.is_active,
+            )
+            for assignment in current_assignments
+            if assignment.section_id in section_map
+        ]
+        TeachingAssignment.objects.bulk_create(assignments)
+        assignment_count = len(assignments)
+
+    _audit(
+        actor,
+        "academics.cycle.cloned",
+        target,
+        source_cycle_id=source.pk,
+        include_teaching_assignments=include_teaching_assignments,
+        grade_offering_count=target.grade_offerings.count(),
+        section_count=len(section_map),
+        curriculum_plan_count=target.curriculum_plans.count(),
+        teaching_assignment_count=assignment_count,
+    )
+    return target
+
+
 @transaction.atomic
 def activate_academic_cycle(*, cycle, actor=None):
-    """Activate a prepared cycle while preventing a second active cycle (RF-CIC-002)."""
+    """Activate a prepared cycle with its available opening structure validated."""
     locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
     if locked.status != AcademicCycle.CycleStatus.DRAFT:
         raise DomainError("Only an academic cycle in preparation can be activated.")
@@ -144,6 +265,11 @@ def activate_academic_cycle(*, cycle, actor=None):
     ):
         raise DomainError(
             "The current active cycle must be closed before activating another cycle."
+        )
+    opening_gaps = _academic_cycle_opening_gaps(locked)
+    if opening_gaps:
+        raise DomainError(
+            "Academic cycle structure is incomplete: " + "; ".join(opening_gaps) + "."
         )
 
     locked.status = AcademicCycle.CycleStatus.ACTIVE
@@ -607,6 +733,8 @@ def _teacher_profile_for(person):
 
 
 def _validate_teaching_assignment(*, academic_cycle, section, subject, teacher, starts_on, ends_on):
+    if academic_cycle.status == AcademicCycle.CycleStatus.CLOSED:
+        raise DomainError("Closed academic cycles do not accept teaching assignment changes.")
     if section.offering.academic_cycle_id != academic_cycle.id:
         raise DomainError("Section must belong to the academic cycle.")
     if subject.institution_id != academic_cycle.institution_id:
@@ -669,6 +797,8 @@ def reassign_teaching_assignment(*, assignment, teacher, ends_on, actor=None):
     )
     academic_cycle = assignment.academic_cycle
 
+    if academic_cycle.status == AcademicCycle.CycleStatus.CLOSED:
+        raise DomainError("Closed academic cycles do not accept teaching assignment changes.")
     if assignment.ends_on is not None:
         raise DomainError("Only the current teaching assignment can be reassigned.")
     if assignment.teacher_id == teacher.id:

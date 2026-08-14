@@ -54,3 +54,12 @@ class MatriculationCreateSerializer(serializers.Serializer):
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada.")
     section_id = serializers.UUIDField(help_text="Public ID de la sección asignada.")
     effective_on = serializers.DateField(help_text="Fecha de inicio de la matrícula.")
+
+
+class ReenrolmentCreateSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante activo.")
+    academic_cycle_id = serializers.UUIDField(help_text="Public ID del nuevo ciclo escolar.")
+    grade_id = serializers.UUIDField(help_text="Public ID del grado destino.")
+    shift_id = serializers.UUIDField(help_text="Public ID de la jornada destino.")
+    section_id = serializers.UUIDField(help_text="Public ID de la sección asignada.")
+    effective_on = serializers.DateField(help_text="Fecha de inicio de la reinscripción.")

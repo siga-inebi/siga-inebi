@@ -91,6 +91,21 @@ def test_account_provisioning_requires_authentication(client):
 
 @pytest.mark.api
 @pytest.mark.security
+@pytest.mark.django_db
+def test_public_self_registration_route_does_not_exist(client):
+    person = PersonFactory()
+
+    response = client.post(
+        "/api/v1/auth/register/",
+        {"person": person.pk, "username": "self-registered"},
+    )
+
+    assert response.status_code == 404
+    assert not hasattr(person, "user_account")
+
+
+@pytest.mark.api
+@pytest.mark.security
 @pytest.mark.postgres
 @pytest.mark.django_db
 def test_authorized_administrator_reissues_and_revokes_previous_challenge(client):
