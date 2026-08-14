@@ -203,19 +203,35 @@ function EntityField({ disabled, field, onChange, value }) {
       onChange={(event) => onChange(field.name, event.target.value)}
       placeholder={field.placeholder}
       required={field.required}
-      slotProps={
-        field.type === "number" && field.min != null
+      slotProps={{
+        ...(field.type === "number" && field.min != null
           ? { htmlInput: { min: field.min } }
-          : undefined
-      }
+          : null),
+        // Los inputs de fecha y hora SIEMPRE pintan su propio placeholder
+        // ("mm/dd/yyyy"), asi que la etiqueta flotante se le encima si no se
+        // fuerza arriba desde el principio.
+        ...(DATE_LIKE_TYPES.has(field.type) ? { inputLabel: { shrink: true } } : null),
+      }}
       type={TEXT_INPUT_TYPES.has(field.type) ? field.type : "text"}
       value={value ?? ""}
     />
   );
 }
 
+/** Tipos que traen placeholder propio del navegador. */
+const DATE_LIKE_TYPES = new Set(["date", "datetime-local", "time"]);
+
 /** Tipos que se delegan tal cual al input nativo. */
-const TEXT_INPUT_TYPES = new Set(["number", "email", "tel", "date", "url", "password"]);
+const TEXT_INPUT_TYPES = new Set([
+  "number",
+  "email",
+  "tel",
+  "date",
+  "datetime-local",
+  "time",
+  "url",
+  "password",
+]);
 
 function normalizeOptions(options = []) {
   return options.map((option) =>

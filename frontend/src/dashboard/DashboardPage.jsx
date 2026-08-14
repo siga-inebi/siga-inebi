@@ -84,10 +84,29 @@ export function DashboardPage() {
             />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
-            <StatCard label="Docentes" loading={loading} value={counts.teachers ?? "—"} />
+            <StatCard
+              action={
+                <Button component={RouterLink} size="small" to="/app/docentes" variant="text">
+                  Ver listado
+                </Button>
+              }
+              label="Docentes"
+              loading={loading}
+              value={counts.teachers ?? "—"}
+            />
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
             <StatCard
+              action={
+                <Button
+                  component={RouterLink}
+                  size="small"
+                  to="/app/padres-de-familia"
+                  variant="text"
+                >
+                  Ver listado
+                </Button>
+              }
               label="Padres de familia"
               loading={loading}
               value={counts.guardians ?? "—"}
