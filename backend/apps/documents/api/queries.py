@@ -1,5 +1,5 @@
 """
-Read-side query helpers for the document templates catalogue.
+Read-side query helpers for the documents API.
 
 Every list and detail payload is built from the querysets defined here.
 """
@@ -8,12 +8,14 @@ from rest_framework.exceptions import NotFound
 
 from apps.academics.api.queries import resolve_institution
 from apps.documents.models import DocumentTemplate
+from apps.enrolments.models import Enrolment
 
 __all__ = [
     "resolve_institution",
     "document_templates",
     "document_template_or_404",
     "document_template_versions",
+    "enrolment_or_404",
 ]
 
 
@@ -50,3 +52,12 @@ def document_template_or_404(institution, public_id):
 
 def document_template_versions(template):
     return template.versions.all()
+
+
+def enrolment_or_404(public_id):
+    try:
+        return Enrolment.objects.get(public_id=public_id)
+    except Enrolment.DoesNotExist as exc:
+        raise NotFound("Enrolment not found.") from exc
+    except (ValueError, TypeError) as exc:  # malformed public_id
+        raise NotFound("Enrolment not found.") from exc

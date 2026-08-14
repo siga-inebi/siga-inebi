@@ -9,10 +9,15 @@ from apps.documents.models import DocumentTemplate
 from apps.documents.services import (
     create_document_template,
     deactivate_document_template,
+    ensure_official_document_issuance_allowed,
+    ensure_official_document_issuance_permission,
+    evaluate_official_document_issuance,
     list_field_tags,
     update_document_template,
 )
-from tests.factories.academic import InstitutionFactory
+from apps.enrolments.models import EnrolmentDocumentRequirement
+from apps.enrolments.services import create_enrolment, set_document_requirement
+from tests.factories.academic import InstitutionFactory, SectionFactory
 from tests.factories.documents import DocumentTemplateFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -20,6 +25,7 @@ from tests.factories.identity import (
     RoleFactory,
     UserFactory,
 )
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
@@ -86,6 +92,95 @@ def test_create_document_template_rejects_blank_code():
 def test_create_document_template_rejects_blank_name():
     with pytest.raises(DomainError, match="name"):
         create_document_template(institution=InstitutionFactory(), name="  ", code="CONST")
+
+
+def _enrolment():
+    section = SectionFactory()
+    return create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+
+def test_official_document_issuance_is_allowed_without_pending_required_documents():
+    assert ensure_official_document_issuance_allowed(enrolment=_enrolment()) is True
+
+
+def test_official_document_issuance_is_blocked_by_pending_required_documents():
+    enrolment = _enrolment()
+    set_document_requirement(
+        enrolment=enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+    )
+
+    with pytest.raises(DomainError, match="BIRTH-CERT"):
+        ensure_official_document_issuance_allowed(enrolment=enrolment)
+
+
+def test_official_document_issuance_ignores_pending_optional_documents():
+    enrolment = _enrolment()
+    set_document_requirement(
+        enrolment=enrolment,
+        code="PHOTO",
+        name="Student photo",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+        is_required=False,
+    )
+
+    assert ensure_official_document_issuance_allowed(enrolment=enrolment) is True
+
+
+def test_official_document_issuance_ignores_pending_inactive_documents():
+    enrolment = _enrolment()
+    requirement = set_document_requirement(
+        enrolment=enrolment,
+        code="OLD-FORM",
+        name="Superseded form",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+    )
+    # ``set_document_requirement`` always reactivates the requirement it writes and
+    # no service deactivates one yet, so the state is set directly here.
+    requirement.is_active = False
+    requirement.save(update_fields=["is_active", "updated_at"])
+
+    assert ensure_official_document_issuance_allowed(enrolment=enrolment) is True
+
+
+def test_official_document_issuance_returns_every_blocking_code():
+    enrolment = _enrolment()
+    set_document_requirement(enrolment=enrolment, code="BIRTH-CERT", name="Birth certificate")
+    set_document_requirement(enrolment=enrolment, code="GUARDIAN-ID", name="Guardian ID")
+
+    blocking_codes = evaluate_official_document_issuance(enrolment=enrolment)
+
+    assert blocking_codes == ["BIRTH-CERT", "GUARDIAN-ID"]
+
+
+def test_official_document_issuance_permission_is_denied_without_actor():
+    with pytest.raises(PermissionDenied):
+        ensure_official_document_issuance_permission(actor=None)
+
+
+def test_official_document_issuance_permission_is_denied_without_the_permission():
+    with pytest.raises(PermissionDenied):
+        ensure_official_document_issuance_permission(actor=UserFactory())
+
+
+def test_superuser_passes_the_official_document_issuance_permission():
+    actor = UserFactory(is_superuser=True)
+
+    assert ensure_official_document_issuance_permission(actor=actor) is True
+
+
+def test_actor_with_document_issue_passes_the_official_document_issuance_permission():
+    permission = PermissionFactory(codename="document_issue")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    assert ensure_official_document_issuance_permission(actor=assignment.user) is True
 
 
 # --------------------------------------------------------------------------- #

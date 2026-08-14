@@ -235,3 +235,14 @@ def set_document_requirement(
         context={"enrolment_id": enrolment.pk, "code": code, "status": requirement.status},
     )
     return requirement
+
+
+def pending_required_document_codes(*, enrolment):
+    """Return the codes of active, required documents not yet delivered."""
+    return list(
+        EnrolmentDocumentRequirement.objects.filter(
+            enrolment=enrolment, is_active=True, is_required=True
+        )
+        .exclude(status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED)
+        .values_list("code", flat=True)
+    )

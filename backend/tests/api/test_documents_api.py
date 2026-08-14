@@ -1,10 +1,19 @@
 import pytest
 from django.urls import reverse
 
+from apps.audit.models import AuditEvent
 from apps.documents.field_catalog import FIELD_TAG_CODES
 from apps.documents.models import DocumentTemplate
+from apps.enrolments.services import create_enrolment, set_document_requirement
+from tests.factories.academic import SectionFactory
 from tests.factories.documents import DocumentTemplateFactory, DocumentTemplateVersionFactory
-from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    UserFactory,
+)
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -266,6 +275,77 @@ def test_list_field_tags_returns_the_fixed_catalogue(auth_client):
     codes = {item["code"] for item in _items(response)}
     assert codes == set(FIELD_TAG_CODES)
     assert all(item["sensitive"] is False for item in _items(response))
+
+
+def _grant_document_issue(user):
+    permission = PermissionFactory(codename="document_issue")
+    return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+
+
+def _enrolment():
+    section = SectionFactory()
+    return create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+
+def _eligibility(client, enrolment_id):
+    return client.get(
+        reverse("document-official-issuance-eligibility"), {"enrolment_id": str(enrolment_id)}
+    )
+
+
+def test_official_document_eligibility_allows_complete_enrolment(auth_client):
+    enrolment = _enrolment()
+    _grant_document_issue(auth_client.user)
+
+    response = _eligibility(auth_client, enrolment.public_id)
+
+    assert response.status_code == 200
+    assert response.json() == {"eligible": True, "blocking_document_codes": []}
+
+
+def test_official_document_eligibility_reports_pending_documents(auth_client):
+    enrolment = _enrolment()
+    set_document_requirement(enrolment=enrolment, code="BIRTH-CERT", name="Birth certificate")
+    _grant_document_issue(auth_client.user)
+
+    response = _eligibility(auth_client, enrolment.public_id)
+
+    assert response.status_code == 200
+    assert response.json() == {"eligible": False, "blocking_document_codes": ["BIRTH-CERT"]}
+    assert AuditEvent.objects.filter(action="documents.official_issuance.blocked").exists()
+
+
+def test_official_document_eligibility_returns_404_for_unknown_enrolment(auth_client):
+    _grant_document_issue(auth_client.user)
+
+    response = _eligibility(auth_client, MISSING_UUID)
+
+    assert response.status_code == 404
+
+
+@pytest.mark.security
+def test_official_document_eligibility_requires_issue_permission(auth_client):
+    enrolment = _enrolment()
+
+    response = _eligibility(auth_client, enrolment.public_id)
+
+    assert response.status_code == 403
+    assert AuditEvent.objects.filter(action="documents.official_issuance.denied").exists()
+
+
+def test_official_document_eligibility_allows_superuser_without_role(client):
+    enrolment = _enrolment()
+    client.force_login(UserFactory(is_superuser=True))
+
+    response = _eligibility(client, enrolment.public_id)
+
+    assert response.status_code == 200
+    assert response.json() == {"eligible": True, "blocking_document_codes": []}
 
 
 def test_include_sensitive_field_tags_without_permission_returns_403(auth_client):

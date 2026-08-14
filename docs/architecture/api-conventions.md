@@ -106,6 +106,19 @@
   del contenido.
 - Registrar o modificar documentos de una matricula de un ciclo cerrado devuelve HTTP 400.
 
+## Elegibilidad de emisión oficial
+
+- `GET /api/v1/documents/official-issuance/eligibility/` consulta si una matrícula puede
+  continuar con la emisión de un documento oficial.
+- Recibe la matrícula en el parámetro de consulta `enrolment_id` y responde `200` con
+  `{ "eligible": true, "blocking_document_codes": [] }` cuando no existen requisitos
+  obligatorios pendientes.
+- Si existen pendientes responde `200` con `eligible` en `false` y los códigos bloqueantes
+  en `blocking_document_codes`; la consulta informa, no ejecuta la emisión.
+- Un `enrolment_id` que no corresponde a ninguna matrícula devuelve `404`.
+- Requiere sesión autenticada y el permiso atómico `document.issue`, validado antes de
+  resolver la matrícula; los intentos permitidos, bloqueados y denegados generan auditoría.
+
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.
