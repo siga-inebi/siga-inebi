@@ -4,16 +4,18 @@ RF-JOR-002 — contrato del endpoint de estado diario.
 RF-JOR-003 — contrato del endpoint de resolucion de precedencia.
 RF-JOR-004 — contrato del endpoint de cierre de jornada y de alertas.
 RF-JOR-005 — contrato de alertas de inconsistencia generadas al registrar eventos.
+RF-JOR-006 — recalculo ante cambios, disparado desde los mismos endpoints.
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from urllib.parse import urlencode
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.attendance.models import AttendanceEvent
+from apps.attendance import services
+from apps.attendance.models import AttendanceAlert, AttendanceEvent
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
 from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
@@ -402,3 +404,123 @@ def test_declared_exit_without_entry_creates_inconsistency_alert_visible_via_ale
     assert alert["section_id"] == str(section.public_id)
     assert alert["context"]["declared_event_id"] == declared_event_id
     assert alert["context"]["declared_by"] == auth_client.user.username
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-006 — recalculo ante cambios
+# --------------------------------------------------------------------------- #
+
+
+def test_creating_a_past_dated_event_triggers_recalculation_reconciling_existing_alert(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    cycle = AcademicCycleFactory(
+        starts_on=yesterday - timedelta(days=30), ends_on=today + timedelta(days=30)
+    )
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+    )
+    _grant_student_scope(auth_client.user, student)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=yesterday,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(yesterday, time(7, 0))),
+    )
+    closure = services.close_jornada(shift=shift, event_date=yesterday)
+    assert len(closure.alerts) == 1
+    alert_id = closure.alerts[0].pk
+
+    response = auth_client.post(
+        reverse("attendance-event-list"),
+        _event_payload(
+            student,
+            shift,
+            event_date=str(yesterday),
+            movement_type=AttendanceEvent.MovementType.EXIT,
+            captured_at=timezone.make_aware(datetime.combine(yesterday, time(15, 0))).isoformat(),
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    alert = AttendanceAlert.objects.get(pk=alert_id)
+    assert alert.is_active is False
+
+    alerts_response = auth_client.get(reverse("attendance-alert-list"))
+    assert alerts_response.status_code == 200
+    alert_ids = {item["public_id"] for item in alerts_response.json()["results"]}
+    assert str(alert.public_id) in alert_ids
+
+
+def test_updating_jornada_parameters_does_not_change_earlier_days_derived_status(auth_client):
+    _grant(auth_client.user, CONFIGURE_PERMISSION)
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=60), ends_on=today + timedelta(days=120)
+    )
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+    )
+    _grant_student_scope(auth_client.user, student)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    change_date = today + timedelta(days=10)
+    day_before = change_date - timedelta(days=1)
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=day_before,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(day_before, time(7, 15))),
+    )
+
+    before_response = auth_client.get(_day_status_url(student, shift, day_before))
+    assert before_response.json()["status"] == "tarde"
+
+    response = auth_client.post(
+        reverse("attendance-jornada-parameters-list"),
+        {
+            "shift_id": str(shift.public_id),
+            "academic_cycle_id": str(cycle.public_id),
+            "entry_limit_time": "07:30:00",
+            "tolerance_minutes": 15,
+            "closing_time": "16:00:00",
+            "duplicate_suppression_minutes": 5,
+            "school_days": [1, 2, 3, 4, 5],
+            "effective_from": str(change_date),
+        },
+        content_type="application/json",
+    )
+    assert response.status_code == 201
+
+    after_response = auth_client.get(_day_status_url(student, shift, day_before))
+    assert after_response.json()["status"] == "tarde"

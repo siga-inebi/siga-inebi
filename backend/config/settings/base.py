@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "apps.enrolments",
     "apps.attendance",
     "apps.evaluation",
+    "apps.reporting",
     "apps.documents",
     "apps.audit",
 ]
