@@ -3,8 +3,15 @@ from datetime import date
 import pytest
 
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment
-from apps.enrolments.services import active_enrolments, create_enrolment, matriculate_student
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+from apps.enrolments.services import (
+    active_enrolments,
+    change_section,
+    create_enrolment,
+    matriculate_student,
+    reenrol_student,
+    set_document_requirement,
+)
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
@@ -55,6 +62,59 @@ def test_create_enrolment_rejects_closed_cycle():
         )
 
 
+def test_create_enrolment_rejects_full_section():
+    section = SectionFactory(capacity=1)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(DomainError, match="Section capacity has been reached"):
+        create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+
+def test_create_enrolment_ignores_completed_records_for_capacity():
+    section = SectionFactory(capacity=1)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_closed_cycle_rejects_section_change():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    cycle = section.academic_cycle
+    cycle.status = cycle.CycleStatus.CLOSED
+    cycle.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(DomainError, match="Closed academic cycles"):
+        change_section(enrolment=enrolment, new_section=SectionFactory(academic_cycle=cycle))
+
+
 def test_matriculate_student_activates_pre_enrolled_student_and_links_shift():
     section = SectionFactory()
     student = StudentFactory(status="pre_enrolled")
@@ -100,6 +160,194 @@ def test_matriculate_student_rejects_shift_not_assigned_to_section():
             shift=wrong_shift,
             section=section,
         )
+
+
+def test_change_section_rejects_full_target_section_without_closing_current_enrolment():
+    current_section = SectionFactory()
+    target_section = SectionFactory(
+        academic_cycle=current_section.academic_cycle,
+        grade=current_section.grade,
+        shift=current_section.shift,
+        capacity=1,
+    )
+    current_enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=current_section.academic_cycle,
+        grade=current_section.grade,
+        section=current_section,
+    )
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=target_section.academic_cycle,
+        grade=target_section.grade,
+        section=target_section,
+    )
+
+    with pytest.raises(DomainError, match="Section capacity has been reached"):
+        change_section(enrolment=current_enrolment, new_section=target_section)
+
+    current_enrolment.refresh_from_db()
+    assert current_enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_reenrol_student_reuses_student_record_and_previous_enrolment():
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    previous = create_enrolment(
+        student=student,
+        academic_cycle=previous_section.academic_cycle,
+        grade=previous_section.grade,
+        section=previous_section,
+    )
+
+    enrolment = reenrol_student(
+        student=student,
+        academic_cycle=target_cycle,
+        grade=target_section.grade,
+        shift=target_section.shift,
+        section=target_section,
+    )
+
+    assert enrolment.student_id == student.id
+    assert enrolment.academic_cycle_id == target_cycle.id
+    assert student.enrolments.filter(pk=previous.pk).exists()
+
+
+def test_reenrol_student_requires_previous_enrolment():
+    section = SectionFactory(name="A")
+
+    with pytest.raises(DomainError, match="no previous enrolment"):
+        reenrol_student(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+
+def test_reenrol_student_rejects_pre_enrolled_student():
+    section = SectionFactory(name="A")
+
+    with pytest.raises(DomainError, match="Only active students"):
+        reenrol_student(
+            student=StudentFactory(status="pre_enrolled"),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+
+def test_set_document_requirement_records_and_updates_delivery_status():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    requirement = set_document_requirement(
+        enrolment=enrolment, code="birth-cert", name="Birth certificate"
+    )
+    updated = set_document_requirement(
+        enrolment=enrolment,
+        code="birth-cert",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+
+    assert requirement.pk == updated.pk
+    assert updated.code == "BIRTH-CERT"
+    assert updated.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+    assert enrolment.document_requirements.count() == 1
+
+
+def test_set_document_requirement_rejects_blank_code():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(DomainError, match="Document code cannot be empty"):
+        set_document_requirement(enrolment=enrolment, code="  ", name="Birth certificate")
+
+
+def test_set_document_requirement_preserves_delivery_state_on_partial_update():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    set_document_requirement(
+        enrolment=enrolment,
+        code="id-card",
+        name="Identity card",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+        is_required=False,
+    )
+
+    corrected = set_document_requirement(
+        enrolment=enrolment, code="id-card", name="Identity card (DPI)"
+    )
+
+    assert corrected.name == "Identity card (DPI)"
+    assert corrected.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+    assert corrected.is_required is False
+
+
+def test_set_document_requirement_rejects_closed_cycle():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    cycle = enrolment.academic_cycle
+    cycle.status = "closed"
+    cycle.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="Closed academic cycles"):
+        set_document_requirement(enrolment=enrolment, code="id-card", name="Identity card")
+
+
+def test_set_document_requirement_revives_deactivated_row():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    requirement = set_document_requirement(
+        enrolment=enrolment, code="id-card", name="Identity card"
+    )
+    requirement.is_active = False
+    requirement.save(update_fields=["is_active"])
+
+    revived = set_document_requirement(enrolment=enrolment, code="id-card", name="Identity card")
+
+    assert revived.pk == requirement.pk
+    assert revived.is_active is True
 
 
 def test_active_enrolments_excludes_historical_and_inactive_records():

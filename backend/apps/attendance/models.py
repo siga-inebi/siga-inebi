@@ -95,6 +95,57 @@ class AttendanceEvent(TimeStampedModel):
         return f"{self.student} {self.movement_type} ({self.origin}) {self.captured_at}"
 
 
+class AttendanceAlert(TimeStampedModel):
+    """
+    A generated attendance alert (RF-JOR-004/RF-JOR-005), e.g. a student who
+    entered but never registered an exit, or conflicting events for the same
+    jornada. Alerts are append-only: they are never edited or removed, and a
+    later reevaluation simply raises a new one.
+
+    ``target_roles`` and ``section`` describe who the alert is meant for
+    without enforcing delivery: routing an alert to actual people is a
+    ``reporting-notifications`` concern, not this domain's.
+    """
+
+    class AlertType(models.TextChoices):
+        PERMANENCIA_SIN_CIERRE = "permanencia_sin_cierre", "Permanencia sin cierre"
+        INCONSISTENCIA = "inconsistencia", "Inconsistencia entre fuentes"
+
+    class TargetRole(models.TextChoices):
+        CONTROL_POINT = "control_point", "Personal del punto de control"
+        SECTION_COORDINATOR = "section_coordinator", "Coordinador de aula"
+
+    alert_type = models.CharField(max_length=30, choices=AlertType.choices)
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="attendance_alerts"
+    )
+    shift = models.ForeignKey(
+        "academics.Shift", on_delete=models.PROTECT, related_name="attendance_alerts"
+    )
+    section = models.ForeignKey(
+        "academics.Section",
+        on_delete=models.PROTECT,
+        related_name="attendance_alerts",
+        null=True,
+        blank=True,
+    )
+    event_date = models.DateField()
+    target_roles = models.JSONField(default=list)
+    context = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["student", "shift", "event_date", "alert_type"],
+                name="attendance_alert_lookup_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.alert_type} ({self.student}, {self.event_date})"
+
+
 class DayStatus(models.TextChoices):
     """
     Derived daily attendance status (RF-JOR-002). Not a model field: this is
@@ -105,3 +156,17 @@ class DayStatus(models.TextChoices):
     PRESENT = "presente", "Presente"
     LATE = "tarde", "Tarde"
     ABSENT_PENDING_JUSTIFICATION = "ausente_pendiente_justificar", "Ausente pendiente de justificar"
+
+
+class RecalculationReason(models.TextChoices):
+    """
+    Why ``services.recalculate_day`` re-evaluated a day (RF-JOR-006). Not a
+    model field: a vocabulary shared by the audit trail and
+    ``DayRecalculationResult``. ``JUSTIFICATION_RESOLVED`` is not wired to
+    any code path yet — it's the value a future asistencia-justificaciones
+    app should pass once that domain exists.
+    """
+
+    LATE_EVENT = "late_event", "Evento con fecha anterior"
+    PARAMETERS_CHANGED = "parameters_changed", "Cambio de parametros de jornada"
+    JUSTIFICATION_RESOLVED = "justification_resolved", "Resolucion de justificacion"

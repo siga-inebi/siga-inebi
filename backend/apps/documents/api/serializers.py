@@ -58,3 +58,15 @@ class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = DocumentTemplateVersion
         fields = ["public_id", "sequence", "name", "kind", "description", "created_at"]
+
+
+class OfficialDocumentEligibilityQuerySerializer(serializers.Serializer):
+    enrolment_id = serializers.UUIDField(help_text="Public ID de la matrícula.")
+
+
+class OfficialDocumentEligibilityResponseSerializer(serializers.Serializer):
+    eligible = serializers.BooleanField()
+    blocking_document_codes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Codigos de los documentos obligatorios pendientes que bloquean la emision.",
+    )

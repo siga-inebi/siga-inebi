@@ -1,10 +1,24 @@
 from django.db import transaction
 from django.utils import timezone
 
+from apps.academics.cycle_policies import require_cycle_academic_writes
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+
+
+def _ensure_section_has_capacity(section):
+    locked_section = section.__class__.objects.select_for_update().get(pk=section.pk)
+    if locked_section.capacity == 0:
+        return
+
+    active_count = Enrolment.objects.filter(
+        section=locked_section,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    ).count()
+    if active_count >= locked_section.capacity:
+        raise DomainError("Section capacity has been reached.")
 
 
 def active_enrolments(*, student=None):
@@ -29,14 +43,17 @@ def create_enrolment(
 ):
     effective_on = effective_on or timezone.localdate()
 
-    if academic_cycle.status == academic_cycle.CycleStatus.CLOSED:
-        raise DomainError("Closed academic cycles do not accept enrolment changes.")
+    require_cycle_academic_writes(
+        cycle=academic_cycle,
+        operation="enrolment.create",
+    )
     if section.academic_cycle.id != academic_cycle.pk:
         raise DomainError("Section must belong to the academic cycle.")
     if section.grade.id != grade.pk:
         raise DomainError("Section must belong to the grade.")
     if ends_on is not None and effective_on > ends_on:
         raise DomainError("Enrolment end date cannot precede its effective date.")
+    _ensure_section_has_capacity(section)
 
     with unique_violation_as(
         {
@@ -101,9 +118,58 @@ def matriculate_student(
     return enrolment
 
 
+@transaction.atomic
+def reenrol_student(
+    *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
+):
+    """Create a new-cycle enrolment using the student's existing record."""
+    if student.status != student.StudentStatus.ACTIVE or not student.is_active:
+        raise DomainError("Only active students can be reenrolled.")
+
+    previous = (
+        Enrolment.objects.filter(student=student)
+        .exclude(academic_cycle=academic_cycle)
+        .exclude(status=Enrolment.EnrolmentStatus.CANCELLED)
+        .order_by("-effective_on", "-created_at")
+        .first()
+    )
+    if previous is None:
+        raise DomainError("Student has no previous enrolment to inherit.")
+    if section.shift.id != shift.pk:
+        raise DomainError("Section must belong to the selected shift.")
+
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=academic_cycle,
+        grade=grade,
+        section=section,
+        actor=actor,
+        effective_on=effective_on,
+    )
+    record_event(
+        actor=actor,
+        action="enrolments.student.reenrolled",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={
+            "enrolment_id": enrolment.pk,
+            "previous_enrolment_id": previous.pk,
+            "academic_cycle_id": academic_cycle.pk,
+        },
+    )
+    return enrolment
+
+
 def change_section(*, enrolment, new_section, actor=None, effective_on=None):
-    if enrolment.academic_cycle.status == enrolment.academic_cycle.CycleStatus.CLOSED:
-        raise DomainError("Closed academic cycles do not allow section changes.")
+    require_cycle_academic_writes(
+        cycle=enrolment.academic_cycle,
+        operation="enrolment.change_section",
+    )
+    if new_section.academic_cycle.id != enrolment.academic_cycle_id:
+        raise DomainError("Section must belong to the academic cycle.")
+    if new_section.grade.id != enrolment.grade_id:
+        raise DomainError("Section must belong to the grade.")
+    _ensure_section_has_capacity(new_section)
 
     effective_on = effective_on or timezone.localdate()
     enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
@@ -129,3 +195,63 @@ def change_section(*, enrolment, new_section, actor=None, effective_on=None):
         },
     )
     return replacement
+
+
+@transaction.atomic
+def set_document_requirement(
+    *,
+    enrolment,
+    code,
+    name,
+    status=None,
+    is_required=None,
+    actor=None,
+):
+    if enrolment.academic_cycle.status == enrolment.academic_cycle.CycleStatus.CLOSED:
+        raise DomainError("Closed academic cycles do not allow document changes.")
+
+    code = code.strip().upper()
+    name = name.strip()
+    if not code:
+        raise DomainError("Document code cannot be empty.")
+    if not name:
+        raise DomainError("Document name cannot be empty.")
+    if status is not None and status not in EnrolmentDocumentRequirement.DeliveryStatus.values:
+        raise DomainError("Invalid document delivery status.")
+
+    # Only overwrite what the caller actually supplied: a partial update must not
+    # reset the delivery state. On creation the model defaults fill the rest.
+    defaults = {"name": name, "is_active": True}
+    if status is not None:
+        defaults["status"] = status
+    if is_required is not None:
+        defaults["is_required"] = is_required
+
+    requirement, created = EnrolmentDocumentRequirement.objects.update_or_create(
+        enrolment=enrolment,
+        code=code,
+        defaults=defaults,
+    )
+    record_event(
+        actor=actor,
+        action=(
+            "enrolments.document_requirement.created"
+            if created
+            else "enrolments.document_requirement.updated"
+        ),
+        resource="EnrolmentDocumentRequirement",
+        resource_identifier=str(requirement.pk),
+        context={"enrolment_id": enrolment.pk, "code": code, "status": requirement.status},
+    )
+    return requirement
+
+
+def pending_required_document_codes(*, enrolment):
+    """Return the codes of active, required documents not yet delivered."""
+    return list(
+        EnrolmentDocumentRequirement.objects.filter(
+            enrolment=enrolment, is_active=True, is_required=True
+        )
+        .exclude(status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED)
+        .values_list("code", flat=True)
+    )

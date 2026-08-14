@@ -1,12 +1,16 @@
-from django.urls import path
+from django.urls import include, path
+
+from apps.evaluation.api.views import CycleEvaluationConfigView, EvaluationGlobalConfigView
 
 from .views import (
     AcademicCycleActivateView,
+    AcademicCycleCloneView,
     AcademicCycleListCreateView,
     CampusDetailView,
     CampusListCreateView,
     CampusShiftListCreateView,
     GradeDetailView,
+    HistoricalAcademicCycleDetailView,
     LevelDetailView,
     LevelGradeListCreateView,
     LevelListCreateView,
@@ -23,9 +27,33 @@ from .views import (
 urlpatterns = [
     path("cycles/", AcademicCycleListCreateView.as_view(), name="academic-cycle-list-create"),
     path(
+        "cycles/<uuid:public_id>/",
+        HistoricalAcademicCycleDetailView.as_view(),
+        name="academic-cycle-historical-detail",
+    ),
+    path(
         "cycles/<uuid:public_id>/activate/",
         AcademicCycleActivateView.as_view(),
         name="academic-cycle-activate",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/evaluation-units/",
+        include("apps.evaluation.api.urls"),
+    ),
+    path(
+        "evaluation-config/",
+        EvaluationGlobalConfigView.as_view(),
+        name="evaluation-global-config",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/evaluation-config/",
+        CycleEvaluationConfigView.as_view(),
+        name="cycle-evaluation-config",
+    ),
+    path(
+        "cycles/<uuid:public_id>/clone/",
+        AcademicCycleCloneView.as_view(),
+        name="academic-cycle-clone",
     ),
     # institutional structure: sedes y jornadas
     path("campuses/", CampusListCreateView.as_view(), name="campus-list-create"),

@@ -1,12 +1,21 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from apps.academics.models import (
+    AcademicCycle,
+    Grade,
+    Institution,
+    Section,
+    Subject,
+    TeachingAssignment,
+)
 from apps.identity.atomic_permissions import (
     ATOMIC_PERMISSION_CODES_BY_CODENAME,
     ATOMIC_PERMISSIONS,
     permission_codename,
 )
 from apps.people.models import Person
+from apps.students.models import Student
 
 
 class AccountProvisionSerializer(serializers.Serializer):
@@ -107,10 +116,51 @@ class RoleWriteSerializer(serializers.Serializer):
         return data
 
 
+class ScopeGrantWriteSerializer(serializers.Serializer):
+    institution = serializers.PrimaryKeyRelatedField(
+        queryset=Institution.objects.all(), required=False
+    )
+    academic_cycle = serializers.PrimaryKeyRelatedField(
+        queryset=AcademicCycle.objects.all(), required=False
+    )
+    grade = serializers.PrimaryKeyRelatedField(queryset=Grade.objects.all(), required=False)
+    section = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all(), required=False)
+    subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), required=False)
+    teaching_assignment = serializers.PrimaryKeyRelatedField(
+        queryset=TeachingAssignment.objects.all(), required=False
+    )
+    student = serializers.PrimaryKeyRelatedField(queryset=Student.objects.all(), required=False)
+    module_key = serializers.CharField(max_length=100, required=False, allow_blank=False)
+    starts_at = serializers.DateTimeField(required=False)
+    ends_at = serializers.DateTimeField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        dimensions = {
+            "institution",
+            "academic_cycle",
+            "grade",
+            "section",
+            "subject",
+            "teaching_assignment",
+            "student",
+            "module_key",
+        }
+        if not dimensions.intersection(attrs):
+            raise serializers.ValidationError("Debe indicar al menos una dimension de alcance.")
+        starts_at = attrs.get("starts_at")
+        ends_at = attrs.get("ends_at")
+        if starts_at and ends_at and ends_at < starts_at:
+            raise serializers.ValidationError(
+                {"ends_at": "La fecha final no puede ser anterior a la inicial."}
+            )
+        return attrs
+
+
 class RoleAssignmentWriteSerializer(serializers.Serializer):
     role = serializers.UUIDField()
     starts_at = serializers.DateTimeField(required=False)
     ends_at = serializers.DateTimeField(required=False, allow_null=True)
+    scope = ScopeGrantWriteSerializer(required=True)
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at")
