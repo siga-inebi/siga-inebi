@@ -20,10 +20,17 @@ class EnrolmentDocumentRequirementSerializer(serializers.ModelSerializer):
 class EnrolmentDocumentRequirementCreateSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=50, help_text="Codigo del documento requerido.")
     name = serializers.CharField(max_length=150, help_text="Nombre del documento requerido.")
-    is_required = serializers.BooleanField(default=True)
+    is_required = serializers.BooleanField(
+        required=False,
+        help_text="Solo se actualiza si viene en el payload. Al crear, por defecto es true.",
+    )
     status = serializers.ChoiceField(
         choices=EnrolmentDocumentRequirement.DeliveryStatus.choices,
-        default=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+        required=False,
+        help_text=(
+            "Solo se actualiza si viene en el payload. Al crear, por defecto es 'pending'. "
+            "Omitirlo en una actualizacion conserva el estado de entrega registrado."
+        ),
     )
 
 

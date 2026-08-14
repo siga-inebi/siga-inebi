@@ -185,23 +185,34 @@ def set_document_requirement(
     enrolment,
     code,
     name,
-    status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
-    is_required=True,
+    status=None,
+    is_required=None,
     actor=None,
 ):
+    if enrolment.academic_cycle.status == enrolment.academic_cycle.CycleStatus.CLOSED:
+        raise DomainError("Closed academic cycles do not allow document changes.")
+
     code = code.strip().upper()
     name = name.strip()
     if not code:
         raise DomainError("Document code cannot be empty.")
     if not name:
         raise DomainError("Document name cannot be empty.")
-    if status not in EnrolmentDocumentRequirement.DeliveryStatus.values:
+    if status is not None and status not in EnrolmentDocumentRequirement.DeliveryStatus.values:
         raise DomainError("Invalid document delivery status.")
+
+    # Only overwrite what the caller actually supplied: a partial update must not
+    # reset the delivery state. On creation the model defaults fill the rest.
+    defaults = {"name": name, "is_active": True}
+    if status is not None:
+        defaults["status"] = status
+    if is_required is not None:
+        defaults["is_required"] = is_required
 
     requirement, created = EnrolmentDocumentRequirement.objects.update_or_create(
         enrolment=enrolment,
         code=code,
-        defaults={"name": name, "status": status, "is_required": is_required},
+        defaults=defaults,
     )
     record_event(
         actor=actor,
@@ -212,6 +223,6 @@ def set_document_requirement(
         ),
         resource="EnrolmentDocumentRequirement",
         resource_identifier=str(requirement.pk),
-        context={"enrolment_id": enrolment.pk, "code": code, "status": status},
+        context={"enrolment_id": enrolment.pk, "code": code, "status": requirement.status},
     )
     return requirement

@@ -18,6 +18,8 @@ from apps.enrolments.api.serializers import (
 from apps.enrolments.models import Enrolment
 from apps.students.models import Student
 
+_ENROLMENT_WRITE_PERMISSIONS = ("enrollment_create", "enrollment_update")
+
 
 class EnrolmentCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -137,7 +139,10 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
         _ensure_enrolment_permission(request)
         enrolment = _resolve(Enrolment.objects.all(), enrolment_id, "Enrolment")
         requirements = enrolment.document_requirements.filter(is_active=True)
-        return Response(EnrolmentDocumentRequirementSerializer(requirements, many=True).data)
+        page = self.paginate_queryset(requirements)
+        return self.get_paginated_response(
+            EnrolmentDocumentRequirementSerializer(page, many=True).data
+        )
 
     @extend_schema(
         summary="Registrar estado documental de una matricula",
@@ -164,6 +169,9 @@ def _resolve(queryset, public_id, label):
         raise NotFound(f"{label} not found.") from exc
 
 
-def _ensure_enrolment_permission(request):
-    if not request.user.has_atomic_permission("enrollment_create"):
+def _ensure_enrolment_permission(request, codenames=_ENROLMENT_WRITE_PERMISSIONS):
+    # Registering document state is an upsert over an existing enrolment, so both the
+    # create and the update permission are legitimate. The catalogue has no read-only
+    # enrolment permission yet, so the listing accepts the same pair.
+    if not any(request.user.has_atomic_permission(codename) for codename in codenames):
         raise PermissionDenied("Actor lacks the required permission.")

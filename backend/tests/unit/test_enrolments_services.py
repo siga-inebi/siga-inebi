@@ -271,3 +271,64 @@ def test_set_document_requirement_rejects_blank_code():
 
     with pytest.raises(DomainError, match="Document code cannot be empty"):
         set_document_requirement(enrolment=enrolment, code="  ", name="Birth certificate")
+
+
+def test_set_document_requirement_preserves_delivery_state_on_partial_update():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    set_document_requirement(
+        enrolment=enrolment,
+        code="id-card",
+        name="Identity card",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+        is_required=False,
+    )
+
+    corrected = set_document_requirement(
+        enrolment=enrolment, code="id-card", name="Identity card (DPI)"
+    )
+
+    assert corrected.name == "Identity card (DPI)"
+    assert corrected.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+    assert corrected.is_required is False
+
+
+def test_set_document_requirement_rejects_closed_cycle():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    cycle = enrolment.academic_cycle
+    cycle.status = "closed"
+    cycle.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="Closed academic cycles"):
+        set_document_requirement(enrolment=enrolment, code="id-card", name="Identity card")
+
+
+def test_set_document_requirement_revives_deactivated_row():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    requirement = set_document_requirement(
+        enrolment=enrolment, code="id-card", name="Identity card"
+    )
+    requirement.is_active = False
+    requirement.save(update_fields=["is_active"])
+
+    revived = set_document_requirement(enrolment=enrolment, code="id-card", name="Identity card")
+
+    assert revived.pk == requirement.pk
+    assert revived.is_active is True
