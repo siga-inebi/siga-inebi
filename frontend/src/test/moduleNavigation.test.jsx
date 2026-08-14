@@ -2,17 +2,17 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("../services/authService", async () => {
+vi.mock("@auth/authService.js", async () => {
   const { authServiceMock } = await import("./mocks/authService.js");
   return { authService: authServiceMock };
 });
 
-vi.mock("../services/academicsService.js", async () => {
+vi.mock("@academics/academicsService.js", async () => {
   const { academicsServiceMock } = await import("./mocks/academicsService.js");
   return { academicsService: academicsServiceMock, PAGE_SIZE: 25 };
 });
 
-vi.mock("../services/peopleService.js", async () => {
+vi.mock("@people/peopleService.js", async () => {
   const { peopleServiceMock } = await import("./mocks/peopleService.js");
   return { peopleService: peopleServiceMock };
 });
@@ -21,20 +21,20 @@ const studentsServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
 const teachersServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
 const guardiansServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
 
-vi.mock("../services/studentsService.js", () => ({
+vi.mock("@students/studentsService.js", () => ({
   studentsService: studentsServiceMock,
 }));
 
-vi.mock("../services/teachersService.js", () => ({
+vi.mock("@teachers/teachersService.js", () => ({
   teachersService: teachersServiceMock,
 }));
 
-vi.mock("../services/guardiansService.js", () => ({
+vi.mock("@guardians/guardiansService.js", () => ({
   guardiansService: guardiansServiceMock,
 }));
 
 import { App } from "../app/App.jsx";
-import { apiClient } from "../services/apiClient.js";
+import { apiClient } from "@shared/api/apiClient.js";
 import { authenticatedSession, anonymousSession } from "./fixtures/auth.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import { resetAcademicsServiceMock } from "./mocks/academicsService.js";
@@ -59,9 +59,8 @@ describe("navegacion de modulos", () => {
     renderWithRouter(<App />, { route: "/app" });
 
     expect(
-      await screen.findByRole("link", { name: "Panel principal" })
+      await screen.findByRole("link", { name: "Panel" })
     ).toBeInTheDocument();
-    const nav = screen.getByRole("navigation", { name: "Listados" });
 
     for (const label of ["Personas", "Sedes", "Niveles", "Cursos"]) {
       expect(
@@ -74,14 +73,11 @@ describe("navegacion de modulos", () => {
     authServiceMock.me.mockResolvedValue(anonymousSession);
     renderWithRouter(<App />, { route: "/" });
 
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Abrir menu" }));
-
     expect(
       await screen.findByRole("link", { name: /Iniciar sesion/i })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("navigation", { name: "Catalogo academico" })
+      screen.queryByRole("navigation", { name: "Estructura academica" })
     ).not.toBeInTheDocument();
   });
 
@@ -90,7 +86,7 @@ describe("navegacion de modulos", () => {
     renderWithRouter(<App />, { route: "/app" });
 
     const nav = await screen.findByRole("navigation", {
-      name: "Catalogo academico",
+      name: "Estructura academica",
     });
     await user.click(within(nav).getByRole("link", { name: "Sedes" }));
 
@@ -103,7 +99,10 @@ describe("navegacion de modulos", () => {
     const user = userEvent.setup();
     renderWithRouter(<App />, { route: "/app" });
 
-    await user.click(await screen.findByRole("link", { name: "Personas" }));
+    const nav = await screen.findByRole("navigation", {
+      name: "Comunidad educativa",
+    });
+    await user.click(within(nav).getByRole("link", { name: "Personas" }));
 
     expect(
       await screen.findByRole("heading", { name: "Personas" })
@@ -120,9 +119,25 @@ describe("navegacion de modulos", () => {
   });
 
   test.each([
-    ["/app/alumnos", "Alumnos"],
-    ["/app/docentes", "Docentes y Administrativos"],
-    ["/app/padres-de-familia", "Padres y Encargados"],
+    ["/app/alumnos", "Estudiantes"],
+    ["/app/docentes", "Docentes y administrativos"],
+    ["/app/padres-de-familia", "Padres de familia"],
+  ])("la ruta privada %s monta su pantalla", async (route, heading) => {
+    renderWithRouter(<App />, { route });
+
+    expect(
+      await screen.findByRole("heading", { name: heading })
+    ).toBeInTheDocument();
+  });
+
+  test.each([
+    ["/app/ciclos", "Ciclo escolar"],
+    ["/app/matriculas", "Matriculas"],
+    ["/app/asistencia", "Asistencia"],
+    ["/app/evaluacion", "Configuracion de evaluacion"],
+    ["/app/plantillas", "Plantillas documentales"],
+    ["/app/alertas", "Alertas"],
+    ["/app/asignaciones", "Asignaciones docentes"],
   ])("la ruta privada %s monta su pantalla", async (route, heading) => {
     renderWithRouter(<App />, { route });
 
@@ -143,9 +158,14 @@ describe("navegacion de modulos", () => {
     }
   );
 
-  test("la ruta de cursos exige sesion", async () => {
+  test.each([
+    "/app/cursos",
+    "/app/matriculas",
+    "/app/asistencia",
+    "/app/alertas",
+  ])("la ruta privada %s exige sesion", async (route) => {
     authServiceMock.me.mockResolvedValue(anonymousSession);
-    renderWithRouter(<App />, { route: "/app/cursos" });
+    renderWithRouter(<App />, { route });
 
     expect(
       await screen.findByRole("heading", { name: /Iniciar sesion/i })

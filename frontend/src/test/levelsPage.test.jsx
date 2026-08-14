@@ -2,12 +2,12 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("../services/academicsService.js", async () => {
+vi.mock("@academics/academicsService.js", async () => {
   const { academicsServiceMock } = await import("./mocks/academicsService.js");
   return { academicsService: academicsServiceMock, PAGE_SIZE: 25 };
 });
 
-import { LevelsPage } from "../pages/LevelsPage.jsx";
+import { LevelsPage } from "@academics/LevelsPage.jsx";
 import {
   artSubject,
   basicLevel,
@@ -25,8 +25,8 @@ import {
 /** Abre el detalle del nivel y espera a que carguen sus dos paneles. */
 async function openLevel(user) {
   await screen.findByText("Basico");
-  await user.click(screen.getByRole("button", { name: "Abrir" }));
-  return screen.findByRole("heading", { name: "Grados de Basico" });
+  await user.click(screen.getByRole("button", { name: "Abrir detalle" }));
+  return screen.findByRole("heading", { name: "Grados del nivel" });
 }
 
 describe("pantalla de niveles", () => {
@@ -52,10 +52,10 @@ describe("pantalla de niveles", () => {
     await screen.findByText("Basico");
 
     await user.click(screen.getByRole("button", { name: "Nuevo nivel" }));
-    await user.type(screen.getByLabelText("Nombre"), "Diversificado");
-    await user.type(screen.getByLabelText("Codigo"), "DIV");
-    await user.clear(screen.getByLabelText("Secuencia"));
-    await user.type(screen.getByLabelText("Secuencia"), "4");
+    await user.type(screen.getByLabelText(/^Nombre/), "Diversificado");
+    await user.type(screen.getByLabelText(/^Codigo/), "DIV");
+    await user.clear(screen.getByLabelText(/^Secuencia/));
+    await user.type(screen.getByLabelText(/^Secuencia/), "4");
     await user.click(screen.getByRole("button", { name: "Crear nivel" }));
 
     await waitFor(() =>
@@ -89,7 +89,7 @@ describe("pantalla de niveles", () => {
     );
     expect(screen.getByText("Primero Basico")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Plan de estudios de Basico" })
+      screen.getByRole("heading", { name: "Plan de estudios" })
     ).toBeInTheDocument();
     expect(screen.getByText("Matematica")).toBeInTheDocument();
   });
@@ -100,10 +100,10 @@ describe("pantalla de niveles", () => {
     await openLevel(user);
 
     await user.click(screen.getByRole("button", { name: "Nuevo grado" }));
-    await user.type(screen.getByLabelText("Nombre"), "Segundo Basico");
-    await user.type(screen.getByLabelText("Codigo"), "BAS2");
-    await user.clear(screen.getByLabelText("Secuencia"));
-    await user.type(screen.getByLabelText("Secuencia"), "2");
+    await user.type(screen.getByLabelText(/^Nombre/), "Segundo Basico");
+    await user.type(screen.getByLabelText(/^Codigo/), "BAS2");
+    await user.clear(screen.getByLabelText(/^Secuencia/));
+    await user.type(screen.getByLabelText(/^Secuencia/), "2");
     await user.click(screen.getByRole("button", { name: "Crear grado" }));
 
     await waitFor(() =>
@@ -129,15 +129,20 @@ describe("pantalla de niveles", () => {
       await screen.findByRole("button", { name: "Vincular curso" })
     );
 
-    const select = screen.getByLabelText("Curso");
+    // El Select de MUI monta sus opciones en un portal solo al abrirse, asi que
+    // hay que abrirlo para poder inspeccionar que ofrece.
+    await user.click(screen.getByLabelText(/^Curso/));
+    const listbox = await screen.findByRole("listbox");
     expect(
-      within(select).getByRole("option", { name: "Artes Plasticas (ART)" })
+      within(listbox).getByRole("option", { name: "Artes Plasticas (ART)" })
     ).toBeInTheDocument();
     expect(
-      within(select).queryByRole("option", { name: /Matematica/ })
+      within(listbox).queryByRole("option", { name: /Matematica/ })
     ).not.toBeInTheDocument();
 
-    await user.selectOptions(select, "subject-art");
+    await user.click(
+      within(listbox).getByRole("option", { name: "Artes Plasticas (ART)" })
+    );
     await user.click(screen.getByRole("button", { name: "Vincular" }));
 
     await waitFor(() =>
@@ -200,13 +205,17 @@ describe("pantalla de niveles", () => {
     renderWithRouter(<LevelsPage />);
     await openLevel(user);
 
-    const planPanel = screen
-      .getByRole("heading", { name: "Plan de estudios de Basico" })
-      .closest(".panel");
-    await user.click(within(planPanel).getByRole("button", { name: "Editar" }));
+    // Cada seccion es una region con nombre, asi que se puede acotar la busqueda
+    // al plan de estudios sin depender de clases CSS.
+    const planSection = screen.getByRole("region", {
+      name: "Plan de estudios",
+    });
+    await user.click(
+      within(planSection).getByRole("button", { name: "Editar" })
+    );
 
-    await user.clear(screen.getByLabelText("Horas semanales"));
-    await user.type(screen.getByLabelText("Horas semanales"), "6");
+    await user.clear(screen.getByLabelText(/^Horas semanales/));
+    await user.type(screen.getByLabelText(/^Horas semanales/), "6");
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() =>

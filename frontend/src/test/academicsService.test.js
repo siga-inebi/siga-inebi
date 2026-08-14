@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { academicsService } from "../services/academicsService.js";
-import { apiClient } from "../services/apiClient.js";
+import { academicsService } from "@academics/academicsService.js";
+import { apiClient } from "@shared/api/apiClient.js";
 
 const CAMPUS = "11111111-1111-1111-1111-111111111111";
 const SHIFT = "22222222-2222-2222-2222-222222222222";
