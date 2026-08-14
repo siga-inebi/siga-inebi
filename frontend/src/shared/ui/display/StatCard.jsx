@@ -36,7 +36,9 @@ export function StatCard({ action, hint, label, loading = false, value }) {
         {loading ? (
           <Skeleton aria-hidden height={44} variant="text" width={90} />
         ) : (
-          <Typography sx={{ fontSize: "2rem", fontWeight: 700, lineHeight: 1.2 }}>
+          <Typography
+            sx={{ fontSize: "2rem", fontWeight: 700, lineHeight: 1.2 }}
+          >
             {value}
           </Typography>
         )}

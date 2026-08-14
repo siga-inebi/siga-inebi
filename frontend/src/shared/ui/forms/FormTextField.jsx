@@ -12,9 +12,17 @@ import TextField from "@mui/material/TextField";
  * @param {string} [props.helperText]   Ayuda cuando no hay error.
  * @param {number} [props.maxLength]    Activa contador de caracteres.
  */
-export function FormTextField({ error, helperText, maxLength, value, ...rest }) {
+export function FormTextField({
+  error,
+  helperText,
+  maxLength,
+  value,
+  ...rest
+}) {
   const counter =
-    maxLength != null ? `${String(value ?? "").length}/${maxLength} caracteres` : null;
+    maxLength != null
+      ? `${String(value ?? "").length}/${maxLength} caracteres`
+      : null;
 
   return (
     <TextField

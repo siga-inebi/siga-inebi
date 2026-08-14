@@ -172,7 +172,9 @@ describe("pantalla de sedes", () => {
 
     await user.click(screen.getByRole("button", { name: "Desactivar" }));
     expect(academicsServiceMock.deactivateCampus).not.toHaveBeenCalled();
-    expect(screen.getByText(/Se desactivara "Sede Central"/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Se desactivara "Sede Central"/)
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Si, desactivar" }));
 

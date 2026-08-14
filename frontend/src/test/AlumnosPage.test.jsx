@@ -81,9 +81,7 @@ describe("AlumnosPage", () => {
     expect(
       within(screen.getByRole("table")).getByText("EST-2026-014")
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Mostrando 1–2 de 2/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 1–2 de 2/)).toBeInTheDocument();
   });
 
   test("shows an empty state when the search does not match", async () => {
@@ -92,10 +90,7 @@ describe("AlumnosPage", () => {
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.type(
-      screen.getByPlaceholderText("Buscar por nombre…"),
-      "Nadie"
-    );
+    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "Nadie");
 
     expect(
       await screen.findByText("Sin resultados para la busqueda.")
@@ -164,7 +159,9 @@ describe("AlumnosPage", () => {
     // El dialogo se desmonta al terminar su animacion de salida, no en el clic.
     await waitFor(() =>
       expect(
-        screen.queryByRole("dialog", { name: "Foto de Maria Jose Lopez Garcia" })
+        screen.queryByRole("dialog", {
+          name: "Foto de Maria Jose Lopez Garcia",
+        })
       ).not.toBeInTheDocument()
     );
   });

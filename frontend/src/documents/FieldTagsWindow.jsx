@@ -16,7 +16,11 @@ import { DataTable } from "@ui/table/DataTable.jsx";
 import { CodeCell } from "@ui/table/cells.jsx";
 
 const TAG_COLUMNS = [
-  { key: "code", label: "Etiqueta", render: (row) => <CodeCell value={`{{${row.code}}}`} /> },
+  {
+    key: "code",
+    label: "Etiqueta",
+    render: (row) => <CodeCell value={`{{${row.code}}}`} />,
+  },
   { key: "label", label: "Significado", render: (row) => row.label },
   {
     key: "sensitive",
@@ -80,8 +84,8 @@ export function FieldTagsWindow({ onClose }) {
 
         {includeSensitive ? (
           <Alert severity="warning">
-            Las etiquetas sensibles interpolan datos personales protegidos. Usalas
-            solo en documentos que realmente los requieran.
+            Las etiquetas sensibles interpolan datos personales protegidos.
+            Usalas solo en documentos que realmente los requieran.
           </Alert>
         ) : null}
 

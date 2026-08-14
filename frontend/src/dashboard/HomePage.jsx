@@ -24,11 +24,16 @@ export function HomePage() {
     <Stack gap={3}>
       <SectionCard>
         <Box sx={{ px: { xs: 3, md: 5 }, py: { xs: 4, md: 5 } }}>
-          <Typography component="p" sx={{ color: "primary.main" }} variant="overline">
+          <Typography
+            component="p"
+            sx={{ color: "primary.main" }}
+            variant="overline"
+          >
             Sistema institucional
           </Typography>
           <Typography sx={{ mt: 1, maxWidth: "34ch" }} variant="h4">
-            Control academico, administrativo y operativo en una sola base segura.
+            Control academico, administrativo y operativo en una sola base
+            segura.
           </Typography>
           <Typography
             color="text.secondary"
@@ -38,7 +43,11 @@ export function HomePage() {
             SIGA-INEBI centraliza acceso, estudiantes, estructura academica,
             matricula y trazabilidad con autenticacion institucional y API JSON.
           </Typography>
-          <Stack direction={{ xs: "column", sm: "row" }} gap={1.5} sx={{ mt: 3 }}>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            gap={1.5}
+            sx={{ mt: 3 }}
+          >
             <Button component={RouterLink} to="/login" variant="contained">
               Ingresar al sistema
             </Button>
@@ -57,7 +66,11 @@ export function HomePage() {
       <Grid container spacing={2}>
         {PILLARS.map((pillar) => (
           <Grid key={pillar.title} size={{ xs: 12, md: 6 }}>
-            <SectionCard marker={false} sx={{ height: "100%" }} title={pillar.title}>
+            <SectionCard
+              marker={false}
+              sx={{ height: "100%" }}
+              title={pillar.title}
+            >
               <Typography
                 color="text.secondary"
                 sx={{ px: 3, py: 2.5 }}

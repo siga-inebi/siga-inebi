@@ -5,7 +5,10 @@ import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
-import { documentsService, TEMPLATE_KIND_LABEL } from "@documents/documentsService.js";
+import {
+  documentsService,
+  TEMPLATE_KIND_LABEL,
+} from "@documents/documentsService.js";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDateTime } from "@shared/utils/format.js";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
@@ -14,7 +17,12 @@ import { DataTable } from "@ui/table/DataTable.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 
 const VERSION_COLUMNS = [
-  { key: "sequence", label: "Version", align: "right", render: (row) => `v${row.sequence}` },
+  {
+    key: "sequence",
+    label: "Version",
+    align: "right",
+    render: (row) => `v${row.sequence}`,
+  },
   { key: "name", label: "Nombre en esa version", render: (row) => row.name },
   {
     key: "kind",
@@ -43,7 +51,8 @@ const VERSION_COLUMNS = [
  */
 export function TemplateVersionsWindow({ onClose, template }) {
   const loadVersions = useCallback(
-    (params) => documentsService.listTemplateVersions(template.public_id, params),
+    (params) =>
+      documentsService.listTemplateVersions(template.public_id, params),
     [template.public_id]
   );
   const list = usePaginatedList(loadVersions, {

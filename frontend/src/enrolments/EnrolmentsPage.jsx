@@ -32,12 +32,22 @@ import { EnrolmentDocumentsWindow } from "./EnrolmentDocumentsWindow.jsx";
 
 /** Campos de matriculacion y de reinscripcion: el backend pide los mismos. */
 const ENROLMENT_FIELDS = [
-  { name: "student_id", label: "ID de estudiante", required: true, span: "full" },
+  {
+    name: "student_id",
+    label: "ID de estudiante",
+    required: true,
+    span: "full",
+  },
   { name: "academic_cycle_id", label: "ID de ciclo escolar", required: true },
   { name: "grade_id", label: "ID de grado", required: true },
   { name: "shift_id", label: "ID de jornada", required: true },
   { name: "section_id", label: "ID de seccion", required: true },
-  { name: "effective_on", label: "Vigente desde", type: "date", required: true },
+  {
+    name: "effective_on",
+    label: "Vigente desde",
+    type: "date",
+    required: true,
+  },
 ];
 
 const EMPTY_ENROLMENT = {
@@ -64,8 +74,16 @@ function enrolmentColumns({ onOpenDocuments }) {
       label: "Ciclo",
       render: (row) => <CodeCell value={row.academic_cycle_id} />,
     },
-    { key: "grade_id", label: "Grado", render: (row) => <CodeCell value={row.grade_id} /> },
-    { key: "section_id", label: "Seccion", render: (row) => <CodeCell value={row.section_id} /> },
+    {
+      key: "grade_id",
+      label: "Grado",
+      render: (row) => <CodeCell value={row.grade_id} />,
+    },
+    {
+      key: "section_id",
+      label: "Seccion",
+      render: (row) => <CodeCell value={row.section_id} />,
+    },
     {
       key: "effective_on",
       label: "Vigente desde",
@@ -74,7 +92,12 @@ function enrolmentColumns({ onOpenDocuments }) {
     {
       key: "ends_on",
       label: "Hasta",
-      render: (row) => (row.ends_on ? formatDate(row.ends_on) : <MutedCell>Sin cierre</MutedCell>),
+      render: (row) =>
+        row.ends_on ? (
+          formatDate(row.ends_on)
+        ) : (
+          <MutedCell>Sin cierre</MutedCell>
+        ),
     },
     {
       key: "status",
@@ -129,7 +152,11 @@ export function EnrolmentsPage() {
   );
 
   const loadHistory = useCallback(
-    (params) => enrolmentsService.listHistory({ ...params, student_id: studentFilter.trim() }),
+    (params) =>
+      enrolmentsService.listHistory({
+        ...params,
+        student_id: studentFilter.trim(),
+      }),
     [studentFilter]
   );
 
@@ -139,10 +166,13 @@ export function EnrolmentsPage() {
   });
 
   const historyReady = studentFilter.trim() !== "";
-  const historyList = usePaginatedList(historyReady ? loadHistory : EMPTY_LOADER, {
-    canIncludeInactive: false,
-    pageSize: PAGE_SIZE,
-  });
+  const historyList = usePaginatedList(
+    historyReady ? loadHistory : EMPTY_LOADER,
+    {
+      canIncludeInactive: false,
+      pageSize: PAGE_SIZE,
+    }
+  );
 
   const columns = enrolmentColumns({ onOpenDocuments: setDocumentsFor });
 
@@ -231,9 +261,7 @@ export function EnrolmentsPage() {
           />
         ) : (
           <SectionCard title="Historial de matricula">
-            <EmptyState
-              message="El historial se consulta por estudiante: escribe un ID de estudiante en el filtro para verlo."
-            />
+            <EmptyState message="El historial se consulta por estudiante: escribe un ID de estudiante en el filtro para verlo." />
           </SectionCard>
         )}
       </SectionCard>
@@ -252,7 +280,11 @@ export function EnrolmentsPage() {
           onSubmit={handleSubmit}
           open
           submitLabel={creating === "reenrol" ? "Reinscribir" : "Matricular"}
-          title={creating === "reenrol" ? "Reinscribir estudiante" : "Nueva matricula"}
+          title={
+            creating === "reenrol"
+              ? "Reinscribir estudiante"
+              : "Nueva matricula"
+          }
         />
       ) : null}
 

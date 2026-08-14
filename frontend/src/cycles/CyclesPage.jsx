@@ -31,7 +31,8 @@ const CYCLE_COLUMNS = [
   {
     key: "range",
     label: "Vigencia",
-    render: (row) => `${formatDate(row.starts_on)} — ${formatDate(row.ends_on)}`,
+    render: (row) =>
+      `${formatDate(row.starts_on)} — ${formatDate(row.ends_on)}`,
   },
   {
     key: "description",
@@ -52,7 +53,12 @@ const CYCLE_COLUMNS = [
 
 const CYCLE_FIELDS = [
   { name: "year", label: "Ano", type: "number", min: 2000, required: true },
-  { name: "name", label: "Nombre del ciclo", required: true, placeholder: "Ejemplo: Ciclo 2027" },
+  {
+    name: "name",
+    label: "Nombre del ciclo",
+    required: true,
+    placeholder: "Ejemplo: Ciclo 2027",
+  },
   { name: "starts_on", label: "Inicio", type: "date", required: true },
   { name: "ends_on", label: "Cierre", type: "date", required: true },
   { name: "description", label: "Descripcion (opcional)", span: "full" },
@@ -152,7 +158,10 @@ export function CyclesPage() {
         list={list}
         renderActions={(cycle) => (
           <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton label="Ver detalle historico" onClick={() => setViewing(cycle)}>
+            <ActionIconButton
+              label="Ver detalle historico"
+              onClick={() => setViewing(cycle)}
+            >
               <VisibilityOutlinedIcon fontSize="small" />
             </ActionIconButton>
             <ActionIconButton

@@ -86,9 +86,7 @@ describe("DocentesPage", () => {
     expect(
       within(screen.getByRole("table")).getByText("EMP-0142")
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Mostrando 1–2 de 2/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 1–2 de 2/)).toBeInTheDocument();
   });
 
   test("shows an empty state when the search does not match", async () => {
@@ -97,10 +95,7 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.type(
-      screen.getByPlaceholderText("Buscar por nombre…"),
-      "Nadie"
-    );
+    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "Nadie");
 
     expect(
       await screen.findByText("Sin datos para los filtros seleccionados.")
@@ -158,7 +153,9 @@ describe("DocentesPage", () => {
       name: "Marvin Estuardo Lopez Cifuentes",
     });
     await user.click(
-      within(detailWindow).getByAltText("Foto de Marvin Estuardo Lopez Cifuentes")
+      within(detailWindow).getByAltText(
+        "Foto de Marvin Estuardo Lopez Cifuentes"
+      )
     );
 
     const lightbox = screen.getByRole("dialog", {
@@ -179,7 +176,9 @@ describe("DocentesPage", () => {
     // El dialogo se desmonta al terminar su animacion de salida, no en el clic.
     await waitFor(() =>
       expect(
-        screen.queryByRole("dialog", { name: "Foto de Marvin Estuardo Lopez Cifuentes" })
+        screen.queryByRole("dialog", {
+          name: "Foto de Marvin Estuardo Lopez Cifuentes",
+        })
       ).not.toBeInTheDocument()
     );
   });

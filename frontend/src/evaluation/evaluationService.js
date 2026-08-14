@@ -6,7 +6,8 @@ const ROOT = "/academics";
 export const evaluationService = {
   /** Configuracion global de evaluacion: el default de toda la institucion. */
   getGlobalConfig: () => apiClient.get(`${ROOT}/evaluation-config/`),
-  updateGlobalConfig: (payload) => apiClient.patch(`${ROOT}/evaluation-config/`, payload),
+  updateGlobalConfig: (payload) =>
+    apiClient.patch(`${ROOT}/evaluation-config/`, payload),
 
   /**
    * Configuracion de un ciclo concreto. Existe para poder desviarse del default
@@ -15,13 +16,21 @@ export const evaluationService = {
   getCycleConfig: (cyclePublicId) =>
     apiClient.get(`${ROOT}/cycles/${cyclePublicId}/evaluation-config/`),
   updateCycleConfig: (cyclePublicId, payload) =>
-    apiClient.patch(`${ROOT}/cycles/${cyclePublicId}/evaluation-config/`, payload),
+    apiClient.patch(
+      `${ROOT}/cycles/${cyclePublicId}/evaluation-config/`,
+      payload
+    ),
 
   /** Unidades de evaluacion (bimestres, trimestres) del ciclo. */
   listUnits: (cyclePublicId, params) =>
-    apiClient.get(withQuery(`${ROOT}/cycles/${cyclePublicId}/evaluation-units/`, params)),
+    apiClient.get(
+      withQuery(`${ROOT}/cycles/${cyclePublicId}/evaluation-units/`, params)
+    ),
   createUnit: (cyclePublicId, payload) =>
-    apiClient.post(`${ROOT}/cycles/${cyclePublicId}/evaluation-units/`, payload),
+    apiClient.post(
+      `${ROOT}/cycles/${cyclePublicId}/evaluation-units/`,
+      payload
+    ),
 
   /** Ventana de recuperacion de una unidad. */
   updateRecoveryWindow: (cyclePublicId, unitPublicId, payload) =>

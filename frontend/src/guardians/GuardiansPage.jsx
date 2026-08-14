@@ -42,12 +42,14 @@ function guardianColumns({ onView }) {
     {
       key: "correo",
       label: "Correo",
-      render: (item) => item.person.email || <MutedCell>Sin registrar</MutedCell>,
+      render: (item) =>
+        item.person.email || <MutedCell>Sin registrar</MutedCell>,
     },
     {
       key: "telefono",
       label: "Telefono",
-      render: (item) => item.person.phone_number || <MutedCell>Sin registrar</MutedCell>,
+      render: (item) =>
+        item.person.phone_number || <MutedCell>Sin registrar</MutedCell>,
     },
     {
       key: "detalle",
@@ -153,7 +155,11 @@ export function GuardiansPage() {
         </FilterBar>
 
         {list.error ? (
-          <Alert role="alert" severity="error" sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}>
+          <Alert
+            role="alert"
+            severity="error"
+            sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
+          >
             {list.error}
           </Alert>
         ) : null}

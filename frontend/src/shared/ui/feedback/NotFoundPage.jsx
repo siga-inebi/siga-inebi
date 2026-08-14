@@ -15,10 +15,19 @@ export function NotFoundPage() {
         <Typography fontWeight={600} variant="h6">
           Pagina no encontrada
         </Typography>
-        <Typography color="text.secondary" sx={{ textAlign: "center" }} variant="body2">
+        <Typography
+          color="text.secondary"
+          sx={{ textAlign: "center" }}
+          variant="body2"
+        >
           La direccion que abriste no corresponde a ninguna seccion del sistema.
         </Typography>
-        <Button component={RouterLink} sx={{ mt: 1 }} to="/" variant="contained">
+        <Button
+          component={RouterLink}
+          sx={{ mt: 1 }}
+          to="/"
+          variant="contained"
+        >
           Ir al inicio
         </Button>
       </Stack>

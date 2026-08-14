@@ -54,7 +54,14 @@ export function AppShell({ children, counts, onLogout, user }) {
   );
 
   return (
-    <Box sx={{ height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <Box
+      sx={{
+        height: "100dvh",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       <AppBar
         elevation={0}
         position="sticky"
@@ -65,7 +72,14 @@ export function AppShell({ children, counts, onLogout, user }) {
           borderColor: "divider",
         }}
       >
-        <Toolbar sx={{ minHeight: TOOLBAR_HEIGHT, height: TOOLBAR_HEIGHT, px: 2, gap: 1 }}>
+        <Toolbar
+          sx={{
+            minHeight: TOOLBAR_HEIGHT,
+            height: TOOLBAR_HEIGHT,
+            px: 2,
+            gap: 1,
+          }}
+        >
           <IconButton
             aria-label="Abrir menu"
             edge="start"
@@ -76,7 +90,11 @@ export function AppShell({ children, counts, onLogout, user }) {
             <MenuIcon fontSize="small" />
           </IconButton>
 
-          <Box component={RouterLink} sx={{ textDecoration: "none", color: "inherit" }} to="/app">
+          <Box
+            component={RouterLink}
+            sx={{ textDecoration: "none", color: "inherit" }}
+            to="/app"
+          >
             <BrandMark />
           </Box>
 
@@ -134,7 +152,9 @@ export function AppShell({ children, counts, onLogout, user }) {
           slotProps={{ paper: { sx: { width: SIDEBAR_WIDTH } } }}
           sx={{ display: { md: "none" } }}
         >
-          <Toolbar sx={{ minHeight: TOOLBAR_HEIGHT, height: TOOLBAR_HEIGHT, px: 2 }}>
+          <Toolbar
+            sx={{ minHeight: TOOLBAR_HEIGHT, height: TOOLBAR_HEIGHT, px: 2 }}
+          >
             <BrandMark compact />
           </Toolbar>
           {sidebar}

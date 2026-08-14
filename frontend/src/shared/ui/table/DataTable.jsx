@@ -89,7 +89,9 @@ export function DataTable({
       sx={{
         display: "flex",
         flexDirection: "column",
-        ...(fillHeight ? { [FILL_HEIGHT_QUERY]: { flex: 1, minHeight: 0 } } : null),
+        ...(fillHeight
+          ? { [FILL_HEIGHT_QUERY]: { flex: 1, minHeight: 0 } }
+          : null),
       }}
     >
       <TableContainer
@@ -97,7 +99,13 @@ export function DataTable({
           overflow: "auto",
           maxHeight: TABLE_FALLBACK_MAX_HEIGHT,
           ...(fillHeight
-            ? { [FILL_HEIGHT_QUERY]: { flex: 1, minHeight: 0, maxHeight: "none" } }
+            ? {
+                [FILL_HEIGHT_QUERY]: {
+                  flex: 1,
+                  minHeight: 0,
+                  maxHeight: "none",
+                },
+              }
             : null),
         }}
       >
@@ -111,7 +119,9 @@ export function DataTable({
                   // La cabecera del sistema no lleva relleno de color, pero en
                   // modo pegado necesita fondo opaco o las filas se ven pasar
                   // por debajo al scrollear.
-                  sx={stickyHeader ? { bgcolor: "background.paper" } : undefined}
+                  sx={
+                    stickyHeader ? { bgcolor: "background.paper" } : undefined
+                  }
                 >
                   {column.label}
                 </TableCell>
@@ -141,7 +151,10 @@ export function DataTable({
 
             {!loading && !hasRows ? (
               <TableRow sx={{ "&:hover": { bgcolor: "transparent" } }}>
-                <TableCell colSpan={columns.length} sx={{ borderBottom: "none" }}>
+                <TableCell
+                  colSpan={columns.length}
+                  sx={{ borderBottom: "none" }}
+                >
                   <EmptyState message={emptyMessage} />
                 </TableCell>
               </TableRow>
@@ -182,7 +195,9 @@ export function DataTable({
           }
           page={pagination.page}
           rowsPerPage={pagination.rowsPerPage}
-          rowsPerPageOptions={pagination.rowsPerPageOptions ?? [10, 25, 50, 100]}
+          rowsPerPageOptions={
+            pagination.rowsPerPageOptions ?? [10, 25, 50, 100]
+          }
           sx={{ flexShrink: 0, borderTop: "1px solid", borderColor: "divider" }}
         />
       ) : null}

@@ -119,7 +119,12 @@ export function FloatingWindow({
             </Typography>
           ) : null}
         </Box>
-        <IconButton aria-label="Cerrar" onClick={handleClose} size="small" sx={{ mt: -0.5 }}>
+        <IconButton
+          aria-label="Cerrar"
+          onClick={handleClose}
+          size="small"
+          sx={{ mt: -0.5 }}
+        >
           <CloseIcon fontSize="small" />
         </IconButton>
       </Stack>

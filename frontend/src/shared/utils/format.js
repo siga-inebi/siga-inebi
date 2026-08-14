@@ -45,7 +45,8 @@ const dateTimeFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
  */
 function toDate(value) {
   if (!value) return null;
-  const isDateOnly = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const isDateOnly =
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
   const date = new Date(isDateOnly ? `${value}T12:00:00` : value);
   return Number.isNaN(date.getTime()) ? null : date;
 }

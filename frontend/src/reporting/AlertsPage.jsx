@@ -39,7 +39,10 @@ const STATE_OPTIONS = [
   { value: ALL_STATES, label: "Todas" },
 ];
 
-const TYPE_FILTER_OPTIONS = [{ value: ALL_TYPES, label: "Todos los tipos" }, ...ALERT_TYPE_OPTIONS];
+const TYPE_FILTER_OPTIONS = [
+  { value: ALL_TYPES, label: "Todos los tipos" },
+  ...ALERT_TYPE_OPTIONS,
+];
 
 /**
  * Conteo total de alertas que cumplen un filtro.
@@ -93,7 +96,11 @@ export function AlertsPage() {
         ...params,
         alert_type: typeFilter || undefined,
         acknowledged:
-          stateFilter === PENDING ? false : stateFilter === ACKNOWLEDGED ? true : undefined,
+          stateFilter === PENDING
+            ? false
+            : stateFilter === ACKNOWLEDGED
+              ? true
+              : undefined,
       }),
     [stateFilter, typeFilter]
   );
@@ -105,7 +112,10 @@ export function AlertsPage() {
 
   const pendingCount = useAlertCount({ acknowledged: false }, countsToken);
   const totalCount = useAlertCount({}, countsToken);
-  const frequentCount = useAlertCount({ alert_type: "frecuencia_ausencias" }, countsToken);
+  const frequentCount = useAlertCount(
+    { alert_type: "frecuencia_ausencias" },
+    countsToken
+  );
 
   const refreshAll = () => {
     list.refresh();
@@ -139,12 +149,20 @@ export function AlertsPage() {
       label: "Estudiante",
       render: (row) => <CodeCell value={row.student_id} />,
     },
-    { key: "event_date", label: "Fecha", render: (row) => formatDate(row.event_date) },
+    {
+      key: "event_date",
+      label: "Fecha",
+      render: (row) => formatDate(row.event_date),
+    },
     {
       key: "section_id",
       label: "Seccion",
       render: (row) =>
-        row.section_id ? <CodeCell value={row.section_id} /> : <MutedCell>Sin seccion</MutedCell>,
+        row.section_id ? (
+          <CodeCell value={row.section_id} />
+        ) : (
+          <MutedCell>Sin seccion</MutedCell>
+        ),
     },
     {
       key: "acknowledged",
@@ -199,7 +217,11 @@ export function AlertsPage() {
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard label="Total registradas" loading={totalCount == null} value={totalCount ?? "—"} />
+          <StatCard
+            label="Total registradas"
+            loading={totalCount == null}
+            value={totalCount ?? "—"}
+          />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
           <StatCard

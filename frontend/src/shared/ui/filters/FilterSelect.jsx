@@ -14,7 +14,13 @@ import TextField from "@mui/material/TextField";
  * @param {Array<{value:string,label:string}>} props.options
  * @param {number} [props.minWidth=140]
  */
-export function FilterSelect({ label, minWidth = 140, onChange, options, value }) {
+export function FilterSelect({
+  label,
+  minWidth = 140,
+  onChange,
+  options,
+  value,
+}) {
   return (
     <TextField
       fullWidth={false}

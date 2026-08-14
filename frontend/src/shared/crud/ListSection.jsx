@@ -55,7 +55,12 @@ export function ListSection({
     : columns;
 
   return (
-    <SectionCard action={action} fillHeight={fillHeight} subtitle={subtitle} title={title}>
+    <SectionCard
+      action={action}
+      fillHeight={fillHeight}
+      subtitle={subtitle}
+      title={title}
+    >
       {filters}
 
       {showInactiveToggle ? (
@@ -72,7 +77,9 @@ export function ListSection({
             control={
               <Switch
                 checked={list.includeInactive}
-                onChange={(event) => list.setIncludeInactive(event.target.checked)}
+                onChange={(event) =>
+                  list.setIncludeInactive(event.target.checked)
+                }
                 size="small"
               />
             }

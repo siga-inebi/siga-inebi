@@ -40,5 +40,6 @@ export const cyclesService = {
    * docentes se copian solo si se piden: arrastrarlas por defecto reasignaria
    * personal que quizas ya no trabaja en el establecimiento.
    */
-  clone: (publicId, payload) => apiClient.post(`${ROOT}/${publicId}/clone/`, payload),
+  clone: (publicId, payload) =>
+    apiClient.post(`${ROOT}/${publicId}/clone/`, payload),
 };

@@ -114,7 +114,11 @@ export const MuiTooltip = {
 
 export const MuiChip = {
   styleOverrides: {
-    root: { borderRadius: appRadii.chip, fontWeight: 600, letterSpacing: "0.01em" },
+    root: {
+      borderRadius: appRadii.chip,
+      fontWeight: 600,
+      letterSpacing: "0.01em",
+    },
     sizeSmall: { height: "1.25rem", fontSize: "0.6875rem" },
   },
 };

@@ -19,7 +19,10 @@ export const LOCAL_PAGE_SIZE = 10;
  * @param {Function} [options.filters] (item) => boolean. Filtro adicional ya cerrado.
  * @param {number}   [options.pageSize]
  */
-export function useLocalList(loader, { filters, matches, pageSize = LOCAL_PAGE_SIZE }) {
+export function useLocalList(
+  loader,
+  { filters, matches, pageSize = LOCAL_PAGE_SIZE }
+) {
   const [all, setAll] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -73,7 +76,10 @@ export function useLocalList(loader, { filters, matches, pageSize = LOCAL_PAGE_S
   // durante un frame antes de reponerse.
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
-  const items = filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  const items = filtered.slice(
+    currentPage * pageSize,
+    (currentPage + 1) * pageSize
+  );
 
   const changeSearch = useCallback((value) => {
     setSearch(value);

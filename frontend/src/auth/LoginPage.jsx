@@ -73,7 +73,12 @@ export function LoginPage() {
         </Stack>
 
         <SectionCard>
-          <Box component="form" noValidate onSubmit={handleSubmit} sx={{ p: 3 }}>
+          <Box
+            component="form"
+            noValidate
+            onSubmit={handleSubmit}
+            sx={{ p: 3 }}
+          >
             <Stack gap={2}>
               <Typography component="h1" fontWeight={600} variant="h6">
                 Iniciar sesion
@@ -114,7 +119,9 @@ export function LoginPage() {
                 disabled={!canSubmit}
                 fullWidth
                 size="large"
-                startIcon={submitting ? <CircularProgress size={16} /> : undefined}
+                startIcon={
+                  submitting ? <CircularProgress size={16} /> : undefined
+                }
                 type="submit"
                 variant="contained"
               >
@@ -134,7 +141,11 @@ export function LoginPage() {
 
         <Stack alignItems="center" gap={1.5} sx={{ mt: 3 }}>
           <ColorModeToggle />
-          <Typography color="text.secondary" sx={{ textAlign: "center" }} variant="body2">
+          <Typography
+            color="text.secondary"
+            sx={{ textAlign: "center" }}
+            variant="body2"
+          >
             Uso institucional. Los accesos quedan registrados.
           </Typography>
         </Stack>

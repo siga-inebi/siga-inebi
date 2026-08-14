@@ -207,8 +207,12 @@ describe("pantalla de niveles", () => {
 
     // Cada seccion es una region con nombre, asi que se puede acotar la busqueda
     // al plan de estudios sin depender de clases CSS.
-    const planSection = screen.getByRole("region", { name: "Plan de estudios" });
-    await user.click(within(planSection).getByRole("button", { name: "Editar" }));
+    const planSection = screen.getByRole("region", {
+      name: "Plan de estudios",
+    });
+    await user.click(
+      within(planSection).getByRole("button", { name: "Editar" })
+    );
 
     await user.clear(screen.getByLabelText(/^Horas semanales/));
     await user.type(screen.getByLabelText(/^Horas semanales/), "6");

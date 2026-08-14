@@ -74,7 +74,12 @@ export function DashboardPage() {
           <Grid size={{ xs: 12, md: 4 }}>
             <StatCard
               action={
-                <Button component={RouterLink} size="small" to="/app/alumnos" variant="text">
+                <Button
+                  component={RouterLink}
+                  size="small"
+                  to="/app/alumnos"
+                  variant="text"
+                >
                   Ver listado
                 </Button>
               }
@@ -86,7 +91,12 @@ export function DashboardPage() {
           <Grid size={{ xs: 12, md: 4 }}>
             <StatCard
               action={
-                <Button component={RouterLink} size="small" to="/app/docentes" variant="text">
+                <Button
+                  component={RouterLink}
+                  size="small"
+                  to="/app/docentes"
+                  variant="text"
+                >
                   Ver listado
                 </Button>
               }
@@ -117,10 +127,16 @@ export function DashboardPage() {
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 6 }}>
-          <SectionCard subtitle="Cuenta institucional en uso" title="Identidad actual">
+          <SectionCard
+            subtitle="Cuenta institucional en uso"
+            title="Identidad actual"
+          >
             <Stack component="dl" gap={2} sx={{ px: 3, py: 2.5, m: 0 }}>
               <IdentityRow label="Usuario" value={user?.username} />
-              <IdentityRow label="Correo" value={user?.email || "No definido"} />
+              <IdentityRow
+                label="Correo"
+                value={user?.email || "No definido"}
+              />
               <IdentityRow
                 label="Estado"
                 value={
@@ -135,7 +151,10 @@ export function DashboardPage() {
         </Grid>
 
         <Grid size={{ xs: 12, md: 6 }}>
-          <SectionCard subtitle="Conexion con la API" title="Estado del servicio">
+          <SectionCard
+            subtitle="Conexion con la API"
+            title="Estado del servicio"
+          >
             <Stack gap={1.5} sx={{ px: 3, py: 2.5 }}>
               {health.error ? (
                 <Stack alignItems="center" direction="row" gap={1}>
@@ -170,7 +189,11 @@ function IdentityRow({ label, value }) {
     <Box>
       <Typography
         component="dt"
-        sx={{ fontSize: "0.75rem", color: "text.secondary", textTransform: "uppercase" }}
+        sx={{
+          fontSize: "0.75rem",
+          color: "text.secondary",
+          textTransform: "uppercase",
+        }}
       >
         {label}
       </Typography>

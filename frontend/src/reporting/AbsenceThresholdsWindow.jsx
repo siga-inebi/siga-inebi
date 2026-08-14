@@ -17,7 +17,11 @@ import { DataTable } from "@ui/table/DataTable.jsx";
 import { CodeCell } from "@ui/table/cells.jsx";
 
 const THRESHOLD_COLUMNS = [
-  { key: "shift_id", label: "Jornada", render: (row) => <CodeCell value={row.shift_id} /> },
+  {
+    key: "shift_id",
+    label: "Jornada",
+    render: (row) => <CodeCell value={row.shift_id} />,
+  },
   {
     key: "academic_cycle_id",
     label: "Ciclo",
@@ -71,7 +75,13 @@ const THRESHOLD_FIELDS = [
     required: true,
     help: "Periodo hacia atras sobre el que se cuentan las ausencias.",
   },
-  { name: "effective_from", label: "Vigente desde", type: "date", required: true, span: "full" },
+  {
+    name: "effective_from",
+    label: "Vigente desde",
+    type: "date",
+    required: true,
+    span: "full",
+  },
 ];
 
 /**

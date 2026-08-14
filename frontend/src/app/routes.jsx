@@ -33,15 +33,17 @@ function lazyModule(item) {
       // Las paginas exportan un nombre, no un default: se resuelve la primera
       // exportacion que sea un componente para no repetir el nombre aqui.
       const component =
-        module.default ?? Object.values(module).find((value) => typeof value === "function");
+        module.default ??
+        Object.values(module).find((value) => typeof value === "function");
       return { default: component };
     })
   );
 }
 
-const MODULE_ROUTES = [HOME_ITEM, ...NAV_GROUPS.flatMap((group) => group.items)].map(
-  (item) => ({ ...item, Component: lazyModule(item) })
-);
+const MODULE_ROUTES = [
+  HOME_ITEM,
+  ...NAV_GROUPS.flatMap((group) => group.items),
+].map((item) => ({ ...item, Component: lazyModule(item) }));
 
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();

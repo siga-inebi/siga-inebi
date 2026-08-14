@@ -6,7 +6,11 @@ import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
-import { CYCLE_STATUS_LABEL, CYCLE_STATUS_VARIANT, cyclesService } from "@cycles/cyclesService.js";
+import {
+  CYCLE_STATUS_LABEL,
+  CYCLE_STATUS_VARIANT,
+  cyclesService,
+} from "@cycles/cyclesService.js";
 import { formatDate } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
@@ -73,7 +77,8 @@ function CompactList({ emptyMessage, items, render }) {
 /** Nombre legible de una referencia que el backend puede devolver anidada o plana. */
 function refLabel(value) {
   if (value == null) return "—";
-  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "string" || typeof value === "number")
+    return String(value);
   return value.name ?? value.code ?? value.public_id ?? "—";
 }
 
@@ -184,7 +189,10 @@ export function CycleDetailWindow({ cycle, onClose }) {
             />
           </CollectionBlock>
 
-          <CollectionBlock count={assignments.length} title="Asignaciones docentes">
+          <CollectionBlock
+            count={assignments.length}
+            title="Asignaciones docentes"
+          >
             <CompactList
               emptyMessage="Este ciclo no registro asignaciones docentes."
               items={assignments}

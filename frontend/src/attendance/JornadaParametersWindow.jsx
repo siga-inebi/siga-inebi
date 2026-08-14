@@ -17,7 +17,11 @@ import { DataTable } from "@ui/table/DataTable.jsx";
 import { CodeCell } from "@ui/table/cells.jsx";
 
 const PARAMETER_COLUMNS = [
-  { key: "shift_id", label: "Jornada", render: (row) => <CodeCell value={row.shift_id} /> },
+  {
+    key: "shift_id",
+    label: "Jornada",
+    render: (row) => <CodeCell value={row.shift_id} />,
+  },
   {
     key: "entry_limit_time",
     label: "Limite de entrada",

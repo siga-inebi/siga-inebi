@@ -143,7 +143,9 @@ export function EntityFormWindow({
 
 /** Campos que nunca se parten a media reja. */
 function isFullWidth(field) {
-  return field.span === "full" || field.type === "file" || field.type === "checkbox";
+  return (
+    field.span === "full" || field.type === "file" || field.type === "checkbox"
+  );
 }
 
 function EntityField({ disabled, field, onChange, value }) {
@@ -210,7 +212,9 @@ function EntityField({ disabled, field, onChange, value }) {
         // Los inputs de fecha y hora SIEMPRE pintan su propio placeholder
         // ("mm/dd/yyyy"), asi que la etiqueta flotante se le encima si no se
         // fuerza arriba desde el principio.
-        ...(DATE_LIKE_TYPES.has(field.type) ? { inputLabel: { shrink: true } } : null),
+        ...(DATE_LIKE_TYPES.has(field.type)
+          ? { inputLabel: { shrink: true } }
+          : null),
       }}
       type={TEXT_INPUT_TYPES.has(field.type) ? field.type : "text"}
       value={value ?? ""}
@@ -287,11 +291,17 @@ function FileField({ disabled, field, onChange, value }) {
             accept={field.accept}
             hidden
             id={inputId}
-            onChange={(event) => onChange(field.name, event.target.files[0] || null)}
+            onChange={(event) =>
+              onChange(field.name, event.target.files[0] || null)
+            }
             type="file"
           />
         </Button>
-        <Typography color="text.secondary" sx={{ fontSize: "0.8125rem" }} noWrap>
+        <Typography
+          color="text.secondary"
+          sx={{ fontSize: "0.8125rem" }}
+          noWrap
+        >
           {value instanceof File ? value.name : "Ningun archivo seleccionado"}
         </Typography>
       </Stack>

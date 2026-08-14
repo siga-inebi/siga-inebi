@@ -18,10 +18,12 @@ export const ALERT_VARIANT = {
   inconsistencia: "danger",
 };
 
-export const ALERT_TYPE_OPTIONS = Object.entries(ALERT_LABEL).map(([value, label]) => ({
-  value,
-  label,
-}));
+export const ALERT_TYPE_OPTIONS = Object.entries(ALERT_LABEL).map(
+  ([value, label]) => ({
+    value,
+    label,
+  })
+);
 
 export const reportingService = {
   /**
@@ -34,7 +36,8 @@ export const reportingService = {
   listAlerts: (params) =>
     apiClient.get(withQuery(`${ROOT}/alerts/`, params, { dropFalse: false })),
 
-  acknowledge: (publicId) => apiClient.post(`${ROOT}/alerts/${publicId}/acknowledge/`, {}),
+  acknowledge: (publicId) =>
+    apiClient.post(`${ROOT}/alerts/${publicId}/acknowledge/`, {}),
 
   /** Recalculo de alertas de una jornada y fecha. */
   evaluate: (payload) => apiClient.post(`${ROOT}/alert-evaluations/`, payload),

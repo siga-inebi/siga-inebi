@@ -12,29 +12,59 @@ import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
-import { ActiveCell, BooleanCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
+import {
+  ActiveCell,
+  BooleanCell,
+  CodeCell,
+  MutedCell,
+} from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 
 const CAMPUS_COLUMNS = [
   { key: "name", label: "Sede", render: (row) => row.name },
-  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => <CodeCell value={row.code} />,
+  },
   {
     key: "address",
     label: "Direccion",
     render: (row) => row.address || <MutedCell>Sin registrar</MutedCell>,
   },
-  { key: "is_main", label: "Principal", render: (row) => <BooleanCell value={row.is_main} /> },
-  { key: "shift_count", label: "Jornadas", align: "right", render: (row) => row.shift_count },
+  {
+    key: "is_main",
+    label: "Principal",
+    render: (row) => <BooleanCell value={row.is_main} />,
+  },
+  {
+    key: "shift_count",
+    label: "Jornadas",
+    align: "right",
+    render: (row) => row.shift_count,
+  },
   {
     key: "is_active",
     label: "Estado",
-    render: (row) => <ActiveCell active={row.is_active} inactiveLabel="Desactivada" />,
+    render: (row) => (
+      <ActiveCell active={row.is_active} inactiveLabel="Desactivada" />
+    ),
   },
 ];
 
 const CREATE_CAMPUS_FIELDS = [
-  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Sede Central" },
-  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: CENTRAL" },
+  {
+    name: "name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Sede Central",
+  },
+  {
+    name: "code",
+    label: "Codigo",
+    required: true,
+    placeholder: "Ejemplo: CENTRAL",
+  },
   { name: "address", label: "Direccion (opcional)" },
   {
     name: "is_main",
@@ -51,7 +81,10 @@ const EDIT_CAMPUS_FIELDS = [
 ];
 
 export function CampusesPage() {
-  const loadCampuses = useCallback((params) => academicsService.listCampuses(params), []);
+  const loadCampuses = useCallback(
+    (params) => academicsService.listCampuses(params),
+    []
+  );
   const list = usePaginatedList(loadCampuses, { pageSize: PAGE_SIZE });
 
   const [editing, setEditing] = useState(null);
@@ -116,10 +149,14 @@ export function CampusesPage() {
             <ActionIconButton
               color={campus.public_id === selectedId ? "primary" : "default"}
               label={
-                campus.public_id === selectedId ? "Ocultar jornadas" : "Ver jornadas"
+                campus.public_id === selectedId
+                  ? "Ocultar jornadas"
+                  : "Ver jornadas"
               }
               onClick={() =>
-                setSelectedId(campus.public_id === selectedId ? "" : campus.public_id)
+                setSelectedId(
+                  campus.public_id === selectedId ? "" : campus.public_id
+                )
               }
             >
               <ScheduleOutlinedIcon fontSize="small" />
@@ -188,17 +225,33 @@ export function CampusesPage() {
 
 const SHIFT_COLUMNS = [
   { key: "name", label: "Jornada", render: (row) => row.name },
-  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => <CodeCell value={row.code} />,
+  },
   {
     key: "is_active",
     label: "Estado",
-    render: (row) => <ActiveCell active={row.is_active} inactiveLabel="Desactivada" />,
+    render: (row) => (
+      <ActiveCell active={row.is_active} inactiveLabel="Desactivada" />
+    ),
   },
 ];
 
 const CREATE_SHIFT_FIELDS = [
-  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Matutina" },
-  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: MAT" },
+  {
+    name: "name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Matutina",
+  },
+  {
+    name: "code",
+    label: "Codigo",
+    required: true,
+    placeholder: "Ejemplo: MAT",
+  },
 ];
 
 const EDIT_SHIFT_FIELDS = [{ name: "name", label: "Nombre", required: true }];
@@ -289,7 +342,11 @@ function CampusShiftsSection({ campus, onChanged }) {
         description="El codigo es unico dentro de la sede: dos sedes pueden tener MAT."
         fields={CREATE_SHIFT_FIELDS}
         initialValues={{ name: "", code: "" }}
-        key={editing?.mode === "create" ? "shift-create-open" : "shift-create-closed"}
+        key={
+          editing?.mode === "create"
+            ? "shift-create-open"
+            : "shift-create-closed"
+        }
         onCancel={() => setEditing(null)}
         onSubmit={handleCreate}
         open={editing?.mode === "create"}

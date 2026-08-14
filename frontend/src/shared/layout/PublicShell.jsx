@@ -28,10 +28,16 @@ export function PublicShell({ children }) {
         }}
       >
         <Toolbar sx={{ minHeight: 52, height: 52, px: 2, gap: 1 }}>
-          <Box component={RouterLink} sx={{ textDecoration: "none", color: "inherit" }} to="/">
+          <Box
+            component={RouterLink}
+            sx={{ textDecoration: "none", color: "inherit" }}
+            to="/"
+          >
             <BrandMark />
           </Box>
-          <Box sx={{ ml: "auto", display: "flex", gap: 1, alignItems: "center" }}>
+          <Box
+            sx={{ ml: "auto", display: "flex", gap: 1, alignItems: "center" }}
+          >
             <ColorModeToggle />
             <Button component={RouterLink} to="/login" variant="contained">
               Iniciar sesion

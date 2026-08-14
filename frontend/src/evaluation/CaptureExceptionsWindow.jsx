@@ -16,8 +16,16 @@ import { DataTable } from "@ui/table/DataTable.jsx";
 import { CodeCell } from "@ui/table/cells.jsx";
 
 const EXCEPTION_COLUMNS = [
-  { key: "subject", label: "Curso", render: (row) => <CodeCell value={row.subject} /> },
-  { key: "teacher", label: "Docente", render: (row) => <CodeCell value={row.teacher} /> },
+  {
+    key: "subject",
+    label: "Curso",
+    render: (row) => <CodeCell value={row.subject} />,
+  },
+  {
+    key: "teacher",
+    label: "Docente",
+    render: (row) => <CodeCell value={row.teacher} />,
+  },
   { key: "reason", label: "Motivo", render: (row) => row.reason },
   {
     key: "expires_at",
@@ -59,7 +67,8 @@ const EXCEPTION_FIELDS = [
  */
 export function CaptureExceptionsWindow({ cycleId, onClose, unit }) {
   const loadExceptions = useCallback(
-    (params) => evaluationService.listCaptureExceptions(cycleId, unit.public_id, params),
+    (params) =>
+      evaluationService.listCaptureExceptions(cycleId, unit.public_id, params),
     [cycleId, unit.public_id]
   );
   const list = usePaginatedList(loadExceptions, {
@@ -70,7 +79,11 @@ export function CaptureExceptionsWindow({ cycleId, onClose, unit }) {
   const [granting, setGranting] = useState(false);
 
   const handleGrant = async (payload) => {
-    await evaluationService.createCaptureException(cycleId, unit.public_id, payload);
+    await evaluationService.createCaptureException(
+      cycleId,
+      unit.public_id,
+      payload
+    );
     setGranting(false);
     list.refresh();
   };
@@ -115,7 +128,12 @@ export function CaptureExceptionsWindow({ cycleId, onClose, unit }) {
         <EntityFormWindow
           description="El motivo y el vencimiento son obligatorios: la excepcion es auditable y temporal."
           fields={EXCEPTION_FIELDS}
-          initialValues={{ subject: "", teacher: "", reason: "", expires_at: "" }}
+          initialValues={{
+            subject: "",
+            teacher: "",
+            reason: "",
+            expires_at: "",
+          }}
           key="grant-exception"
           onCancel={() => setGranting(false)}
           onSubmit={handleGrant}

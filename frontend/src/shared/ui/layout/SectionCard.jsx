@@ -79,7 +79,12 @@ export function SectionCard({
             flexShrink: 0,
           }}
         >
-          <Stack alignItems="stretch" direction="row" gap={1.5} sx={{ minWidth: 0 }}>
+          <Stack
+            alignItems="stretch"
+            direction="row"
+            gap={1.5}
+            sx={{ minWidth: 0 }}
+          >
             {marker && title ? (
               <Box
                 aria-hidden

@@ -36,8 +36,16 @@ const EVENT_COLUMNS = [
     label: "Estudiante",
     render: (row) => <CodeCell value={row.student_id} />,
   },
-  { key: "shift_id", label: "Jornada", render: (row) => <CodeCell value={row.shift_id} /> },
-  { key: "event_date", label: "Fecha", render: (row) => formatDate(row.event_date) },
+  {
+    key: "shift_id",
+    label: "Jornada",
+    render: (row) => <CodeCell value={row.shift_id} />,
+  },
+  {
+    key: "event_date",
+    label: "Fecha",
+    render: (row) => formatDate(row.event_date),
+  },
   {
     key: "movement_type",
     label: "Movimiento",
@@ -63,7 +71,7 @@ const EVENT_COLUMNS = [
     label: "Transmision",
     render: (row) =>
       row.transmission ? (
-        TRANSMISSION_LABEL[row.transmission] ?? row.transmission
+        (TRANSMISSION_LABEL[row.transmission] ?? row.transmission)
       ) : (
         <MutedCell>Sin dato</MutedCell>
       ),
@@ -101,20 +109,37 @@ const ALERT_COLUMNS = [
     label: "Estudiante",
     render: (row) => <CodeCell value={row.student_id} />,
   },
-  { key: "event_date", label: "Fecha", render: (row) => formatDate(row.event_date) },
+  {
+    key: "event_date",
+    label: "Fecha",
+    render: (row) => formatDate(row.event_date),
+  },
   {
     key: "section_id",
     label: "Seccion",
     render: (row) =>
-      row.section_id ? <CodeCell value={row.section_id} /> : <MutedCell>Sin seccion</MutedCell>,
+      row.section_id ? (
+        <CodeCell value={row.section_id} />
+      ) : (
+        <MutedCell>Sin seccion</MutedCell>
+      ),
   },
-  { key: "created_at", label: "Emitida", render: (row) => formatDateTime(row.created_at) },
+  {
+    key: "created_at",
+    label: "Emitida",
+    render: (row) => formatDateTime(row.created_at),
+  },
 ];
 
 const EVENT_FIELDS = [
   { name: "student_id", label: "ID de estudiante", required: true },
   { name: "shift_id", label: "ID de jornada", required: true },
-  { name: "event_date", label: "Fecha del movimiento", type: "date", required: true },
+  {
+    name: "event_date",
+    label: "Fecha del movimiento",
+    type: "date",
+    required: true,
+  },
   {
     name: "movement_type",
     label: "Movimiento",
@@ -154,8 +179,14 @@ const EVENT_FIELDS = [
  * eso sea visible en vez de parecer que un movimiento desaparecio.
  */
 export function AttendancePage() {
-  const loadEvents = useCallback((params) => attendanceService.listEvents(params), []);
-  const loadAlerts = useCallback((params) => attendanceService.listAlerts(params), []);
+  const loadEvents = useCallback(
+    (params) => attendanceService.listEvents(params),
+    []
+  );
+  const loadAlerts = useCallback(
+    (params) => attendanceService.listAlerts(params),
+    []
+  );
 
   // Paginacion del servidor: el registro de movimientos crece con cada dia de
   // clases, asi que traerlo completo para filtrar en memoria no escala.
@@ -210,7 +241,10 @@ export function AttendancePage() {
           <DayStatusProbe />
         </Grid>
         <Grid size={{ xs: 12, lg: 7 }}>
-          <SectionCard subtitle="Emitidas por el cierre de jornada" title="Alertas de asistencia">
+          <SectionCard
+            subtitle="Emitidas por el cierre de jornada"
+            title="Alertas de asistencia"
+          >
             {alerts.error ? (
               <Alert severity="error" sx={{ m: 2 }}>
                 {alerts.error}
@@ -230,7 +264,11 @@ export function AttendancePage() {
         </Grid>
       </Grid>
 
-      <SectionCard fillHeight subtitle="Registro completo, duplicados incluidos" title="Movimientos">
+      <SectionCard
+        fillHeight
+        subtitle="Registro completo, duplicados incluidos"
+        title="Movimientos"
+      >
         {events.error ? (
           <Alert severity="error" sx={{ m: 2 }}>
             {events.error}

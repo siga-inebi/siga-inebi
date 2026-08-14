@@ -28,7 +28,11 @@ import { TemplateVersionsWindow } from "./TemplateVersionsWindow.jsx";
 
 const TEMPLATE_COLUMNS = [
   { key: "name", label: "Plantilla", render: (row) => row.name },
-  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => <CodeCell value={row.code} />,
+  },
   {
     key: "kind",
     label: "Tipo",
@@ -62,9 +66,25 @@ const TEMPLATE_COLUMNS = [
 ];
 
 const CREATE_FIELDS = [
-  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Constancia de inscripcion" },
-  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: CONST-INS" },
-  { name: "kind", label: "Tipo", type: "select", options: TEMPLATE_KIND_OPTIONS, required: true },
+  {
+    name: "name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Constancia de inscripcion",
+  },
+  {
+    name: "code",
+    label: "Codigo",
+    required: true,
+    placeholder: "Ejemplo: CONST-INS",
+  },
+  {
+    name: "kind",
+    label: "Tipo",
+    type: "select",
+    options: TEMPLATE_KIND_OPTIONS,
+    required: true,
+  },
   { name: "description", label: "Descripcion (opcional)", span: "full" },
 ];
 
@@ -80,7 +100,10 @@ const EDIT_FIELDS = CREATE_FIELDS.filter((field) => field.name !== "code");
  * accion de editar y no en otra pantalla.
  */
 export function TemplatesPage() {
-  const loadTemplates = useCallback((params) => documentsService.listTemplates(params), []);
+  const loadTemplates = useCallback(
+    (params) => documentsService.listTemplates(params),
+    []
+  );
   const list = usePaginatedList(loadTemplates, { pageSize: PAGE_SIZE });
 
   const [editing, setEditing] = useState(null);
@@ -153,7 +176,10 @@ export function TemplatesPage() {
             >
               <HistoryOutlinedIcon fontSize="small" />
             </ActionIconButton>
-            <ActionIconButton label="Editar" onClick={() => setEditing(template)}>
+            <ActionIconButton
+              label="Editar"
+              onClick={() => setEditing(template)}
+            >
               <EditOutlinedIcon fontSize="small" />
             </ActionIconButton>
             {template.is_active ? (
@@ -174,7 +200,12 @@ export function TemplatesPage() {
       <EntityFormWindow
         description="El codigo identifica la plantilla y no se puede cambiar despues del alta."
         fields={CREATE_FIELDS}
-        initialValues={{ name: "", code: "", kind: "certificate", description: "" }}
+        initialValues={{
+          name: "",
+          code: "",
+          kind: "certificate",
+          description: "",
+        }}
         key={creating ? "template-create-open" : "template-create-closed"}
         onCancel={() => setCreating(false)}
         onSubmit={handleCreate}

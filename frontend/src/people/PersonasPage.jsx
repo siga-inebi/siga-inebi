@@ -17,10 +17,28 @@ import { PageHeader } from "@ui/layout/PageHeader.jsx";
 // Person has no immutable field (unlike Subject/Level/Campus, which keep
 // their code fixed after creation), so create and edit share the same set.
 const PERSON_FIELDS = [
-  { name: "first_name", label: "Nombre", required: true, placeholder: "Ejemplo: Ana" },
-  { name: "last_name", label: "Apellido", required: true, placeholder: "Ejemplo: Gomez" },
-  { name: "email", label: "Correo electronico (opcional)", placeholder: "correo@ejemplo.com" },
-  { name: "phone_number", label: "Telefono (opcional)", placeholder: "Ejemplo: 50212345678" },
+  {
+    name: "first_name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Ana",
+  },
+  {
+    name: "last_name",
+    label: "Apellido",
+    required: true,
+    placeholder: "Ejemplo: Gomez",
+  },
+  {
+    name: "email",
+    label: "Correo electronico (opcional)",
+    placeholder: "correo@ejemplo.com",
+  },
+  {
+    name: "phone_number",
+    label: "Telefono (opcional)",
+    placeholder: "Ejemplo: 50212345678",
+  },
   {
     name: "institutional_identifier",
     label: "Identificador institucional (opcional)",
@@ -61,7 +79,9 @@ const PERSON_COLUMNS = [
   {
     key: "is_active",
     label: "Estado",
-    render: (row) => <ActiveCell active={row.is_active} inactiveLabel="Desactivada" />,
+    render: (row) => (
+      <ActiveCell active={row.is_active} inactiveLabel="Desactivada" />
+    ),
   },
 ];
 
@@ -75,7 +95,10 @@ const PERSON_COLUMNS = [
  * flujos ya dan por existente.
  */
 export function PersonasPage() {
-  const loadPeople = useCallback((params) => peopleService.listPeople(params), []);
+  const loadPeople = useCallback(
+    (params) => peopleService.listPeople(params),
+    []
+  );
   const list = usePaginatedList(loadPeople);
 
   const [editing, setEditing] = useState(null);
@@ -171,7 +194,8 @@ export function PersonasPage() {
             last_name: editing.person.last_name,
             email: editing.person.email || "",
             phone_number: editing.person.phone_number || "",
-            institutional_identifier: editing.person.institutional_identifier || "",
+            institutional_identifier:
+              editing.person.institutional_identifier || "",
           }}
           key={editing.person.public_id}
           onCancel={() => setEditing(null)}

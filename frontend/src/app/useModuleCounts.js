@@ -20,9 +20,23 @@ export function useModuleCounts(enabled) {
     let active = true;
 
     const loaders = [
-      ["alumnos", () => import("@students/studentsService.js").then((m) => m.studentsService)],
-      ["docentes", () => import("@teachers/teachersService.js").then((m) => m.teachersService)],
-      ["padres", () => import("@guardians/guardiansService.js").then((m) => m.guardiansService)],
+      [
+        "alumnos",
+        () =>
+          import("@students/studentsService.js").then((m) => m.studentsService),
+      ],
+      [
+        "docentes",
+        () =>
+          import("@teachers/teachersService.js").then((m) => m.teachersService),
+      ],
+      [
+        "padres",
+        () =>
+          import("@guardians/guardiansService.js").then(
+            (m) => m.guardiansService
+          ),
+      ],
     ];
 
     Promise.all(

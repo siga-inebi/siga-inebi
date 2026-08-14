@@ -89,5 +89,8 @@ export const academicsService = {
   createTeachingAssignment: (payload) =>
     apiClient.post(`${ROOT}/teaching-assignments/`, payload),
   reassignTeachingAssignment: (assignmentId, payload) =>
-    apiClient.post(`${ROOT}/teaching-assignments/${assignmentId}/reassignments/`, payload),
+    apiClient.post(
+      `${ROOT}/teaching-assignments/${assignmentId}/reassignments/`,
+      payload
+    ),
 };

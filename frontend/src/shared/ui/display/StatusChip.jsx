@@ -13,14 +13,21 @@ import { palette } from "@theme/tokens/color.js";
  * @param {string} props.label
  * @param {"small"|"medium"} [props.size="small"]
  */
-export function StatusChip({ label, size = "small", sx, variant = "neutral", ...rest }) {
+export function StatusChip({
+  label,
+  size = "small",
+  sx,
+  variant = "neutral",
+  ...rest
+}) {
   return (
     <Chip
       label={label}
       size={size}
       sx={(theme) => {
         const colors =
-          palette(theme).chipVariants[variant] ?? palette(theme).chipVariants.neutral;
+          palette(theme).chipVariants[variant] ??
+          palette(theme).chipVariants.neutral;
         return {
           backgroundColor: colors.bg,
           color: colors.text,

@@ -16,7 +16,11 @@ import { ActiveCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
 const SUBJECT_COLUMNS = [
   { key: "name", label: "Curso", render: (row) => row.name },
-  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => <CodeCell value={row.code} />,
+  },
   {
     key: "levels",
     label: "Se imparte en",
@@ -35,7 +39,10 @@ const SUBJECT_COLUMNS = [
 ];
 
 export function SubjectsPage() {
-  const loadSubjects = useCallback((params) => academicsService.listSubjects(params), []);
+  const loadSubjects = useCallback(
+    (params) => academicsService.listSubjects(params),
+    []
+  );
   const list = usePaginatedList(loadSubjects, { pageSize: PAGE_SIZE });
 
   const [editing, setEditing] = useState(null);
@@ -145,8 +152,18 @@ export function SubjectsPage() {
 }
 
 const CREATE_FIELDS = [
-  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Matematica" },
-  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: MAT" },
+  {
+    name: "name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Matematica",
+  },
+  {
+    name: "code",
+    label: "Codigo",
+    required: true,
+    placeholder: "Ejemplo: MAT",
+  },
 ];
 
 const EDIT_FIELDS = [{ name: "name", label: "Nombre", required: true }];

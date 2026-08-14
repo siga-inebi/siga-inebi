@@ -40,7 +40,11 @@ const TEACHER_FIELDS = [
     options: POSITION_OPTIONS,
     required: true,
   },
-  { name: "appointment_date", label: "Fecha de nombramiento (opcional)", type: "date" },
+  {
+    name: "appointment_date",
+    label: "Fecha de nombramiento (opcional)",
+    type: "date",
+  },
   { name: "employee_code", label: "Codigo de empleado", required: true },
   { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
 ];
@@ -131,7 +135,11 @@ export function DocentesPage() {
       label: "Foto",
       render: (teacher) =>
         teacher.photo ? (
-          <Avatar src={teacher.photo} sx={{ width: 32, height: 32 }} variant="rounded" />
+          <Avatar
+            src={teacher.photo}
+            sx={{ width: 32, height: 32 }}
+            variant="rounded"
+          />
         ) : (
           <Avatar sx={{ width: 32, height: 32 }} variant="rounded">
             <PersonOutlineIcon fontSize="small" />
@@ -139,13 +147,21 @@ export function DocentesPage() {
         ),
     },
     { key: "nombre", label: "Nombre completo", render: fullName },
-    { key: "especialidad", label: "Especialidad", render: (item) => item.specialty },
+    {
+      key: "especialidad",
+      label: "Especialidad",
+      render: (item) => item.specialty,
+    },
     {
       key: "puesto",
       label: "Puesto",
       render: (item) => <StatusChip label={item.position} variant="primary" />,
     },
-    { key: "codigo", label: "Codigo empleado", render: (item) => item.employee_code },
+    {
+      key: "codigo",
+      label: "Codigo empleado",
+      render: (item) => item.employee_code,
+    },
     {
       key: "detalle",
       label: "Detalle",
@@ -212,7 +228,11 @@ export function DocentesPage() {
         </FilterBar>
 
         {list.error ? (
-          <Alert role="alert" severity="error" sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}>
+          <Alert
+            role="alert"
+            severity="error"
+            sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
+          >
             {list.error}
           </Alert>
         ) : null}
@@ -249,7 +269,9 @@ export function DocentesPage() {
                 { label: "Especialidad", value: selected.specialty },
                 {
                   label: "Puesto",
-                  value: <StatusChip label={selected.position} variant="primary" />,
+                  value: (
+                    <StatusChip label={selected.position} variant="primary" />
+                  ),
                 },
                 { label: "Codigo de empleado", value: selected.employee_code },
                 {
@@ -265,7 +287,10 @@ export function DocentesPage() {
                   value: selected.photo ? (
                     <ButtonBase
                       onClick={() => setViewingPhoto(selected.photo)}
-                      sx={(theme) => ({ borderRadius: theme.tokens.radii.chip, mt: 0.5 })}
+                      sx={(theme) => ({
+                        borderRadius: theme.tokens.radii.chip,
+                        mt: 0.5,
+                      })}
                     >
                       <Box
                         alt={`Foto de ${fullName(selected)}`}

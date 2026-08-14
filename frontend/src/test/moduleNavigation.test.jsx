@@ -58,10 +58,14 @@ describe("navegacion de modulos", () => {
   test("una sesion abierta ve los modulos del catalogo", async () => {
     renderWithRouter(<App />, { route: "/app" });
 
-    expect(await screen.findByRole("link", { name: "Panel" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: "Panel" })
+    ).toBeInTheDocument();
 
     for (const label of ["Personas", "Sedes", "Niveles", "Cursos"]) {
-      expect(screen.getAllByRole("link", { name: label }).length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByRole("link", { name: label }).length
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -95,7 +99,9 @@ describe("navegacion de modulos", () => {
     const user = userEvent.setup();
     renderWithRouter(<App />, { route: "/app" });
 
-    const nav = await screen.findByRole("navigation", { name: "Comunidad educativa" });
+    const nav = await screen.findByRole("navigation", {
+      name: "Comunidad educativa",
+    });
     await user.click(within(nav).getByRole("link", { name: "Personas" }));
 
     expect(
@@ -119,7 +125,9 @@ describe("navegacion de modulos", () => {
   ])("la ruta privada %s monta su pantalla", async (route, heading) => {
     renderWithRouter(<App />, { route });
 
-    expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: heading })
+    ).toBeInTheDocument();
   });
 
   test.each([
@@ -133,7 +141,9 @@ describe("navegacion de modulos", () => {
   ])("la ruta privada %s monta su pantalla", async (route, heading) => {
     renderWithRouter(<App />, { route });
 
-    expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: heading })
+    ).toBeInTheDocument();
   });
 
   test.each(["/app/alumnos", "/app/docentes", "/app/padres-de-familia"])(
@@ -148,15 +158,17 @@ describe("navegacion de modulos", () => {
     }
   );
 
-  test.each(["/app/cursos", "/app/matriculas", "/app/asistencia", "/app/alertas"])(
-    "la ruta privada %s exige sesion",
-    async (route) => {
-      authServiceMock.me.mockResolvedValue(anonymousSession);
-      renderWithRouter(<App />, { route });
+  test.each([
+    "/app/cursos",
+    "/app/matriculas",
+    "/app/asistencia",
+    "/app/alertas",
+  ])("la ruta privada %s exige sesion", async (route) => {
+    authServiceMock.me.mockResolvedValue(anonymousSession);
+    renderWithRouter(<App />, { route });
 
-      expect(
-        await screen.findByRole("heading", { name: /Iniciar sesion/i })
-      ).toBeInTheDocument();
-    }
-  );
+    expect(
+      await screen.findByRole("heading", { name: /Iniciar sesion/i })
+    ).toBeInTheDocument();
+  });
 });

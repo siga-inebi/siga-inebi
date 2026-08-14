@@ -52,9 +52,13 @@ describe("app shell", () => {
     );
 
     expect(await screen.findByText("SIGA-INEBI")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Iniciar sesion/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Iniciar sesion/i })
+    ).toBeInTheDocument();
     // Sin sesion no hay modulos que mostrar, asi que no debe haber grupos de nav.
-    expect(screen.queryByRole("navigation", { name: "Comunidad educativa" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("navigation", { name: "Comunidad educativa" })
+    ).not.toBeInTheDocument();
   });
 
   test("private shell shows the module groups and the session identity", async () => {
@@ -67,10 +71,9 @@ describe("app shell", () => {
     expect(
       await screen.findByRole("navigation", { name: "Comunidad educativa" })
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Padres de familia" })).toHaveAttribute(
-      "href",
-      "/app/padres-de-familia"
-    );
+    expect(
+      screen.getByRole("link", { name: "Padres de familia" })
+    ).toHaveAttribute("href", "/app/padres-de-familia");
     expect(screen.getByRole("button", { name: "Cuenta" })).toBeInTheDocument();
   });
 
@@ -95,7 +98,9 @@ describe("app shell", () => {
     expect(
       await screen.findByRole("heading", { name: /Iniciar sesion/i })
     ).toBeInTheDocument();
-    expect(screen.getAllByAltText(/Logotipo del INEBI de Salcaja/i)).toHaveLength(1);
+    expect(
+      screen.getAllByAltText(/Logotipo del INEBI de Salcaja/i)
+    ).toHaveLength(1);
   });
 
   test("keeps submit disabled while the login form is incomplete", async () => {
@@ -107,7 +112,9 @@ describe("app shell", () => {
 
     // El formulario no deja enviar vacio en vez de aceptar y luego reclamar:
     // el usuario ve antes de actuar que falta algo.
-    expect(await screen.findByRole("button", { name: /Ingresar/i })).toBeDisabled();
+    expect(
+      await screen.findByRole("button", { name: /Ingresar/i })
+    ).toBeDisabled();
     expect(authServiceMock.login).not.toHaveBeenCalled();
   });
 
@@ -139,7 +146,9 @@ describe("app shell", () => {
 
   test("shows backend login error and stays on login", async () => {
     const user = userEvent.setup();
-    authServiceMock.login.mockRejectedValueOnce(new Error("Credenciales invalidas."));
+    authServiceMock.login.mockRejectedValueOnce(
+      new Error("Credenciales invalidas.")
+    );
 
     renderWithRouter(
       <AuthProvider>
@@ -155,9 +164,13 @@ describe("app shell", () => {
     await user.type(screen.getByLabelText(/Contrasena/i), "incorrecta");
     await user.click(screen.getByRole("button", { name: /Ingresar/i }));
 
-    expect(await screen.findByText(/Credenciales invalidas./i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Credenciales invalidas./i)
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Dashboard listo/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Iniciar sesion/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /Iniciar sesion/i })
+    ).toBeInTheDocument();
   });
 
   test("renders 404 page", () => {
@@ -210,7 +223,9 @@ describe("app shell", () => {
     // Nada de credenciales ni de sesion en localStorage: la sesion vive en la
     // cookie del backend. MUI si escribe la preferencia de tema, y eso no es
     // dato de sesion.
-    const sessionWrites = setItemSpy.mock.calls.filter(([key]) => key !== "mui-mode");
+    const sessionWrites = setItemSpy.mock.calls.filter(
+      ([key]) => key !== "mui-mode"
+    );
     expect(sessionWrites).toHaveLength(0);
   });
 

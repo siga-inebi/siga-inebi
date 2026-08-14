@@ -110,7 +110,11 @@ export function AlumnosPage() {
       label: "Foto",
       render: (student) =>
         student.photo ? (
-          <Avatar src={student.photo} sx={{ width: 32, height: 32 }} variant="rounded" />
+          <Avatar
+            src={student.photo}
+            sx={{ width: 32, height: 32 }}
+            variant="rounded"
+          />
         ) : (
           <Avatar sx={{ width: 32, height: 32 }} variant="rounded">
             <PersonOutlineIcon fontSize="small" />
@@ -118,7 +122,11 @@ export function AlumnosPage() {
         ),
     },
     { key: "nombre", label: "Nombre completo", render: fullName },
-    { key: "codigo", label: "Codigo", render: (student) => student.student_code },
+    {
+      key: "codigo",
+      label: "Codigo",
+      render: (student) => student.student_code,
+    },
     {
       key: "estado",
       label: "Estado",
@@ -180,7 +188,11 @@ export function AlumnosPage() {
         </FilterBar>
 
         {list.error ? (
-          <Alert role="alert" severity="error" sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}>
+          <Alert
+            role="alert"
+            severity="error"
+            sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
+          >
             {list.error}
           </Alert>
         ) : null}
@@ -231,7 +243,10 @@ export function AlumnosPage() {
                   value: selected.photo ? (
                     <ButtonBase
                       onClick={() => setViewingPhoto(selected.photo)}
-                      sx={(theme) => ({ borderRadius: theme.tokens.radii.chip, mt: 0.5 })}
+                      sx={(theme) => ({
+                        borderRadius: theme.tokens.radii.chip,
+                        mt: 0.5,
+                      })}
                     >
                       <Box
                         alt={`Foto de ${fullName(selected)}`}

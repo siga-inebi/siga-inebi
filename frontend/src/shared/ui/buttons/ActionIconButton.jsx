@@ -12,7 +12,13 @@ import Tooltip from "@mui/material/Tooltip";
  * @param {string}   props.label   Sirve de tooltip y de aria-label.
  * @param {ReactNode} props.children Icono.
  */
-export function ActionIconButton({ children, disabled, label, onClick, ...rest }) {
+export function ActionIconButton({
+  children,
+  disabled,
+  label,
+  onClick,
+  ...rest
+}) {
   return (
     <Tooltip title={label}>
       <span>

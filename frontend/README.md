@@ -78,12 +78,12 @@ Dos reglas que ESLint o el modo oscuro rompen si se ignoran:
 
 `shared/crud/` — el kit de listado y CRUD que usan todas las pantallas:
 
-| Pieza                | Para que                                                       |
-| -------------------- | -------------------------------------------------------------- |
-| `usePaginatedList`   | Listados que el backend pagina (`{count, results}`).           |
-| `useLocalList`       | Listados que llegan completos y se filtran en memoria.         |
-| `ListSection`        | Card + filtros + errores + tabla paginada.                     |
-| `EntityFormWindow`   | Formulario en ventana modal, descrito por campos declarativos.  |
+| Pieza              | Para que                                                       |
+| ------------------ | -------------------------------------------------------------- |
+| `usePaginatedList` | Listados que el backend pagina (`{count, results}`).           |
+| `useLocalList`     | Listados que llegan completos y se filtran en memoria.         |
+| `ListSection`      | Card + filtros + errores + tabla paginada.                     |
+| `EntityFormWindow` | Formulario en ventana modal, descrito por campos declarativos. |
 
 Un formulario se declara, no se escribe a mano:
 

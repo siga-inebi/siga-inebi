@@ -7,7 +7,10 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 import SearchIcon from "@mui/icons-material/Search";
 
-import { attendanceService, MOVEMENT_LABEL } from "@attendance/attendanceService.js";
+import {
+  attendanceService,
+  MOVEMENT_LABEL,
+} from "@attendance/attendanceService.js";
 import { formatDateTime } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
@@ -40,7 +43,10 @@ export function DayStatusProbe() {
   const [loading, setLoading] = useState(false);
 
   const canSubmit =
-    studentId.trim() !== "" && shiftId.trim() !== "" && eventDate !== "" && !loading;
+    studentId.trim() !== "" &&
+    shiftId.trim() !== "" &&
+    eventDate !== "" &&
+    !loading;
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -94,7 +100,11 @@ export function DayStatusProbe() {
             <Button
               disabled={!canSubmit}
               startIcon={
-                loading ? <CircularProgress size={16} /> : <SearchIcon fontSize="small" />
+                loading ? (
+                  <CircularProgress size={16} />
+                ) : (
+                  <SearchIcon fontSize="small" />
+                )
               }
               type="submit"
               variant="contained"

@@ -53,10 +53,12 @@ export const attendanceService = {
    * Estado del dia de un estudiante en una jornada. Los tres parametros son
    * obligatorios; sin ellos el backend responde 400.
    */
-  dayStatus: (params) => apiClient.get(withQuery(`${ROOT}/day-status/`, params)),
+  dayStatus: (params) =>
+    apiClient.get(withQuery(`${ROOT}/day-status/`, params)),
 
   /** Cierre de jornada: recalcula estados y emite alertas (RF-JOR-004/005). */
-  closeJornada: (payload) => apiClient.post(`${ROOT}/jornada-closures/`, payload),
+  closeJornada: (payload) =>
+    apiClient.post(`${ROOT}/jornada-closures/`, payload),
 
   listAlerts: (params) => apiClient.get(withQuery(`${ROOT}/alerts/`, params)),
 };

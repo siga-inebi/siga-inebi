@@ -22,8 +22,18 @@ import { DataTable } from "@ui/table/DataTable.jsx";
 import { BooleanCell, CodeCell } from "@ui/table/cells.jsx";
 
 const DOCUMENT_FIELDS = [
-  { name: "code", label: "Codigo del requisito", required: true, placeholder: "Ejemplo: DPI" },
-  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Copia de DPI" },
+  {
+    name: "code",
+    label: "Codigo del requisito",
+    required: true,
+    placeholder: "Ejemplo: DPI",
+  },
+  {
+    name: "name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Copia de DPI",
+  },
   { name: "is_required", label: "Es obligatorio", type: "checkbox" },
   {
     name: "status",
@@ -38,7 +48,11 @@ const DOCUMENT_FIELDS = [
 ];
 
 const COLUMNS = [
-  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => <CodeCell value={row.code} />,
+  },
   { key: "name", label: "Requisito", render: (row) => row.name },
   {
     key: "is_required",
@@ -138,7 +152,8 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
                 <>
                   Emision oficial bloqueada por requisitos pendientes:{" "}
                   <Typography component="span" sx={{ fontWeight: 700 }}>
-                    {eligibility.blocking_document_codes.join(", ") || "sin detalle"}
+                    {eligibility.blocking_document_codes.join(", ") ||
+                      "sin detalle"}
                   </Typography>
                 </>
               )}
@@ -162,7 +177,12 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
         <EntityFormWindow
           description="El codigo identifica el requisito dentro del expediente; el estado determina si bloquea la emision oficial."
           fields={DOCUMENT_FIELDS}
-          initialValues={{ code: "", name: "", is_required: true, status: "pending" }}
+          initialValues={{
+            code: "",
+            name: "",
+            is_required: true,
+            status: "pending",
+          }}
           key="add-document"
           onCancel={() => setAdding(false)}
           onSubmit={handleAdd}

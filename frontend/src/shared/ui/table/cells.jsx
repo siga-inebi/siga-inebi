@@ -15,7 +15,10 @@ export function CodeCell({ value }) {
   return (
     <Typography
       component="code"
-      sx={(theme) => ({ fontFamily: theme.tokens.fonts.mono, fontSize: "0.8125rem" })}
+      sx={(theme) => ({
+        fontFamily: theme.tokens.fonts.mono,
+        fontSize: "0.8125rem",
+      })}
     >
       {value}
     </Typography>
@@ -25,7 +28,11 @@ export function CodeCell({ value }) {
 /** Texto de ausencia ("Sin registrar", "Sin vincular"). */
 export function MutedCell({ children }) {
   return (
-    <Typography color="text.disabled" component="span" sx={{ fontSize: "0.8125rem" }}>
+    <Typography
+      color="text.disabled"
+      component="span"
+      sx={{ fontSize: "0.8125rem" }}
+    >
       {children}
     </Typography>
   );

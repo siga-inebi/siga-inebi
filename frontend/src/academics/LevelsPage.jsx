@@ -14,15 +14,39 @@ import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
-import { ActiveCell, BooleanCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
+import {
+  ActiveCell,
+  BooleanCell,
+  CodeCell,
+  MutedCell,
+} from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 
 const LEVEL_COLUMNS = [
-  { key: "sequence", label: "Orden", align: "right", render: (row) => row.sequence },
+  {
+    key: "sequence",
+    label: "Orden",
+    align: "right",
+    render: (row) => row.sequence,
+  },
   { key: "name", label: "Nivel", render: (row) => row.name },
-  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
-  { key: "grade_count", label: "Grados", align: "right", render: (row) => row.grade_count },
-  { key: "subject_count", label: "Cursos", align: "right", render: (row) => row.subject_count },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => <CodeCell value={row.code} />,
+  },
+  {
+    key: "grade_count",
+    label: "Grados",
+    align: "right",
+    render: (row) => row.grade_count,
+  },
+  {
+    key: "subject_count",
+    label: "Cursos",
+    align: "right",
+    render: (row) => row.subject_count,
+  },
   {
     key: "is_active",
     label: "Estado",
@@ -39,8 +63,18 @@ const SEQUENCE_FIELD = {
 };
 
 const CREATE_LEVEL_FIELDS = [
-  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Basico" },
-  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: BAS" },
+  {
+    name: "name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Basico",
+  },
+  {
+    name: "code",
+    label: "Codigo",
+    required: true,
+    placeholder: "Ejemplo: BAS",
+  },
   SEQUENCE_FIELD,
 ];
 
@@ -50,7 +84,10 @@ const EDIT_LEVEL_FIELDS = [
 ];
 
 export function LevelsPage() {
-  const loadLevels = useCallback((params) => academicsService.listLevels(params), []);
+  const loadLevels = useCallback(
+    (params) => academicsService.listLevels(params),
+    []
+  );
   const list = usePaginatedList(loadLevels, { pageSize: PAGE_SIZE });
 
   const [editing, setEditing] = useState(null);
@@ -112,9 +149,15 @@ export function LevelsPage() {
           <Stack direction="row" gap={0.5} justifyContent="flex-end">
             <ActionIconButton
               color={level.public_id === selectedId ? "primary" : "default"}
-              label={level.public_id === selectedId ? "Ocultar detalle" : "Abrir detalle"}
+              label={
+                level.public_id === selectedId
+                  ? "Ocultar detalle"
+                  : "Abrir detalle"
+              }
               onClick={() =>
-                setSelectedId(level.public_id === selectedId ? "" : level.public_id)
+                setSelectedId(
+                  level.public_id === selectedId ? "" : level.public_id
+                )
               }
             >
               <UnfoldMoreOutlinedIcon fontSize="small" />
@@ -160,7 +203,11 @@ export function LevelsPage() {
         description="La secuencia define el orden pedagogico y es unica por institucion."
         fields={CREATE_LEVEL_FIELDS}
         initialValues={{ name: "", code: "", sequence: 1 }}
-        key={editing?.mode === "create" ? "level-create-open" : "level-create-closed"}
+        key={
+          editing?.mode === "create"
+            ? "level-create-open"
+            : "level-create-closed"
+        }
         onCancel={() => setEditing(null)}
         onSubmit={handleCreate}
         open={editing?.mode === "create"}
@@ -172,7 +219,10 @@ export function LevelsPage() {
         <EntityFormWindow
           description={`El codigo ${editing.level.code} es inmutable.`}
           fields={EDIT_LEVEL_FIELDS}
-          initialValues={{ name: editing.level.name, sequence: editing.level.sequence }}
+          initialValues={{
+            name: editing.level.name,
+            sequence: editing.level.sequence,
+          }}
           key={editing.level.public_id}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
@@ -186,9 +236,18 @@ export function LevelsPage() {
 }
 
 const GRADE_COLUMNS = [
-  { key: "sequence", label: "Orden", align: "right", render: (row) => row.sequence },
+  {
+    key: "sequence",
+    label: "Orden",
+    align: "right",
+    render: (row) => row.sequence,
+  },
   { key: "name", label: "Grado", render: (row) => row.name },
-  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => <CodeCell value={row.code} />,
+  },
   {
     key: "is_active",
     label: "Estado",
@@ -197,8 +256,18 @@ const GRADE_COLUMNS = [
 ];
 
 const CREATE_GRADE_FIELDS = [
-  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Primero Basico" },
-  { name: "code", label: "Codigo", required: true, placeholder: "Ejemplo: BAS1" },
+  {
+    name: "name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Primero Basico",
+  },
+  {
+    name: "code",
+    label: "Codigo",
+    required: true,
+    placeholder: "Ejemplo: BAS1",
+  },
   SEQUENCE_FIELD,
 ];
 
@@ -289,7 +358,11 @@ function LevelGradesSection({ level, onChanged }) {
         description="El codigo del grado es unico en toda la institucion."
         fields={CREATE_GRADE_FIELDS}
         initialValues={{ name: "", code: "", sequence: 1 }}
-        key={editing?.mode === "create" ? "grade-create-open" : "grade-create-closed"}
+        key={
+          editing?.mode === "create"
+            ? "grade-create-open"
+            : "grade-create-closed"
+        }
         onCancel={() => setEditing(null)}
         onSubmit={handleCreate}
         open={editing?.mode === "create"}
@@ -301,7 +374,10 @@ function LevelGradesSection({ level, onChanged }) {
         <EntityFormWindow
           description="Solo cambian el nombre y el orden; el codigo es inmutable."
           fields={EDIT_GRADE_FIELDS}
-          initialValues={{ name: editing.grade.name, sequence: editing.grade.sequence }}
+          initialValues={{
+            name: editing.grade.name,
+            sequence: editing.grade.sequence,
+          }}
           key={editing.grade.public_id}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
@@ -316,7 +392,11 @@ function LevelGradesSection({ level, onChanged }) {
 
 const LEVEL_SUBJECT_COLUMNS = [
   { key: "subject", label: "Curso", render: (row) => row.subject.name },
-  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.subject.code} /> },
+  {
+    key: "code",
+    label: "Codigo",
+    render: (row) => <CodeCell value={row.subject.code} />,
+  },
   {
     key: "is_required",
     label: "Obligatorio",
@@ -455,7 +535,9 @@ function LevelSubjectsSection({ level, onChanged }) {
           ...LINK_FIELDS,
         ]}
         initialValues={{ subject_id: "", is_required: true, weekly_hours: 0 }}
-        key={editing?.mode === "create" ? "link-create-open" : "link-create-closed"}
+        key={
+          editing?.mode === "create" ? "link-create-open" : "link-create-closed"
+        }
         onCancel={() => setEditing(null)}
         onSubmit={handleLink}
         open={editing?.mode === "create"}

@@ -20,8 +20,10 @@ export const appShadows = {
   cardHover: FLAT,
   cardActive: FLAT,
   /** Ventana modal flotante: sombra amplia y difusa, centrada. */
-  window: "0 24px 64px -12px rgba(15,27,38,0.35), 0 4px 12px rgba(15,27,38,0.12)",
-  dialog: "0 24px 64px -12px rgba(15,27,38,0.35), 0 4px 12px rgba(15,27,38,0.12)",
+  window:
+    "0 24px 64px -12px rgba(15,27,38,0.35), 0 4px 12px rgba(15,27,38,0.12)",
+  dialog:
+    "0 24px 64px -12px rgba(15,27,38,0.35), 0 4px 12px rgba(15,27,38,0.12)",
   menu: "0 8px 24px -6px rgba(15,27,38,0.22)",
   popover: "0 8px 28px -8px rgba(15,27,38,0.24)",
 };

@@ -75,9 +75,7 @@ describe("GuardiansPage", () => {
     expect(
       within(screen.getByRole("table")).getByText("rosa@example.test")
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Mostrando 1–2 de 2/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 1–2 de 2/)).toBeInTheDocument();
   });
 
   test("shows an empty state when the search does not match", async () => {
@@ -86,10 +84,7 @@ describe("GuardiansPage", () => {
     renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.type(
-      screen.getByPlaceholderText("Buscar por nombre…"),
-      "Nadie"
-    );
+    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "Nadie");
 
     expect(
       await screen.findByText("Sin resultados para la busqueda.")

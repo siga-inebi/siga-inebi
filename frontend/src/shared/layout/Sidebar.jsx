@@ -102,8 +102,14 @@ export function Sidebar({ collapsed = false, counts = {}, onNavigate, user }) {
   const groups = visibleGroups(user);
 
   return (
-    <Stack sx={{ py: 1.5, height: "100%", overflowY: "auto", overflowX: "hidden" }}>
-      <SidebarItem collapsed={collapsed} item={HOME_ITEM} onNavigate={onNavigate} />
+    <Stack
+      sx={{ py: 1.5, height: "100%", overflowY: "auto", overflowX: "hidden" }}
+    >
+      <SidebarItem
+        collapsed={collapsed}
+        item={HOME_ITEM}
+        onNavigate={onNavigate}
+      />
 
       {/*
         Un <nav> por grupo, cada uno con su propio nombre accesible. Varias
@@ -119,7 +125,14 @@ export function Sidebar({ collapsed = false, counts = {}, onNavigate, user }) {
           sx={{ mt: 1.5 }}
         >
           {collapsed ? (
-            <Box sx={{ borderTop: "1px solid", borderColor: "divider", mx: 1.5, mb: 1 }} />
+            <Box
+              sx={{
+                borderTop: "1px solid",
+                borderColor: "divider",
+                mx: 1.5,
+                mb: 1,
+              }}
+            />
           ) : (
             <Typography
               component="p"

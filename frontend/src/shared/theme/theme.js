@@ -40,8 +40,16 @@ export const theme = createTheme({
     // Todo el texto se dimensiona en rem para que la escala de accesibilidad
     // del navegador funcione; px congelaria el tamano.
     fontSize: 14,
-    h4: { fontFamily: DISPLAY_STACK, fontWeight: 600, letterSpacing: "-0.01em" },
-    h5: { fontFamily: DISPLAY_STACK, fontWeight: 600, letterSpacing: "-0.01em" },
+    h4: {
+      fontFamily: DISPLAY_STACK,
+      fontWeight: 600,
+      letterSpacing: "-0.01em",
+    },
+    h5: {
+      fontFamily: DISPLAY_STACK,
+      fontWeight: 600,
+      letterSpacing: "-0.01em",
+    },
     h6: { fontFamily: DISPLAY_STACK, fontWeight: 600 },
     subtitle1: { fontWeight: 500 },
     subtitle2: { fontWeight: 600 },

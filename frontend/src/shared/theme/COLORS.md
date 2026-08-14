@@ -42,18 +42,18 @@ Navy y dorado del establecimiento sobre neutrales **calidos**. El primario
 cambia de portador entre modos a proposito: navy sobre hueso en claro, dorado
 sobre carbon en oscuro (ver `palette/brand.js` para el razonamiento).
 
-| Slot                 | Claro                | Oscuro               |
-| -------------------- | -------------------- | -------------------- |
-| `primary.main`       | `#1C2B3A` navy       | `#D9BA85` dorado     |
-| `secondary.main`     | `#B4894A` dorado     | `#D9BA85`            |
-| `success.main`       | `#1F7A4C`            | `#7FC79E`            |
-| `error.main`         | `#B3261E`            | `#F0B0AB`            |
-| `warning.main`       | `#9A6700`            | `#E8B14C`            |
-| `background.default` | `#FAF8F4` hueso      | `#191714` carbon     |
-| `background.paper`   | `#FFFFFF`            | `#221F1B`            |
-| `divider`            | `#E6E1D6`            | `#3B362F`            |
-| `text.primary`       | `#1C2B3A`            | `#EFEAE1`            |
-| `text.secondary`     | `#57514A`            | `#ABA398`            |
+| Slot                 | Claro            | Oscuro           |
+| -------------------- | ---------------- | ---------------- |
+| `primary.main`       | `#1C2B3A` navy   | `#D9BA85` dorado |
+| `secondary.main`     | `#B4894A` dorado | `#D9BA85`        |
+| `success.main`       | `#1F7A4C`        | `#7FC79E`        |
+| `error.main`         | `#B3261E`        | `#F0B0AB`        |
+| `warning.main`       | `#9A6700`        | `#E8B14C`        |
+| `background.default` | `#FAF8F4` hueso  | `#191714` carbon |
+| `background.paper`   | `#FFFFFF`        | `#221F1B`        |
+| `divider`            | `#E6E1D6`        | `#3B362F`        |
+| `text.primary`       | `#1C2B3A`        | `#EFEAE1`        |
+| `text.secondary`     | `#57514A`        | `#ABA398`        |
 
 Cambiar la identidad completa es una constante: `ACTIVE_BRAND` en
 `palette/brand.js`. Agregar una identidad nueva es agregar una entrada a

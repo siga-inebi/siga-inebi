@@ -59,7 +59,14 @@ export function DetailField({ label, value }) {
  * @param {ReactNode}[props.actions]  Acciones al pie.
  * @param {ReactNode}[props.children] Contenido extra bajo los campos.
  */
-export function DetailWindow({ actions, children, fields, onClose, open, title }) {
+export function DetailWindow({
+  actions,
+  children,
+  fields,
+  onClose,
+  open,
+  title,
+}) {
   return (
     <FloatingWindow
       footer={actions}
@@ -78,7 +85,11 @@ export function DetailWindow({ actions, children, fields, onClose, open, title }
         }}
       >
         {fields.map((field) => (
-          <DetailField key={field.label} label={field.label} value={field.value} />
+          <DetailField
+            key={field.label}
+            label={field.label}
+            value={field.value}
+          />
         ))}
       </Box>
       {children}

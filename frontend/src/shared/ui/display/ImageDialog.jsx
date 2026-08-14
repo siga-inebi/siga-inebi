@@ -31,7 +31,12 @@ export function ImageDialog({ alt = "", downloadName, onClose, open, src }) {
     // Se usa `aria-labelledby` y no `aria-label`: MUI reenvia el primero al nodo
     // con role="dialog" y el segundo se queda en el contenedor de presentacion,
     // donde ninguna tecnologia asistiva lo lee como nombre del dialogo.
-    <Dialog aria-labelledby={titleId} maxWidth="md" onClose={onClose} open={open}>
+    <Dialog
+      aria-labelledby={titleId}
+      maxWidth="md"
+      onClose={onClose}
+      open={open}
+    >
       <Stack
         alignItems="center"
         direction="row"

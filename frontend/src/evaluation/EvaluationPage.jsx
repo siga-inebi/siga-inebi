@@ -33,12 +33,14 @@ const UNIT_COLUMNS = [
   {
     key: "period",
     label: "Periodo",
-    render: (row) => `${formatDate(row.starts_on)} — ${formatDate(row.ends_on)}`,
+    render: (row) =>
+      `${formatDate(row.starts_on)} — ${formatDate(row.ends_on)}`,
   },
   {
     key: "capture",
     label: "Captura",
-    render: (row) => `${formatDate(row.capture_starts_on)} — ${formatDate(row.capture_ends_on)}`,
+    render: (row) =>
+      `${formatDate(row.capture_starts_on)} — ${formatDate(row.capture_ends_on)}`,
   },
   {
     key: "recovery",
@@ -55,19 +57,65 @@ const UNIT_COLUMNS = [
 ];
 
 const UNIT_FIELDS = [
-  { name: "number", label: "Numero de unidad", type: "number", min: 1, required: true },
-  { name: "name", label: "Nombre", required: true, placeholder: "Ejemplo: Primer bimestre" },
-  { name: "starts_on", label: "Inicio del periodo", type: "date", required: true },
+  {
+    name: "number",
+    label: "Numero de unidad",
+    type: "number",
+    min: 1,
+    required: true,
+  },
+  {
+    name: "name",
+    label: "Nombre",
+    required: true,
+    placeholder: "Ejemplo: Primer bimestre",
+  },
+  {
+    name: "starts_on",
+    label: "Inicio del periodo",
+    type: "date",
+    required: true,
+  },
   { name: "ends_on", label: "Fin del periodo", type: "date", required: true },
-  { name: "capture_starts_on", label: "Captura desde", type: "date", required: true },
-  { name: "capture_ends_on", label: "Captura hasta", type: "date", required: true },
-  { name: "recovery_starts_on", label: "Recuperacion desde", type: "date", required: true },
-  { name: "recovery_ends_on", label: "Recuperacion hasta", type: "date", required: true },
+  {
+    name: "capture_starts_on",
+    label: "Captura desde",
+    type: "date",
+    required: true,
+  },
+  {
+    name: "capture_ends_on",
+    label: "Captura hasta",
+    type: "date",
+    required: true,
+  },
+  {
+    name: "recovery_starts_on",
+    label: "Recuperacion desde",
+    type: "date",
+    required: true,
+  },
+  {
+    name: "recovery_ends_on",
+    label: "Recuperacion hasta",
+    type: "date",
+    required: true,
+  },
 ];
 
 const RECOVERY_FIELDS = [
-  { name: "recovery_starts_on", label: "Recuperacion desde", type: "date", required: true },
-  { name: "recovery_ends_on", label: "Recuperacion hasta", type: "date", required: true },
+  {
+    name: "recovery_starts_on",
+    label: "Recuperacion desde",
+    type: "date",
+    required: true,
+  },
+  {
+    name: "recovery_ends_on",
+    label: "Recuperacion hasta",
+    type: "date",
+    required: true,
+  },
 ];
 
 const UNIT_COUNT_FIELDS = [
@@ -119,7 +167,8 @@ export function EvaluationPage() {
         if (!active) return;
         const items = page?.results ?? [];
         setCycles(items);
-        const preferred = items.find((cycle) => cycle.status === "active") ?? items[0];
+        const preferred =
+          items.find((cycle) => cycle.status === "active") ?? items[0];
         if (preferred) setCycleId(preferred.public_id);
       })
       .catch((requestError) => {
@@ -183,7 +232,11 @@ export function EvaluationPage() {
   };
 
   const handleRecovery = async (payload) => {
-    await evaluationService.updateRecoveryWindow(cycleId, editing.unit.public_id, payload);
+    await evaluationService.updateRecoveryWindow(
+      cycleId,
+      editing.unit.public_id,
+      payload
+    );
     setEditing(null);
     list.refresh();
   };
@@ -256,12 +309,18 @@ export function EvaluationPage() {
                 : "Este ciclo hereda el default institucional"
             }
             label="Unidades de este ciclo"
-            value={cycleConfig?.unit_count ?? globalConfig?.default_unit_count ?? "—"}
+            value={
+              cycleConfig?.unit_count ?? globalConfig?.default_unit_count ?? "—"
+            }
           />
         </Grid>
       </Grid>
 
-      <SectionCard fillHeight subtitle="Del ciclo seleccionado" title="Unidades de evaluacion">
+      <SectionCard
+        fillHeight
+        subtitle="Del ciclo seleccionado"
+        title="Unidades de evaluacion"
+      >
         <FilterBar>
           <FilterSelect
             label="Ciclo escolar"
@@ -361,7 +420,9 @@ export function EvaluationPage() {
         <EntityFormWindow
           description="Este valor solo afecta a los ciclos que no tengan configuracion propia."
           fields={GLOBAL_COUNT_FIELDS}
-          initialValues={{ default_unit_count: globalConfig?.default_unit_count ?? 4 }}
+          initialValues={{
+            default_unit_count: globalConfig?.default_unit_count ?? 4,
+          }}
           key="global-config"
           onCancel={() => setEditing(null)}
           onSubmit={handleGlobalConfig}
@@ -376,7 +437,8 @@ export function EvaluationPage() {
           description="Configuracion propia de este ciclo. Deja de heredar el default institucional."
           fields={UNIT_COUNT_FIELDS}
           initialValues={{
-            unit_count: cycleConfig?.unit_count ?? globalConfig?.default_unit_count ?? 4,
+            unit_count:
+              cycleConfig?.unit_count ?? globalConfig?.default_unit_count ?? 4,
           }}
           key="cycle-config"
           onCancel={() => setEditing(null)}

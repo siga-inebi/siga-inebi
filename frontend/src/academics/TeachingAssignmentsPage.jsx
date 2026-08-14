@@ -22,7 +22,13 @@ const ASSIGNMENT_FIELDS = [
   { name: "section_id", label: "ID de seccion", required: true },
   { name: "subject_id", label: "ID de curso", required: true },
   { name: "teacher_id", label: "ID de docente", required: true },
-  { name: "starts_on", label: "Vigente desde", type: "date", required: true, span: "full" },
+  {
+    name: "starts_on",
+    label: "Vigente desde",
+    type: "date",
+    required: true,
+    span: "full",
+  },
 ];
 
 const REASSIGN_FIELDS = [
@@ -75,7 +81,10 @@ export function TeachingAssignmentsPage() {
   const handleReassign = async (payload) => {
     setActionError("");
     try {
-      await academicsService.reassignTeachingAssignment(reassigning.public_id, payload);
+      await academicsService.reassignTeachingAssignment(
+        reassigning.public_id,
+        payload
+      );
       setReassigning(null);
       list.refresh();
     } catch (requestError) {
@@ -90,8 +99,16 @@ export function TeachingAssignmentsPage() {
       label: "Seccion",
       render: (row) => <CodeCell value={row.section_id} />,
     },
-    { key: "subject_id", label: "Curso", render: (row) => <CodeCell value={row.subject_id} /> },
-    { key: "teacher_id", label: "Docente", render: (row) => <CodeCell value={row.teacher_id} /> },
+    {
+      key: "subject_id",
+      label: "Curso",
+      render: (row) => <CodeCell value={row.subject_id} />,
+    },
+    {
+      key: "teacher_id",
+      label: "Docente",
+      render: (row) => <CodeCell value={row.teacher_id} />,
+    },
     {
       key: "academic_cycle_id",
       label: "Ciclo",
@@ -100,7 +117,12 @@ export function TeachingAssignmentsPage() {
     {
       key: "starts_on",
       label: "Desde",
-      render: (row) => (row.starts_on ? formatDate(row.starts_on) : <MutedCell>Sin fecha</MutedCell>),
+      render: (row) =>
+        row.starts_on ? (
+          formatDate(row.starts_on)
+        ) : (
+          <MutedCell>Sin fecha</MutedCell>
+        ),
     },
     {
       key: "ends_on",
@@ -160,7 +182,9 @@ export function TeachingAssignmentsPage() {
         }
         fillHeight
         filters={
-          <FilterBar onClear={cycleFilter ? () => setCycleFilter("") : undefined}>
+          <FilterBar
+            onClear={cycleFilter ? () => setCycleFilter("") : undefined}
+          >
             <SearchField
               onChange={setCycleFilter}
               placeholder="Filtrar por ID de ciclo escolar…"
