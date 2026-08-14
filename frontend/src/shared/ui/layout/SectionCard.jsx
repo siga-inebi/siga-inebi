@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
@@ -33,9 +35,15 @@ export function SectionCard({
   title,
 }) {
   const hasHeader = Boolean(title || action);
+  const titleId = useId();
 
   return (
     <Paper
+      // Cada seccion titulada es una region con nombre: en una pantalla con
+      // cinco o seis bloques, eso permite saltar de uno a otro con el lector de
+      // pantalla en vez de recorrerlos linealmente.
+      aria-labelledby={title ? titleId : undefined}
+      component={title ? "section" : "div"}
       elevation={0}
       sx={(theme) => ({
         borderRadius: theme.tokens.radii.card,
@@ -86,6 +94,7 @@ export function SectionCard({
             <Box sx={{ minWidth: 0 }}>
               {title ? (
                 <Typography
+                  id={titleId}
                   component="h2"
                   sx={(theme) => ({
                     fontFamily: theme.tokens.fonts.display,

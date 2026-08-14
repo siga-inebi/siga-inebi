@@ -25,12 +25,25 @@ export function useLocalList(loader, { filters, matches, pageSize = LOCAL_PAGE_S
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [token, setToken] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setError("");
     loader()
       .then((data) => {
-        if (active) setAll(data);
+        if (!active) return;
+        if (!Array.isArray(data)) {
+          // Falla ruidosamente en vez de romper en el `.slice` de abajo con un
+          // mensaje incomprensible. Si el endpoint responde el sobre paginado
+          // `{count, results}`, la pantalla debe usar `usePaginatedList`: fingir
+          // que la primera pagina es el total mostraria conteos falsos.
+          throw new Error(
+            "useLocalList espera un arreglo completo. Este endpoint responde paginado: usa usePaginatedList."
+          );
+        }
+        setAll(data);
       })
       .catch((requestError) => {
         if (active) setError(requestError.message);
@@ -41,7 +54,10 @@ export function useLocalList(loader, { filters, matches, pageSize = LOCAL_PAGE_S
     return () => {
       active = false;
     };
-  }, [loader]);
+  }, [loader, token]);
+
+  /** Vuelve a pedir el listado completo tras una escritura del servidor. */
+  const refresh = useCallback(() => setToken((value) => value + 1), []);
 
   const query = search.trim().toLowerCase();
 
@@ -83,6 +99,7 @@ export function useLocalList(loader, { filters, matches, pageSize = LOCAL_PAGE_S
     setSearch: changeSearch,
     addItem,
     replaceItem,
+    refresh,
     pagination: {
       page: currentPage,
       rowsPerPage: pageSize,

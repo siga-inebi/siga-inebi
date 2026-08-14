@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 
+import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import AddIcon from "@mui/icons-material/Add";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
@@ -11,6 +12,7 @@ import { downloadCsv } from "@shared/utils/csv.js";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
+import { ViewDetailButton } from "@ui/table/ViewDetailButton.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
@@ -34,19 +36,32 @@ function fullName(guardian) {
   return `${guardian.person.first_name} ${guardian.person.last_name}`.trim();
 }
 
-const COLUMNS = [
-  { key: "nombre", label: "Nombre completo", render: fullName },
-  {
-    key: "correo",
-    label: "Correo",
-    render: (item) => item.person.email || <MutedCell>Sin registrar</MutedCell>,
-  },
-  {
-    key: "telefono",
-    label: "Telefono",
-    render: (item) => item.person.phone_number || <MutedCell>Sin registrar</MutedCell>,
-  },
-];
+function guardianColumns({ onView }) {
+  return [
+    { key: "nombre", label: "Nombre completo", render: fullName },
+    {
+      key: "correo",
+      label: "Correo",
+      render: (item) => item.person.email || <MutedCell>Sin registrar</MutedCell>,
+    },
+    {
+      key: "telefono",
+      label: "Telefono",
+      render: (item) => item.person.phone_number || <MutedCell>Sin registrar</MutedCell>,
+    },
+    {
+      key: "detalle",
+      label: "Detalle",
+      align: "right",
+      render: (guardian) => (
+        <ViewDetailButton
+          label={`Ver detalle de ${fullName(guardian)}`}
+          onClick={() => onView(guardian)}
+        />
+      ),
+    },
+  ];
+}
 
 export function GuardiansPage() {
   const loadGuardians = useCallback(() => guardiansService.list(), []);
@@ -137,9 +152,15 @@ export function GuardiansPage() {
           />
         </FilterBar>
 
+        {list.error ? (
+          <Alert role="alert" severity="error" sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}>
+            {list.error}
+          </Alert>
+        ) : null}
+
         <SectionTableArea>
           <DataTable
-            columns={COLUMNS}
+            columns={guardianColumns({ onView: setSelected })}
             emptyMessage={
               list.search
                 ? "Sin resultados para la busqueda."

@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 import Box from "@mui/material/Box";
 import Dialog from "@mui/material/Dialog";
 import IconButton from "@mui/material/IconButton";
@@ -5,12 +7,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 
-/** Anchos estandarizados. Fuera de estos tres, justificar en el call site. */
-export const WINDOW_WIDTH = {
-  compact: 520,
-  medium: 680,
-  wide: 880,
-};
+import { WINDOW_WIDTH } from "./windowWidth.js";
 
 /**
  * Ventana modal centrada. Es el overlay unico del sistema: formularios de alta y
@@ -47,6 +44,9 @@ export function FloatingWindow({
   title,
   width = WINDOW_WIDTH.compact,
 }) {
+  // El dialogo se nombra con su propio titulo: sin `aria-labelledby` el lector
+  // de pantalla anuncia "dialogo" y nada mas.
+  const titleId = useId();
   // El foco se limpia ANTES de desmontar: si un input de la ventana conserva el
   // foco al cerrarse, el navegador lo devuelve al body y la pagina salta al
   // inicio. El rAF deja que el blur se aplique antes de arrancar la animacion.
@@ -59,6 +59,7 @@ export function FloatingWindow({
 
   return (
     <Dialog
+      aria-labelledby={titleId}
       fullWidth={false}
       onClose={handleClose}
       open={open}
@@ -95,7 +96,14 @@ export function FloatingWindow({
         }}
       >
         <Box sx={{ minWidth: 0 }}>
+          {/*
+            Encabezado real, no texto con estilo de titulo: un dialogo sin
+            heading deja al lector de pantalla anunciando "dialogo" sin decir de
+            que, y es lo primero que necesita saber quien no ve la pantalla.
+          */}
           <Typography
+            id={titleId}
+            component="h2"
             sx={(theme) => ({
               fontFamily: theme.tokens.fonts.display,
               fontSize: "1.0625rem",

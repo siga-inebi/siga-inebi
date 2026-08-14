@@ -75,6 +75,10 @@ export function LoginPage() {
         <SectionCard>
           <Box component="form" noValidate onSubmit={handleSubmit} sx={{ p: 3 }}>
             <Stack gap={2}>
+              <Typography component="h1" fontWeight={600} variant="h6">
+                Iniciar sesion
+              </Typography>
+
               {error ? (
                 <Alert severity="error" variant="outlined">
                   {error}

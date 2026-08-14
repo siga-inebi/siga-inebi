@@ -2,12 +2,12 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("../services/peopleService.js", async () => {
+vi.mock("@people/peopleService.js", async () => {
   const { peopleServiceMock } = await import("./mocks/peopleService.js");
   return { peopleService: peopleServiceMock };
 });
 
-import { PersonasPage } from "../pages/PersonasPage.jsx";
+import { PersonasPage } from "@people/PersonasPage.jsx";
 import { paginated } from "./fixtures/academics.js";
 import { anaPerson, carlosPerson } from "./fixtures/people.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
@@ -45,10 +45,10 @@ describe("pantalla de personas", () => {
     await screen.findByText("Ana Gomez");
 
     await user.click(screen.getByRole("button", { name: "Nueva persona" }));
-    await user.type(screen.getByLabelText("Nombre"), "  Maria  ");
-    await user.type(screen.getByLabelText("Apellido"), "  Perez  ");
+    await user.type(screen.getByLabelText(/^Nombre/), "  Maria  ");
+    await user.type(screen.getByLabelText(/^Apellido/), "  Perez  ");
     await user.type(
-      screen.getByLabelText("Correo electronico"),
+      screen.getByLabelText(/^Correo electronico/),
       "maria@example.test"
     );
     await user.click(screen.getByRole("button", { name: "Crear persona" }));
@@ -73,7 +73,7 @@ describe("pantalla de personas", () => {
     await screen.findByText("Ana Gomez");
 
     await user.click(screen.getByRole("button", { name: "Nueva persona" }));
-    await user.type(screen.getByLabelText("Nombre"), "Maria");
+    await user.type(screen.getByLabelText(/^Nombre/), "Maria");
     await user.click(screen.getByRole("button", { name: "Crear persona" }));
 
     expect(
@@ -88,10 +88,10 @@ describe("pantalla de personas", () => {
     await screen.findByText("Ana Gomez");
 
     await user.click(screen.getByRole("button", { name: "Editar" }));
-    expect(screen.getByLabelText("Nombre")).toHaveValue("Ana");
+    expect(screen.getByLabelText(/^Nombre/)).toHaveValue("Ana");
 
-    await user.clear(screen.getByLabelText("Telefono"));
-    await user.type(screen.getByLabelText("Telefono"), "50287654321");
+    await user.clear(screen.getByLabelText(/^Telefono/));
+    await user.type(screen.getByLabelText(/^Telefono/), "50287654321");
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() =>

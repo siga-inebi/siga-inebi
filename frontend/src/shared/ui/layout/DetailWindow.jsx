@@ -1,7 +1,8 @@
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
-import { FloatingWindow, WINDOW_WIDTH } from "@ui/layout/FloatingWindow.jsx";
+import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
+import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { EMPTY_VALUE } from "@shared/utils/format.js";
 
 /**

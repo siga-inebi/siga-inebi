@@ -9,6 +9,7 @@ const LIST_METHODS = [
   "listLevelGrades",
   "listSubjects",
   "listLevelSubjects",
+  "listTeachingAssignmentHistory",
 ];
 
 const WRITE_METHODS = [
@@ -24,6 +25,8 @@ const WRITE_METHODS = [
   "updateSubject",
   "linkSubjectToLevel",
   "updateLevelSubject",
+  "createTeachingAssignment",
+  "reassignTeachingAssignment",
 ];
 
 const DELETE_METHODS = [

@@ -10,7 +10,8 @@ import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import UploadFileIcon from "@mui/icons-material/UploadFileOutlined";
 
-import { FloatingWindow, WINDOW_WIDTH } from "@ui/layout/FloatingWindow.jsx";
+import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
+import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
 
@@ -230,6 +231,7 @@ function normalizeOptions(options = []) {
  */
 function FileField({ disabled, field, onChange, value }) {
   const [previewUrl, setPreviewUrl] = useState(null);
+  const inputId = useId();
 
   useEffect(() => {
     if (!(value instanceof File)) {
@@ -243,13 +245,23 @@ function FileField({ disabled, field, onChange, value }) {
 
   return (
     <Stack gap={1}>
-      <Typography sx={{ fontSize: "0.75rem", color: "text.secondary" }}>
+      {/*
+        Etiqueta real asociada por `htmlFor`, no un texto con aspecto de
+        etiqueta: sin esto el nombre accesible del input seria el del boton
+        ("Elegir archivo") y nadie sabria QUE archivo se esta pidiendo.
+      */}
+      <Typography
+        component="label"
+        htmlFor={inputId}
+        sx={{ fontSize: "0.75rem", color: "text.secondary" }}
+      >
         {field.label}
       </Typography>
       <Stack alignItems="center" direction="row" gap={1.5}>
         <Button
           component="label"
           disabled={disabled}
+          htmlFor={inputId}
           size="small"
           startIcon={<UploadFileIcon fontSize="small" />}
           variant="outlined"
@@ -258,6 +270,7 @@ function FileField({ disabled, field, onChange, value }) {
           <input
             accept={field.accept}
             hidden
+            id={inputId}
             onChange={(event) => onChange(field.name, event.target.files[0] || null)}
             type="file"
           />

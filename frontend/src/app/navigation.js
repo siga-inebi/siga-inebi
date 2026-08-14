@@ -21,6 +21,13 @@ import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
+import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
+import AssignmentIndOutlinedIcon from "@mui/icons-material/AssignmentIndOutlined";
+import HowToRegOutlinedIcon from "@mui/icons-material/HowToRegOutlined";
+import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
+import GradingOutlinedIcon from "@mui/icons-material/GradingOutlined";
+import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
+import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
 
 import {
   canViewAlumnos,
@@ -45,6 +52,10 @@ export const HOME_ITEM = {
 /**
  * Grupos del menu lateral, en orden de aparicion.
  *
+ * El orden refleja el flujo real de trabajo del establecimiento: primero la
+ * gente, despues como se organiza el ano, despues la operacion diaria, y al
+ * final lo que se emite y se vigila.
+ *
  * `canView` recibe el usuario de sesion. La UI degrada por permiso, no por
  * error: un modulo que el usuario no puede ver simplemente no aparece, en vez
  * de aparecer y fallar al entrar.
@@ -67,7 +78,7 @@ export const NAV_GROUPS = [
       {
         key: "docentes",
         label: "Docentes",
-        description: "Personal docente y su asignacion.",
+        description: "Personal docente y administrativo.",
         path: "/app/docentes",
         icon: CoPresentOutlinedIcon,
         canView: canViewDocentes,
@@ -99,6 +110,14 @@ export const NAV_GROUPS = [
     label: "Estructura academica",
     items: [
       {
+        key: "ciclos",
+        label: "Ciclo escolar",
+        description: "Registro, activacion y clonado de ciclos.",
+        path: "/app/ciclos",
+        icon: CalendarMonthOutlinedIcon,
+        load: () => import("@cycles/CyclesPage.jsx"),
+      },
+      {
         key: "sedes",
         label: "Sedes",
         description: "Sedes del establecimiento y sus jornadas.",
@@ -124,6 +143,69 @@ export const NAV_GROUPS = [
         icon: MenuBookOutlinedIcon,
         canView: canViewCursos,
         load: () => import("@academics/SubjectsPage.jsx"),
+      },
+      {
+        key: "asignaciones",
+        label: "Asignaciones docentes",
+        description: "Que docente da que curso en que seccion.",
+        path: "/app/asignaciones",
+        icon: AssignmentIndOutlinedIcon,
+        canView: canViewDocentes,
+        load: () => import("@academics/TeachingAssignmentsPage.jsx"),
+      },
+    ],
+  },
+  {
+    key: "operacion",
+    label: "Operacion diaria",
+    items: [
+      {
+        key: "matriculas",
+        label: "Matriculas",
+        description: "Matricula, reinscripcion e historial por estudiante.",
+        path: "/app/matriculas",
+        icon: HowToRegOutlinedIcon,
+        canView: canViewAlumnos,
+        load: () => import("@enrolments/EnrolmentsPage.jsx"),
+      },
+      {
+        key: "asistencia",
+        label: "Asistencia",
+        description: "Movimientos de jornada y estado del dia.",
+        path: "/app/asistencia",
+        icon: FactCheckOutlinedIcon,
+        canView: canViewAlumnos,
+        load: () => import("@attendance/AttendancePage.jsx"),
+      },
+      {
+        key: "evaluacion",
+        label: "Evaluacion",
+        description: "Unidades, ventanas de captura y recuperacion.",
+        path: "/app/evaluacion",
+        icon: GradingOutlinedIcon,
+        load: () => import("@evaluation/EvaluationPage.jsx"),
+      },
+    ],
+  },
+  {
+    key: "control",
+    label: "Documentos y control",
+    items: [
+      {
+        key: "plantillas",
+        label: "Plantillas",
+        description: "Plantillas de constancias y reportes.",
+        path: "/app/plantillas",
+        icon: ArticleOutlinedIcon,
+        load: () => import("@documents/TemplatesPage.jsx"),
+      },
+      {
+        key: "alertas",
+        label: "Alertas",
+        description: "Alertas de asistencia y su atencion.",
+        path: "/app/alertas",
+        icon: NotificationsActiveOutlinedIcon,
+        load: () => import("@reporting/AlertsPage.jsx"),
       },
     ],
   },

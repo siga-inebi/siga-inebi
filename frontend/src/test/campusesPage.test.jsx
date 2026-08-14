@@ -2,12 +2,12 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("../services/academicsService.js", async () => {
+vi.mock("@academics/academicsService.js", async () => {
   const { academicsServiceMock } = await import("./mocks/academicsService.js");
   return { academicsService: academicsServiceMock, PAGE_SIZE: 25 };
 });
 
-import { CampusesPage } from "../pages/CampusesPage.jsx";
+import { CampusesPage } from "@academics/CampusesPage.jsx";
 import {
   annexCampus,
   centralCampus,
@@ -68,7 +68,7 @@ describe("pantalla de sedes", () => {
     academicsServiceMock.listCampuses.mockResolvedValue(
       paginated([centralCampus, annexCampus])
     );
-    await user.click(screen.getByLabelText("Mostrar desactivadas"));
+    await user.click(screen.getByLabelText(/^Mostrar desactivados/));
 
     await waitFor(() =>
       expect(academicsServiceMock.listCampuses).toHaveBeenLastCalledWith({
@@ -76,7 +76,7 @@ describe("pantalla de sedes", () => {
         include_inactive: true,
       })
     );
-    expect(await screen.findByText("Desactivado")).toBeInTheDocument();
+    expect(await screen.findByText("Desactivada")).toBeInTheDocument();
   });
 
   test("crea una sede y recarga el listado", async () => {
@@ -85,10 +85,10 @@ describe("pantalla de sedes", () => {
     await screen.findByText("Sede Central");
 
     await user.click(screen.getByRole("button", { name: "Nueva sede" }));
-    await user.type(screen.getByLabelText("Nombre"), "Sede Norte");
-    await user.type(screen.getByLabelText("Codigo"), "norte");
-    await user.type(screen.getByLabelText("Direccion"), "Zona 3");
-    await user.click(screen.getByLabelText("Es la sede principal"));
+    await user.type(screen.getByLabelText(/^Nombre/), "Sede Norte");
+    await user.type(screen.getByLabelText(/^Codigo/), "norte");
+    await user.type(screen.getByLabelText(/^Direccion/), "Zona 3");
+    await user.click(screen.getByLabelText(/^Es la sede principal/));
     await user.click(screen.getByRole("button", { name: "Crear sede" }));
 
     await waitFor(() =>
@@ -127,14 +127,14 @@ describe("pantalla de sedes", () => {
     await screen.findByText("Sede Central");
 
     await user.click(screen.getByRole("button", { name: "Nueva sede" }));
-    await user.type(screen.getByLabelText("Nombre"), "Sede Norte");
-    await user.type(screen.getByLabelText("Codigo"), "CENTRAL");
+    await user.type(screen.getByLabelText(/^Nombre/), "Sede Norte");
+    await user.type(screen.getByLabelText(/^Codigo/), "CENTRAL");
     await user.click(screen.getByRole("button", { name: "Crear sede" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "El codigo ya existe en la institucion."
     );
-    expect(screen.getByLabelText("Nombre")).toHaveValue("Sede Norte");
+    expect(screen.getByLabelText(/^Nombre/)).toHaveValue("Sede Norte");
   });
 
   test("edita sin ofrecer el codigo, que es inmutable", async () => {
@@ -147,10 +147,10 @@ describe("pantalla de sedes", () => {
     expect(
       await screen.findByRole("heading", { name: "Editar Sede Central" })
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Codigo")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Codigo/)).not.toBeInTheDocument();
 
-    await user.clear(screen.getByLabelText("Nombre"));
-    await user.type(screen.getByLabelText("Nombre"), "Sede Principal");
+    await user.clear(screen.getByLabelText(/^Nombre/));
+    await user.type(screen.getByLabelText(/^Nombre/), "Sede Principal");
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() =>
@@ -172,7 +172,7 @@ describe("pantalla de sedes", () => {
 
     await user.click(screen.getByRole("button", { name: "Desactivar" }));
     expect(academicsServiceMock.deactivateCampus).not.toHaveBeenCalled();
-    expect(screen.getByText("Desactivar Sede Central?")).toBeInTheDocument();
+    expect(screen.getByText(/Se desactivara "Sede Central"/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Si, desactivar" }));
 
@@ -192,8 +192,10 @@ describe("pantalla de sedes", () => {
     await user.click(screen.getByRole("button", { name: "Cancelar" }));
 
     expect(academicsServiceMock.deactivateCampus).not.toHaveBeenCalled();
+    // El dialogo marca el resto de la pagina con aria-hidden mientras esta
+    // abierto, y lo quita al terminar la animacion de cierre: hay que esperar.
     expect(
-      screen.getByRole("button", { name: "Desactivar" })
+      await screen.findByRole("button", { name: "Desactivar" })
     ).toBeInTheDocument();
   });
 
@@ -236,7 +238,7 @@ describe("pantalla de sedes", () => {
     await user.click(screen.getByRole("button", { name: "Ver jornadas" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Jornadas de Sede Central" })
+      await screen.findByRole("heading", { name: "Jornadas de la sede" })
     ).toBeInTheDocument();
     expect(academicsServiceMock.listCampusShifts).toHaveBeenCalledWith(
       "campus-central",
@@ -255,8 +257,8 @@ describe("pantalla de sedes", () => {
     await user.click(
       await screen.findByRole("button", { name: "Nueva jornada" })
     );
-    await user.type(screen.getByLabelText("Nombre"), "Vespertina");
-    await user.type(screen.getByLabelText("Codigo"), "VES");
+    await user.type(screen.getByLabelText(/^Nombre/), "Vespertina");
+    await user.type(screen.getByLabelText(/^Codigo/), "VES");
     await user.click(screen.getByRole("button", { name: "Crear jornada" }));
 
     await waitFor(() =>
@@ -278,7 +280,7 @@ describe("pantalla de sedes", () => {
     renderWithRouter(<CampusesPage />);
     await screen.findByText("Sede Central");
 
-    expect(screen.getByText(/Pagina 1 de 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 1–25 de 30/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Siguiente" }));
 
     await waitFor(() =>

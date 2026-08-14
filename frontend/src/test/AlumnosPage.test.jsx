@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
-import { AlumnosPage } from "../pages/AlumnosPage.jsx";
+import { AlumnosPage } from "@students/AlumnosPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 
 const studentsServiceMock = vi.hoisted(() => ({
@@ -12,13 +12,13 @@ const studentsServiceMock = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
-vi.mock("../services/studentsService.js", () => ({
+vi.mock("@students/studentsService.js", () => ({
   studentsService: studentsServiceMock,
 }));
 
 const downloadCsvMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
+vi.mock("@shared/utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
 
 const SAMPLE = [
   {
@@ -82,7 +82,7 @@ describe("AlumnosPage", () => {
       within(screen.getByRole("table")).getByText("EST-2026-014")
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Mostrando 1-2 de 2 registros/)
+      screen.getByText(/Mostrando 1–2 de 2/)
     ).toBeInTheDocument();
   });
 
@@ -93,12 +93,12 @@ describe("AlumnosPage", () => {
 
     await screen.findByText("Maria Jose Lopez Garcia");
     await user.type(
-      screen.getByPlaceholderText("Buscar por nombre..."),
+      screen.getByPlaceholderText("Buscar por nombre…"),
       "Nadie"
     );
 
     expect(
-      screen.getByText("No hay alumnos que coincidan con la busqueda.")
+      await screen.findByText("Sin resultados para la busqueda.")
     ).toBeInTheDocument();
   });
 
@@ -119,7 +119,7 @@ describe("AlumnosPage", () => {
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
 
     expect(
       screen.getByRole("heading", { name: "Maria Jose Lopez Garcia" })
@@ -133,21 +133,22 @@ describe("AlumnosPage", () => {
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
 
     expect(
-      screen.queryByRole("dialog", { name: "Maria Jose Lopez Garcia" })
+      screen.queryByRole("dialog", { name: "Foto de Maria Jose Lopez Garcia" })
     ).not.toBeInTheDocument();
 
-    const detailPanel = screen.getByRole("complementary", {
-      name: "Detalle de Maria Jose Lopez Garcia",
-    });
-    await user.click(within(detailPanel).getByRole("button", { name: "" }));
-
-    const lightbox = screen.getByRole("dialog", {
+    const detailWindow = screen.getByRole("dialog", {
       name: "Maria Jose Lopez Garcia",
     });
-    expect(lightbox).toBeInTheDocument();
+    await user.click(
+      within(detailWindow).getByAltText("Foto de Maria Jose Lopez Garcia")
+    );
+
+    const lightbox = screen.getByRole("dialog", {
+      name: "Foto de Maria Jose Lopez Garcia",
+    });
     const downloadLink = within(lightbox).getByRole("link", {
       name: "Descargar",
     });
@@ -160,9 +161,12 @@ describe("AlumnosPage", () => {
     await user.click(
       within(lightbox).getByRole("button", { name: "Cerrar imagen" })
     );
-    expect(
-      screen.queryByRole("dialog", { name: "Maria Jose Lopez Garcia" })
-    ).not.toBeInTheDocument();
+    // El dialogo se desmonta al terminar su animacion de salida, no en el clic.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Foto de Maria Jose Lopez Garcia" })
+      ).not.toBeInTheDocument()
+    );
   });
 
   test("submits the create form against the mock service", async () => {
@@ -184,17 +188,17 @@ describe("AlumnosPage", () => {
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
+    await user.click(screen.getByRole("button", { name: /Nuevo estudiante/ }));
 
-    await user.type(screen.getByLabelText("Nombres"), "Nueva");
-    await user.type(screen.getByLabelText("Apellidos"), "Alumna");
-    await user.type(screen.getByLabelText("Correo"), "nueva@example.test");
-    await user.type(screen.getByLabelText("Telefono"), "555-0199");
+    await user.type(screen.getByLabelText(/^Nombres/), "Nueva");
+    await user.type(screen.getByLabelText(/^Apellidos/), "Alumna");
+    await user.type(screen.getByLabelText(/^Correo/), "nueva@example.test");
+    await user.type(screen.getByLabelText(/^Telefono/), "555-0199");
     await user.type(
-      screen.getByLabelText("Codigo de estudiante"),
+      screen.getByLabelText(/^Codigo de estudiante/),
       "EST-2026-099"
     );
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await user.click(screen.getByRole("button", { name: /Crear estudiante/ }));
 
     await waitFor(() =>
       expect(studentsServiceMock.create).toHaveBeenCalledTimes(1)
@@ -220,14 +224,14 @@ describe("AlumnosPage", () => {
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
+    await user.click(screen.getByRole("button", { name: /Nuevo estudiante/ }));
 
     expect(screen.queryByAltText("Vista previa")).not.toBeInTheDocument();
 
     const file = new File(["fake-image-bytes"], "avatar.png", {
       type: "image/png",
     });
-    await user.upload(screen.getByLabelText("Foto"), file);
+    await user.upload(screen.getByLabelText(/^Foto/), file);
 
     expect(await screen.findByAltText("Vista previa")).toHaveAttribute(
       "src",
@@ -254,10 +258,10 @@ describe("AlumnosPage", () => {
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
     await user.click(screen.getByRole("button", { name: "Editar" }));
 
-    const lastNameInput = screen.getByLabelText("Apellidos");
+    const lastNameInput = screen.getByLabelText(/^Apellidos/);
     expect(lastNameInput).toHaveValue("Lopez Garcia");
     await user.clear(lastNameInput);
     await user.type(lastNameInput, "Lopez Mendez");
@@ -290,10 +294,10 @@ describe("AlumnosPage", () => {
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await user.click(screen.getByRole("button", { name: /Nuevo estudiante/ }));
+    await user.click(screen.getByRole("button", { name: /Crear estudiante/ }));
 
-    expect(screen.getByText(/es obligatorio/)).toBeInTheDocument();
+    expect(screen.getByText(/Complete el campo/)).toBeInTheDocument();
     expect(studentsServiceMock.create).not.toHaveBeenCalled();
   });
 });

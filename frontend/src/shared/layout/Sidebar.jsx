@@ -25,6 +25,9 @@ function SidebarItem({ badge, collapsed, item, onNavigate }) {
 
   const content = (
     <ButtonBase
+      // El nombre accesible se declara explicito porque colapsado el texto no se
+      // renderiza: sin esto el enlace queda anunciado como "link" a secas.
+      aria-label={item.label}
       component={NavLink}
       end={item.end}
       onClick={onNavigate}
@@ -99,14 +102,22 @@ export function Sidebar({ collapsed = false, counts = {}, onNavigate, user }) {
   const groups = visibleGroups(user);
 
   return (
-    <Stack
-      component="nav"
-      sx={{ py: 1.5, height: "100%", overflowY: "auto", overflowX: "hidden" }}
-    >
+    <Stack sx={{ py: 1.5, height: "100%", overflowY: "auto", overflowX: "hidden" }}>
       <SidebarItem collapsed={collapsed} item={HOME_ITEM} onNavigate={onNavigate} />
 
+      {/*
+        Un <nav> por grupo, cada uno con su propio nombre accesible. Varias
+        regiones de navegacion sin distinguir obligan al lector de pantalla a
+        anunciarlas todas igual ("navegacion") y el usuario pierde de cual salta
+        a cual.
+      */}
       {groups.map((group) => (
-        <Box key={group.key} sx={{ mt: 1.5 }}>
+        <Box
+          aria-label={group.label}
+          component="nav"
+          key={group.key}
+          sx={{ mt: 1.5 }}
+        >
           {collapsed ? (
             <Box sx={{ borderTop: "1px solid", borderColor: "divider", mx: 1.5, mb: 1 }} />
           ) : (

@@ -27,6 +27,14 @@ const SKELETON_WIDTHS = ["78%", "62%", "85%", "55%", "70%"];
 
 const BODY_CELL_SX = { px: 2, py: 1.5 };
 
+/** Nombres accesibles de los botones de paginacion, en espanol. */
+const PAGINATION_LABELS = {
+  first: "Primera pagina",
+  last: "Ultima pagina",
+  next: "Siguiente",
+  previous: "Anterior",
+};
+
 const CLICKABLE_ROW_SX = {
   cursor: "pointer",
   "&:hover": { bgcolor: "action.hover" },
@@ -157,6 +165,10 @@ export function DataTable({
         <TablePagination
           component="div"
           count={pagination.total}
+          // Los botones de pagina de MUI vienen con nombre accesible en ingles
+          // ("Go to next page"): en una interfaz en espanol eso obliga al lector
+          // de pantalla a cambiar de idioma a media tabla.
+          getItemAriaLabel={(type) => PAGINATION_LABELS[type] ?? type}
           labelDisplayedRows={({ count, from, to }) =>
             `Mostrando ${from}–${to} de ${count}`
           }

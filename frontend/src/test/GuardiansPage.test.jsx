@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
-import { GuardiansPage } from "../pages/GuardiansPage.jsx";
+import { GuardiansPage } from "@guardians/GuardiansPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 
 const guardiansServiceMock = vi.hoisted(() => ({
@@ -12,13 +12,13 @@ const guardiansServiceMock = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
-vi.mock("../services/guardiansService.js", () => ({
+vi.mock("@guardians/guardiansService.js", () => ({
   guardiansService: guardiansServiceMock,
 }));
 
 const downloadCsvMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
+vi.mock("@shared/utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
 
 const SAMPLE = [
   {
@@ -76,7 +76,7 @@ describe("GuardiansPage", () => {
       within(screen.getByRole("table")).getByText("rosa@example.test")
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Mostrando 1-2 de 2 registros/)
+      screen.getByText(/Mostrando 1–2 de 2/)
     ).toBeInTheDocument();
   });
 
@@ -87,14 +87,12 @@ describe("GuardiansPage", () => {
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.type(
-      screen.getByPlaceholderText("Buscar por nombre..."),
+      screen.getByPlaceholderText("Buscar por nombre…"),
       "Nadie"
     );
 
     expect(
-      screen.getByText(
-        "No hay padres o encargados que coincidan con la busqueda."
-      )
+      await screen.findByText("Sin resultados para la busqueda.")
     ).toBeInTheDocument();
   });
 
@@ -115,9 +113,9 @@ describe("GuardiansPage", () => {
     renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
 
-    const panel = screen.getByRole("complementary");
+    const panel = screen.getByRole("dialog");
     expect(
       within(panel).getByRole("heading", { name: "Rosa Elvira Garcia Mendez" })
     ).toBeInTheDocument();
@@ -140,11 +138,11 @@ describe("GuardiansPage", () => {
     renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
+    await user.click(screen.getByRole("button", { name: /Nuevo encargado/ }));
 
-    await user.type(screen.getByLabelText("Nombres"), "Nuevo");
-    await user.type(screen.getByLabelText("Apellidos"), "Encargado");
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await user.type(screen.getByLabelText(/^Nombres/), "Nuevo");
+    await user.type(screen.getByLabelText(/^Apellidos/), "Encargado");
+    await user.click(screen.getByRole("button", { name: /Crear encargado/ }));
 
     await waitFor(() =>
       expect(guardiansServiceMock.create).toHaveBeenCalledTimes(1)
@@ -178,10 +176,10 @@ describe("GuardiansPage", () => {
     renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.click(screen.getAllByRole("button", { name: "Ver detalle" })[0]);
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
     await user.click(screen.getByRole("button", { name: "Editar" }));
 
-    const lastNameInput = screen.getByLabelText("Apellidos");
+    const lastNameInput = screen.getByLabelText(/^Apellidos/);
     expect(lastNameInput).toHaveValue("Garcia Mendez");
     await user.clear(lastNameInput);
     await user.type(lastNameInput, "Garcia Lopez");
@@ -213,10 +211,10 @@ describe("GuardiansPage", () => {
     renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.click(screen.getByRole("button", { name: "+ Agregar nuevo" }));
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await user.click(screen.getByRole("button", { name: /Nuevo encargado/ }));
+    await user.click(screen.getByRole("button", { name: /Crear encargado/ }));
 
-    expect(screen.getByText(/es obligatorio/)).toBeInTheDocument();
+    expect(screen.getByText(/Complete el campo/)).toBeInTheDocument();
     expect(guardiansServiceMock.create).not.toHaveBeenCalled();
   });
 });

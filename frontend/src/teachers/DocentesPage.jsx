@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
+import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import ButtonBase from "@mui/material/ButtonBase";
 import AddIcon from "@mui/icons-material/Add";
@@ -20,6 +21,7 @@ import { SearchField } from "@ui/filters/SearchField.jsx";
 import { ImageDialog } from "@ui/display/ImageDialog.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
+import { ViewDetailButton } from "@ui/table/ViewDetailButton.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
@@ -144,6 +146,17 @@ export function DocentesPage() {
       render: (item) => <StatusChip label={item.position} variant="primary" />,
     },
     { key: "codigo", label: "Codigo empleado", render: (item) => item.employee_code },
+    {
+      key: "detalle",
+      label: "Detalle",
+      align: "right",
+      render: (teacher) => (
+        <ViewDetailButton
+          label={`Ver detalle de ${fullName(teacher)}`}
+          onClick={() => setSelected(teacher)}
+        />
+      ),
+    },
   ];
 
   return (
@@ -190,13 +203,19 @@ export function DocentesPage() {
             value={list.search}
           />
           <FilterSelect
-            label="Puesto"
+            label="Filtrar por puesto"
             minWidth={190}
             onChange={setPositionFilter}
             options={POSITION_FILTER_OPTIONS}
             value={positionFilter}
           />
         </FilterBar>
+
+        {list.error ? (
+          <Alert role="alert" severity="error" sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}>
+            {list.error}
+          </Alert>
+        ) : null}
 
         <SectionTableArea>
           <DataTable

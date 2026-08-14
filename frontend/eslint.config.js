@@ -39,7 +39,20 @@ export default [
         "warn",
         { allowConstantExport: true },
       ],
-      "import-x/no-unresolved": "error",
+      // Los alias de dominio los resuelve Vite (ver `resolve.alias` en
+      // vite.config.js). Ensenarselos tambien a este resolver exigiria una
+      // dependencia extra y mantener la lista en dos lugares, con el riesgo de
+      // que se desincronicen. Se ignoran aqui y se siguen validando las rutas
+      // relativas, que es donde de verdad se cuelan los typos; un alias mal
+      // escrito lo reporta Vite al instante en el arranque.
+      "import-x/no-unresolved": [
+        "error",
+        {
+          ignore: [
+            "^@(app|shared|ui|layout|theme|auth|dashboard|people|students|teachers|guardians|academics|cycles|enrolments|attendance|evaluation|documents|reporting)/",
+          ],
+        },
+      ],
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "no-unused-vars": "off",
       // El sistema de color vive en un solo lugar. Un hex suelto en un

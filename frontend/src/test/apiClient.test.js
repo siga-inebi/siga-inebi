@@ -1,4 +1,4 @@
-import { apiClient } from "../services/apiClient.js";
+import { apiClient } from "@shared/api/apiClient.js";
 
 describe("apiClient", () => {
   test("includes credentials in requests", async () => {

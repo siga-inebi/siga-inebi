@@ -1,4 +1,5 @@
 import { apiClient } from "@shared/api/apiClient.js";
+import { withQuery } from "@shared/api/query.js";
 
 const ROOT = "/academics";
 
@@ -8,29 +9,6 @@ const ROOT = "/academics";
  * este valor para calcular cuantas paginas hay.
  */
 export const PAGE_SIZE = 25;
-
-/**
- * Builds the query string the catalogue endpoints understand. Empty values are
- * dropped so `?page=1` never becomes `?page=1&include_inactive=false`.
- */
-function withQuery(path, params) {
-  const query = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(params || {})) {
-    if (
-      value === undefined ||
-      value === null ||
-      value === "" ||
-      value === false
-    ) {
-      continue;
-    }
-    query.set(key, String(value));
-  }
-
-  const suffix = query.toString();
-  return suffix ? `${path}?${suffix}` : path;
-}
 
 /**
  * Catalogo academico completo: la estructura institucional (sedes y jornadas) y
@@ -101,4 +79,15 @@ export const academicsService = {
     ),
   unlinkSubjectFromLevel: (levelId, subjectId) =>
     apiClient.del(`${ROOT}/levels/${levelId}/subjects/${subjectId}/`),
+
+  // asignaciones docentes
+  //
+  // No hay endpoint de "asignaciones vigentes": el listado es el historial, y la
+  // vigencia se lee de `ends_on`. Reasignar no edita, cierra y abre.
+  listTeachingAssignmentHistory: (params) =>
+    apiClient.get(withQuery(`${ROOT}/teaching-assignments/history/`, params)),
+  createTeachingAssignment: (payload) =>
+    apiClient.post(`${ROOT}/teaching-assignments/`, payload),
+  reassignTeachingAssignment: (assignmentId, payload) =>
+    apiClient.post(`${ROOT}/teaching-assignments/${assignmentId}/reassignments/`, payload),
 };

@@ -32,6 +32,12 @@ export default defineConfig(({ mode }) => {
         "@teachers": resolvePath("./src/teachers"),
         "@guardians": resolvePath("./src/guardians"),
         "@academics": resolvePath("./src/academics"),
+        "@cycles": resolvePath("./src/cycles"),
+        "@enrolments": resolvePath("./src/enrolments"),
+        "@attendance": resolvePath("./src/attendance"),
+        "@evaluation": resolvePath("./src/evaluation"),
+        "@documents": resolvePath("./src/documents"),
+        "@reporting": resolvePath("./src/reporting"),
       },
     },
     server: {

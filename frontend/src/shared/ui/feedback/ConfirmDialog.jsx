@@ -1,3 +1,4 @@
+import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
@@ -40,10 +41,15 @@ export function ConfirmDialog({
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         <DialogContentText variant="body2">{message}</DialogContentText>
+        {/*
+          El motivo del rechazo va en un Alert y no en texto suelto: lleva
+          `role="alert"`, asi que un lector de pantalla lo anuncia en cuanto
+          aparece en vez de dejarlo enterrado entre el mensaje y los botones.
+        */}
         {errorText ? (
-          <DialogContentText color="error" sx={{ mt: 2 }} variant="body2">
+          <Alert role="alert" severity="error" sx={{ mt: 2 }}>
             {errorText}
-          </DialogContentText>
+          </Alert>
         ) : null}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>

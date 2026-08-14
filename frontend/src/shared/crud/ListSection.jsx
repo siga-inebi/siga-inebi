@@ -26,6 +26,7 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
  * @param {string}  [props.actionError]  Error de una accion de fila (baja, etc).
  * @param {boolean} [props.showInactiveToggle=true]
  * @param {boolean} [props.fillHeight]
+ * @param {ReactNode}[props.filters] Barra de filtros; se renderiza sobre la tabla.
  */
 export function ListSection({
   action,
@@ -34,6 +35,7 @@ export function ListSection({
   columns,
   emptyMessage = "No hay registros para mostrar.",
   fillHeight = false,
+  filters,
   getRowKey,
   renderActions,
   showInactiveToggle = true,
@@ -54,6 +56,8 @@ export function ListSection({
 
   return (
     <SectionCard action={action} fillHeight={fillHeight} subtitle={subtitle} title={title}>
+      {filters}
+
       {showInactiveToggle ? (
         <Stack
           direction="row"
