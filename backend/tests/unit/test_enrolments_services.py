@@ -88,7 +88,6 @@ def test_create_enrolment_ignores_completed_records_for_capacity():
         section=section,
         status=Enrolment.EnrolmentStatus.COMPLETED,
     )
-
     enrolment = create_enrolment(
         student=StudentFactory(),
         academic_cycle=section.academic_cycle,
@@ -97,6 +96,22 @@ def test_create_enrolment_ignores_completed_records_for_capacity():
     )
 
     assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_closed_cycle_rejects_section_change():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    cycle = section.academic_cycle
+    cycle.status = cycle.CycleStatus.CLOSED
+    cycle.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(DomainError, match="Closed academic cycles"):
+        change_section(enrolment=enrolment, new_section=SectionFactory(academic_cycle=cycle))
 
 
 def test_matriculate_student_activates_pre_enrolled_student_and_links_shift():

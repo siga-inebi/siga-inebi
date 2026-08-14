@@ -79,6 +79,14 @@
   el modelo del dominio `academic-evaluation`.
 - Todos requieren sesion autenticada. La definicion de permisos atomicos para Directora,
   Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
+- Las escrituras academicas consultan una politica compartida de estado del ciclo. Un ciclo cerrado
+  rechaza creacion de matricula, cambio de seccion, asignacion y reasignacion docente y devuelve
+  HTTP 400. El mensaje de error nombra la operacion denegada. Las consultas historicas permanecen
+  disponibles y no se eliminan. La auditoria transversal de denegaciones corresponde a RF-BIT-004 y
+  RNF-SEG-003 y no se declara implementada en este cambio.
+- El cambio de seccion evalua la politica sobre el ciclo de la matricula de origen, por lo que la
+  seccion destino debe pertenecer a ese mismo ciclo y grado. Una seccion de otro ciclo se rechaza
+  con HTTP 400 y no puede usarse para escribir sobre un ciclo cerrado por la puerta de atras.
 - Crear o reasignar una asignacion docente de un ciclo cerrado devuelve HTTP 400. El historial de
   asignaciones permanece consultable y no se elimina.
 

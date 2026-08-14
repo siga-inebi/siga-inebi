@@ -20,6 +20,7 @@ from datetime import timedelta
 
 from django.db import transaction
 
+from apps.academics.cycle_policies import require_cycle_academic_writes
 from apps.academics.models import (
     AcademicCycle,
     Campus,
@@ -733,8 +734,6 @@ def _teacher_profile_for(person):
 
 
 def _validate_teaching_assignment(*, academic_cycle, section, subject, teacher, starts_on, ends_on):
-    if academic_cycle.status == AcademicCycle.CycleStatus.CLOSED:
-        raise DomainError("Closed academic cycles do not accept teaching assignment changes.")
     if section.offering.academic_cycle_id != academic_cycle.id:
         raise DomainError("Section must belong to the academic cycle.")
     if subject.institution_id != academic_cycle.institution_id:
@@ -755,6 +754,10 @@ def create_teaching_assignment(
     *, academic_cycle, section, subject, teacher, starts_on=None, actor=None
 ):
     """Create the single current assignment for a cycle, section, and subject."""
+    require_cycle_academic_writes(
+        cycle=academic_cycle,
+        operation="teaching_assignment.create",
+    )
     starts_on = starts_on or academic_cycle.starts_on
     _validate_teaching_assignment(
         academic_cycle=academic_cycle,
@@ -797,8 +800,11 @@ def reassign_teaching_assignment(*, assignment, teacher, ends_on, actor=None):
     )
     academic_cycle = assignment.academic_cycle
 
-    if academic_cycle.status == AcademicCycle.CycleStatus.CLOSED:
-        raise DomainError("Closed academic cycles do not accept teaching assignment changes.")
+    require_cycle_academic_writes(
+        cycle=academic_cycle,
+        operation="teaching_assignment.reassign",
+    )
+
     if assignment.ends_on is not None:
         raise DomainError("Only the current teaching assignment can be reassigned.")
     if assignment.teacher_id == teacher.id:

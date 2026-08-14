@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.utils import timezone
 
+from apps.academics.cycle_policies import require_cycle_academic_writes
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
@@ -33,8 +34,10 @@ def create_enrolment(
 ):
     effective_on = effective_on or timezone.localdate()
 
-    if academic_cycle.status == academic_cycle.CycleStatus.CLOSED:
-        raise DomainError("Closed academic cycles do not accept enrolment changes.")
+    require_cycle_academic_writes(
+        cycle=academic_cycle,
+        operation="enrolment.create",
+    )
     if section.academic_cycle.id != academic_cycle.pk:
         raise DomainError("Section must belong to the academic cycle.")
     if section.grade.id != grade.pk:
@@ -149,8 +152,14 @@ def reenrol_student(
 
 
 def change_section(*, enrolment, new_section, actor=None, effective_on=None):
-    if enrolment.academic_cycle.status == enrolment.academic_cycle.CycleStatus.CLOSED:
-        raise DomainError("Closed academic cycles do not allow section changes.")
+    require_cycle_academic_writes(
+        cycle=enrolment.academic_cycle,
+        operation="enrolment.change_section",
+    )
+    if new_section.academic_cycle.id != enrolment.academic_cycle_id:
+        raise DomainError("Section must belong to the academic cycle.")
+    if new_section.grade.id != enrolment.grade_id:
+        raise DomainError("Section must belong to the grade.")
     _ensure_section_has_capacity(new_section)
 
     effective_on = effective_on or timezone.localdate()
