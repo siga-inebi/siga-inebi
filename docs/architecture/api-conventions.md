@@ -81,6 +81,23 @@
   Administrador y Secretario queda como decision pendiente del modelo de autorizacion.
 - Crear o reasignar una asignacion docente de un ciclo cerrado devuelve HTTP 400. El historial de
   asignaciones permanece consultable y no se elimina.
+
+## Requisitos documentales de matrícula
+
+- `GET /api/v1/enrolments/{enrolment_id}/documents/` lista los requisitos documentales activos
+  de una matrícula, con el envoltorio paginado estandar (`count`, `next`, `previous`, `results`).
+- `POST` sobre la misma ruta crea o actualiza por `code` el requisito, con `name`, `is_required`
+  y `status` (`pending` o `delivered`). El codigo se normaliza a mayusculas.
+- `is_required` y `status` son opcionales. Al crear toman `true` y `pending`; al actualizar solo
+  se sobrescriben si vienen en el payload, de modo que corregir el `name` no borra el estado de
+  entrega ya registrado.
+- Registrar un documento sobre un requisito desactivado lo reactiva, para que la escritura quede
+  visible en el listado.
+- Requiere sesion autenticada y el permiso atomico `enrollment_create` o `enrollment_update`;
+  los cambios generan auditoria. La ruta registra estado de entrega, no archivos ni validacion
+  del contenido.
+- Registrar o modificar documentos de una matricula de un ciclo cerrado devuelve HTTP 400.
+
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.

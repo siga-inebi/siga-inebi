@@ -51,3 +51,31 @@ class Enrolment(TimeStampedModel):
 
     def __str__(self):
         return f"{self.student} - {self.academic_cycle.name}"
+
+
+class EnrolmentDocumentRequirement(TimeStampedModel):
+    class DeliveryStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        DELIVERED = "delivered", "Delivered"
+
+    enrolment = models.ForeignKey(
+        Enrolment, on_delete=models.PROTECT, related_name="document_requirements"
+    )
+    code = models.CharField(max_length=50)
+    name = models.CharField(max_length=150)
+    is_required = models.BooleanField(default=True)
+    status = models.CharField(
+        max_length=20, choices=DeliveryStatus.choices, default=DeliveryStatus.PENDING
+    )
+
+    class Meta:
+        ordering = ["code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["enrolment", "code"],
+                name="unique_document_requirement_per_enrolment",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.enrolment} - {self.code}"
