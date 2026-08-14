@@ -3,6 +3,10 @@ from datetime import date
 import pytest
 
 from apps.academics.api.queries import historical_cycle_or_404
+from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, Section
+from apps.academics.services import activate_academic_cycle, create_academic_cycle
+from apps.audit.models import AuditEvent
+from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
@@ -10,12 +14,8 @@ from tests.factories.academic import (
     InstitutionFactory,
     SectionFactory,
     ShiftFactory,
-    SubjectFactory
+    SubjectFactory,
 )
-from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, Section
-from apps.academics.services import activate_academic_cycle, create_academic_cycle
-from apps.audit.models import AuditEvent
-from apps.common.models import DomainError
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 

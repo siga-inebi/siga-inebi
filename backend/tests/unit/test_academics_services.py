@@ -8,8 +8,6 @@ from apps.academics.services import (
     clone_academic_cycle,
     create_academic_cycle,
 )
-from apps.academics.models import AcademicCycle, CurriculumPlan
-from apps.academics.services import activate_academic_cycle, create_academic_cycle
 from apps.common.models import DomainError
 from tests.factories.academic import (
     AcademicCycleFactory,
@@ -151,6 +149,8 @@ def test_clone_cycle_can_omit_teaching_assignments_and_requires_closed_source():
             starts_on=date(2027, 1, 1),
             ends_on=date(2027, 12, 31),
         )
+
+
 def test_activate_cycle_reports_grade_without_curriculum_plan():
     prepared = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
     offering = GradeOfferingFactory(academic_cycle=prepared)

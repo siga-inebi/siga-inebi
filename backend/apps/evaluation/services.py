@@ -86,9 +86,7 @@ def validate_recovery_window_open(unit: EvaluationUnit, on_date=None) -> None:
             the given date.
     """
     if unit.recovery_starts_on is None or unit.recovery_ends_on is None:
-        raise DomainError(
-            f"No recovery window has been configured for unit '{unit.name}'."
-        )
+        raise DomainError(f"No recovery window has been configured for unit '{unit.name}'.")
     if not unit.is_recovery_window_open(on_date):
         raise DomainError(
             f"Recovery window is closed for unit '{unit.name}'. "
@@ -372,9 +370,7 @@ def create_evaluation_unit(
     """
     # Validate evaluation period dates
     if starts_on > ends_on:
-        raise DomainError(
-            f"Unit start date ({starts_on}) cannot be after end date ({ends_on})."
-        )
+        raise DomainError(f"Unit start date ({starts_on}) cannot be after end date ({ends_on}).")
 
     # Validate capture window dates (RF-EVC-002)
     if capture_starts_on > capture_ends_on:

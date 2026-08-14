@@ -16,6 +16,7 @@ import pytest
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle
+from apps.common.models import DomainError
 from apps.evaluation.models import EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
@@ -29,7 +30,6 @@ from apps.evaluation.services import (
     validate_capture_window_open,
     validate_recovery_window_open,
 )
-from apps.common.models import DomainError
 from tests.factories.academic import AcademicCycleFactory, SubjectFactory
 from tests.factories.people import PersonFactory
 
@@ -42,7 +42,7 @@ class TestEvaluationIntegration:
     def test_create_complete_cycle_structure_with_units(self):
         """
         Test creating a full cycle with academic structure and evaluation units.
-        
+
         Workflow:
         1. Create cycle in DRAFT status
         2. Add evaluation units
@@ -58,10 +58,39 @@ class TestEvaluationIntegration:
 
         # Add evaluation units
         units_data = [
-            (1, "Trimestre 1", date(2026, 1, 15), date(2026, 3, 15), date(2026, 1, 1), date(2026, 3, 31)),
-            (2, "Trimestre 2", date(2026, 4, 1), date(2026, 6, 30), date(2026, 3, 15), date(2026, 7, 15)),
-            (3, "Trimestre 3", date(2026, 7, 1), date(2026, 9, 30), date(2026, 6, 15), date(2026, 10, 15)),
-            (4, "Examen Final", date(2026, 10, 1), date(2026, 10, 31), date(2026, 9, 15), date(2026, 11, 15)),
+            # number, name, starts, ends, capture_starts, capture_ends
+            (
+                1,
+                "Trimestre 1",
+                date(2026, 1, 15),
+                date(2026, 3, 15),
+                date(2026, 1, 1),
+                date(2026, 3, 31),
+            ),
+            (
+                2,
+                "Trimestre 2",
+                date(2026, 4, 1),
+                date(2026, 6, 30),
+                date(2026, 3, 15),
+                date(2026, 7, 15),
+            ),
+            (
+                3,
+                "Trimestre 3",
+                date(2026, 7, 1),
+                date(2026, 9, 30),
+                date(2026, 6, 15),
+                date(2026, 10, 15),
+            ),
+            (
+                4,
+                "Examen Final",
+                date(2026, 10, 1),
+                date(2026, 10, 31),
+                date(2026, 9, 15),
+                date(2026, 11, 15),
+            ),
         ]
 
         units = []
