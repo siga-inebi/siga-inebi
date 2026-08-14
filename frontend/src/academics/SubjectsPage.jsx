@@ -2,30 +2,21 @@ import { useCallback, useState } from "react";
 
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
-import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
 import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
-import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
-import { StatusChip } from "@ui/display/StatusChip.jsx";
+import { ActiveCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
 const SUBJECT_COLUMNS = [
   { key: "name", label: "Curso", render: (row) => row.name },
-  {
-    key: "code",
-    label: "Codigo",
-    render: (row) => (
-      <Typography component="code" sx={{ fontFamily: "monospace", fontSize: "0.8125rem" }}>
-        {row.code}
-      </Typography>
-    ),
-  },
+  { key: "code", label: "Codigo", render: (row) => <CodeCell value={row.code} /> },
   {
     key: "levels",
     label: "Se imparte en",
@@ -33,20 +24,13 @@ const SUBJECT_COLUMNS = [
       row.levels?.length ? (
         row.levels.map((level) => level.name).join(", ")
       ) : (
-        <Typography color="text.disabled" component="span" sx={{ fontSize: "0.8125rem" }}>
-          Sin vincular
-        </Typography>
+        <MutedCell>Sin vincular</MutedCell>
       ),
   },
   {
     key: "is_active",
     label: "Estado",
-    render: (row) => (
-      <StatusChip
-        label={row.is_active ? "Activo" : "Desactivado"}
-        variant={row.is_active ? "success" : "neutral"}
-      />
-    ),
+    render: (row) => <ActiveCell active={row.is_active} />,
   },
 ];
 
@@ -131,7 +115,7 @@ export function SubjectsPage() {
       {/* Los formularios se remontan por `key` al abrir para que su estado nazca
           limpio; renovar la key al cerrar mostraria el form vacio durante la
           animacion de salida. */}
-      <EntityFormDrawer
+      <EntityFormWindow
         description="El codigo es unico por institucion y no se puede cambiar despues."
         fields={CREATE_FIELDS}
         initialValues={{ name: "", code: "" }}
@@ -144,7 +128,7 @@ export function SubjectsPage() {
       />
 
       {editing?.mode === "edit" ? (
-        <EntityFormDrawer
+        <EntityFormWindow
           description={`El codigo ${editing.subject.code} es inmutable.`}
           fields={EDIT_FIELDS}
           initialValues={{ name: editing.subject.name }}

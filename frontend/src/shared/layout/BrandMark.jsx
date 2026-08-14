@@ -3,6 +3,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import logo from "@shared/assets/logo.jpg";
+import { palette } from "@theme/tokens/color.js";
 
 /**
  * Logotipo + nombre del establecimiento.
@@ -26,8 +27,10 @@ export function BrandMark({ compact = false, size = "small" }) {
           borderRadius: theme.tokens.radii.chip,
           objectFit: "cover",
           flexShrink: 0,
-          // El anillo hairline separa el logo del fondo sin dibujarle un marco.
-          boxShadow: theme.tokens.shadows.card,
+          // Borde hairline en vez de sombra: el sistema no usa elevacion en
+          // superficies asentadas.
+          border: "1px solid",
+          borderColor: palette(theme).divider,
         })}
       />
       {compact ? null : (

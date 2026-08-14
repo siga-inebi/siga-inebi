@@ -3,6 +3,7 @@ import { Link as RouterLink } from "react-router-dom";
 import ButtonBase from "@mui/material/ButtonBase";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import { palette } from "@theme/tokens/color.js";
 
 /**
  * Acceso rapido del panel: titulo, descripcion y navegacion a una ruta.
@@ -33,11 +34,16 @@ export function QuickActionCard({ description, onPointerEnter, title, to }) {
         borderRadius: theme.tokens.radii.card,
         border: "1px solid",
         borderColor: "divider",
-        borderLeft: `3px solid ${theme.palette.primary.main}`,
+        // Marcador dorado: la misma firma que el encabezado de seccion.
+        borderLeft: `3px solid ${palette(theme).surfaces.sectionMarker}`,
         bgcolor: "background.paper",
-        transition: "box-shadow 0.15s, transform 0.15s",
+        transition: "background-color 0.15s, border-color 0.15s",
+        // Sin sombra al pasar el mouse: la respuesta es el fondo hundido, igual
+        // que en las filas de tabla, para que la interfaz tenga un solo idioma.
         "&:hover": {
-          boxShadow: theme.tokens.shadows.cardHover,
+          bgcolor: palette(theme).surfaces.sunken,
+          borderColor: palette(theme).text.disabled,
+          borderLeftColor: palette(theme).surfaces.sectionMarker,
         },
       })}
       to={to}

@@ -8,6 +8,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
 import { HOME_ITEM, prefetchModule, visibleGroups } from "@app/navigation.js";
+import { palette } from "@theme/tokens/color.js";
 
 export const SIDEBAR_WIDTH = 232;
 export const SIDEBAR_COLLAPSED_WIDTH = 64;
@@ -30,7 +31,7 @@ function SidebarItem({ badge, collapsed, item, onNavigate }) {
       onFocus={() => prefetchModule(item)}
       // Precarga el chunk antes del clic: al soltar el mouse la pagina ya esta.
       onPointerEnter={() => prefetchModule(item)}
-      sx={{
+      sx={(theme) => ({
         display: "flex",
         alignItems: "center",
         justifyContent: collapsed ? "center" : "flex-start",
@@ -41,14 +42,16 @@ function SidebarItem({ badge, collapsed, item, onNavigate }) {
         borderLeft: "3px solid transparent",
         color: "text.secondary",
         textAlign: "left",
-        "&:hover": { bgcolor: "action.hover" },
+        "&:hover": { bgcolor: palette(theme).surfaces.sunken },
         "&.active": {
-          borderLeftColor: "primary.main",
-          bgcolor: "action.selected",
-          color: "primary.main",
+          // Marcador dorado: misma firma que el encabezado de seccion, para que
+          // "donde estoy" y "que estoy viendo" usen la misma senal.
+          borderLeftColor: palette(theme).surfaces.sectionMarker,
+          bgcolor: palette(theme).surfaces.sunken,
+          color: "text.primary",
           "& .sidebar-label": { fontWeight: 600 },
         },
-      }}
+      })}
       to={item.path}
     >
       <Icon fontSize="small" />

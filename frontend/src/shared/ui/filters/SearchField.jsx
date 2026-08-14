@@ -5,6 +5,7 @@ import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
 import ClearIcon from "@mui/icons-material/Clear";
 import SearchIcon from "@mui/icons-material/Search";
+import { palette } from "@theme/tokens/color.js";
 
 /** Retardo por defecto antes de propagar lo tecleado. */
 const DEFAULT_DEBOUNCE_MS = 400;
@@ -76,12 +77,12 @@ export function SearchField({
         minWidth: "14rem",
         flex: 1,
         "& .MuiOutlinedInput-root": {
-          borderRadius: theme.tokens.radii.pill,
-          bgcolor: "background.default",
-          "&.Mui-focused": {
-            bgcolor: "background.paper",
-            boxShadow: theme.tokens.shadows.cardHover,
-          },
+          borderRadius: theme.tokens.radii.input,
+          // Fondo hundido en reposo y papel al enfocar: el campo "se levanta"
+          // sin sombra, coherente con el resto del sistema. El anillo de foco lo
+          // aporta el override global de OutlinedInput.
+          bgcolor: palette(theme).surfaces.sunken,
+          "&.Mui-focused": { bgcolor: "background.paper" },
         },
       })}
       value={text}

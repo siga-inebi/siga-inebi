@@ -6,7 +6,7 @@ import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
 import { peopleService } from "@people/peopleService.js";
-import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
@@ -152,7 +152,7 @@ export function PersonasPage() {
         title="Personas registradas"
       />
 
-      <EntityFormDrawer
+      <EntityFormWindow
         fields={PERSON_FIELDS}
         initialValues={EMPTY_VALUES}
         key={editing?.mode === "create" ? "create-open" : "create-closed"}
@@ -164,7 +164,7 @@ export function PersonasPage() {
       />
 
       {editing?.mode === "edit" ? (
-        <EntityFormDrawer
+        <EntityFormWindow
           fields={PERSON_FIELDS}
           initialValues={{
             first_name: editing.person.first_name,

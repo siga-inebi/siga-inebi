@@ -15,10 +15,10 @@ import { raw } from "../palette/raw.js";
 export const variantsLight = {
   primary: { bg: brand.chip.bg, text: brand.chip.text },
   success: { bg: raw.green50, text: raw.green400 },
-  warning: { bg: raw.amber50, text: raw.amber400 },
-  danger: { bg: raw.red50, text: raw.red300 },
+  warning: { bg: raw.amber50, text: raw.amber500 },
+  danger: { bg: raw.red50, text: raw.red400 },
   purple: { bg: raw.purple50, text: raw.purple300 },
-  neutral: { bg: raw.gray200, text: raw.gray700 },
+  neutral: { bg: raw.bone200, text: raw.stone700 },
   accent: { bg: raw.gold50, text: raw.gold500 },
 };
 
@@ -28,9 +28,9 @@ export const variantsDark = {
   warning: { bg: raw.chip_amber_bg_dark, text: raw.amber_d_text },
   danger: { bg: raw.chip_red_bg_dark, text: raw.red_d_main },
   purple: { bg: raw.chip_purple_bg_dark, text: raw.purple_d_text },
-  neutral: { bg: raw.chip_gray_bg_dark, text: raw.dark_text_secondary },
+  neutral: { bg: raw.chip_stone_bg_dark, text: raw.dark_text_secondary },
   accent: { bg: raw.chip_gold_bg_dark, text: raw.gold_d_main },
 };
 
-/** Nombres validos de variante, para validacion y para el ciclo de hash. */
+/** Nombres validos de variante. */
 export const CHIP_VARIANTS = Object.keys(variantsLight);

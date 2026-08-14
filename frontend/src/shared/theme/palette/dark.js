@@ -1,9 +1,10 @@
 /**
  * dark.js — Mapeo raw -> slots de MUI para el modo oscuro.
  *
- * Mismo contrato que `light.js`: solo `main` en los slots semanticos, el resto
- * lo deriva MUI. Los valores oscuros no son el mismo hex aclarado: son tonos
- * elegidos para mantener contraste AA sobre `background.paper` oscuro.
+ * No es el modo claro invertido: las superficies son carbon CALIDO (espejo
+ * nocturno del hueso) y el primario cambia de portador a dorado (ver
+ * `brand.js`). Los tonos semanticos suben de luminosidad lo necesario para
+ * mantener contraste AA sobre `background.paper`, no se aclaran "a ojo".
  */
 
 import { brand } from "./brand.js";
@@ -12,17 +13,12 @@ import { variantsDark } from "../tokens/variants.js";
 
 export const darkPalette = {
   mode: "dark",
-  primary: {
-    main: brand.dark.main,
-    light: brand.dark.light,
-    dark: brand.dark.dark,
-    contrastText: raw.gray900,
-  },
-  secondary: { main: raw.green_d_main },
+  primary: brand.dark,
+  secondary: { main: raw.gold_d_main },
   success: { main: raw.green_d_main },
   error: { main: raw.red_d_main },
   warning: { main: raw.amber_d_text },
-  info: { main: brand.dark.main },
+  info: { main: raw.navy_d_main },
   background: {
     default: raw.dark_bg,
     paper: raw.dark_surface,
@@ -35,10 +31,12 @@ export const darkPalette = {
   },
   common: { white: raw.white, black: raw.black },
   surfaces: {
-    tableHead: raw.dark_surface2,
+    tableHead: "transparent",
+    tableHeadRule: raw.gold_d_main,
     inputBorder: raw.dark_border,
-    inputHoverBorder: brand.dark.light,
-    brandAccent: brand.accent.dark,
+    inputHoverBorder: raw.gold400,
+    sectionMarker: raw.gold_d_main,
+    sunken: raw.dark_surface2,
   },
   chipVariants: variantsDark,
 };

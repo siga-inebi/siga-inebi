@@ -6,9 +6,8 @@
  * senal de accesibilidad principal de los inputs (la guia exige foco visible).
  */
 
-import { alpha } from "@mui/material/styles";
-
 import { appRadii } from "../tokens/radii.js";
+import { palette, toneAlpha } from "../tokens/color.js";
 
 export const MuiTextField = {
   defaultProps: { size: "small", fullWidth: true },
@@ -33,16 +32,16 @@ export const MuiOutlinedInput = {
     root: ({ theme }) => ({
       borderRadius: appRadii.input,
       "& .MuiOutlinedInput-notchedOutline": {
-        borderColor: theme.palette.surfaces.inputBorder,
+        borderColor: palette(theme).surfaces.inputBorder,
       },
       "&:hover .MuiOutlinedInput-notchedOutline": {
-        borderColor: theme.palette.surfaces.inputHoverBorder,
+        borderColor: palette(theme).surfaces.inputHoverBorder,
       },
       "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
         borderWidth: "1.5px",
       },
       "&.Mui-focused": {
-        boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.12)}`,
+        boxShadow: `0 0 0 3px ${toneAlpha(theme, "primary", 0.12)}`,
       },
     }),
   },

@@ -7,7 +7,7 @@ import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 
 import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
-import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
@@ -153,7 +153,7 @@ export function CampusesPage() {
         />
       ) : null}
 
-      <EntityFormDrawer
+      <EntityFormWindow
         description="El codigo se normaliza a mayusculas y no se puede cambiar despues."
         fields={CREATE_CAMPUS_FIELDS}
         initialValues={{ name: "", code: "", address: "", is_main: false }}
@@ -166,7 +166,7 @@ export function CampusesPage() {
       />
 
       {editing?.mode === "edit" ? (
-        <EntityFormDrawer
+        <EntityFormWindow
           description={`El codigo ${editing.campus.code} es inmutable.`}
           fields={EDIT_CAMPUS_FIELDS}
           initialValues={{
@@ -285,7 +285,7 @@ function CampusShiftsSection({ campus, onChanged }) {
         title="Jornadas de la sede"
       />
 
-      <EntityFormDrawer
+      <EntityFormWindow
         description="El codigo es unico dentro de la sede: dos sedes pueden tener MAT."
         fields={CREATE_SHIFT_FIELDS}
         initialValues={{ name: "", code: "" }}
@@ -298,7 +298,7 @@ function CampusShiftsSection({ campus, onChanged }) {
       />
 
       {editing?.mode === "edit" ? (
-        <EntityFormDrawer
+        <EntityFormWindow
           description="Solo se puede renombrar; el codigo es inmutable."
           fields={EDIT_SHIFT_FIELDS}
           initialValues={{ name: editing.shift.name }}

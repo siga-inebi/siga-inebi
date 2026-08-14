@@ -18,6 +18,8 @@ import {
   MuiTextField,
 } from "./MuiForm.js";
 import {
+  MuiAlert,
+  MuiBackdrop,
   MuiCard,
   MuiChip,
   MuiDialog,
@@ -62,4 +64,6 @@ export const appComponents = {
   MuiDivider,
   MuiSkeleton,
   MuiLink,
+  MuiAlert,
+  MuiBackdrop,
 };

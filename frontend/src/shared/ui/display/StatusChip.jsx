@@ -1,4 +1,5 @@
 import Chip from "@mui/material/Chip";
+import { palette } from "@theme/tokens/color.js";
 
 /**
  * Unico componente de badge de estado del sistema.
@@ -19,7 +20,7 @@ export function StatusChip({ label, size = "small", sx, variant = "neutral", ...
       size={size}
       sx={(theme) => {
         const colors =
-          theme.palette.chipVariants[variant] ?? theme.palette.chipVariants.neutral;
+          palette(theme).chipVariants[variant] ?? palette(theme).chipVariants.neutral;
         return {
           backgroundColor: colors.bg,
           color: colors.text,

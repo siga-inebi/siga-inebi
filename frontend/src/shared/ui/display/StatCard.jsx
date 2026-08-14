@@ -20,7 +20,7 @@ import { SectionCard } from "@ui/layout/SectionCard.jsx";
  */
 export function StatCard({ action, hint, label, loading = false, value }) {
   return (
-    <SectionCard accent={false} sx={{ height: "100%" }}>
+    <SectionCard marker={false} sx={{ height: "100%" }}>
       <Stack gap={0.5} sx={{ px: 3, py: 2.5, height: "100%" }}>
         <Typography
           sx={{

@@ -1,16 +1,15 @@
 import Box from "@mui/material/Box";
-import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
-import { BaseDrawer, DRAWER_WIDTH } from "@ui/layout/BaseDrawer.jsx";
+import { FloatingWindow, WINDOW_WIDTH } from "@ui/layout/FloatingWindow.jsx";
 import { EMPTY_VALUE } from "@shared/utils/format.js";
 
 /**
  * Par etiqueta/valor del detalle de una entidad.
  *
- * La etiqueta va arriba y pequena, el valor abajo y con el peso del cuerpo: en
- * una columna angosta, dos textos del mismo tamano lado a lado se leen como una
- * sola frase.
+ * La etiqueta va arriba, chica y en versalitas; el valor abajo con el peso del
+ * cuerpo. Dos textos del mismo tamano uno al lado del otro se leen como una sola
+ * frase y el usuario pierde cual es el dato.
  */
 export function DetailField({ label, value }) {
   const isEmpty = value == null || value === "" || value === EMPTY_VALUE;
@@ -20,10 +19,11 @@ export function DetailField({ label, value }) {
       <Typography
         component="dt"
         sx={{
-          fontSize: "0.75rem",
+          fontSize: "0.6875rem",
+          fontWeight: 700,
           color: "text.secondary",
           textTransform: "uppercase",
-          letterSpacing: "0.04em",
+          letterSpacing: "0.09em",
         }}
       >
         {label}
@@ -33,7 +33,7 @@ export function DetailField({ label, value }) {
         sx={{
           fontSize: "0.875rem",
           m: 0,
-          mt: 0.25,
+          mt: 0.5,
           color: isEmpty ? "text.disabled" : "text.primary",
           wordBreak: "break-word",
         }}
@@ -45,31 +45,42 @@ export function DetailField({ label, value }) {
 }
 
 /**
- * Panel lateral de detalle de una entidad.
+ * Ventana de detalle de una entidad.
+ *
+ * Los campos se acomodan en dos columnas desde `sm`: en una sola columna un
+ * expediente de ocho campos obliga a scrollear para algo que cabe de un vistazo.
  *
  * @param {object}   props
  * @param {boolean}  props.open
  * @param {Function} props.onClose
  * @param {string}   props.title
  * @param {Array<{label:string,value:ReactNode}>} props.fields
- * @param {ReactNode}[props.actions] Acciones al pie.
+ * @param {ReactNode}[props.actions]  Acciones al pie.
  * @param {ReactNode}[props.children] Contenido extra bajo los campos.
  */
-export function DetailDrawer({ actions, children, fields, onClose, open, title }) {
+export function DetailWindow({ actions, children, fields, onClose, open, title }) {
   return (
-    <BaseDrawer
+    <FloatingWindow
       footer={actions}
       onClose={onClose}
       open={open}
       title={title}
-      width={DRAWER_WIDTH.compact}
+      width={WINDOW_WIDTH.medium}
     >
-      <Stack component="dl" gap={2.5} sx={{ m: 0 }}>
+      <Box
+        component="dl"
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+          gap: 2.5,
+          m: 0,
+        }}
+      >
         {fields.map((field) => (
           <DetailField key={field.label} label={field.label} value={field.value} />
         ))}
-      </Stack>
+      </Box>
       {children}
-    </BaseDrawer>
+    </FloatingWindow>
   );
 }

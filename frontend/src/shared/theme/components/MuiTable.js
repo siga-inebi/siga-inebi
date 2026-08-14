@@ -1,10 +1,18 @@
 /**
  * MuiTable.js — Densidad y jerarquia de tabla.
  *
- * El header usa fondo opaco propio (no `action.hover` translucido) porque en
- * modo `stickyHeader` un fondo semitransparente deja ver las filas pasando por
- * debajo al scrollear.
+ * La cabecera NO lleva relleno de color: se distingue por la regla inferior de
+ * 2px en color de marca y por el texto en versalitas espaciadas. Una banda gris
+ * de cabecera es el recurso mas visto en todo back-office; la regla sola pesa
+ * menos y lee como encabezado de tabla impresa, que es el registro visual de
+ * este sistema.
+ *
+ * Cuando la tabla scrollea con `stickyHeader`, la cabecera necesita fondo opaco
+ * o las filas se ven pasar por debajo: eso lo resuelve `DataTable` aplicando
+ * `background.paper` solo en ese modo.
  */
+
+import { palette } from "../tokens/color.js";
 
 export const MuiTableCell = {
   styleOverrides: {
@@ -13,19 +21,19 @@ export const MuiTableCell = {
       borderColor: "var(--mui-palette-divider)",
     },
     head: ({ theme }) => ({
-      backgroundColor: theme.palette.surfaces.tableHead,
-      color: theme.palette.text.secondary,
-      fontSize: "0.75rem",
-      fontWeight: 500,
-      letterSpacing: "0.4px",
+      backgroundColor: palette(theme).surfaces.tableHead,
+      color: palette(theme).text.secondary,
+      fontSize: "0.6875rem",
+      fontWeight: 700,
+      letterSpacing: "0.09em",
       textTransform: "uppercase",
       whiteSpace: "nowrap",
-      padding: "0.8rem 1.25rem",
-      borderBottom: `2px solid ${theme.palette.divider}`,
+      padding: "0.75rem 1rem",
+      borderBottom: `2px solid ${palette(theme).surfaces.tableHeadRule}`,
     }),
     body: {
       fontSize: "0.8125rem",
-      padding: "0.8125rem 1rem",
+      padding: "0.75rem 1rem",
     },
   },
 };
@@ -34,7 +42,7 @@ export const MuiTableRow = {
   styleOverrides: {
     root: ({ theme }) => ({
       transition: "background 0.12s",
-      "&:hover": { backgroundColor: theme.palette.action.hover },
+      "&:hover": { backgroundColor: palette(theme).action.hover },
       "&:last-of-type .MuiTableCell-body": { borderBottom: "none" },
     }),
   },

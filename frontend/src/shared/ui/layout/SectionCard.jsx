@@ -2,31 +2,32 @@ import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import { alpha } from "@mui/material/styles";
 
 import { FILL_HEIGHT_QUERY } from "@theme/tokens/fillHeight.js";
+import { palette } from "@theme/tokens/color.js";
 
 /**
  * Unidad de composicion dominante del sistema.
  *
- * La firma visual es la regla superior de 2.5px en color primario: es lo que
- * hace que un tablero de seis cards se lea como seis bloques y no como una
- * mancha de rectangulos blancos.
+ * Firma visual: un MARCADOR DORADO de 3px a la izquierda del titulo de seccion,
+ * mas borde hairline y CERO sombra. Deliberadamente no lleva una regla de color
+ * cruzando el borde superior: esa marca pertenece a otro producto, y aqui el
+ * acento va donde esta la informacion (el titulo), no en el marco.
  *
  * @param {object}    props
  * @param {string}   [props.title]
- * @param {string}   [props.subtitle]  Se oculta en xs: en movil compite con el titulo.
- * @param {ReactNode}[props.action]    Accion de la seccion, arriba a la derecha.
+ * @param {string}   [props.subtitle]   Se oculta en xs: en movil compite con el titulo.
+ * @param {ReactNode}[props.action]     Accion de la seccion, arriba a la derecha.
  * @param {boolean}  [props.fillHeight] Activa el modo "un solo scroll" (ver fillHeight.js).
- * @param {boolean}  [props.accent=true] Regla superior de marca.
+ * @param {boolean}  [props.marker=true] Marcador dorado junto al titulo.
  * @param {object}   [props.sx]
  * @param {ReactNode} props.children
  */
 export function SectionCard({
-  accent = true,
   action,
   children,
   fillHeight = false,
+  marker = true,
   subtitle,
   sx,
   title,
@@ -41,10 +42,7 @@ export function SectionCard({
         overflow: "hidden",
         border: "1px solid",
         borderColor: "divider",
-        ...(accent
-          ? { borderTop: `2.5px solid ${theme.palette.primary.main}` }
-          : null),
-        boxShadow: `0 1px 6px ${alpha(theme.palette.common.black, 0.06)}`,
+        boxShadow: "none",
         display: "flex",
         flexDirection: "column",
         ...(fillHeight
@@ -73,31 +71,45 @@ export function SectionCard({
             flexShrink: 0,
           }}
         >
-          <Box sx={{ minWidth: 0 }}>
-            {title ? (
-              <Typography
-                component="h2"
-                sx={{
-                  fontSize: "0.9375rem",
-                  fontWeight: 700,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                {title}
-              </Typography>
+          <Stack alignItems="stretch" direction="row" gap={1.5} sx={{ minWidth: 0 }}>
+            {marker && title ? (
+              <Box
+                aria-hidden
+                sx={(theme) => ({
+                  width: 3,
+                  borderRadius: 0.5,
+                  backgroundColor: palette(theme).surfaces.sectionMarker,
+                  flexShrink: 0,
+                })}
+              />
             ) : null}
-            {subtitle ? (
-              <Typography
-                sx={{
-                  fontSize: "0.8125rem",
-                  color: "text.secondary",
-                  display: { xs: "none", sm: "block" },
-                }}
-              >
-                {subtitle}
-              </Typography>
-            ) : null}
-          </Box>
+            <Box sx={{ minWidth: 0 }}>
+              {title ? (
+                <Typography
+                  component="h2"
+                  sx={(theme) => ({
+                    fontFamily: theme.tokens.fonts.display,
+                    fontSize: "1.0625rem",
+                    fontWeight: 600,
+                    lineHeight: 1.3,
+                  })}
+                >
+                  {title}
+                </Typography>
+              ) : null}
+              {subtitle ? (
+                <Typography
+                  sx={{
+                    fontSize: "0.8125rem",
+                    color: "text.secondary",
+                    display: { xs: "none", sm: "block" },
+                  }}
+                >
+                  {subtitle}
+                </Typography>
+              ) : null}
+            </Box>
+          </Stack>
           {action ? <Box sx={{ flexShrink: 0 }}>{action}</Box> : null}
         </Stack>
       ) : null}
@@ -116,7 +128,6 @@ export function SectionTableArea({ children, sx }) {
   return (
     <Box
       sx={{
-        p: { xs: 1, md: 1.5 },
         display: "flex",
         flexDirection: "column",
         flex: 1,

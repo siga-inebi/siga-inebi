@@ -1,29 +1,38 @@
 /**
- * shadows.js — Sombras nombradas por rol semantico.
+ * shadows.js — Elevacion por rol semantico.
  *
- * Patron "Flat 2.0" de la guia: la separacion entre superficies se logra con
- * una sombra difusa MAS un anillo hairline de 1px, no con bordes gruesos. El
- * anillo es lo que mantiene el borde visible en pantallas donde la sombra casi
- * no se percibe, sin que la UI se vea "encajonada".
+ * Estrategia de superficie de SIGA-INEBI: **las superficies asentadas no tienen
+ * sombra.** Cards, secciones y paneles se separan del fondo con un borde
+ * hairline y con espacio, no con elevacion. La sombra queda reservada para lo
+ * que de verdad flota sobre el contenido: ventanas modales, menus y popovers.
+ *
+ * Por que: una pantalla de back-office tiene diez o quince bloques a la vez. Si
+ * cada uno proyecta sombra, ninguno destaca y la interfaz se ve algodonosa. Con
+ * sombra solo en lo flotante, cuando algo se eleva significa de verdad "esto
+ * esta encima y te esta esperando".
  */
 
+/** Superficies asentadas: sin elevacion, a proposito. */
+const FLAT = "none";
+
 export const appShadows = {
-  card: "0 1px 4px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05)",
-  cardHover: "0 2px 8px rgba(0,0,0,0.09), 0 0 0 1px rgba(0,0,0,0.04)",
-  cardActive: "0 4px 16px rgba(0,0,0,0.11), 0 0 0 1px rgba(0,0,0,0.06)",
-  dialog: "0 20px 60px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.04)",
-  menu: "0 4px 20px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05)",
-  popover: "0 4px 24px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
-  /** Sombra direccional para el panel lateral derecho. */
-  drawerRight: "-12px 0 32px -8px rgba(0,0,0,0.28)",
+  card: FLAT,
+  cardHover: FLAT,
+  cardActive: FLAT,
+  /** Ventana modal flotante: sombra amplia y difusa, centrada. */
+  window: "0 24px 64px -12px rgba(15,27,38,0.35), 0 4px 12px rgba(15,27,38,0.12)",
+  dialog: "0 24px 64px -12px rgba(15,27,38,0.35), 0 4px 12px rgba(15,27,38,0.12)",
+  menu: "0 8px 24px -6px rgba(15,27,38,0.22)",
+  popover: "0 8px 28px -8px rgba(15,27,38,0.24)",
 };
 
 /**
- * Elevaciones 1-3 de MUI remapeadas al mismo lenguaje visual, para que un
- * `<Paper elevation={2}>` suelto no rompa la coherencia del sistema.
+ * Elevaciones 1-3 de MUI remapeadas al mismo lenguaje, para que un
+ * `<Paper elevation={2}>` suelto no reintroduzca sombras en superficies
+ * asentadas por accidente.
  */
 export const appElevations = {
-  1: "0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04)",
-  2: appShadows.cardHover,
-  3: "0 4px 16px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.04)",
+  1: FLAT,
+  2: FLAT,
+  3: appShadows.menu,
 };

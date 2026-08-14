@@ -97,7 +97,14 @@ export function DataTable({
           <TableHead>
             <TableRow>
               {columns.map((column) => (
-                <TableCell align={column.align} key={column.key}>
+                <TableCell
+                  align={column.align}
+                  key={column.key}
+                  // La cabecera del sistema no lleva relleno de color, pero en
+                  // modo pegado necesita fondo opaco o las filas se ven pasar
+                  // por debajo al scrollear.
+                  sx={stickyHeader ? { bgcolor: "background.paper" } : undefined}
+                >
                   {column.label}
                 </TableCell>
               ))}

@@ -9,7 +9,7 @@ import UnfoldMoreOutlinedIcon from "@mui/icons-material/UnfoldMoreOutlined";
 
 import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
 import { useSubjectOptions } from "@academics/useSubjectOptions.js";
-import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
@@ -156,7 +156,7 @@ export function LevelsPage() {
         />
       ) : null}
 
-      <EntityFormDrawer
+      <EntityFormWindow
         description="La secuencia define el orden pedagogico y es unica por institucion."
         fields={CREATE_LEVEL_FIELDS}
         initialValues={{ name: "", code: "", sequence: 1 }}
@@ -169,7 +169,7 @@ export function LevelsPage() {
       />
 
       {editing?.mode === "edit" ? (
-        <EntityFormDrawer
+        <EntityFormWindow
           description={`El codigo ${editing.level.code} es inmutable.`}
           fields={EDIT_LEVEL_FIELDS}
           initialValues={{ name: editing.level.name, sequence: editing.level.sequence }}
@@ -285,7 +285,7 @@ function LevelGradesSection({ level, onChanged }) {
         title="Grados del nivel"
       />
 
-      <EntityFormDrawer
+      <EntityFormWindow
         description="El codigo del grado es unico en toda la institucion."
         fields={CREATE_GRADE_FIELDS}
         initialValues={{ name: "", code: "", sequence: 1 }}
@@ -298,7 +298,7 @@ function LevelGradesSection({ level, onChanged }) {
       />
 
       {editing?.mode === "edit" ? (
-        <EntityFormDrawer
+        <EntityFormWindow
           description="Solo cambian el nombre y el orden; el codigo es inmutable."
           fields={EDIT_GRADE_FIELDS}
           initialValues={{ name: editing.grade.name, sequence: editing.grade.sequence }}
@@ -439,7 +439,7 @@ function LevelSubjectsSection({ level, onChanged }) {
         </Alert>
       ) : null}
 
-      <EntityFormDrawer
+      <EntityFormWindow
         description="Declara que el curso se imparte en este nivel. 0 horas significa sin definir."
         fields={[
           {
@@ -464,7 +464,7 @@ function LevelSubjectsSection({ level, onChanged }) {
       />
 
       {editing?.mode === "edit" ? (
-        <EntityFormDrawer
+        <EntityFormWindow
           fields={LINK_FIELDS}
           initialValues={{
             is_required: editing.link.is_required,

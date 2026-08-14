@@ -10,22 +10,26 @@ import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import UploadFileIcon from "@mui/icons-material/UploadFileOutlined";
 
-import { BaseDrawer } from "@ui/layout/BaseDrawer.jsx";
+import { FloatingWindow, WINDOW_WIDTH } from "@ui/layout/FloatingWindow.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
 
 /**
- * Formulario de alta y edicion de catalogo, en panel lateral.
+ * Formulario de alta y edicion en ventana modal centrada.
  *
  * Conserva el contrato declarativo de campos que ya usaban las pantallas
- * (`{ name, label, type, help, required, options, min, placeholder }`), asi que
- * migrar una pantalla a MUI no obliga a reescribir su definicion de formulario.
+ * (`{ name, label, type, help, required, options, min, placeholder, span }`),
+ * asi que migrar una pantalla no obliga a reescribir su definicion de campos.
+ *
+ * Los campos se acomodan en dos columnas desde `sm`. Un campo puede pedir el
+ * ancho completo con `span: "full"`; los de tipo archivo y los interruptores lo
+ * toman siempre, porque partirlos a media reja los deja ilegibles.
  *
  * `onSubmit` recibe los valores ya normalizados y puede rechazar: el mensaje del
- * backend se muestra SIN cerrar el panel, para no perder lo escrito. Cerrar en
+ * backend se muestra SIN cerrar la ventana, para no perder lo escrito. Cerrar en
  * el error es como se pierde media hora de captura.
  */
-export function EntityFormDrawer({
+export function EntityFormWindow({
   description,
   fields,
   initialValues,
@@ -34,6 +38,7 @@ export function EntityFormDrawer({
   open,
   submitLabel = "Guardar",
   title,
+  width = WINDOW_WIDTH.medium,
 }) {
   const [values, setValues] = useState(initialValues);
   const [error, setError] = useState("");
@@ -73,7 +78,7 @@ export function EntityFormDrawer({
   };
 
   return (
-    <BaseDrawer
+    <FloatingWindow
       busy={submitting}
       description={description}
       footer={
@@ -95,28 +100,49 @@ export function EntityFormDrawer({
       onClose={onCancel}
       open={open}
       title={title}
+      width={width}
     >
-      {/* El submit vive en el pie del panel, fuera del <form>: se enlazan por
-          el atributo form/id, que es el mecanismo estandar para eso. */}
-      <Stack component="form" gap={2} id={formId} noValidate onSubmit={handleSubmit}>
+      {/* El submit vive en el pie de la ventana, fuera del <form>: se enlazan
+          por el atributo form/id, que es el mecanismo estandar para eso. */}
+      <Box component="form" id={formId} noValidate onSubmit={handleSubmit}>
         {error ? (
-          <Alert role="alert" severity="error" variant="outlined">
+          <Alert role="alert" severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         ) : null}
 
-        {fields.map((field) => (
-          <EntityField
-            disabled={submitting}
-            field={field}
-            key={field.name}
-            onChange={setValue}
-            value={values[field.name]}
-          />
-        ))}
-      </Stack>
-    </BaseDrawer>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+            columnGap: 2,
+            rowGap: 2.5,
+          }}
+        >
+          {fields.map((field) => (
+            <Box
+              key={field.name}
+              sx={{
+                gridColumn: isFullWidth(field) ? { sm: "1 / -1" } : undefined,
+              }}
+            >
+              <EntityField
+                disabled={submitting}
+                field={field}
+                onChange={setValue}
+                value={values[field.name]}
+              />
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    </FloatingWindow>
   );
+}
+
+/** Campos que nunca se parten a media reja. */
+function isFullWidth(field) {
+  return field.span === "full" || field.type === "file" || field.type === "checkbox";
 }
 
 function EntityField({ disabled, field, onChange, value }) {

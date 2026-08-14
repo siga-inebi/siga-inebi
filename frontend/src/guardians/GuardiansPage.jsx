@@ -5,14 +5,14 @@ import AddIcon from "@mui/icons-material/Add";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 
 import { guardiansService } from "@guardians/guardiansService.js";
-import { EntityFormDrawer } from "@shared/crud/EntityFormDrawer.jsx";
+import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { useLocalList } from "@shared/crud/useLocalList.js";
 import { downloadCsv } from "@shared/utils/csv.js";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
-import { DetailDrawer } from "@ui/layout/DetailDrawer.jsx";
+import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 
@@ -154,7 +154,7 @@ export function GuardiansPage() {
         </SectionTableArea>
       </SectionCard>
 
-      <DetailDrawer
+      <DetailWindow
         actions={
           selected ? (
             <Button onClick={() => setEditing(selected)} variant="contained">
@@ -176,7 +176,7 @@ export function GuardiansPage() {
         title={selected ? fullName(selected) : ""}
       />
 
-      <EntityFormDrawer
+      <EntityFormWindow
         fields={GUARDIAN_FIELDS}
         initialValues={EMPTY_GUARDIAN}
         key={creating ? "create-open" : "create-closed"}
@@ -188,7 +188,7 @@ export function GuardiansPage() {
       />
 
       {editing ? (
-        <EntityFormDrawer
+        <EntityFormWindow
           fields={GUARDIAN_FIELDS}
           initialValues={{
             first_name: editing.person.first_name,

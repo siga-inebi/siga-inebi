@@ -57,7 +57,7 @@ export function HomePage() {
       <Grid container spacing={2}>
         {PILLARS.map((pillar) => (
           <Grid key={pillar.title} size={{ xs: 12, md: 6 }}>
-            <SectionCard accent={false} sx={{ height: "100%" }} title={pillar.title}>
+            <SectionCard marker={false} sx={{ height: "100%" }} title={pillar.title}>
               <Typography
                 color="text.secondary"
                 sx={{ px: 3, py: 2.5 }}

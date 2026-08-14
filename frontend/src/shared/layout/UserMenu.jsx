@@ -48,7 +48,7 @@ export function UserMenu({ onLogout, user }) {
           gap: 1,
           px: 1,
           py: 0.5,
-          borderRadius: theme.tokens.radii.pill,
+          borderRadius: theme.tokens.radii.input,
           "&:hover": { bgcolor: "action.hover" },
         })}
       >

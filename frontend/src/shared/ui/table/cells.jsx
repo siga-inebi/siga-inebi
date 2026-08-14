@@ -15,7 +15,7 @@ export function CodeCell({ value }) {
   return (
     <Typography
       component="code"
-      sx={{ fontFamily: "monospace", fontSize: "0.8125rem", letterSpacing: "0.02em" }}
+      sx={(theme) => ({ fontFamily: theme.tokens.fonts.mono, fontSize: "0.8125rem" })}
     >
       {value}
     </Typography>

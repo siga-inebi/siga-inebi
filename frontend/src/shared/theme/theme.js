@@ -13,6 +13,7 @@
 
 import { createTheme } from "@mui/material/styles";
 
+import { appFonts, BODY_FONT, DISPLAY_STACK } from "./tokens/typography.js";
 import { appComponents } from "./components/index.js";
 import { darkPalette } from "./palette/dark.js";
 import { lightPalette } from "./palette/light.js";
@@ -30,32 +31,38 @@ export const theme = createTheme({
   },
 
   typography: {
-    fontFamily:
-      '"DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    // Dos familias con roles fijos: sans para todo lo operativo (leer datos,
+    // llenar campos) y serif SOLO para titulos. El serif es lo que hace que la
+    // pantalla se lea como un documento del establecimiento y no como un panel
+    // corporativo; usarlo tambien en el cuerpo lo volveria pesado de leer en
+    // tablas densas.
+    fontFamily: `"${BODY_FONT}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`,
     // Todo el texto se dimensiona en rem para que la escala de accesibilidad
     // del navegador funcione; px congelaria el tamano.
     fontSize: 14,
-    h4: { fontWeight: 700 },
-    h5: { fontWeight: 600 },
-    h6: { fontWeight: 600 },
+    h4: { fontFamily: DISPLAY_STACK, fontWeight: 600, letterSpacing: "-0.01em" },
+    h5: { fontFamily: DISPLAY_STACK, fontWeight: 600, letterSpacing: "-0.01em" },
+    h6: { fontFamily: DISPLAY_STACK, fontWeight: 600 },
     subtitle1: { fontWeight: 500 },
     subtitle2: { fontWeight: 600 },
     body2: { fontSize: "0.875rem" },
-    button: { textTransform: "none", fontWeight: 500 },
+    button: { textTransform: "none", fontWeight: 500, letterSpacing: "0.01em" },
     overline: {
-      fontSize: "0.65rem",
+      fontSize: "0.6875rem",
       fontWeight: 600,
-      letterSpacing: "0.08em",
+      letterSpacing: "0.1em",
       lineHeight: 2,
     },
   },
 
-  shape: { borderRadius: 12 },
+  // Radio global bajo: el lenguaje de forma del sistema es casi recto.
+  shape: { borderRadius: 8 },
 
   // Tokens propios, accesibles como `theme.tokens.*` desde cualquier `sx`.
   tokens: {
     shadows: appShadows,
     radii: appRadii,
+    fonts: appFonts,
   },
 
   components: appComponents,

@@ -1,38 +1,55 @@
 # Procedencia del tema
 
-Este tema implementa **`vantum/design-guidelines/DESIGN.md` v1.0.0** (guia de
-diseno UI de Vantum ST, extraida del frontend en produccion del CRM Las
-Americas). El sistema de referencia en codigo es
-`Soporte_vantum/app/frontend/src/theme/`.
+## Que se tomo prestado y que no
 
-## Conformidad
+De `vantum/design-guidelines/DESIGN.md` (guia de Vantum ST, extraida del CRM Las
+Americas) se adopta la **arquitectura**, no la apariencia:
 
-Se implementa tal cual:
+- Tema unico con `createTheme()`, `cssVariables` y `colorSchemes` light/dark.
+- Cuatro capas de color: `raw` -> `palette` -> `tokens` -> componentes, con los
+  literales confinados a un archivo y la regla aplicada por ESLint.
+- Tokens nombrados por rol (`radii`, `shadows`, `fonts`) en vez de valores
+  sueltos en los call sites.
+- Patron `fillHeight` ("un solo scroll por pantalla") y la cadena flex que lo
+  sostiene.
+- Contratos de `DataTable`, `StatusChip`, `EmptyState`, wording de estados vacios
+  y reglas de formulario (booleano calculado en render, error solo tras
+  interaccion, remontaje por `key` al abrir).
+- Container/presentational por seccion y arquitectura de carpetas por dominio.
 
-- Arquitectura de 4 capas del tema (seccion 4.1) y estructura de archivos.
-- Paleta cruda exacta (seccion 4.2) y slots resueltos (seccion 4.3).
-- Dark mode con `cssVariables.colorSchemeSelector: "class"`, `colorSchemes`,
-  persistencia en `localStorage["mui-mode"]` y script anti-flash (seccion 4.4).
-- Tipografia DM Sans, escala en `rem`, pesos y `textTransform: none` (seccion 4.5).
-- Radios (seccion 4.6), sombras "Flat 2.0" con anillo hairline (seccion 4.7),
-  espaciado base 8px (seccion 4.8).
-- `softTone()` y `selectedToneSx()` (seccion 4.9).
-- Variantes semanticas de chip (seccion 9).
-- Regla ESLint que prohibe literales de color fuera del tema (seccion 4.1),
-  aplicada como `error` en `eslint.config.js`.
+Eso es ingenieria reutilizable. La **identidad visual es propia de SIGA-INEBI** y
+divergE a proposito en todo lo que hace reconocible a un producto:
 
-## Desviaciones deliberadas
+| Decision              | Guia Vantum / CRM                   | SIGA-INEBI                                            |
+| --------------------- | ----------------------------------- | ----------------------------------------------------- |
+| Primario              | Azul `#1A73E8` (Google Blue)        | Navy `#1C2B3A` en claro, dorado `#D9BA85` en oscuro   |
+| Neutrales             | Gris azulado (`#F4F6FB`)            | Hueso calido (`#FAF8F4`) y carbon calido (`#191714`)  |
+| Tipografia            | DM Sans, una familia                | Source Serif 4 en titulos + Public Sans en interfaz    |
+| Forma                 | Botones pill `2rem`, cards 12px     | Rectangulos: boton 6px, card 8px, chip 4px            |
+| Elevacion             | "Flat 2.0": sombra + anillo en todo | Sin sombra en lo asentado; solo en lo flotante        |
+| Firma de `SectionCard`| Regla superior 2.5px en primario    | Marcador dorado 3px a la izquierda del titulo         |
+| Cabecera de tabla     | Banda de fondo gris                 | Sin relleno; regla inferior 2px en color de marca     |
+| Overlay por defecto   | Panel lateral (drawer) redimensionable | Ventana modal centrada (`FloatingWindow`)          |
 
-| Desviacion                                                | Razon                                                                                                                                                             |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| JavaScript en vez de TypeScript                            | El proyecto es JS. Migrar a TS es un cambio ortogonal y mucho mayor; no entra en una PR de UI. Por eso no existe `augmentation.d.ts`: `theme.tokens` no necesita declararse. |
-| `palette/brand.js` (constante `ACTIVE_BRAND`)              | Requisito explicito del equipo: poder cambiar el look tocando variables. La guia fija el azul Vantum; SIGA-INEBI tiene marca propia (navy + dorado). Aislar la rampa permite probar ambas sin tocar componentes. |
-| Variante de chip `accent` (dorado) en vez de `primariaSoft` | `primariaSoft` es una excepcion de dominio del CRM que aqui no existe. El dorado si aplica: es el acento de marca del establecimiento.                              |
-| Sin `@tanstack/react-virtual`                              | La virtualizacion sobre 50 filas todavia no aplica: los listados actuales paginan del lado del cliente con volumenes chicos. Cuando un listado real pase de 50 filas visibles, se agrega segun la seccion 7. |
-| Sin SWR ni axios                                           | El proyecto ya tiene un `apiClient` propio sobre `fetch` con manejo de CSRF y sesion por cookie. Cambiar la capa de datos no es parte de un refactor de UI.        |
+Razon de la divergencia: SIGA-INEBI no es un producto de Vantum ST y no debe
+leerse como uno. Copiar la paleta y la firma visual de otro producto es lo que
+hace que dos sistemas distintos se confundan; copiar su arquitectura de tokens es
+lo que hace que el segundo se construya mas rapido.
 
-## Deudas de la guia que este proyecto NO hereda
+## Desviaciones tecnicas respecto de la guia
 
-Los seis puntos de la seccion 13 ("deudas del proyecto origen") se respetan
-desde el dia uno: familia tipografica unica, sin repetir defaults del tema en
-`sx`, formateadores sin duplicar, sin shims de compatibilidad.
+| Desviacion                        | Razon                                                                                                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| JavaScript en vez de TypeScript   | El proyecto es JS. Migrar a TS es un cambio ortogonal y mucho mayor; no entra en una PR de UI. Por eso no existe `augmentation.d.ts`.                               |
+| `palette/brand.js`                | Requisito del equipo: cambiar el look editando variables. La rampa de marca queda aislada en una constante.                                                          |
+| `tokens/color.js`                 | La guia menciona `(theme.vars \|\| theme).palette` solo para `styleOverrides`. Aqui es regla general y con helper propio, porque el bug aparecio en un `sx` de pagina. |
+| Variante de chip `accent`         | Reemplaza a `primariaSoft`, que es una excepcion de dominio del CRM inexistente aqui.                                                                                |
+| Sin `@tanstack/react-virtual`     | La virtualizacion sobre 50 filas todavia no aplica: los listados actuales manejan volumenes chicos. Se agrega cuando un listado real lo pida.                        |
+| Sin SWR ni axios                  | El proyecto ya tiene un `apiClient` propio sobre `fetch` con CSRF y sesion por cookie. Cambiar la capa de datos no es parte de un refactor de UI.                    |
+
+## Bug encontrado al implementar (documentado para no repetirlo)
+
+Con `cssVariables` activo, leer `theme.palette.X` dentro de un `sx` congela el
+color del esquema por defecto. Se detecto porque el item activo del menu lateral
+salia en modo oscuro con fondo hueso y texto casi invisible. La correccion es
+`tokens/color.js` y la regla esta en `COLORS.md`.
