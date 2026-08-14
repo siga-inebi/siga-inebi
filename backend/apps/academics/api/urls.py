@@ -1,4 +1,6 @@
-from django.urls import path
+from django.urls import include, path
+
+from apps.evaluation.api.views import CycleEvaluationConfigView, EvaluationGlobalConfigView
 
 from .views import (
     AcademicCycleActivateView,
@@ -35,6 +37,18 @@ urlpatterns = [
         name="academic-cycle-activate",
     ),
     path(
+        "cycles/<uuid:cycle_public_id>/evaluation-units/",
+        include("apps.evaluation.api.urls"),
+    ),
+    path(
+        "evaluation-config/",
+        EvaluationGlobalConfigView.as_view(),
+        name="evaluation-global-config",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/evaluation-config/",
+        CycleEvaluationConfigView.as_view(),
+        name="cycle-evaluation-config",
         "cycles/<uuid:public_id>/clone/",
         AcademicCycleCloneView.as_view(),
         name="academic-cycle-clone",
