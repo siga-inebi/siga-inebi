@@ -2,7 +2,8 @@ from datetime import date
 
 import pytest
 
-from apps.academics.services import create_teaching_assignment
+from apps.academics.models import AcademicCycle
+from apps.academics.services import create_teaching_assignment, reassign_teaching_assignment
 from apps.common.models import DomainError
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.people import PersonFactory
@@ -86,4 +87,31 @@ def test_create_teaching_assignment_validates_section_cycle_and_subject_institut
             section=SectionFactory(academic_cycle=cycle),
             subject=SubjectFactory(),
             teacher=teacher.person,
+        )
+
+
+def test_closed_cycle_rejects_teaching_assignment_changes():
+    cycle, section, subject, teacher = _assignment_context()
+    assignment = create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher.person,
+    )
+    cycle.status = AcademicCycle.CycleStatus.CLOSED
+    cycle.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(DomainError, match="Closed academic cycles"):
+        create_teaching_assignment(
+            academic_cycle=cycle,
+            section=section,
+            subject=subject,
+            teacher=TeacherFactory().person,
+        )
+
+    with pytest.raises(DomainError, match="Closed academic cycles"):
+        reassign_teaching_assignment(
+            assignment=assignment,
+            teacher=TeacherFactory().person,
+            ends_on=date(2026, 6, 30),
         )

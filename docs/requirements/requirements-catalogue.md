@@ -64,11 +64,15 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-DOC-009 | Consulta del expediente documental | Debe | document-management | Not implemented | #154 | TBD | Nucleo administrativo |
 | RF-DOC-010 | Conservacion del vinculo | Debe | document-management | Not implemented | #155 | TBD | Historia persistente |
 | RF-CIC-001 | Registro del ciclo escolar | Debe | school-cycle | Implemented | #126 | backend/tests/unit/test_academics_services.py; backend/tests/api/test_academics_api.py; backend/tests/integration/test_academics.py | Registro en preparacion, fechas validas y no solapadas por institucion |
-| RF-CIC-002 | Estados del ciclo | Debe | school-cycle | In progress | #127 | backend/tests/unit/test_academics_services.py; backend/tests/integration/test_academics.py | Estados explicitos y un solo ciclo activo; visibilidad por portal y bloqueo transversal de escritura cerrada pendientes |
+| RF-CIC-002 | Estados del ciclo | Debe | school-cycle | In progress | #127 | backend/tests/unit/test_academics_services.py; backend/tests/unit/test_enrolments_services.py; backend/tests/unit/test_teaching_assignment_services.py; backend/tests/api/test_teaching_assignments_api.py; backend/tests/integration/test_academics.py; backend/tests/integration/test_cycle_state_guardrails.py | Estados explicitos, un solo ciclo activo y bloqueo de matriculas y asignaciones docentes en ciclos cerrados; visibilidad por portal y cobertura de futuros dominios consumidores pendientes |
 | RF-CIC-003 | Apertura del ciclo | Debe | school-cycle | Not implemented | #128 | TBD | Operacion sensible |
+| RF-CIC-002 | Estados del ciclo | Debe | school-cycle | In progress | #127 | backend/tests/unit/test_academics_services.py; backend/tests/integration/test_academics.py | Estados explicitos y un solo ciclo activo; visibilidad por portal y bloqueo transversal de escritura cerrada pendientes |
+| RF-CIC-003 | Apertura del ciclo | Debe | school-cycle | In Progress | #128 | backend/tests/unit/test_academics_services.py | Valida grados ofertados, secciones y plan por grado; unidades de evaluacion pendientes de modelo |
 | RF-CIC-004 | Cierre del ciclo | Debe | school-cycle | Not implemented | #129 | TBD | Congelamiento relacionado |
 | RF-CIC-005 | Reapertura excepcional | Deberia | school-cycle | Not implemented | #130 | TBD | Ambiguo; controlar |
 | RF-CIC-006 | Conservacion de la informacion historica | Debe | school-cycle | Not implemented | #131 | TBD | Historia obligatoria |
+| RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Implemented | #132 | backend/tests/unit/test_academics_services.py; backend/tests/api/test_academics_api.py | Copia independiente de ofertas, jornadas, secciones, planes y docentes opcionales hacia ciclo preparado |
+| RF-CIC-006 | Conservacion de la informacion historica | Debe | school-cycle | In Progress | #131 | backend/tests/api/test_academics_api.py; backend/tests/integration/test_academics.py | Consulta historica de estructura y resumen de matricula; resultados de evaluacion pendientes de dominio |
 | RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Not implemented | #132 | TBD | Fase posterior |
 | RF-EST-001 | Catalogo de grados | Debe | institutional-structure | Not implemented | #165 | TBD | Nucleo fundacional |
 | RF-EST-002 | Jornadas del establecimiento | Debe | institutional-structure | Not implemented | #166 | TBD | Base de horarios y asistencia |
@@ -147,7 +151,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-BIT-005 | Inmutabilidad de la bitacora | Debe | audit-compliance | Not implemented | #115 | TBD | Critico |
 | RF-BIT-006 | Consulta y exportacion restringidas | Deberia | audit-compliance | Not implemented | #116 | TBD | Rol auditor |
 | RF-BIT-007 | Atribucion persistente | Debe | audit-compliance | Not implemented | #117 | TBD | No perder responsable |
-| RF-ALC-001 | El alcance acompana siempre al permiso | Debe | identity-access | Not implemented | #69 | TBD | Regla base |
+| RF-ALC-001 | El alcance acompana siempre al permiso | Debe | identity-access | Implemented | #69 | backend/tests/permissions/test_identity_permissions.py; backend/tests/unit/test_identity_services.py | Evaluacion y filtrado compartidos; grant sin dimension rechazado |
 | RF-ALC-002 | Alcance del docente por asignacion | Debe | identity-access | Not implemented | #70 | TBD | Cruza estructura |
 | RF-ALC-003 | Asignaciones versionadas | Debe | identity-access | Not implemented | #71 | TBD | Historia de alcance |
 | RF-ALC-004 | Alcance de lectura historica | Deberia | identity-access | Not implemented | #72 | TBD | Regla pendiente |
@@ -159,17 +163,17 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PER-001 | Catalogo de permisos atomicos | Debe | identity-access | Implemented | #241 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_permission_catalog_api.py | Catalogo administrativo auditable con acciones atomicas diferenciadas |
 | RF-PER-002 | Roles como agrupacion de permisos | Debe | identity-access | Implemented | #242 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_roles_api.py | Composicion configurable y auditable |
 | RF-PER-003 | Asignacion de multiples roles | Debe | identity-access | Implemented | #243 | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_roles_api.py | Union de roles vigentes expuesta por API |
-| RF-PER-004 | Denegacion por defecto | Debe | identity-access | Not implemented | #244 | TBD | Base authz |
-| RF-PER-005 | Evaluacion en cada operacion | Debe | identity-access | Not implemented | #245 | TBD | Base authz |
+| RF-PER-004 | Denegacion por defecto | Debe | identity-access | Implemented | #244 | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_roles_api.py | Sin permiso o scope explicitos se deniega |
+| RF-PER-005 | Evaluacion en cada operacion | Debe | identity-access | Implemented | #245 | backend/tests/api/test_identity_roles_api.py; backend/tests/unit/test_identity_services.py | Clase DRF y servicios compartidos auditan denegaciones directas |
 | RF-PER-006 | Vigencia inmediata de los cambios de autorizacion | Deberia | identity-access | Implemented | #246 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_roles_api.py | Composicion y revocacion evaluadas por operacion |
-| RF-PER-007 | Roles del sistema protegidos | Debe | identity-access | Not implemented | #247 | TBD | Seguridad |
+| RF-PER-007 | Roles del sistema protegidos | Debe | identity-access | Implemented | #247 | backend/tests/unit/test_identity_services.py | Protege ultimo rol, permiso y cuenta administradora |
 | RF-AUT-001 | Inicio de sesion | Debe | identity-access | Not implemented | #105 | TBD | Nucleo fundacional |
 | RF-AUT-002 | Bloqueo temporal por intentos fallidos | Debe | identity-access | Not implemented | #106 | TBD | Seguridad |
 | RF-AUT-003 | Duracion de sesion configurable por rol | Deberia | identity-access | Not implemented | #107 | TBD | Posterior controlable |
 | RF-AUT-004 | Cierre de sesion | Debe | identity-access | Not implemented | #108 | TBD | Nucleo fundacional |
 | RF-AUT-005 | Cierre del turno de captura | Debe | attendance-capture | Not implemented | #109 | TBD | Operacion de operador |
 | RF-AUT-006 | Cambio de contrasena por el titular | Debe | identity-access | Not implemented | #110 | TBD | Seguridad |
-| RF-CTA-001 | Creacion exclusivamente administrativa | Debe | identity-access | Not implemented | #139 | TBD | Nucleo fundacional |
+| RF-CTA-001 | Creacion exclusivamente administrativa | Debe | identity-access | Implemented | #139 | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py | Provision protegida por account.create y ausencia de ruta publica de autorregistro verificadas |
 | RF-CTA-002 | Vinculacion de la cuenta a una persona registrada | Debe | people-registry | Not implemented | #140 | TBD | Nucleo fundacional |
 | RF-CTA-003 | Activacion mediante codigo de un solo uso | Debe | identity-access | Not implemented | #141 | TBD | Seguridad |
 | RF-CTA-004 | Politica de contrasenas | Debe | identity-access | Not implemented | #142 | TBD | Seguridad |

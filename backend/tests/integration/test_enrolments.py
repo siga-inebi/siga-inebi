@@ -4,12 +4,15 @@ import pytest
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import (
+    active_enrolments,
     change_section,
     create_enrolment,
     enrolment_history,
     matriculate_student,
+    reenrol_student,
+    set_document_requirement,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
@@ -30,6 +33,7 @@ def test_create_valid_enrolment():
     )
 
     assert enrolment.status == enrolment.EnrolmentStatus.ACTIVE
+    assert list(active_enrolments(student=student)) == [enrolment]
 
 
 @pytest.mark.integration
@@ -84,12 +88,12 @@ def test_cannot_duplicate_incompatible_active_enrolment():
 @pytest.mark.postgres
 @pytest.mark.django_db
 def test_change_section_keeps_history():
-    first_section = SectionFactory()
+    first_section = SectionFactory(name="A")
     second_section = SectionFactory(
         academic_cycle=first_section.academic_cycle,
         grade=first_section.grade,
         shift=first_section.shift,
-        name="Z",
+        name="Replacement",
     )
     student = StudentFactory()
     enrolment = create_enrolment(
@@ -183,3 +187,92 @@ def test_matriculation_crosses_student_and_academic_domains():
     assert enrolment.section_id == section.id
     assert enrolment.section.shift.id == section.shift.id
     assert student.status == student.StudentStatus.ACTIVE
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_matriculation_blocks_full_section_and_preserves_student_status():
+    section = SectionFactory(capacity=1)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    student = StudentFactory(status="pre_enrolled")
+
+    with pytest.raises(DomainError, match="Section capacity has been reached"):
+        matriculate_student(
+            student=student,
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.PRE_ENROLLED
+    assert student.enrolments.count() == 0
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_reenrolment_crosses_student_and_academic_domains():
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    previous = create_enrolment(
+        student=student,
+        academic_cycle=previous_section.academic_cycle,
+        grade=previous_section.grade,
+        section=previous_section,
+    )
+
+    current = reenrol_student(
+        student=student,
+        academic_cycle=target_cycle,
+        grade=target_section.grade,
+        shift=target_section.shift,
+        section=target_section,
+    )
+
+    assert current.student_id == previous.student_id
+    assert current.academic_cycle_id == target_cycle.id
+    assert student.enrolments.count() == 2
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_document_requirements_cross_enrolment_and_keep_delivery_state():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    requirement = set_document_requirement(
+        enrolment=enrolment,
+        code="guardian-id",
+        name="Guardian identity document",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+
+    assert requirement.enrolment.student_id == enrolment.student_id
+    assert requirement.is_required is True
+    assert requirement.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED

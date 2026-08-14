@@ -1,6 +1,37 @@
 from rest_framework import serializers
 
-from apps.enrolments.models import Enrolment
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+
+
+class EnrolmentDocumentRequirementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EnrolmentDocumentRequirement
+        fields = [
+            "public_id",
+            "code",
+            "name",
+            "is_required",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class EnrolmentDocumentRequirementCreateSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50, help_text="Codigo del documento requerido.")
+    name = serializers.CharField(max_length=150, help_text="Nombre del documento requerido.")
+    is_required = serializers.BooleanField(
+        required=False,
+        help_text="Solo se actualiza si viene en el payload. Al crear, por defecto es true.",
+    )
+    status = serializers.ChoiceField(
+        choices=EnrolmentDocumentRequirement.DeliveryStatus.choices,
+        required=False,
+        help_text=(
+            "Solo se actualiza si viene en el payload. Al crear, por defecto es 'pending'. "
+            "Omitirlo en una actualizacion conserva el estado de entrega registrado."
+        ),
+    )
 
 
 class EnrolmentSerializer(serializers.ModelSerializer):
@@ -39,6 +70,10 @@ class EnrolmentCreateSerializer(serializers.Serializer):
     )
 
 
+class ActiveEnrolmentQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(required=False, help_text="Filtra por estudiante.")
+
+
 class EnrolmentHistoryQuerySerializer(serializers.Serializer):
     student_id = serializers.UUIDField(required=True, help_text="Public ID del estudiante.")
 
@@ -58,3 +93,12 @@ class MatriculationCreateSerializer(serializers.Serializer):
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada.")
     section_id = serializers.UUIDField(help_text="Public ID de la sección asignada.")
     effective_on = serializers.DateField(help_text="Fecha de inicio de la matrícula.")
+
+
+class ReenrolmentCreateSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante activo.")
+    academic_cycle_id = serializers.UUIDField(help_text="Public ID del nuevo ciclo escolar.")
+    grade_id = serializers.UUIDField(help_text="Public ID del grado destino.")
+    shift_id = serializers.UUIDField(help_text="Public ID de la jornada destino.")
+    section_id = serializers.UUIDField(help_text="Public ID de la sección asignada.")
+    effective_on = serializers.DateField(help_text="Fecha de inicio de la reinscripción.")

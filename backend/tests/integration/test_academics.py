@@ -2,12 +2,22 @@ from datetime import date
 
 import pytest
 
-from apps.academics.models import AcademicCycle, GradeOffering
+from apps.academics.api.queries import historical_cycle_or_404
+from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, Section
 from apps.academics.services import activate_academic_cycle, create_academic_cycle
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
-from tests.factories.academic import GradeFactory, InstitutionFactory, ShiftFactory
+from apps.enrolments.models import Enrolment
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    GradeFactory,
+    InstitutionFactory,
+    SectionFactory,
+    ShiftFactory,
+    SubjectFactory,
+)
 from tests.factories.identity import UserFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.integration, pytest.mark.django_db]
 
@@ -22,6 +32,19 @@ def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
         starts_on=date(2026, 1, 1),
         ends_on=date(2026, 10, 31),
         actor=actor,
+    )
+    active_grade = GradeFactory(level__institution=institution)
+    active_shift = ShiftFactory(campus__institution=institution)
+    active_offering = GradeOffering.objects.create(
+        academic_cycle=active,
+        grade=active_grade,
+        shift=active_shift,
+    )
+    Section.objects.create(offering=active_offering, name="A")
+    CurriculumPlan.objects.create(
+        academic_cycle=active,
+        grade=active_grade,
+        subject=SubjectFactory(institution=institution),
     )
     activate_academic_cycle(cycle=active, actor=actor)
     prepared = create_academic_cycle(
@@ -46,3 +69,22 @@ def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
     with pytest.raises(DomainError, match="must be closed"):
         activate_academic_cycle(cycle=prepared, actor=actor)
     assert AuditEvent.objects.filter(action="academics.cycle.created").count() == 2
+
+
+def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    section = SectionFactory(academic_cycle=cycle)
+    enrolment = Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+        ends_on=cycle.ends_on,
+    )
+
+    historical = historical_cycle_or_404(cycle.institution, cycle.public_id)
+
+    assert historical._enrolment_total == 1
+    assert historical._enrolment_completed == 1
+    assert Enrolment.objects.filter(pk=enrolment.pk).exists()

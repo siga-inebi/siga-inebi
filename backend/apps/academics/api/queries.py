@@ -6,15 +6,19 @@ annotations the serializers depend on always exist and no view triggers a
 hidden per-row count.
 """
 
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from rest_framework.exceptions import NotFound
 
 from apps.academics.models import (
+    AcademicCycle,
     Campus,
+    CurriculumPlan,
     Grade,
+    GradeOffering,
     Institution,
     Level,
     LevelSubject,
+    Section,
     Shift,
     Subject,
     TeachingAssignment,
@@ -136,6 +140,56 @@ def teaching_assignment_history(institution, *, teacher=None, academic_cycle=Non
     if academic_cycle is not None:
         queryset = queryset.filter(academic_cycle=academic_cycle)
     return queryset.order_by("-academic_cycle__starts_on", "-starts_on", "-created_at")
+
+
+def historical_cycle_or_404(institution, public_id):
+    queryset = (
+        AcademicCycle.objects.filter(institution=institution)
+        .prefetch_related(
+            Prefetch(
+                "grade_offerings",
+                queryset=(
+                    GradeOffering.objects.select_related("grade__level", "shift__campus")
+                    .prefetch_related(
+                        Prefetch("sections", queryset=Section.objects.order_by("name"))
+                    )
+                    .order_by(
+                        "grade__level__sequence",
+                        "grade__sequence",
+                        "shift__name",
+                    )
+                ),
+            ),
+            Prefetch(
+                "curriculum_plans",
+                queryset=CurriculumPlan.objects.select_related("grade__level", "subject").order_by(
+                    "grade__level__sequence", "grade__sequence", "subject__name"
+                ),
+            ),
+            Prefetch(
+                "teaching_assignments",
+                queryset=TeachingAssignment.objects.select_related(
+                    "section", "subject", "teacher__teacher_profile"
+                ).order_by("starts_on", "created_at"),
+            ),
+        )
+        .annotate(
+            _enrolment_total=Count("enrolments", distinct=True),
+            _enrolment_active=Count(
+                "enrolments", filter=Q(enrolments__status="active"), distinct=True
+            ),
+            _enrolment_withdrawn=Count(
+                "enrolments", filter=Q(enrolments__status="withdrawn"), distinct=True
+            ),
+            _enrolment_completed=Count(
+                "enrolments", filter=Q(enrolments__status="completed"), distinct=True
+            ),
+            _enrolment_cancelled=Count(
+                "enrolments", filter=Q(enrolments__status="cancelled"), distinct=True
+            ),
+        )
+    )
+    return _get(queryset, public_id, "Academic cycle")
 
 
 def _get(queryset, public_id, label):

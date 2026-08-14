@@ -50,3 +50,5 @@ audit-compliance
 - Reglas de negocio viven en dominio backend, no en vistas ni componentes.
 - Authz se consulta como servicio de dominio o capa compartida, no inline en UI.
 - Dominios comparten identificadores estables, no tablas internas acopladas sin API interna clara.
+- Las mutaciones de dominios dependientes de `school-cycle` consultan su politica compartida de
+  estado antes de escribir; los rechazos de ciclos cerrados no alteran la historia conservada.
