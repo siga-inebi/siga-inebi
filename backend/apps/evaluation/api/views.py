@@ -8,8 +8,14 @@ RF-EVC-004: Brecha excepcional autorizada
 RF-EVC-005: Configuracion global heredable
 
 Authorization: requires role=director + permission=evaluation.configure_units
+
+Las vistas de configuracion son ``APIView`` sin ``serializer_class``, asi que
+drf-spectacular no puede adivinar su contrato y las descartaba por completo: no
+aparecian en el schema publicado. Cada operacion lo declara con
+``extend_schema``.
 """
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView
 from rest_framework.response import Response
@@ -34,6 +40,8 @@ from apps.evaluation.services import (
     set_recovery_window,
     update_global_evaluation_config,
 )
+
+TAGS = ["evaluation: configuration"]
 
 
 class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
@@ -117,6 +125,15 @@ class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    patch=extend_schema(
+        summary="Configurar la ventana de recuperacion de una unidad",
+        description="La fecha de fin no puede ser anterior a la de inicio.",
+        tags=TAGS,
+        request=RecoveryWindowSerializer,
+        responses={200: EvaluationUnitSerializer},
+    ),
+)
 class EvaluationUnitRecoveryWindowView(APIView):
     """
     Configure the recovery window of an evaluation unit (RF-EVC-003).
@@ -264,6 +281,20 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar la configuracion institucional de evaluacion",
+        tags=TAGS,
+        responses={200: EvaluationGlobalConfigSerializer},
+    ),
+    patch=extend_schema(
+        summary="Actualizar la configuracion institucional de evaluacion",
+        description="Solo afecta a los ciclos que no tengan configuracion propia.",
+        tags=TAGS,
+        request=EvaluationGlobalConfigSerializer,
+        responses={200: EvaluationGlobalConfigSerializer},
+    ),
+)
 class EvaluationGlobalConfigView(APIView):
     """
     Read and update the institution-wide evaluation configuration (RF-EVC-005).
@@ -308,6 +339,24 @@ class EvaluationGlobalConfigView(APIView):
         return Response(EvaluationGlobalConfigSerializer(config).data, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar la configuracion de evaluacion de un ciclo",
+        description="Un ciclo sin configuracion propia hereda el default institucional.",
+        tags=TAGS,
+        responses={200: CycleEvaluationConfigSerializer},
+    ),
+    patch=extend_schema(
+        summary="Definir la configuracion de evaluacion de un ciclo",
+        description=(
+            "Sobrescribe el default institucional solo para este ciclo; no cambia la "
+            "configuracion global ni la de ningun otro ciclo."
+        ),
+        tags=TAGS,
+        request=CycleEvaluationConfigSerializer,
+        responses={200: CycleEvaluationConfigSerializer},
+    ),
+)
 class CycleEvaluationConfigView(APIView):
     """
     Read the effective unit count and override it for a specific cycle (RF-EVC-005).

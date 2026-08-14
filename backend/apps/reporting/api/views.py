@@ -4,8 +4,15 @@ HTTP layer for Alertas de asistencia (RF-JOR-007).
 Views only translate between HTTP and ``apps.reporting.services``; every
 invariant lives there (AGENTS.md #8). ``DomainError`` becomes a 400 envelope
 via ``config.api.exception_handler``, so no view here catches it.
+
+These handlers are written by hand on ``GenericAPIView``, so drf-spectacular
+cannot infer their contract from ``serializer_class`` alone: it would document
+the paginated listings as a single object and give the write bodies the read
+serializer. Every operation declares its contract with ``extend_schema`` so the
+published schema matches what the endpoint really accepts and returns.
 """
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import GenericAPIView
@@ -49,6 +56,27 @@ def _resolve(queryset, public_id, label):
         raise DomainError(f"{label} not found.") from exc
 
 
+TAGS = ["reporting: alerts"]
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar umbrales de ausencia",
+        description="Umbrales vigentes e historicos por jornada y ciclo escolar.",
+        tags=TAGS,
+        responses={200: AbsenceThresholdParametersSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar umbral de ausencia",
+        description=(
+            "Registra un umbral nuevo. No reemplaza en el lugar: el anterior se "
+            "conserva para poder explicar por que se emitio una alerta en su momento."
+        ),
+        tags=TAGS,
+        request=AbsenceThresholdParametersCreateSerializer,
+        responses={201: AbsenceThresholdParametersSerializer},
+    ),
+)
 class AbsenceThresholdParametersListCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = AbsenceThresholdParametersSerializer
@@ -80,6 +108,18 @@ class AbsenceThresholdParametersListCreateView(GenericAPIView):
         )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar alertas institucionales",
+        description=(
+            "Tablero de alertas dentro del alcance del actor. Todos los filtros son "
+            "opcionales; `acknowledged=false` devuelve lo que falta atender."
+        ),
+        tags=TAGS,
+        parameters=[ReportingAlertQuerySerializer],
+        responses={200: ReportingAlertSerializer(many=True)},
+    ),
+)
 class ReportingAlertListView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ReportingAlertSerializer
@@ -112,6 +152,18 @@ class ReportingAlertListView(GenericAPIView):
         return self.get_paginated_response(ReportingAlertSerializer(page, many=True).data)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Marcar una alerta como atendida",
+        description=(
+            "Registra quien atendio la alerta y cuando. No lleva cuerpo: la alerta "
+            "se identifica por la ruta y el actor por la sesion."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: ReportingAlertSerializer},
+    ),
+)
 class ReportingAlertAcknowledgeView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ReportingAlertSerializer
@@ -132,6 +184,19 @@ class ReportingAlertAcknowledgeView(GenericAPIView):
         return Response(ReportingAlertSerializer(alert).data)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Recalcular las alertas de una jornada",
+        description=(
+            "Vuelve a evaluar la asistencia de una jornada y sincroniza sus alertas. "
+            "El cuerpo solo lleva jornada y fecha; los grupos de alertas del "
+            "resultado los calcula el servicio."
+        ),
+        tags=TAGS,
+        request=AlertEvaluationRequestSerializer,
+        responses={200: DailyAlertEvaluationResultSerializer},
+    ),
+)
 class AlertEvaluationView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DailyAlertEvaluationResultSerializer
