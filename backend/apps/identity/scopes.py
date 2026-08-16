@@ -6,7 +6,6 @@ from apps.academics.models import AcademicCycle, TeachingAssignment
 from apps.identity.models import ScopeGrant
 from apps.students.models import Student
 
-
 WRITE_PERMISSION_CODENAMES = {
     "grade_write",
     "grade_correct",
@@ -22,6 +21,7 @@ WRITE_PERMISSION_CODENAMES = {
     "document_upload",
     "document_issue",
 }
+
 
 def active_scope_grants(*, user, codename, when=None):
     when = when or timezone.now()
