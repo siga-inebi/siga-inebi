@@ -204,3 +204,28 @@ def test_queryset_filter_only_returns_records_inside_effective_scope():
     )
 
     assert list(scoped_students) == [allowed_student]
+
+
+@pytest.mark.django_db
+def test_scope_matches_denies_write_permissions_on_closed_cycle():
+    from apps.identity.scopes import scope_matches
+    from tests.factories.academic import AcademicCycleFactory
+
+    closed_cycle = AcademicCycleFactory(status="closed")
+    section = SectionFactory(academic_cycle=closed_cycle)
+    user = UserFactory()
+    write_permission = PermissionFactory(codename="grade_write")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[write_permission]),
+    )
+    ScopeGrantFactory(assignment=assignment, section=section)
+
+    assert (
+        scope_matches(
+            user=user,
+            codename="grade_write",
+            scope={"section": section},
+        )
+        is False
+    )

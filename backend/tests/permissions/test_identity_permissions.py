@@ -661,3 +661,98 @@ def test_person_cannot_be_linked_to_multiple_accounts():
 
     with pytest.raises(DomainError, match="already has an account"):
         create_account(actor=actor, person=person, username="second-account")
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_rf_alc_005_teacher_cannot_write_in_closed_cycle():
+    """RF-ALC-005: Intento de modificar calificaciones en un ciclo cerrado es denegado."""
+    cycle = AcademicCycleFactory(status="active")
+    section = SectionFactory(academic_cycle=cycle)
+    subject = SubjectFactory(institution=cycle.institution)
+    teacher = TeacherFactory()
+    teacher_person = teacher.person
+    user = UserFactory(person=teacher_person)
+    write_permission = PermissionFactory(codename="grade_write")
+    correct_permission = PermissionFactory(codename="grade_correct")
+    RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[write_permission, correct_permission]),
+    )
+    assignment = create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher_person,
+    )
+
+    # El ciclo se cierra
+    cycle.status = cycle.CycleStatus.CLOSED
+    cycle.save(update_fields=["status", "updated_at"])
+    assignment.refresh_from_db()
+    section.refresh_from_db()
+
+    # Intento de escribir o corregir en el ciclo cerrado
+    assert (
+        user.has_scoped_permission("grade_write", scope={"teaching_assignment": assignment})
+        is False
+    )
+    assert (
+        user.has_scoped_permission("grade_write", scope={"section": section, "subject": subject})
+        is False
+    )
+    assert (
+        user.has_scoped_permission("grade_correct", scope={"teaching_assignment": assignment})
+        is False
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_rf_alc_005_teacher_can_write_in_active_cycle():
+    """RF-ALC-005: Escritura permitida para docente con asignación vigente en ciclo activo."""
+    active_cycle = AcademicCycleFactory(status="active")
+    section = SectionFactory(academic_cycle=active_cycle)
+    subject = SubjectFactory(institution=active_cycle.institution)
+    teacher = TeacherFactory()
+    teacher_person = teacher.person
+    user = UserFactory(person=teacher_person)
+    write_permission = PermissionFactory(codename="grade_write")
+    RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[write_permission]))
+    assignment = create_teaching_assignment(
+        academic_cycle=active_cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher_person,
+    )
+
+    assert (
+        user.has_scoped_permission("grade_write", scope={"teaching_assignment": assignment}) is True
+    )
+    assert (
+        user.has_scoped_permission("grade_write", scope={"section": section, "subject": subject})
+        is True
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_rf_alc_005_administrative_write_denied_in_closed_cycle_but_read_allowed():
+    """RF-ALC-005: Scope administrativo no permite escrituras en ciclos cerrados."""
+    closed_cycle = AcademicCycleFactory(status="closed")
+    section = SectionFactory(academic_cycle=closed_cycle)
+    user = UserFactory()
+    write_perm = PermissionFactory(codename="grade_write")
+    read_perm = PermissionFactory(codename="student_view_basic")
+    role = RoleFactory(permissions=[write_perm, read_perm])
+    assignment = RoleAssignmentFactory(user=user, role=role)
+    ScopeGrantFactory(assignment=assignment, section=section)
+
+    # Escritura denegada en ciclo cerrado
+    assert user.has_scoped_permission("grade_write", scope={"section": section}) is False
+
+    # Lectura permitida
+    assert user.has_scoped_permission("student_view_basic", scope={"section": section}) is True

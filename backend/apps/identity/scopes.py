@@ -7,6 +7,22 @@ from apps.identity.models import ScopeGrant
 from apps.students.models import Student
 
 
+WRITE_PERMISSION_CODENAMES = {
+    "grade_write",
+    "grade_correct",
+    "attendance_record_entry",
+    "attendance_record_exit",
+    "attendance_record_manual",
+    "attendance_declared_close",
+    "attendance_scan",
+    "attendance_justification_resolve",
+    "enrollment_create",
+    "enrollment_update",
+    "student_edit_basic",
+    "document_upload",
+    "document_issue",
+}
+
 def active_scope_grants(*, user, codename, when=None):
     when = when or timezone.now()
     return (
@@ -124,6 +140,15 @@ def can_access_student(*, user, codename, student, when=None):
 def scope_matches(*, user, codename, scope, when=None):
     """Resolve an object scope through the same central rules as student querysets."""
     if not scope:
+        return False
+
+    context = _scope_context(scope)
+    cycle = context.get("academic_cycle")
+    if (
+        cycle is not None
+        and codename in WRITE_PERMISSION_CODENAMES
+        and getattr(cycle, "status", None) != AcademicCycle.CycleStatus.ACTIVE
+    ):
         return False
 
     student = scope.get("student")
