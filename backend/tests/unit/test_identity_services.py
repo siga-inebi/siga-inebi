@@ -204,3 +204,81 @@ def test_queryset_filter_only_returns_records_inside_effective_scope():
     )
 
     assert list(scoped_students) == [allowed_student]
+
+
+@pytest.mark.django_db
+def test_rf_aut_006_change_password_requires_correct_current_password():
+    """RF-AUT-006: Rechaza cambio si la contraseña actual no coincide."""
+    from apps.audit.models import AuditEvent
+    from apps.identity.services import change_password
+
+    user = UserFactory(password="old-secure-pass-123")
+
+    with pytest.raises(DomainError, match="incorrecta"):
+        change_password(
+            user=user,
+            current_password="wrong-password-999",
+            new_password="New-Secure-Pass-2026!",
+        )
+
+    assert user.check_password("old-secure-pass-123") is True
+    event = AuditEvent.objects.get(action="identity.password.change_denied")
+    assert event.resource_identifier == str(user.pk)
+    assert event.context["reason"] == "invalid_current_password"
+
+
+@pytest.mark.django_db
+def test_rf_aut_006_change_password_updates_password_and_invalidates_other_sessions(client):
+    """RF-AUT-006: Cambia contraseña exitosamente y cierra las demás sesiones activas."""
+    from datetime import timedelta
+
+    from django.contrib.sessions.middleware import SessionMiddleware
+    from django.contrib.sessions.models import Session
+    from django.test import RequestFactory
+    from django.utils import timezone
+
+    from apps.audit.models import AuditEvent
+    from apps.identity.services import change_password
+
+    user = UserFactory(password="old-secure-pass-123")
+
+    # Crear sesiones previas en base de datos para el mismo usuario
+    session_other_1 = Session.objects.create(
+        session_key="session-device-1",
+        session_data=client.session.encode({"_auth_user_id": str(user.pk)}),
+        expire_date=timezone.now() + timedelta(days=1),
+    )
+    session_other_2 = Session.objects.create(
+        session_key="session-device-2",
+        session_data=client.session.encode({"_auth_user_id": str(user.pk)}),
+        expire_date=timezone.now() + timedelta(days=1),
+    )
+
+    rf = RequestFactory()
+    request = rf.post("/api/v1/auth/password/change/")
+    middleware = SessionMiddleware(lambda req: None)
+    middleware.process_request(request)
+    request.session.save()
+    request.session["_auth_user_id"] = str(user.pk)
+    request.session.save()
+    request.user = user
+
+    updated_user = change_password(
+        user=user,
+        current_password="old-secure-pass-123",
+        new_password="New-Secure-Pass-2026!",
+        request=request,
+    )
+
+    assert updated_user.check_password("New-Secure-Pass-2026!") is True
+    assert updated_user.check_password("old-secure-pass-123") is False
+
+    # Las demás sesiones fueron eliminadas/cerradas
+    assert Session.objects.filter(session_key=session_other_1.session_key).exists() is False
+    assert Session.objects.filter(session_key=session_other_2.session_key).exists() is False
+
+    # Registro en bitácora sin texto plano
+    event = AuditEvent.objects.get(action="identity.password.changed")
+    assert event.resource_identifier == str(user.pk)
+    assert event.context["result"] == "success"
+    assert "New-Secure-Pass-2026!" not in str(event.context)

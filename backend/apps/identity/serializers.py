@@ -62,3 +62,17 @@ class LoginSerializer(serializers.Serializer):
 class CurrentSessionSerializer(serializers.Serializer):
     authenticated = serializers.BooleanField()
     user = CurrentUserSerializer(allow_null=True)
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True, required=True)
+    new_password = serializers.CharField(write_only=True, required=True)
+    new_password_confirm = serializers.CharField(write_only=True, required=False)
+
+    def validate(self, attrs):
+        confirm = attrs.get("new_password_confirm")
+        if confirm is not None and confirm != attrs["new_password"]:
+            raise serializers.ValidationError(
+                {"new_password_confirm": ["Las contraseñas no coinciden."]}
+            )
+        return attrs

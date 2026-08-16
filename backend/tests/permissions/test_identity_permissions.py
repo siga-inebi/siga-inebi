@@ -661,3 +661,18 @@ def test_person_cannot_be_linked_to_multiple_accounts():
 
     with pytest.raises(DomainError, match="already has an account"):
         create_account(actor=actor, person=person, username="second-account")
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_rf_aut_006_unauthenticated_user_cannot_change_password():
+    """RF-AUT-006: Solo el usuario autenticado (titular) puede cambiar su contraseña."""
+    from apps.identity.services import change_password
+
+    with pytest.raises(PermissionDenied):
+        change_password(
+            user=None,
+            current_password="old-pass",
+            new_password="New-Pass-2026!",
+        )
