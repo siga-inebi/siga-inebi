@@ -661,3 +661,19 @@ def test_person_cannot_be_linked_to_multiple_accounts():
 
     with pytest.raises(DomainError, match="already has an account"):
         create_account(actor=actor, person=person, username="second-account")
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
+def test_rf_aut_002_locked_account_cannot_authenticate():
+    """RF-AUT-002: Cuenta bloqueada temporalmente es rechazada al intentar autenticarse."""
+    from apps.identity.services import AccountTemporarilyLockedError, authenticate_account
+
+    user = UserFactory(password="secure-pass-123")
+    user.failed_login_attempts = 5
+    user.locked_until = timezone.now() + timedelta(minutes=10)
+    user.save(update_fields=["failed_login_attempts", "locked_until"])
+
+    with pytest.raises(AccountTemporarilyLockedError):
+        authenticate_account(request=None, username=user.username, password="secure-pass-123")

@@ -173,6 +173,33 @@ describe("app shell", () => {
     ).toBeInTheDocument();
   });
 
+  test("shows temporary lockout alert when account is locked", async () => {
+    const user = userEvent.setup();
+    authServiceMock.login.mockRejectedValueOnce(
+      new Error("Cuenta temporalmente bloqueada.")
+    );
+
+    renderWithRouter(
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/app" element={<div>Dashboard listo</div>} />
+        </Routes>
+      </AuthProvider>,
+      { route: "/login" }
+    );
+
+    await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
+    await user.type(screen.getByLabelText(/Contrasena/i), "cualquier-pass");
+    await user.click(screen.getByRole("button", { name: /Ingresar/i }));
+
+    expect(
+      await screen.findByText(/Cuenta temporalmente bloqueada./i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Dashboard listo/i)).not.toBeInTheDocument();
+  });
+
+
   test("renders 404 page", () => {
     renderWithRouter(<NotFoundPage />);
     expect(screen.getByText(/Pagina no encontrada/i)).toBeInTheDocument();
