@@ -199,7 +199,6 @@ describe("app shell", () => {
     expect(screen.queryByText(/Dashboard listo/i)).not.toBeInTheDocument();
   });
 
-
   test("renders 404 page", () => {
     renderWithRouter(<NotFoundPage />);
     expect(screen.getByText(/Pagina no encontrada/i)).toBeInTheDocument();
