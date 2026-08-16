@@ -751,10 +751,7 @@ def _invalidate_other_user_sessions(*, user, current_session_key=None):
     """Cierra todas las demás sesiones activas de la cuenta."""
     user_id_str = str(user.pk)
     for session in Session.objects.filter(expire_date__gte=timezone.now()):
-        try:
-            data = session.get_decoded()
-        except Exception:
-            continue
+        data = session.get_decoded()
         if str(data.get("_auth_user_id")) == user_id_str:
             if current_session_key and session.session_key == current_session_key:
                 continue
