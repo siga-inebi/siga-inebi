@@ -155,7 +155,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ALC-002 | Alcance del docente por asignacion | Debe | identity-access | Not implemented | #70 | TBD | Cruza estructura |
 | RF-ALC-003 | Asignaciones versionadas | Debe | identity-access | Not implemented | #71 | TBD | Historia de alcance |
 | RF-ALC-004 | Alcance de lectura historica | Deberia | identity-access | Not implemented | #72 | TBD | Regla pendiente |
-| RF-ALC-005 | Alcance de escritura limitado al ciclo activo | Debe | identity-access | Not implemented | #73 | TBD | Regla base |
+| RF-ALC-005 | Alcance de escritura limitado al ciclo activo | Debe | identity-access | Implemented | #73 | backend/tests/permissions/test_identity_permissions.py; backend/tests/unit/test_identity_services.py | Restringe escrituras al ciclo activo y deniega modificaciones en ciclos cerrados |
 | RF-ALC-006 | Alcance del encargado | Debe | identity-access | Not implemented | #74 | TBD | Guardian link |
 | RF-ALC-007 | Asociacion principal del estudiante | Deberia | identity-access | Not implemented | #75 | TBD | Ambiguo |
 | RF-ALC-008 | Corte total al terminar la asociacion | Debe | identity-access | Not implemented | #76 | TBD | Seguridad |
@@ -168,15 +168,15 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PER-006 | Vigencia inmediata de los cambios de autorizacion | Deberia | identity-access | Implemented | #246 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_roles_api.py | Composicion y revocacion evaluadas por operacion |
 | RF-PER-007 | Roles del sistema protegidos | Debe | identity-access | Implemented | #247 | backend/tests/unit/test_identity_services.py | Protege ultimo rol, permiso y cuenta administradora |
 | RF-AUT-001 | Inicio de sesion | Debe | identity-access | Not implemented | #105 | TBD | Nucleo fundacional |
-| RF-AUT-002 | Bloqueo temporal por intentos fallidos | Debe | identity-access | Not implemented | #106 | TBD | Seguridad |
+| RF-AUT-002 | Bloqueo temporal por intentos fallidos | Debe | identity-access | Implemented | #106 | backend/tests/{unit/test_identity_services.py,api/test_identity_api.py,api/test_auth_api.py,permissions/test_identity_permissions.py,integration/test_identity.py}; frontend/src/test/App.test.jsx | Bloqueo configurable tras 5 intentos fallidos y levantamiento automatico |
 | RF-AUT-003 | Duracion de sesion configurable por rol | Deberia | identity-access | Not implemented | #107 | TBD | Posterior controlable |
 | RF-AUT-004 | Cierre de sesion | Debe | identity-access | Not implemented | #108 | TBD | Nucleo fundacional |
 | RF-AUT-005 | Cierre del turno de captura | Debe | attendance-capture | Not implemented | #109 | TBD | Operacion de operador |
-| RF-AUT-006 | Cambio de contrasena por el titular | Debe | identity-access | Not implemented | #110 | TBD | Seguridad |
+| RF-AUT-006 | Cambio de contrasena por el titular | Debe | identity-access | Implemented | #110 | backend/tests/{unit/test_identity_services.py,api/test_identity_api.py,permissions/test_identity_permissions.py,integration/test_identity.py}; frontend/src/test/ChangePasswordWindow.test.jsx | Exige confirmacion de vigente, cierra demas sesiones y audita |
 | RF-CTA-001 | Creacion exclusivamente administrativa | Debe | identity-access | Implemented | #139 | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py | Provision protegida por account.create y ausencia de ruta publica de autorregistro verificadas |
 | RF-CTA-002 | Vinculacion de la cuenta a una persona registrada | Debe | people-registry | Not implemented | #140 | TBD | Nucleo fundacional |
 | RF-CTA-003 | Activacion mediante codigo de un solo uso | Debe | identity-access | Not implemented | #141 | TBD | Seguridad |
-| RF-CTA-004 | Politica de contrasenas | Debe | identity-access | Not implemented | #142 | TBD | Seguridad |
+| RF-CTA-004 | Politica de contrasenas | Debe | identity-access | Implemented | #142 | backend/tests/unit/test_identity_services.py | Longitud minima configurable y rechazo de comunes; no exige mayusculas ni simbolos |
 | RF-CTA-005 | Restablecimiento asistido | Debe | identity-access | Not implemented | #143 | TBD | Seguridad |
 | RF-CTA-006 | Desactivacion con verificacion de dependencias | Debe | identity-access | Implemented | #144 | backend/tests/unit/test_identity_services.py | Desactivacion advierte asignaciones vigentes; eventos historicos sobreviven |
 | RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Not implemented | #145 | TBD | Seguridad |
