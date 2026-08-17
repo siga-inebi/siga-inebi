@@ -282,3 +282,84 @@ def test_rf_aut_006_change_password_updates_password_and_invalidates_other_sessi
     assert event.resource_identifier == str(user.pk)
     assert event.context["result"] == "success"
     assert "New-Secure-Pass-2026!" not in str(event.context)
+def test_rf_aut_002_authenticate_account_locks_after_max_failed_attempts():
+    """RF-AUT-002: Bloqueo tras superar el número configurado de intentos fallidos."""
+    from django.utils import timezone
+
+    from apps.identity.services import (
+        AccountTemporarilyLockedError,
+        InvalidCredentialsError,
+        authenticate_account,
+    )
+
+    user = UserFactory(password="correct-pass-123")
+
+    for _ in range(4):
+        with pytest.raises(InvalidCredentialsError):
+            authenticate_account(request=None, username=user.username, password="wrong-password")
+
+    user.refresh_from_db()
+    assert user.failed_login_attempts == 4
+    assert user.locked_until is None
+
+    # Quinto intento fallido activa el bloqueo temporal
+    with pytest.raises(AccountTemporarilyLockedError):
+        authenticate_account(request=None, username=user.username, password="wrong-password")
+
+    user.refresh_from_db()
+    assert user.failed_login_attempts == 5
+    assert user.locked_until is not None
+    assert user.locked_until > timezone.now()
+
+
+@pytest.mark.django_db
+def test_rf_aut_002_locked_account_rejects_correct_password_and_lifts_automatically():
+    """RF-AUT-002: Cuenta bloqueada rechaza contraseña correcta y se desbloquea al expirar."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.identity.services import AccountTemporarilyLockedError, authenticate_account
+
+    user = UserFactory(password="correct-pass-123")
+    user.failed_login_attempts = 5
+    user.locked_until = timezone.now() + timedelta(minutes=10)
+    user.save(update_fields=["failed_login_attempts", "locked_until"])
+
+    # Escenario 1: Intento con contraseña correcta mientras está bloqueado
+    with pytest.raises(AccountTemporarilyLockedError):
+        authenticate_account(request=None, username=user.username, password="correct-pass-123")
+
+    # Escenario 2: Levantamiento automático tras transcurrir el lapso
+    user.locked_until = timezone.now() - timedelta(seconds=1)
+    user.save(update_fields=["locked_until"])
+
+    authenticated_user = authenticate_account(
+        request=None, username=user.username, password="correct-pass-123"
+    )
+    assert authenticated_user == user
+    user.refresh_from_db()
+    assert user.failed_login_attempts == 0
+    assert user.locked_until is None
+def test_scope_matches_denies_write_permissions_on_closed_cycle():
+    from apps.identity.scopes import scope_matches
+    from tests.factories.academic import AcademicCycleFactory
+
+    closed_cycle = AcademicCycleFactory(status="closed")
+    section = SectionFactory(academic_cycle=closed_cycle)
+    user = UserFactory()
+    write_permission = PermissionFactory(codename="grade_write")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[write_permission]),
+    )
+    ScopeGrantFactory(assignment=assignment, section=section)
+
+    assert (
+        scope_matches(
+            user=user,
+            codename="grade_write",
+            scope={"section": section},
+        )
+        is False
+    )
