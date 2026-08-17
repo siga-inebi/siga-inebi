@@ -701,7 +701,26 @@ def protect_system_role(*, actor, role):
     return role
 
 
-def disable_account(*, actor, user):
+def get_account_active_dependencies(user):
+    """RF-CTA-006: Retorna dependencias vigentes que quedarían sin responsable."""
+    from apps.academics.models import AcademicCycle, TeachingAssignment
+
+    if not user.person_id:
+        return {"teaching_assignments": []}
+
+    assignments = list(
+        TeachingAssignment.objects.filter(
+            teacher_id=user.person_id,
+            academic_cycle__status=AcademicCycle.CycleStatus.ACTIVE,
+            ends_on__isnull=True,
+        )
+        .select_related("section", "subject")
+        .values("id", "section__name", "subject__name")
+    )
+    return {"teaching_assignments": assignments}
+
+
+def disable_account(*, actor, user, force=False):
     is_authorized = bool(_has_identity_permission(actor, ACCOUNT_DISABLE_PERMISSION))
     if not is_authorized:
         record_event(
@@ -715,6 +734,10 @@ def disable_account(*, actor, user):
             },
         )
         raise PermissionDenied("Actor lacks permission to disable accounts.")
+
+    deps = get_account_active_dependencies(user)
+    if deps["teaching_assignments"] and not force:
+        return {"warnings": deps, "disabled": False}
 
     with transaction.atomic():
         account = user.__class__.objects.select_for_update().get(pk=user.pk)
@@ -741,6 +764,7 @@ def disable_account(*, actor, user):
                     "is_active": account.is_active,
                 },
                 "result": "success",
+                "forced_with_dependencies": bool(deps["teaching_assignments"]),
             },
         )
-        return account
+        return {"account": account, "disabled": True}

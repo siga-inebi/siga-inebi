@@ -2,6 +2,7 @@ import pytest
 from django.core.exceptions import PermissionDenied
 
 from apps.audit.models import AuditEvent
+from apps.audit.services import record_event
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from apps.identity.services import (
@@ -14,7 +15,8 @@ from apps.identity.services import (
     update_role,
 )
 from apps.students.models import Student
-from tests.factories.academic import SectionFactory
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.people import PersonFactory
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -165,9 +167,10 @@ def test_last_account_administrator_cannot_be_disabled():
         disable_account(actor=actor, user=protected)
 
     RoleAssignmentFactory(role=RoleFactory(permissions=[account_create]))
-    disabled = disable_account(actor=actor, user=protected)
+    result = disable_account(actor=actor, user=protected)
 
-    assert disabled.is_active is False
+    assert result["disabled"] is True
+    assert result["account"].is_active is False
 
 
 @pytest.mark.django_db
@@ -204,3 +207,57 @@ def test_queryset_filter_only_returns_records_inside_effective_scope():
     )
 
     assert list(scoped_students) == [allowed_student]
+
+
+# ---------------------------------------------------------------------------
+# RF-CTA-006 — Desactivación con verificación de dependencias
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_rf_cta_006_disable_warns_about_active_teaching_assignments():
+    """Escenario 1: docente con secciones vigentes → advierte antes de desactivar."""
+    from apps.academics.models import AcademicCycle, TeachingAssignment
+
+    actor = UserFactory(is_superuser=True)
+    person = PersonFactory()
+    target = UserFactory(person=person)
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    subject = SubjectFactory(institution=cycle.institution)
+    TeachingAssignment.objects.create(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=person,
+    )
+
+    result = disable_account(actor=actor, user=target, force=False)
+
+    assert result["disabled"] is False
+    assert len(result["warnings"]["teaching_assignments"]) == 1
+    target.refresh_from_db()
+    assert target.is_active is True  # No se desactivó
+
+
+@pytest.mark.django_db
+def test_rf_cta_006_disabled_account_historical_events_survive():
+    """Escenario 2: eventos previos siguen atribuidos a la cuenta desactivada."""
+    actor = UserFactory(is_superuser=True)
+    target = UserFactory()
+
+    record_event(
+        actor=target,
+        action="grades.published",
+        resource="Grade",
+        resource_identifier="test-grade",
+        context={"detail": "nota publicada"},
+    )
+
+    disable_account(actor=actor, user=target, force=True)
+
+    target.refresh_from_db()
+    assert target.is_active is False
+
+    event = AuditEvent.objects.get(action="grades.published")
+    assert event.actor_id == target.pk

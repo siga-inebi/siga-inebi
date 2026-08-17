@@ -574,10 +574,10 @@ def test_authorized_actor_disables_account_without_deleting_it():
     RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
     target = UserFactory()
 
-    disabled_account = disable_account(actor=actor, user=target)
+    result = disable_account(actor=actor, user=target)
 
     target.refresh_from_db()
-    assert disabled_account.pk == target.pk
+    assert result["account"].pk == target.pk
     assert target.status == target.AccountStatus.DISABLED
     assert target.is_active is False
     assert target.__class__.objects.filter(pk=target.pk).exists()

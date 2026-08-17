@@ -2,6 +2,8 @@ from django.urls import path
 
 from apps.identity.api.views import (
     AccountActivationView,
+    AccountDisableView,
+    AccountListView,
     AccountProvisionView,
     ActivationChallengeReissueView,
     AtomicPermissionListView,
@@ -26,10 +28,16 @@ urlpatterns = [
         name="identity-role-assignment-revoke",
     ),
     path("accounts/", AccountProvisionView.as_view(), name="identity-account-provision"),
+    path("accounts/list/", AccountListView.as_view(), name="identity-account-list"),
     path("accounts/activate/", AccountActivationView.as_view(), name="identity-account-activate"),
     path(
         "accounts/<int:account_id>/activation-challenges/",
         ActivationChallengeReissueView.as_view(),
         name="identity-activation-challenge-reissue",
+    ),
+    path(
+        "accounts/<int:account_id>/disable/",
+        AccountDisableView.as_view(),
+        name="identity-account-disable",
     ),
 ]

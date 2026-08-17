@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import models
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status
@@ -9,6 +10,8 @@ from rest_framework.response import Response
 from apps.identity.api.permissions import ScopedAtomicPermission
 from apps.identity.api.serializers import (
     AccountActivationSerializer,
+    AccountDisableSerializer,
+    AccountListSerializer,
     AccountProvisionSerializer,
     ActivatedAccountSerializer,
     ActivationChallengeSerializer,
@@ -24,6 +27,7 @@ from apps.identity.services import (
     activate_account,
     assign_role,
     create_role,
+    disable_account,
     list_atomic_permissions,
     list_roles,
     provision_account_with_activation,
@@ -195,3 +199,52 @@ class ActivationChallengeReissueView(GenericAPIView):
         )
         response["Cache-Control"] = "no-store"
         return response
+
+
+class AccountListView(GenericAPIView):
+    """RF-CTA-006: Listado de cuentas con filtros por estado y búsqueda."""
+
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "account_disable"
+    permission_scope = {"module_key": "identity"}
+    serializer_class = AccountListSerializer
+
+    def get_queryset(self):
+        qs = get_user_model().objects.select_related("person").order_by("username")
+        if s := self.request.query_params.get("status"):
+            qs = qs.filter(status=s)
+        if q := self.request.query_params.get("search"):
+            qs = qs.filter(
+                models.Q(username__icontains=q)
+                | models.Q(person__first_name__icontains=q)
+                | models.Q(person__last_name__icontains=q)
+            )
+        return qs
+
+    @extend_schema(responses={200: AccountListSerializer(many=True)})
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(AccountListSerializer(page, many=True).data)
+
+
+class AccountDisableView(GenericAPIView):
+    """RF-CTA-006: Desactivación con verificación de dependencias."""
+
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "account_disable"
+    permission_scope = {"module_key": "identity"}
+    serializer_class = AccountDisableSerializer
+
+    @extend_schema(request=AccountDisableSerializer, responses={200: AccountListSerializer})
+    def post(self, request, account_id):
+        account = get_object_or_404(get_user_model(), pk=account_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = disable_account(
+            actor=request.user,
+            user=account,
+            force=serializer.validated_data["force"],
+        )
+        if not result["disabled"]:
+            return Response(result, status=status.HTTP_409_CONFLICT)
+        return Response(AccountListSerializer(result["account"]).data)
