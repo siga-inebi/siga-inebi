@@ -155,7 +155,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ALC-002 | Alcance del docente por asignacion | Debe | identity-access | Not implemented | #70 | TBD | Cruza estructura |
 | RF-ALC-003 | Asignaciones versionadas | Debe | identity-access | Not implemented | #71 | TBD | Historia de alcance |
 | RF-ALC-004 | Alcance de lectura historica | Deberia | identity-access | Not implemented | #72 | TBD | Regla pendiente |
-| RF-ALC-005 | Alcance de escritura limitado al ciclo activo | Debe | identity-access | Not implemented | #73 | TBD | Regla base |
+| RF-ALC-005 | Alcance de escritura limitado al ciclo activo | Debe | identity-access | Implemented | #73 | backend/tests/permissions/test_identity_permissions.py; backend/tests/unit/test_identity_services.py | Restringe escrituras al ciclo activo y deniega modificaciones en ciclos cerrados |
 | RF-ALC-006 | Alcance del encargado | Debe | identity-access | Not implemented | #74 | TBD | Guardian link |
 | RF-ALC-007 | Asociacion principal del estudiante | Deberia | identity-access | Not implemented | #75 | TBD | Ambiguo |
 | RF-ALC-008 | Corte total al terminar la asociacion | Debe | identity-access | Not implemented | #76 | TBD | Seguridad |

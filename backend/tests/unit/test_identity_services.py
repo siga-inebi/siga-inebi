@@ -266,3 +266,25 @@ def test_rf_aut_002_locked_account_rejects_correct_password_and_lifts_automatica
     user.refresh_from_db()
     assert user.failed_login_attempts == 0
     assert user.locked_until is None
+def test_scope_matches_denies_write_permissions_on_closed_cycle():
+    from apps.identity.scopes import scope_matches
+    from tests.factories.academic import AcademicCycleFactory
+
+    closed_cycle = AcademicCycleFactory(status="closed")
+    section = SectionFactory(academic_cycle=closed_cycle)
+    user = UserFactory()
+    write_permission = PermissionFactory(codename="grade_write")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[write_permission]),
+    )
+    ScopeGrantFactory(assignment=assignment, section=section)
+
+    assert (
+        scope_matches(
+            user=user,
+            codename="grade_write",
+            scope={"section": section},
+        )
+        is False
+    )
