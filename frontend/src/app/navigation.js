@@ -28,6 +28,7 @@ import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import GradingOutlinedIcon from "@mui/icons-material/GradingOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
 import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
+import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 
 import {
   canViewAlumnos,
@@ -206,6 +207,20 @@ export const NAV_GROUPS = [
         path: "/app/alertas",
         icon: NotificationsActiveOutlinedIcon,
         load: () => import("@reporting/AlertsPage.jsx"),
+      },
+    ],
+  },
+  {
+    key: "seguridad",
+    label: "Seguridad",
+    items: [
+      {
+        key: "cuentas",
+        label: "Cuentas",
+        description: "Gestion de cuentas, estados y desactivacion.",
+        path: "/app/cuentas",
+        icon: AdminPanelSettingsOutlinedIcon,
+        load: () => import("@auth/AccountsPage.jsx"),
       },
     ],
   },

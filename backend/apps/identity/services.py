@@ -2,9 +2,10 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
-from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth import authenticate, get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Permission
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.sessions.models import Session
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.signing import salted_hmac
 from django.db import models, transaction
@@ -714,7 +715,26 @@ def protect_system_role(*, actor, role):
     return role
 
 
-def disable_account(*, actor, user):
+def get_account_active_dependencies(user):
+    """RF-CTA-006: Retorna dependencias vigentes que quedarían sin responsable."""
+    from apps.academics.models import AcademicCycle, TeachingAssignment
+
+    if not user.person_id:
+        return {"teaching_assignments": []}
+
+    assignments = list(
+        TeachingAssignment.objects.filter(
+            teacher_id=user.person_id,
+            academic_cycle__status=AcademicCycle.CycleStatus.ACTIVE,
+            ends_on__isnull=True,
+        )
+        .select_related("section", "subject")
+        .values("id", "section__name", "subject__name")
+    )
+    return {"teaching_assignments": assignments}
+
+
+def disable_account(*, actor, user, force=False):
     is_authorized = bool(_has_identity_permission(actor, ACCOUNT_DISABLE_PERMISSION))
     if not is_authorized:
         record_event(
@@ -742,6 +762,10 @@ def disable_account(*, actor, user):
         )
         raise PermissionDenied("Users cannot disable their own accounts.")
 
+    deps = get_account_active_dependencies(user)
+    if deps["teaching_assignments"] and not force:
+        return {"warnings": deps, "disabled": False}
+
     with transaction.atomic():
         account = user.__class__.objects.select_for_update().get(pk=user.pk)
         if _active_account_administrators().filter(user=account).exists():
@@ -767,6 +791,57 @@ def disable_account(*, actor, user):
                     "is_active": account.is_active,
                 },
                 "result": "success",
+                "forced_with_dependencies": bool(deps["teaching_assignments"]),
             },
         )
         return account
+
+
+def _invalidate_other_user_sessions(*, user, current_session_key=None):
+    """Cierra todas las demás sesiones activas de la cuenta."""
+    user_id_str = str(user.pk)
+    for session in Session.objects.filter(expire_date__gte=timezone.now()):
+        data = session.get_decoded()
+        if str(data.get("_auth_user_id")) == user_id_str:
+            if current_session_key and session.session_key == current_session_key:
+                continue
+            session.delete()
+
+
+def change_password(*, user, current_password, new_password, request=None):
+    """
+    RF-AUT-006: Permite al titular cambiar su contraseña exigiendo la contraseña vigente.
+    Cierra las demás sesiones activas y registra el evento en bitácora sin guardar texto claro.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        raise PermissionDenied("Debe estar autenticado para cambiar la contraseña.")
+
+    if not user.check_password(current_password):
+        record_event(
+            actor=user,
+            action="identity.password.change_denied",
+            resource="UserAccount",
+            resource_identifier=str(user.pk),
+            context={"reason": "invalid_current_password"},
+        )
+        raise DomainError("La contraseña actual es incorrecta.")
+
+    validate_password(new_password, user=user)
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+
+    current_session_key = getattr(getattr(request, "session", None), "session_key", None)
+    _invalidate_other_user_sessions(user=user, current_session_key=current_session_key)
+
+    if request and hasattr(request, "session") and getattr(request, "user", None) == user:
+        update_session_auth_hash(request, user)
+
+    record_event(
+        actor=user,
+        action="identity.password.changed",
+        resource="UserAccount",
+        resource_identifier=str(user.pk),
+        context={"result": "success"},
+    )
+    return user

@@ -178,3 +178,22 @@ class RoleAssignmentSerializer(serializers.Serializer):
     role = serializers.UUIDField(source="role.public_id")
     starts_at = serializers.DateTimeField()
     ends_at = serializers.DateTimeField(allow_null=True)
+
+
+class AccountListSerializer(serializers.ModelSerializer):
+    """RF-CTA-006: Representación de una cuenta para el listado de administración."""
+
+    person_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = get_user_model()
+        fields = ["id", "username", "status", "is_active", "person_name"]
+        read_only_fields = fields
+
+    def get_person_name(self, obj):
+        p = obj.person
+        return f"{p.first_name} {p.last_name}".strip() if p else ""
+
+
+class AccountDisableSerializer(serializers.Serializer):
+    force = serializers.BooleanField(default=False)
