@@ -178,7 +178,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CTA-003 | Activacion mediante codigo de un solo uso | Debe | identity-access | Not implemented | #141 | TBD | Seguridad |
 | RF-CTA-004 | Politica de contrasenas | Debe | identity-access | Implemented | #142 | backend/tests/unit/test_identity_services.py | Longitud minima configurable y rechazo de comunes; no exige mayusculas ni simbolos |
 | RF-CTA-005 | Restablecimiento asistido | Debe | identity-access | Not implemented | #143 | TBD | Seguridad |
-| RF-CTA-006 | Desactivacion con verificacion de dependencias | Debe | identity-access | Not implemented | #144 | TBD | Historia y control |
+| RF-CTA-006 | Desactivacion con verificacion de dependencias | Debe | identity-access | Implemented | #144 | backend/tests/unit/test_identity_services.py | Desactivacion advierte asignaciones vigentes; eventos historicos sobreviven |
 | RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Not implemented | #145 | TBD | Seguridad |
 | RF-EXP-001 | Registro del estudiante | Debe | student-records | Not implemented | #185 | TBD | Nucleo fundacional |
 | RF-EXP-002 | Codigo estudiantil | Debe | student-records | Not implemented | #186 | TBD | Identificador institucional |
