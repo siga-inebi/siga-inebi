@@ -11,6 +11,7 @@ class Student(TimeStampedModel):
         ACTIVE = "active", "Active"
         INACTIVE = "inactive", "Inactive"
         WITHDRAWN = "withdrawn", "Withdrawn"
+        GRADUATED = "graduated", "Graduated"
 
     person = models.OneToOneField(
         "people.Person",

@@ -182,14 +182,14 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Implemented | #145 | backend/tests/unit/test_identity_services.py; backend/tests/permissions/test_identity_permissions.py | Prohibicion estricta y auditada de autoasignacion/revocacion de roles, autodesactivacion y autoactivacion |
 | RF-CTA-006 | Desactivacion con verificacion de dependencias | Debe | identity-access | Implemented | #144 | backend/tests/unit/test_identity_services.py | Desactivacion advierte asignaciones vigentes; eventos historicos sobreviven |
 | RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Not implemented | #145 | TBD | Seguridad |
-| RF-EXP-001 | Registro del estudiante | Debe | student-records | Not implemented | #185 | TBD | Nucleo fundacional |
-| RF-EXP-002 | Codigo estudiantil | Debe | student-records | Not implemented | #186 | TBD | Identificador institucional |
-| RF-EXP-003 | Estado del estudiante | Debe | student-records | Not implemented | #187 | TBD | Alimenta modulos |
+| RF-EXP-001 | Registro del estudiante | Debe | student-records | In progress | #185 | backend/tests/api/test_students_api.py; backend/tests/integration/test_student_lifecycle.py | Registro transaccional y autorizado; campos demograficos adicionales no estan definidos en la fuente |
+| RF-EXP-002 | Codigo estudiantil | Debe | student-records | Implemented | #186 | backend/tests/unit/test_students.py; backend/tests/api/test_students_api.py | Codigo obligatorio y unico con rollback ante duplicado |
+| RF-EXP-003 | Estado del estudiante | Debe | student-records | In progress | #187 | backend/tests/unit/test_students_services.py; backend/tests/api/test_students_api.py | Estados publicados y cambios auditados; matriz completa de restricciones por estado no esta definida |
 | RF-EXP-004 | Vinculo con encargados | Debe | student-records | Not implemented | #188 | TBD | Cruza auth |
 | RF-EXP-005 | Contactos de emergencia | Debe | student-records | Not implemented | #189 | TBD | Dato sensible moderado |
 | RF-EXP-006 | Observaciones y anotaciones disciplinarias | Deberia | student-records | Not implemented | #190 | TBD | Politica de acceso pendiente |
-| RF-EXP-007 | Fotografia del estudiante | Debe | student-records | Not implemented | #191 | TBD | Soporte escaneo |
-| RF-EXP-008 | Conservacion del expediente | Debe | student-records | Not implemented | #192 | TBD | Historia obligatoria |
+| RF-EXP-007 | Fotografia del estudiante | Debe | student-records | In progress | #191 | backend/tests/unit/test_students_services.py; backend/tests/api/test_students_api.py; frontend/src/test/AlumnosPage.test.jsx | Carga y visualizacion restringidas; limites y normalizacion dependen de RF-ARC-001/002 |
+| RF-EXP-008 | Conservacion del expediente | Debe | student-records | In progress | #192 | backend/tests/unit/test_students.py; backend/tests/api/test_students_api.py; backend/tests/integration/test_student_lifecycle.py | API desactiva y conserva persona y relaciones; prohibicion global de borrado ORM pendiente |
 | RF-EXP-009 | Notas de salud del estudiante | Deberia | student-records | Not implemented | #193 | TBD | Dato sensible especial |
 | RF-MAT-001 | La inscripcion como registro con vigencia | Debe | enrollment-lifecycle | Not implemented | #225 | TBD | Nucleo fundacional |
 | RF-MAT-002 | Matricula de un estudiante | Debe | enrollment-lifecycle | Not implemented | #226 | TBD | Nucleo fundacional |
