@@ -172,7 +172,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-AUT-003 | Duracion de sesion configurable por rol | Deberia | identity-access | Not implemented | #107 | TBD | Posterior controlable |
 | RF-AUT-004 | Cierre de sesion | Debe | identity-access | Not implemented | #108 | TBD | Nucleo fundacional |
 | RF-AUT-005 | Cierre del turno de captura | Debe | attendance-capture | Not implemented | #109 | TBD | Operacion de operador |
-| RF-AUT-006 | Cambio de contrasena por el titular | Debe | identity-access | Not implemented | #110 | TBD | Seguridad |
+| RF-AUT-006 | Cambio de contrasena por el titular | Debe | identity-access | Implemented | #110 | backend/tests/{unit/test_identity_services.py,api/test_identity_api.py,permissions/test_identity_permissions.py,integration/test_identity.py}; frontend/src/test/ChangePasswordWindow.test.jsx | Exige confirmacion de vigente, cierra demas sesiones y audita |
 | RF-CTA-001 | Creacion exclusivamente administrativa | Debe | identity-access | Implemented | #139 | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py | Provision protegida por account.create y ausencia de ruta publica de autorregistro verificadas |
 | RF-CTA-002 | Vinculacion de la cuenta a una persona registrada | Debe | people-registry | Not implemented | #140 | TBD | Nucleo fundacional |
 | RF-CTA-003 | Activacion mediante codigo de un solo uso | Debe | identity-access | Not implemented | #141 | TBD | Seguridad |

@@ -666,6 +666,16 @@ def test_person_cannot_be_linked_to_multiple_accounts():
 @pytest.mark.permissions
 @pytest.mark.security
 @pytest.mark.django_db
+def test_rf_aut_006_unauthenticated_user_cannot_change_password():
+    """RF-AUT-006: Solo el usuario autenticado (titular) puede cambiar su contraseña."""
+    from apps.identity.services import change_password
+
+    with pytest.raises(PermissionDenied):
+        change_password(
+            user=None,
+            current_password="old-pass",
+            new_password="New-Pass-2026!",
+        )
 def test_rf_aut_002_locked_account_cannot_authenticate():
     """RF-AUT-002: Cuenta bloqueada temporalmente es rechazada al intentar autenticarse."""
     from apps.identity.services import AccountTemporarilyLockedError, authenticate_account

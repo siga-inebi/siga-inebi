@@ -1,7 +1,14 @@
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from config.api.views import DatabaseHealthView, HealthView, LoginView, LogoutView, MeView
+from config.api.views import (
+    DatabaseHealthView,
+    HealthView,
+    LoginView,
+    LogoutView,
+    MeView,
+    PasswordChangeView,
+)
 
 urlpatterns = [
     path("health/", HealthView.as_view(), name="health"),
@@ -11,6 +18,7 @@ urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="auth-login"),
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", MeView.as_view(), name="auth-me"),
+    path("auth/password/change/", PasswordChangeView.as_view(), name="auth-password-change"),
     path("identity/", include("apps.identity.api.urls")),
     path("people/", include("apps.people.api.urls")),
     path("students/", include("apps.students.api.urls")),
