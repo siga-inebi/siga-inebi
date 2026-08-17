@@ -1,0 +1,1433 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SIGA-INEBI · Prototipo navegable</title>
+<style>
+  :root{
+    --navy:#0b2234;
+    --navy-2:#123852;
+    --ink:#102438;
+    --muted:#5c7183;
+    --line:#d8e0e8;
+    --line-soft:#e8eef4;
+    --paper:#ffffff;
+    --bg:#eef2f6;
+    --gold:#d4a149;
+    --blue:#1e598a;
+    --ok:#1f7a4d;
+    --warn:#a8710d;
+    --bad:#a32b2b;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    line-height:1.5;
+    font-size:14px;
+  }
+  button,input,select{font:inherit;color:inherit}
+  a{color:var(--blue)}
+
+  /* ---------- Barra de estado del prototipo ---------- */
+  .protobar{
+    background:#1c1c1c;color:#f2f2f2;padding:.45rem 1rem;
+    display:flex;gap:1rem;align-items:center;flex-wrap:wrap;font-size:.78rem;
+  }
+  .protobar strong{color:var(--gold);letter-spacing:.06em}
+  .protobar .spacer{flex:1}
+  .protobar select{
+    background:#2c2c2c;color:#fff;border:1px solid #444;border-radius:6px;padding:.25rem .5rem;font-size:.78rem;
+  }
+  .protobar button{
+    background:transparent;color:#f2f2f2;border:1px solid #555;border-radius:6px;
+    padding:.25rem .6rem;font-size:.78rem;cursor:pointer;
+  }
+  .protobar button:hover{border-color:var(--gold);color:var(--gold)}
+
+  /* ---------- Marco de la aplicacion ---------- */
+  .shell{display:flex;flex-direction:column;min-height:calc(100vh - 32px)}
+  .topbar{
+    background:var(--navy);color:#f6fafd;display:flex;align-items:center;gap:1rem;
+    padding:.7rem 1.1rem;
+  }
+  .brand{display:flex;align-items:center;gap:.7rem}
+  .brand .mark{
+    width:38px;height:38px;border-radius:10px;background:var(--gold);color:var(--navy);
+    display:grid;place-items:center;font-weight:700;font-size:.8rem;letter-spacing:.04em;
+  }
+  .brand b{display:block;font-size:.95rem;letter-spacing:.08em}
+  .brand span{display:block;font-size:.72rem;color:rgba(246,250,253,.7)}
+  .topsearch{
+    flex:1;max-width:340px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);
+    border-radius:8px;padding:.35rem .7rem;color:#eaf2f8;
+  }
+  .topsearch::placeholder{color:rgba(234,242,248,.55)}
+  .cyclechip{
+    background:rgba(212,161,73,.18);border:1px solid rgba(212,161,73,.45);color:#f2d9a8;
+    border-radius:999px;padding:.2rem .7rem;font-size:.75rem;white-space:nowrap;
+  }
+  .userchip{display:flex;align-items:center;gap:.5rem;font-size:.8rem;margin-left:auto}
+  .userchip .avatar{
+    width:30px;height:30px;border-radius:50%;background:var(--navy-2);
+    border:1px solid rgba(255,255,255,.25);display:grid;place-items:center;font-size:.7rem;
+  }
+
+  .body{display:flex;flex:1;min-height:0}
+  .sidebar{
+    width:214px;flex-shrink:0;background:#f7f9fb;border-right:1px solid var(--line);
+    padding:.9rem .7rem;display:flex;flex-direction:column;gap:.15rem;
+  }
+  .sidebar .cap{
+    font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+    padding:.3rem .6rem .5rem;
+  }
+  .navitem{
+    display:flex;align-items:center;gap:.55rem;padding:.5rem .6rem;border-radius:8px;
+    cursor:pointer;color:var(--ink);text-decoration:none;font-size:.86rem;border:1px solid transparent;
+  }
+  .navitem:hover{background:#e9eff5}
+  .navitem.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .navitem .ic{width:18px;text-align:center;opacity:.85}
+  .sidefoot{margin-top:auto;padding:.6rem;border-top:1px solid var(--line);font-size:.75rem;color:var(--muted)}
+  .sidefoot b{display:block;color:var(--ink);font-size:.8rem}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .crumbs{
+    padding:.55rem 1.3rem;border-bottom:1px solid var(--line);background:#fff;
+    font-size:.78rem;color:var(--muted);
+  }
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .crumbs a:hover{color:var(--blue);text-decoration:underline}
+  .content{padding:1.3rem;flex:1;overflow:auto}
+  .footbar{
+    border-top:1px solid var(--line);background:#fff;padding:.45rem 1.3rem;
+    font-size:.74rem;color:var(--muted);display:flex;gap:1.4rem;flex-wrap:wrap;
+  }
+
+  /* ---------- Piezas de contenido ---------- */
+  h1{font-size:1.32rem;margin:0 0 .15rem}
+  h2{font-size:1rem;margin:0 0 .6rem}
+  h3{font-size:.82rem;margin:0 0 .5rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .pagehead{display:flex;align-items:flex-start;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+  .pagehead .sub{color:var(--muted);font-size:.86rem}
+  .pagehead .acts{margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap}
+
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:1rem;margin-bottom:1rem}
+  .grid{display:grid;gap:.85rem}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+
+  .btn{
+    background:var(--navy);color:#fff;border:1px solid var(--navy);border-radius:8px;
+    padding:.42rem .85rem;cursor:pointer;font-size:.83rem;
+  }
+  .btn:hover{background:var(--navy-2)}
+  .btn.sec{background:#fff;color:var(--navy);border-color:var(--line)}
+  .btn.sec:hover{background:#eef3f8;border-color:var(--navy)}
+  .btn.gold{background:var(--gold);border-color:var(--gold);color:#2a1d05}
+  .btn.gold:hover{filter:brightness(1.06)}
+  .btn.sm{padding:.24rem .6rem;font-size:.76rem}
+  .btn.danger{background:#fff;color:var(--bad);border-color:#e3bcbc}
+
+  .filters{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.85rem}
+  .filters input[type=text]{border:1px solid var(--line);border-radius:8px;padding:.42rem .7rem;min-width:250px}
+  .filters select{border:1px solid var(--line);border-radius:8px;padding:.42rem .55rem;background:#fff}
+  .filters label{font-size:.78rem;color:var(--muted)}
+
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  th{
+    text-align:left;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);border-bottom:1px solid var(--line);padding:.5rem .55rem;font-weight:600;
+  }
+  td{padding:.55rem;border-bottom:1px solid var(--line-soft)}
+  tbody tr:hover{background:#f6f9fc}
+  tfoot td{font-weight:600;border-top:2px solid var(--line);border-bottom:none;background:#f7f9fb}
+
+  .tag{display:inline-block;padding:.1rem .5rem;border-radius:999px;font-size:.72rem;border:1px solid}
+  .tag.ok{color:var(--ok);border-color:#bfe0cd;background:#eef7f2}
+  .tag.warn{color:var(--warn);border-color:#ecd9ac;background:#fdf6e8}
+  .tag.bad{color:var(--bad);border-color:#e6c2c2;background:#fbeeee}
+  .tag.neutral{color:var(--muted);border-color:var(--line);background:#f4f7fa}
+
+  .kpi{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:.9rem 1rem}
+  .kpi .lbl{font-size:.76rem;color:var(--muted)}
+  .kpi .val{font-size:1.9rem;font-weight:600;line-height:1.1;margin:.15rem 0 .5rem}
+
+  .quick{
+    background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:var(--radius);padding:.85rem 1rem;cursor:pointer;
+  }
+  .quick:hover{border-color:var(--navy);border-left-color:var(--gold);background:#fbfcfe}
+  .quick b{display:block;font-size:.92rem}
+  .quick span{font-size:.78rem;color:var(--muted)}
+
+  .tabs{display:flex;gap:.2rem;border-bottom:1px solid var(--line);margin-bottom:1rem;flex-wrap:wrap}
+  .tab{
+    padding:.5rem .85rem;cursor:pointer;font-size:.85rem;color:var(--muted);
+    border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none;
+  }
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--navy);border-bottom-color:var(--gold);font-weight:600}
+
+  .notice{
+    border-radius:8px;padding:.6rem .8rem;font-size:.82rem;margin-bottom:.85rem;border:1px solid;
+  }
+  .notice.info{background:#eef4fa;border-color:#cfe0ee;color:#1c4b73}
+  .notice.warn{background:#fdf6e8;border-color:#ecd9ac;color:#7a5208}
+  .notice.bad{background:#fbeeee;border-color:#e6c2c2;color:#8a2626}
+
+  .empty{text-align:center;padding:2.4rem 1rem;color:var(--muted)}
+  .empty b{display:block;color:var(--ink);margin-bottom:.3rem;font-size:.95rem}
+
+  dl.fields{display:grid;grid-template-columns:auto 1fr;gap:.35rem .9rem;margin:0;font-size:.85rem}
+  dl.fields dt{color:var(--muted)}
+  dl.fields dd{margin:0}
+
+  .steps{display:flex;gap:.4rem;margin-bottom:1.1rem;flex-wrap:wrap}
+  .step{
+    flex:1;min-width:130px;border:1px solid var(--line);border-radius:8px;padding:.5rem .7rem;
+    background:#fff;font-size:.78rem;color:var(--muted);
+  }
+  .step b{display:block;color:var(--ink);font-size:.84rem}
+  .step.done{border-color:#bfe0cd;background:#f3faf6}
+  .step.now{border-color:var(--navy);background:var(--navy);color:rgba(255,255,255,.75)}
+  .step.now b{color:#fff}
+
+  .wizardnav{display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem}
+  .radio{display:flex;gap:.5rem;align-items:flex-start;padding:.6rem;border:1px solid var(--line);border-radius:8px;margin-bottom:.5rem;cursor:pointer}
+  .radio:hover{background:#f6f9fc}
+  .radio.on{border-color:var(--navy);background:#f2f7fb}
+  .field{margin-bottom:.7rem}
+  .field label{display:block;font-size:.76rem;color:var(--muted);margin-bottom:.2rem}
+  .field input,.field select{width:100%;border:1px solid var(--line);border-radius:8px;padding:.45rem .6rem;background:#fff}
+
+  .matrix td:first-child{font-weight:600}
+  .legend{font-size:.78rem;color:var(--muted);margin-top:.7rem}
+  .legend b{color:var(--ink)}
+
+  .mapgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.7rem}
+  .mapnode{border:1px solid var(--line);border-radius:8px;padding:.7rem .8rem;background:#fff;cursor:pointer}
+  .mapnode:hover{border-color:var(--navy);background:#f7fafd}
+  .mapnode b{display:block;font-size:.86rem}
+  .mapnode code{font-size:.72rem;color:var(--muted);background:#f2f5f8;padding:.05rem .3rem;border-radius:4px}
+  .maplevel{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:.9rem 0 .4rem}
+
+  /* ---------- Login ---------- */
+  .loginwrap{
+    min-height:calc(100vh - 32px);display:grid;place-items:center;padding:2rem 1rem;
+    background:
+      radial-gradient(circle at top,rgba(212,161,73,.18),transparent 45%),
+      radial-gradient(circle at right,rgba(30,89,138,.16),transparent 35%),
+      linear-gradient(180deg,#f7f1e5 0%,#edf2f7 100%);
+  }
+  .loginbox{width:100%;max-width:390px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:1.8rem;box-shadow:0 18px 40px rgba(16,36,56,.09)}
+  .loginbox .mark{width:56px;height:56px;border-radius:14px;background:var(--gold);color:var(--navy);display:grid;place-items:center;font-weight:700;margin:0 auto .8rem}
+  .loginbox h1{text-align:center;font-size:1.1rem;margin-bottom:.1rem}
+  .loginbox .inst{text-align:center;color:var(--muted);font-size:.78rem;margin-bottom:1.3rem}
+  .loginfoot{text-align:center;font-size:.74rem;color:var(--muted);margin-top:1rem}
+  .rolepick{border-top:1px dashed var(--line);margin-top:1.1rem;padding-top:.9rem}
+  .rolepick .hint{font-size:.72rem;color:var(--muted);margin-bottom:.4rem}
+
+  .modal-back{position:fixed;inset:0;background:rgba(11,34,52,.45);display:grid;place-items:center;padding:1rem;z-index:50}
+  .modal{background:#fff;border-radius:12px;max-width:430px;width:100%;padding:1.2rem 1.3rem;border:1px solid var(--line)}
+  .modal h2{margin-bottom:.5rem}
+  .modal p{font-size:.85rem;color:var(--muted);margin:0 0 1rem}
+  .modal .acts{display:flex;gap:.5rem;justify-content:flex-end}
+
+  @media (max-width:860px){
+    .sidebar{display:none}
+    .content{padding:1rem}
+  }
+</style>
+</head>
+<body>
+
+<div class="protobar">
+  <strong>PROTOTIPO</strong>
+  <span>SIGA-INEBI · v0.1 · no funcional, solo navegación</span>
+  <span class="spacer"></span>
+  <label for="rolesel">Ver como:</label>
+  <select id="rolesel"></select>
+  <button id="btnmapa" type="button">Mapa de navegación</button>
+  <button id="btnreset" type="button">Reiniciar</button>
+</div>
+
+<div id="root"></div>
+<div id="modal-root"></div>
+
+<script>
+/* =========================================================================
+   SIGA-INEBI · Prototipo navegable
+   Archivo único, sin dependencias. Datos ficticios.
+   Documentación: wireframes.md y navigation-map.md
+   ========================================================================= */
+
+/* ---------------------------------- Roles -------------------------------- */
+const ROLES = {
+  admin: {
+    label: "Administrador del sistema", short: "Admin", person: "Diana Ruano", user: "druano",
+    scope: "Institución completa",
+    modules: ["app","estudiantes","personas","academico","matriculas","reportes","usuarios"],
+    can: { crearEstudiante:true, editarEstructura:true, verSalud:true, operarMatricula:true, gestionarCuentas:true }
+  },
+  director: {
+    label: "Director", short: "Director", person: "Luis Morales", user: "lmorales",
+    scope: "Institución completa",
+    modules: ["app","estudiantes","personas","academico","matriculas","reportes"],
+    can: { crearEstudiante:true, editarEstructura:true, verSalud:true, operarMatricula:true, gestionarCuentas:false }
+  },
+  coordinador: {
+    label: "Coordinador académico", short: "Coordinador", person: "Sofía Tzoc", user: "stzoc",
+    scope: "Ciclo escolar vigente",
+    modules: ["app","estudiantes","academico","matriculas","reportes"],
+    can: { crearEstudiante:false, editarEstructura:true, verSalud:false, operarMatricula:false, gestionarCuentas:false }
+  },
+  administrativo: {
+    label: "Personal administrativo", short: "Administrativo", person: "Ana López", user: "alopez",
+    scope: "Ciclo escolar vigente",
+    modules: ["app","estudiantes","personas","matriculas"],
+    can: { crearEstudiante:true, editarEstructura:false, verSalud:false, operarMatricula:true, gestionarCuentas:false }
+  },
+  docente: {
+    label: "Docente", short: "Docente", person: "Carlos Pérez", user: "cperez",
+    scope: "Secciones asignadas · 1o \"A\", 2o \"B\"",
+    modules: ["app","estudiantes","reportes"],
+    can: { crearEstudiante:false, editarEstructura:false, verSalud:false, operarMatricula:false, gestionarCuentas:false }
+  },
+  encargado: {
+    label: "Encargado o tutor", short: "Encargado", person: "Rosa García", user: "rgarcia",
+    scope: "Estudiantes vinculados · 1",
+    modules: ["app","estudiantes"],
+    can: { crearEstudiante:false, editarEstructura:false, verSalud:false, operarMatricula:false, gestionarCuentas:false }
+  }
+};
+
+const MODULES = [
+  { id:"app",          label:"Panel",                 icon:"▦", route:"#/app" },
+  { id:"estudiantes",  label:"Estudiantes",           icon:"●", route:"#/estudiantes" },
+  { id:"personas",     label:"Personas",              icon:"○", route:"#/personas" },
+  { id:"academico",    label:"Estructura académica",  icon:"▣", route:"#/academico" },
+  { id:"matriculas",   label:"Matrículas",            icon:"▤", route:"#/matriculas" },
+  { id:"reportes",     label:"Reportes",              icon:"▥", route:"#/reportes" },
+  { id:"usuarios",     label:"Usuarios y permisos",   icon:"▧", route:"#/usuarios" }
+];
+
+/* --------------------------------- Estado -------------------------------- */
+const state = {
+  role: "administrativo",
+  authenticated: false,
+  intended: null,
+  tabExpediente: "general",
+  tabAcademico: "sedes",
+  wizardStep: 1,
+  wizardStudent: "existente",
+  modal: null
+};
+
+/* --------------------------- Datos de demostración ------------------------ */
+const ESTUDIANTES = [
+  { cod:"EST-0412", nom:"López García, María José", grado:"1o Básico", sec:"A", estado:"Activo" },
+  { cod:"EST-0413", nom:"Pérez Chan, Luis Antonio", grado:"1o Básico", sec:"A", estado:"Activo" },
+  { cod:"EST-0414", nom:"Ramos Coj, Ana Lucía",     grado:"2o Básico", sec:"B", estado:"Retiro" },
+  { cod:"EST-0415", nom:"Coj Tzoc, Pedro Ignacio",  grado:"2o Básico", sec:"B", estado:"Activo" },
+  { cod:"EST-0416", nom:"Sam Ixcot, Elena María",   grado:"3o Básico", sec:"A", estado:"Activo" },
+  { cod:"EST-0417", nom:"Ic Batz, Jorge Luis",      grado:"1o Básico", sec:"B", estado:"Activo" }
+];
+
+const PERSONAS = [
+  { doc:"2451 88990", nom:"García Coj, Rosa",     vin:"Encargada",           cuenta:false },
+  { doc:"1122 33445", nom:"Pérez Sam, Carlos",    vin:"Docente",             cuenta:true },
+  { doc:"3344 55667", nom:"López Ic, José",       vin:"Encargado, Personal", cuenta:true },
+  { doc:"5566 77889", nom:"Tzoc Menchú, Sofía",   vin:"Personal",            cuenta:true },
+  { doc:"9911 22334", nom:"Batz Coj, Marta",      vin:"Encargada",           cuenta:false }
+];
+
+const MATRÍCULAS = [
+  { cod:"MAT-1204", est:"López García, María J.", gs:"1o A", fecha:"15/01/2026", req:"Completos" },
+  { cod:"MAT-1205", est:"Pérez Chan, Luis A.",    gs:"1o A", fecha:"15/01/2026", req:"2 faltan" },
+  { cod:"MAT-1206", est:"Ramos Coj, Ana L.",      gs:"2o B", fecha:"16/01/2026", req:"Completos" },
+  { cod:"MAT-1207", est:"Coj Tzoc, Pedro I.",     gs:"2o B", fecha:"16/01/2026", req:"1 falta" },
+  { cod:"MAT-1208", est:"Sam Ixcot, Elena M.",    gs:"3o A", fecha:"17/01/2026", req:"Completos" }
+];
+
+const USUARIOS = [
+  { u:"druano",  p:"Ruano, Diana",       rol:"Administrador",  est:"Activa",    acc:"Hoy" },
+  { u:"lmorales",p:"Morales, Luis",      rol:"Director",       est:"Activa",    acc:"Hoy" },
+  { u:"stzoc",   p:"Tzoc Menchú, Sofía", rol:"Coordinador",    est:"Activa",    acc:"Ayer" },
+  { u:"alopez",  p:"López Ic, Ana",      rol:"Administrativo", est:"Activa",    acc:"Hoy" },
+  { u:"cperez",  p:"Pérez Sam, Carlos",  rol:"Docente",        est:"Activa",    acc:"Ayer" },
+  { u:"mramos",  p:"Ramos Coj, María",   rol:"Administrativo", est:"Bloqueada", acc:"05/08" }
+];
+
+const PANTALLAS = [
+  { nivel:0, nom:"Login",                     ruta:"#/login",                  real:"/login" },
+  { nivel:1, nom:"Panel",                     ruta:"#/app",                    real:"/app" },
+  { nivel:2, nom:"Estudiantes",               ruta:"#/estudiantes",            real:"/app/estudiantes" },
+  { nivel:3, nom:"Expediente del estudiante", ruta:"#/estudiantes/expediente", real:"/app/estudiantes/:id" },
+  { nivel:2, nom:"Personas",                  ruta:"#/personas",               real:"/app/personas" },
+  { nivel:2, nom:"Estructura académica",      ruta:"#/academico",              real:"/app/sedes, /app/niveles, /app/cursos, /app/ciclos" },
+  { nivel:3, nom:"Oferta del ciclo",          ruta:"#/academico/oferta",       real:"/app/ofertas/:offeringId" },
+  { nivel:2, nom:"Matrículas",                ruta:"#/matriculas",             real:"/app/matriculas" },
+  { nivel:3, nom:"Asistente de matrícula",    ruta:"#/matriculas/nueva",       real:"/app/matriculas/nueva" },
+  { nivel:2, nom:"Reportes",                  ruta:"#/reportes",               real:"/app/reportes" },
+  { nivel:2, nom:"Usuarios y permisos",       ruta:"#/usuarios",               real:"/app/usuarios" },
+  { nivel:3, nom:"Matriz de accesos",         ruta:"#/permisos",               real:"/app/usuarios/permisos" }
+];
+
+const MATRIZ = [
+  ["Panel",                 "Total","Total","Total","Total","Propio","Propio"],
+  ["Estudiantes",           "Total","Total","Lectura","Edición","Sus secciones","Vinculados"],
+  ["Salud del estudiante",  "Total","Lectura","No","No","No","No"],
+  ["Personas",              "Total","Total","No","Edición","No","No"],
+  ["Estructura académica",  "Total","Total","Edición","No","No","No"],
+  ["Matrículas",            "Total","Total","Lectura","Edición","No","No"],
+  ["Reportes",              "Total","Total","Total","No","Sus secciones","No"],
+  ["Usuarios y permisos",   "Total","No","No","No","No","No"]
+];
+
+/* -------------------------------- Utilidades ------------------------------ */
+const h = (html) => html;
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const role = () => ROLES[state.role];
+const puede = (cap) => !!role().can[cap];
+
+function moduloDe(hash){
+  if(hash.startsWith("#/estudiantes")) return "estudiantes";
+  if(hash.startsWith("#/personas"))    return "personas";
+  if(hash.startsWith("#/academico"))   return "academico";
+  if(hash.startsWith("#/matriculas"))  return "matriculas";
+  if(hash.startsWith("#/reportes"))    return "reportes";
+  if(hash.startsWith("#/usuarios") || hash.startsWith("#/permisos")) return "usuarios";
+  if(hash.startsWith("#/app"))         return "app";
+  return null;
+}
+
+function etiquetaModulo(m){
+  if(m.id === "estudiantes" && state.role === "encargado") return "Mis estudiantes";
+  return m.label;
+}
+
+function go(hash){ location.hash = hash; }
+
+function tabla(cols, filas, opts){
+  opts = opts || {};
+  return `<table>
+    <thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
+    <tbody>${filas.map(f=>`<tr>${f.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>
+    ${opts.foot ? `<tfoot><tr>${opts.foot.map(c=>`<td>${c}</td>`).join("")}</tr></tfoot>` : ""}
+  </table>`;
+}
+
+function paginación(desde, hasta, total){
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:.8rem;font-size:.78rem;color:var(--muted)">
+    <span>Mostrando ${desde}-${hasta} de ${total}</span>
+    <span>
+      <button class="btn sec sm" type="button">&laquo; Anterior</button>
+      <button class="btn sec sm" type="button">1</button>
+      <button class="btn sec sm" type="button">2</button>
+      <button class="btn sec sm" type="button">Siguiente &raquo;</button>
+    </span>
+  </div>`;
+}
+
+function tagReq(v){
+  if(v === "Completos") return `<span class="tag ok">Completos</span>`;
+  return `<span class="tag warn">${esc(v)}</span>`;
+}
+
+/* --------------------------------- Login --------------------------------- */
+function vistaLogin(){
+  const opciones = Object.entries(ROLES)
+    .map(([k,r]) => `<option value="${k}" ${k===state.role?"selected":""}>${esc(r.label)} — ${esc(r.person)}</option>`)
+    .join("");
+
+  const aviso = state.intended
+    ? `<div class="notice info">Su sesión expiro o no habia iniciado. Al ingresar volvera a: <b>${esc(state.intended)}</b></div>`
+    : "";
+
+  return `<div class="loginwrap">
+    <div class="loginbox">
+      <div class="mark">INEBI</div>
+      <h1>SIGA-INEBI</h1>
+      <p class="inst">Instituto Nacional de Educación Básica de Salcajá</p>
+      ${aviso}
+      <div class="field">
+        <label for="usr">Usuario</label>
+        <input id="usr" type="text" value="${esc(role().user)}" />
+      </div>
+      <div class="field">
+        <label for="pwd">Contrasena</label>
+        <input id="pwd" type="password" value="demostracion" />
+      </div>
+      <label style="display:flex;gap:.5rem;align-items:center;font-size:.8rem;margin:.6rem 0 1rem">
+        <input type="checkbox" /> Mantener sesión iniciada
+      </label>
+      <button class="btn" id="btning" style="width:100%" type="button">Ingresar</button>
+      <p class="loginfoot">Olvido su contrasena? Contacte a administración.</p>
+
+      <div class="rolepick">
+        <p class="hint">Solo en el prototipo: elija con que rol desea ingresar para ver como cambia el sistema.</p>
+        <select id="loginrole" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:.45rem .6rem;background:#fff">
+          ${opciones}
+        </select>
+      </div>
+      <p class="loginfoot" style="margin-top:1rem">Uso institucional. Los accesos quedan registrados.</p>
+    </div>
+  </div>`;
+}
+
+/* --------------------------------- Marco --------------------------------- */
+function marco(hash, crumbs, contenido){
+  const r = role();
+  const activo = moduloDe(hash);
+  const nav = MODULES.filter(m => r.modules.includes(m.id)).map(m => {
+    const on = m.id === activo ? " active" : "";
+    return `<a class="navitem${on}" href="${m.route}"><span class="ic">${m.icon}</span>${esc(etiquetaModulo(m))}</a>`;
+  }).join("");
+
+  const iniciales = r.person.split(" ").map(p=>p[0]).slice(0,2).join("");
+
+  return `<div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">INEBI</div>
+        <div><b>SIGA-INEBI</b><span>Instituto Nacional de Educación Básica de Salcajá</span></div>
+      </div>
+      <input class="topsearch" placeholder="Buscar estudiante o persona..." type="text" />
+      <span class="cyclechip">Ciclo 2026 · Abierto</span>
+      <div class="userchip">
+        <div class="avatar">${esc(iniciales)}</div>
+        <div style="line-height:1.2">
+          <div>${esc(r.person)}</div>
+          <div style="font-size:.7rem;opacity:.7">${esc(r.short)}</div>
+        </div>
+      </div>
+    </header>
+    <div class="body">
+      <aside class="sidebar">
+        <div class="cap">Módulos</div>
+        ${nav}
+        <a class="navitem" href="#/mapa"><span class="ic">◇</span>Mapa de navegación</a>
+        <div class="sidefoot">
+          <b>${esc(r.label)}</b>
+          Alcance: ${esc(r.scope)}
+          <button class="btn sec sm" id="btnsalir" style="margin-top:.5rem;width:100%" type="button">Cerrar sesión</button>
+        </div>
+      </aside>
+      <div class="main">
+        <div class="crumbs">${crumbs}</div>
+        <div class="content">${contenido}</div>
+        <div class="footbar">
+          <span>Ciclo activo: 2026</span>
+          <span>Sesión: ${esc(r.user)}</span>
+          <span>Prototipo v0.1 · datos ficticios</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+const crumb = (...partes) => partes.map((p,i) =>
+  i === partes.length-1 ? `<span>${p}</span>` : `<a href="${p.href}">${p.txt}</a> &rsaquo; `
+).join("");
+
+/* --------------------------------- Panel --------------------------------- */
+function vistaPanel(){
+  const r = role();
+
+  if(state.role === "encargado"){
+    return `<div class="pagehead"><div>
+      <h1>Mis estudiantes</h1>
+      <p class="sub">Consulta únicamente. Para cambios, comuniquese con la institución.</p>
+    </div></div>
+    <div class="card">
+      ${tabla(["Estudiante","Grado y sección","Ciclo","Estado",""],[
+        ["López García, María José","1o Básico \"A\"","2026",`<span class="tag ok">Activa</span>`,
+         `<button class="btn sec sm" data-go="#/estudiantes/expediente" type="button">Ver ficha</button>`]
+      ])}
+    </div>
+    <div class="notice info">El portal de encargados esta pendiente de confirmar con dirección. Ver pendientes en wireframes.md.</div>`;
+  }
+
+  if(state.role === "docente"){
+    return `<div class="pagehead"><div>
+      <h1>Panel</h1>
+      <p class="sub">Buen día, ${esc(r.person)}. Rol: ${esc(r.label)}. Ciclo 2026.</p>
+    </div></div>
+    <h3>Mis secciones</h3>
+    <div class="card">
+      ${tabla(["Sección","Curso","Estudiantes","Jornada",""],[
+        ["Primero Básico \"A\"","Matemática","32","Matutina",
+         `<button class="btn sec sm" data-go="#/estudiantes" type="button">Ver estudiantes</button>`],
+        ["Segundo Básico \"B\"","Matemática","29","Matutina",
+         `<button class="btn sec sm" data-go="#/estudiantes" type="button">Ver estudiantes</button>`]
+      ])}
+    </div>
+    <div class="notice info">El panel no muestra accesos administrativos porque el rol no los usa.</div>`;
+  }
+
+  const accesos = [];
+  if(puede("operarMatricula")) accesos.push(["Nueva matrícula","Registrar estudiante en el ciclo 2026","#/matriculas/nueva"]);
+  accesos.push(["Buscar estudiante","Abrir el listado y el expediente","#/estudiantes"]);
+  if(r.modules.includes("reportes")) accesos.push(["Reportes","Matrícula, estructura y control","#/reportes"]);
+  if(r.modules.includes("academico")) accesos.push(["Ciclo escolar","Sedes, grados, cursos y oferta","#/academico"]);
+
+  const pendientes = [
+    ["6 matrículas con requisitos documentales incompletos", "#/matriculas", r.modules.includes("matriculas")],
+    ["3 secciones sin docente asignado", "#/academico/oferta", r.modules.includes("academico")],
+    ["2 personas sin cuenta de usuario vinculada", "#/personas", r.modules.includes("personas")]
+  ].filter(p => p[2]);
+
+  return `<div class="pagehead">
+    <div>
+      <h1>Panel</h1>
+      <p class="sub">Buen día, ${esc(r.person)}. Rol: ${esc(r.label)}. Ciclo 2026 abierto.</p>
+    </div>
+  </div>
+
+  <h3>Accesos rápidos</h3>
+  <div class="grid g3" style="margin-bottom:1.3rem">
+    ${accesos.map(a=>`<div class="quick" data-go="${a[2]}"><b>${esc(a[0])}</b><span>${esc(a[1])}</span></div>`).join("")}
+  </div>
+
+  <h3>Resumen del ciclo 2026</h3>
+  <div class="grid g3" style="margin-bottom:1.3rem">
+    <div class="kpi"><div class="lbl">Estudiantes activos</div><div class="val">412</div>
+      <button class="btn sec sm" data-go="#/estudiantes" type="button">Ver listado</button></div>
+    <div class="kpi"><div class="lbl">Matrículas del ciclo</div><div class="val">398</div>
+      ${r.modules.includes("matriculas") ? `<button class="btn sec sm" data-go="#/matriculas" type="button">Ver listado</button>` : `<span class="tag neutral">Sin acceso</span>`}</div>
+    <div class="kpi"><div class="lbl">Secciones abiertas</div><div class="val">14</div>
+      ${r.modules.includes("academico") ? `<button class="btn sec sm" data-go="#/academico/oferta" type="button">Ver oferta</button>` : `<span class="tag neutral">Sin acceso</span>`}</div>
+  </div>
+
+  <h3>Pendientes</h3>
+  <div class="card">
+    ${pendientes.length ? pendientes.map(p=>`
+      <div style="display:flex;align-items:center;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--line-soft)">
+        <span style="flex:1;font-size:.86rem">${esc(p[0])}</span>
+        <button class="btn sec sm" data-go="${p[1]}" type="button">Revisar</button>
+      </div>`).join("")
+      : `<div class="empty"><b>Sin pendientes</b>No hay tareas dentro de su alcance.</div>`}
+  </div>
+
+  ${state.role === "admin" ? `<h3>Estado del sistema</h3>
+  <div class="card" style="display:flex;gap:2rem;flex-wrap:wrap;font-size:.85rem">
+    <span>API <span class="tag ok">En linea</span></span>
+    <span>Base de datos <span class="tag ok">En linea</span></span>
+    <span style="color:var(--muted)">Última revisión 08:12</span>
+  </div>` : ""}`;
+}
+
+/* ------------------------------ Estudiantes ------------------------------- */
+function vistaEstudiantes(){
+  const esEncargado = state.role === "encargado";
+  const esDocente = state.role === "docente";
+  let filas = ESTUDIANTES;
+  let aviso = "";
+
+  if(esEncargado){ filas = ESTUDIANTES.slice(0,1); aviso = `<div class="notice info">Solo se muestran los estudiantes vinculados a su cuenta.</div>`; }
+  if(esDocente){ filas = ESTUDIANTES.filter(e => (e.grado==="1o Básico" && e.sec==="A") || (e.grado==="2o Básico" && e.sec==="B"));
+    aviso = `<div class="notice info">Solo se muestran estudiantes de sus secciones asignadas en el ciclo vigente.</div>`; }
+
+  const acciones = puede("crearEstudiante")
+    ? `<button class="btn" data-go="#/estudiantes/expediente" type="button">+ Nuevo estudiante</button>
+       <button class="btn sec" type="button">Exportar</button>`
+    : `<span class="tag neutral">Solo lectura</span>`;
+
+  return `<div class="pagehead">
+    <div><h1>${esEncargado ? "Mis estudiantes" : "Estudiantes"}</h1>
+    <p class="sub">${filas.length} de 412 registros dentro de su alcance</p></div>
+    <div class="acts">${acciones}</div>
+  </div>
+
+  ${aviso}
+
+  <div class="card">
+    <div class="filters">
+      <input placeholder="Buscar por nombre, código o documento" type="text" />
+      <label>Ciclo</label><select><option>2026</option><option>2025</option></select>
+      <label>Grado</label><select><option>Todos</option><option>1o Básico</option><option>2o Básico</option><option>3o Básico</option></select>
+      <label>Sección</label><select><option>Todas</option><option>A</option><option>B</option></select>
+      <label>Estado</label><select><option>Activo</option><option>Todos</option></select>
+      <button class="btn sec sm" type="button">Buscar</button>
+      <button class="btn sec sm" type="button">Limpiar</button>
+    </div>
+    ${tabla(["Código","Nombre completo","Grado","Sección","Estado",""],
+      filas.map(e=>[
+        `<code>${esc(e.cod)}</code>`, esc(e.nom), esc(e.grado), esc(e.sec),
+        e.estado === "Activo" ? `<span class="tag ok">Activo</span>` : `<span class="tag bad">Retiro</span>`,
+        `<button class="btn sec sm" data-go="#/estudiantes/expediente" type="button">Ver</button>`
+      ]))}
+    ${paginación(1, filas.length, esEncargado ? 1 : (esDocente ? filas.length : 412))}
+  </div>`;
+}
+
+function vistaExpediente(){
+  const t = state.tabExpediente;
+  const verSalud = puede("verSalud");
+  const tabs = [
+    ["general","General"],
+    ["encargados","Encargados"],
+    ...(verSalud ? [["salud","Salud"]] : []),
+    ["documentos","Documentos"],
+    ["matriculas","Matrículas"]
+  ];
+  const activa = tabs.some(x=>x[0]===t) ? t : "general";
+
+  let cuerpo = "";
+  if(activa === "general"){
+    cuerpo = `<div class="grid g2">
+      <div class="card"><h3>Datos personales</h3>
+        <dl class="fields">
+          <dt>Nombres</dt><dd>María José</dd>
+          <dt>Apellidos</dt><dd>López García</dd>
+          <dt>Nacimiento</dt><dd>03/05/2012</dd>
+          <dt>Sexo</dt><dd>Femenino</dd>
+          <dt>CUI</dt><dd>****-*****-****</dd>
+          <dt>Teléfono</dt><dd>****-4512</dd>
+          <dt>Dirección</dt><dd>Zona 2, Salcajá, Quetzaltenango</dd>
+        </dl></div>
+      <div class="card"><h3>Datos institucionales</h3>
+        <dl class="fields">
+          <dt>Código</dt><dd>EST-0412</dd>
+          <dt>Ingreso</dt><dd>15/01/2024</dd>
+          <dt>Grado</dt><dd>Primero Básico "A"</dd>
+          <dt>Jornada</dt><dd>Matutina</dd>
+          <dt>Sede</dt><dd>Sede Central</dd>
+          <dt>Estado</dt><dd><span class="tag ok">Activo</span></dd>
+        </dl></div>
+    </div>`;
+  } else if(activa === "encargados"){
+    cuerpo = `<div class="card">
+      <div class="pagehead"><h2>Encargados vinculados</h2>
+        ${puede("crearEstudiante") ? `<div class="acts"><button class="btn sm" type="button">+ Vincular encargado</button></div>` : ""}</div>
+      ${tabla(["Nombre","Parentesco","Teléfono","Vigencia","Principal",""],[
+        ["García Coj, Rosa","Madre","****-4512","Desde 2024",`<span class="tag ok">Si</span>`,
+         `<button class="btn sec sm" data-go="#/personas" type="button">Ver en Personas</button>`],
+        ["López Ic, José","Padre","****-7788","Desde 2024","No",
+         `<button class="btn sec sm" data-go="#/personas" type="button">Ver en Personas</button>`]
+      ])}
+      <h3 style="margin-top:1.2rem">Contactos de emergencia</h3>
+      ${tabla(["Nombre","Parentesco","Teléfono","Vigencia"],[["Coj Batz, Ana","Tia","****-1122","Vigente"]])}
+    </div>`;
+  } else if(activa === "salud"){
+    cuerpo = `<div class="notice warn">Información sensible. Su consulta queda registrada en la bitácora de auditoría.</div>
+    <div class="card">
+      ${tabla(["Fecha","Nota","Registro por"],[
+        ["12/02/2026","Alergia registrada","Enfermería escolar"],
+        ["03/03/2026","Restricción de actividad física","Dirección"]
+      ])}
+      <p style="font-size:.8rem;color:var(--muted);margin:.8rem 0 0">Las correcciones agregan una nota nueva. No se sobrescribe la historia.</p>
+    </div>`;
+  } else if(activa === "documentos"){
+    cuerpo = `<div class="card">
+      <div class="pagehead"><h2>Documentos del expediente</h2>
+        ${puede("crearEstudiante") ? `<div class="acts"><button class="btn sm" type="button">+ Subir documento</button></div>` : ""}</div>
+      ${tabla(["Tipo","Archivo","Fecha","Estado",""],[
+        ["Certificado de nacimiento","cert_nac.pdf","15/01/2024",`<span class="tag ok">Vigente</span>`,`<button class="btn sec sm" type="button">Ver</button>`],
+        ["Fotografía","foto.jpg","15/01/2024",`<span class="tag ok">Vigente</span>`,`<button class="btn sec sm" type="button">Ver</button>`],
+        ["Constancia de estudios","—","—",`<span class="tag warn">Falta</span>`,`<button class="btn sec sm" type="button">Subir</button>`]
+      ])}
+      <p style="font-size:.8rem;color:var(--muted);margin:.8rem 0 0">Cada descarga queda registrada con usuario, fecha y documento.</p>
+    </div>`;
+  } else {
+    cuerpo = `<div class="card">
+      <div class="pagehead"><h2>Historial de matrículas</h2>
+        ${puede("operarMatricula") ? `<div class="acts"><button class="btn sm" data-go="#/matriculas/nueva" type="button">+ Matricular</button></div>` : ""}</div>
+      ${tabla(["Ciclo","Grado","Sección","Estado","Movimientos",""],[
+        ["2026","Primero Básico","A",`<span class="tag ok">Activa</span>`,"—",
+         `<button class="btn sec sm" data-go="#/matriculas" type="button">Ver matrícula</button>`],
+        ["2025","Preparatoria","B",`<span class="tag neutral">Promovido</span>`,"Cambio de sección",
+         `<button class="btn sec sm" data-go="#/matriculas" type="button">Ver matrícula</button>`]
+      ])}
+      <p style="font-size:.8rem;color:var(--muted);margin:.8rem 0 0">El historial no se elimina. Los cambios se registran como movimientos.</p>
+    </div>`;
+  }
+
+  const acciones = [];
+  if(puede("crearEstudiante")) acciones.push(`<button class="btn sec" type="button">Editar</button>`);
+  acciones.push(`<button class="btn sec" type="button">Credencial</button>`);
+
+  return `<div class="card" style="display:flex;gap:1.1rem;align-items:flex-start;flex-wrap:wrap">
+    <div style="width:74px;height:92px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;color:var(--muted);font-size:.72rem;text-align:center">FOTO<br />3x4</div>
+    <div style="flex:1;min-width:220px">
+      <h1 style="margin-bottom:.2rem">López García, María José</h1>
+      <p class="sub" style="color:var(--muted);margin:0">Código EST-0412 · Primero Básico "A" · Ciclo 2026</p>
+      <p class="sub" style="color:var(--muted);margin:.2rem 0 0">Encargada: García Coj, Rosa (madre)</p>
+    </div>
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <span class="tag ok">Activo</span>${acciones.join("")}
+    </div>
+  </div>
+
+  <div class="tabs">
+    ${tabs.map(x=>`<button class="tab ${x[0]===activa?"active":""}" data-tab-exp="${x[0]}" type="button">${x[1]}</button>`).join("")}
+  </div>
+  ${!verSalud ? `<div class="notice info">La pestana <b>Salud</b> no aparece: su rol no tiene el permiso <code>student.view_sensitive</code>.</div>` : ""}
+  ${cuerpo}`;
+}
+
+/* -------------------------------- Personas -------------------------------- */
+function vistaPersonas(){
+  return `<div class="pagehead">
+    <div><h1>Personas</h1><p class="sub">Registro base de identidad para cuentas, docentes y encargados</p></div>
+    <div class="acts"><button class="btn" type="button">+ Nueva persona</button></div>
+  </div>
+
+  <div class="card">
+    <div class="filters">
+      <input placeholder="Buscar por nombre o documento" type="text" />
+      <label>Vínculo</label>
+      <select><option>Todos</option><option>Estudiante</option><option>Docente</option><option>Encargado</option><option>Personal</option></select>
+      <button class="btn sec sm" type="button">Buscar</button>
+    </div>
+    ${tabla(["Documento","Nombre completo","Vínculos","Cuenta",""],
+      PERSONAS.map(p=>[
+        `<code>${esc(p.doc)}</code>`, esc(p.nom), esc(p.vin),
+        p.cuenta ? `<span class="tag ok">Si</span>` : `<span class="tag neutral">No</span>`,
+        p.cuenta
+          ? (puede("gestionarCuentas")
+              ? `<button class="btn sec sm" data-go="#/usuarios" type="button">Ver cuenta</button>`
+              : `<button class="btn sec sm" type="button">Ver</button>`)
+          : (puede("gestionarCuentas")
+              ? `<button class="btn sec sm" data-go="#/usuarios" type="button">Crear cuenta</button>`
+              : `<button class="btn sec sm" type="button">Ver</button>`)
+      ]))}
+    ${paginación(1, PERSONAS.length, 236)}
+  </div>
+
+  <div class="notice info">Toda cuenta de usuario debe apuntar a una persona registrada. Es el salto Personas &rarr; Usuarios.</div>`;
+}
+
+/* --------------------------- Estructura académica ------------------------- */
+function vistaAcademico(){
+  const t = state.tabAcademico;
+  const editar = puede("editarEstructura");
+  const btn = (txt) => editar ? `<button class="btn sec sm" type="button">${txt}</button>` : `<span class="tag neutral">Lectura</span>`;
+
+  let cuerpo = "";
+  if(t === "sedes"){
+    cuerpo = `<div class="card">
+      <div class="pagehead"><h2>Sedes y jornadas</h2>${editar?`<div class="acts"><button class="btn sm" type="button">+ Nueva sede</button></div>`:""}</div>
+      ${tabla(["Código","Nombre","Dirección","Jornadas","Estado",""],[
+        ["CEN","Sede Central","Zona 1, Salcajá","Matutina, Vespertina",`<span class="tag ok">Activa</span>`,btn("Editar")],
+        ["ANX","Anexo Norte","Zona 4, Salcajá","Matutina",`<span class="tag ok">Activa</span>`,btn("Editar")]
+      ])}
+    </div>`;
+  } else if(t === "niveles"){
+    cuerpo = `<div class="card">
+      <div class="pagehead"><h2>Nivel Básico</h2>${editar?`<div class="acts"><button class="btn sm" type="button">+ Nuevo grado</button></div>`:""}</div>
+      ${tabla(["Grado","Orden","Oferta 2026",""],[
+        ["Primero Básico","1",`<span class="tag ok">Si</span>`,btn("Editar")],
+        ["Segundo Básico","2",`<span class="tag ok">Si</span>`,btn("Editar")],
+        ["Tercero Básico","3",`<span class="tag neutral">No</span>`,btn("Editar")]
+      ])}
+    </div>`;
+  } else if(t === "cursos"){
+    cuerpo = `<div class="card">
+      <div class="pagehead"><h2>Catálogo de cursos</h2>${editar?`<div class="acts"><button class="btn sm" type="button">+ Nuevo curso</button></div>`:""}</div>
+      ${tabla(["Código","Curso","Área","Estado",""],[
+        ["MAT","Matemática","Ciencias",`<span class="tag ok">Activo</span>`,btn("Editar")],
+        ["COM","Comunicación y Lenguaje","Comunicación",`<span class="tag ok">Activo</span>`,btn("Editar")],
+        ["CCN","Ciencias Naturales","Ciencias",`<span class="tag ok">Activo</span>`,btn("Editar")],
+        ["CCS","Ciencias Sociales","Sociales",`<span class="tag ok">Activo</span>`,btn("Editar")]
+      ])}
+    </div>`;
+  } else {
+    cuerpo = `<div class="card">
+      <div class="pagehead"><h2>Ciclos escolares</h2>${editar?`<div class="acts"><button class="btn sm" type="button">+ Nuevo ciclo</button></div>`:""}</div>
+      ${tabla(["Ciclo","Inicio","Fin","Estado",""],[
+        ["2026","15/01/2026","31/10/2026",`<span class="tag ok">Abierto</span>`,
+          `<button class="btn sec sm" data-go="#/academico/oferta" type="button">Ver oferta</button>
+           ${editar?`<button class="btn sec sm" data-modal="cerrar-ciclo" type="button">Cerrar</button>`:""}`],
+        ["2025","15/01/2025","31/10/2025",`<span class="tag neutral">Cerrado</span>`,
+          `<button class="btn sec sm" data-go="#/academico/oferta" type="button">Ver oferta</button>`]
+      ])}
+    </div>
+    <div class="card">
+      <div class="pagehead"><h2>Oferta del ciclo 2026</h2>${editar?`<div class="acts"><button class="btn sm" type="button">+ Agregar oferta</button></div>`:""}</div>
+      ${tabla(["Grado","Jornada","Secciones","Cupo","Matriculados",""],[
+        ["Primero Básico","Matutina","A, B","70","64",`<button class="btn sec sm" data-go="#/academico/oferta" type="button">Abrir</button>`],
+        ["Segundo Básico","Matutina","A, B","70","58",`<button class="btn sec sm" data-go="#/academico/oferta" type="button">Abrir</button>`],
+        ["Tercero Básico","Vespertina","A","35","31",`<button class="btn sec sm" data-go="#/academico/oferta" type="button">Abrir</button>`]
+      ])}
+    </div>`;
+  }
+
+  return `<div class="pagehead">
+    <div><h1>Estructura académica</h1>
+    <p class="sub">Sedes, niveles, cursos y ciclos. Agrupa las rutas reales /app/sedes, /app/niveles, /app/cursos y /app/ciclos.</p></div>
+  </div>
+  <div class="tabs">
+    ${[["sedes","Sedes"],["niveles","Niveles y grados"],["cursos","Cursos"],["ciclos","Ciclos"]]
+      .map(x=>`<button class="tab ${x[0]===t?"active":""}" data-tab-aca="${x[0]}" type="button">${x[1]}</button>`).join("")}
+  </div>
+  ${!editar ? `<div class="notice info">Su rol ve la estructura en modo lectura. Las acciones de edición no se muestran.</div>` : ""}
+  ${cuerpo}`;
+}
+
+function vistaOferta(){
+  const editar = puede("editarEstructura");
+  return `<div class="pagehead">
+    <div><h1>Primero Básico · Jornada Matutina</h1><p class="sub">Ciclo 2026 · Sede Central</p></div>
+    <div class="acts">${puede("operarMatricula") ? `<button class="btn gold" data-go="#/matriculas/nueva" type="button">Matricular en esta sección</button>` : ""}</div>
+  </div>
+
+  <div class="card">
+    <div class="pagehead"><h2>Secciones</h2>${editar?`<div class="acts"><button class="btn sm" type="button">+ Nueva sección</button></div>`:""}</div>
+    ${tabla(["Sección","Cupo","Matriculados","Aula","Docente guía",""],[
+      ["A","35","32","101","Pérez Sam, Carlos", editar?`<button class="btn sec sm" type="button">Editar</button>`:`<span class="tag neutral">Lectura</span>`],
+      ["B","35","32","102",`<span class="tag warn">Sin asignar</span>`, editar?`<button class="btn sec sm" type="button">Editar</button>`:`<span class="tag neutral">Lectura</span>`]
+    ])}
+  </div>
+
+  <div class="card">
+    <div class="pagehead"><h2>Asignaciones docentes · Sección A</h2>${editar?`<div class="acts"><button class="btn sm" type="button">+ Nueva asignación</button></div>`:""}</div>
+    ${tabla(["Curso","Docente","Horas","Vigencia",""],[
+      ["Matemática","Pérez Sam, Carlos","5","Ciclo 2026", editar?`<button class="btn sec sm" type="button">Quitar</button>`:`<span class="tag neutral">Lectura</span>`],
+      ["Comunicación y Lenguaje",`<span class="tag warn">Sin asignar</span>`,"5","—", editar?`<button class="btn sec sm" type="button">Asignar</button>`:`<span class="tag neutral">Lectura</span>`],
+      ["Ciencias Naturales","Tzoc Menchú, Sofía","4","Ciclo 2026", editar?`<button class="btn sec sm" type="button">Quitar</button>`:`<span class="tag neutral">Lectura</span>`]
+    ])}
+  </div>
+
+  <div class="notice info">Cupo disponible en la sección A: 3. Un ciclo cerrado bloquea toda escritura de esta pantalla.</div>`;
+}
+
+/* ------------------------------- Matrículas ------------------------------- */
+function vistaMatriculas(){
+  const operar = puede("operarMatricula");
+  return `<div class="pagehead">
+    <div><h1>Matrículas</h1><p class="sub">Ciclo 2026 · 398 matrículas registradas</p></div>
+    <div class="acts">${operar
+      ? `<button class="btn" data-go="#/matriculas/nueva" type="button">+ Nueva matrícula</button>`
+      : `<span class="tag neutral">Solo lectura</span>`}</div>
+  </div>
+
+  <div class="card">
+    <div class="filters">
+      <input placeholder="Buscar estudiante o código de matrícula" type="text" />
+      <label>Ciclo</label><select><option>2026</option><option>2025</option></select>
+      <label>Estado</label><select><option>Todas</option><option>Activa</option><option>Retiro</option></select>
+      <label>Requisitos</label><select><option>Todos</option><option>Completos</option><option>Pendientes</option></select>
+      <button class="btn sec sm" type="button">Buscar</button>
+    </div>
+    ${tabla(["Código","Estudiante","Grado y sección","Fecha","Requisitos",""],
+      MATRÍCULAS.map(m=>[
+        `<code>${esc(m.cod)}</code>`, esc(m.est), esc(m.gs), esc(m.fecha), tagReq(m.req),
+        `<button class="btn sec sm" data-modal="detalle-matricula" type="button">Ver</button>`
+      ]))}
+    ${paginación(1, MATRÍCULAS.length, 398)}
+  </div>
+
+  ${operar ? `<div class="notice info">No se elimina una matrícula: se registra un movimiento que cambia su estado.</div>` : ""}`;
+}
+
+function vistaWizard(){
+  const p = state.wizardStep;
+  const pasos = ["Estudiante","Ubicación","Requisitos","Confirmación"];
+  const barra = pasos.map((nom,i)=>{
+    const n = i+1;
+    const cls = n < p ? "done" : (n === p ? "now" : "");
+    return `<div class="step ${cls}"><b>Paso ${n}</b>${esc(nom)}</div>`;
+  }).join("");
+
+  let cuerpo = "";
+  if(p === 1){
+    cuerpo = `<div class="card">
+      <h2>Paso 1 de 4 · Estudiante</h2>
+      <div class="radio ${state.wizardStudent==="existente"?"on":""}" data-wiz-st="existente">
+        <input ${state.wizardStudent==="existente"?"checked":""} name="tipoest" type="radio" />
+        <div><b>Estudiante ya registrado</b>
+          <div style="font-size:.8rem;color:var(--muted)">Buscar en el registro institucional</div></div>
+      </div>
+      ${state.wizardStudent==="existente" ? `
+      <div style="margin:.3rem 0 1rem">
+        <div class="filters"><input placeholder="Buscar por nombre, código o documento" type="text" /><button class="btn sec sm" type="button">Buscar</button></div>
+        ${tabla(["","Código","Nombre","Último ciclo"],[
+          [`<input checked name="est" type="radio" />`,"EST-0412","López García, María José","2025"],
+          [`<input name="est" type="radio" />`,"EST-0455","López Ic, María Fernanda","2025"]
+        ])}
+      </div>` : ""}
+      <div class="radio ${state.wizardStudent==="nuevo"?"on":""}" data-wiz-st="nuevo">
+        <input ${state.wizardStudent==="nuevo"?"checked":""} name="tipoest" type="radio" />
+        <div><b>Estudiante nuevo</b>
+          <div style="font-size:.8rem;color:var(--muted)">Se abrirá el formulario de alta antes de continuar</div></div>
+      </div>
+    </div>`;
+  } else if(p === 2){
+    cuerpo = `<div class="card">
+      <h2>Paso 2 de 4 · Ubicación académica</h2>
+      <p style="font-size:.85rem;color:var(--muted)">Estudiante: <b style="color:var(--ink)">López García, María José (EST-0412)</b></p>
+      <div class="grid g2">
+        <div>
+          <div class="field"><label>Ciclo escolar</label><select><option>2026 · Abierto</option></select></div>
+          <div class="field"><label>Nivel</label><select><option>Básico</option></select></div>
+          <div class="field"><label>Grado</label><select><option>Primero Básico</option><option>Segundo Básico</option></select></div>
+        </div>
+        <div>
+          <div class="field"><label>Jornada</label><select><option>Matutina</option><option>Vespertina</option></select></div>
+          <div class="field"><label>Sección</label><select><option>A · 32 de 35 ocupados</option><option>B · 32 de 35 ocupados</option></select></div>
+          <div class="field"><label>Tipo de ingreso</label><select><option>Primer ingreso</option><option>Reinscripción</option><option>Traslado</option></select></div>
+        </div>
+      </div>
+      <div class="notice warn" style="margin-top:.6rem">Cupo disponible en la sección A: 3. Definir con la institución si el sistema bloquea o solo advierte al exceder el cupo.</div>
+    </div>`;
+  } else if(p === 3){
+    cuerpo = `<div class="card">
+      <h2>Paso 3 de 4 · Requisitos documentales</h2>
+      ${tabla(["Documento","Obligatorio","Estado",""],[
+        ["Certificado de nacimiento","Si",`<span class="tag ok">Entregado</span>`,`<button class="btn sec sm" type="button">Ver</button>`],
+        ["Fotografía","Si",`<span class="tag warn">Pendiente</span>`,`<button class="btn sec sm" type="button">Subir</button>`],
+        ["Certificado del grado previo","Si",`<span class="tag warn">Pendiente</span>`,`<button class="btn sec sm" type="button">Subir</button>`],
+        ["Constancia de vacunación","No",`<span class="tag neutral">Pendiente</span>`,`<button class="btn sec sm" type="button">Subir</button>`]
+      ])}
+      <label style="display:flex;gap:.5rem;align-items:center;margin:1rem 0 .5rem;font-size:.85rem">
+        <input checked type="checkbox" /> Registrar matrícula con requisitos pendientes
+      </label>
+      <div class="field"><label>Motivo</label><input type="text" value="Entrega comprometida para el 30/01" /></div>
+    </div>`;
+  } else {
+    cuerpo = `<div class="card">
+      <h2>Paso 4 de 4 · Confirmación</h2>
+      <div class="notice info">Revise antes de registrar. La matrícula genera historia y no se elimina.</div>
+      ${tabla(["Dato","Valor",""],[
+        ["Estudiante","López García, María José (EST-0412)",`<button class="btn sec sm" data-wiz="1" type="button">Cambiar</button>`],
+        ["Ciclo","2026",`<button class="btn sec sm" data-wiz="2" type="button">Cambiar</button>`],
+        ["Ubicación",'Primero Básico "A" · Jornada Matutina',`<button class="btn sec sm" data-wiz="2" type="button">Cambiar</button>`],
+        ["Tipo de ingreso","Primer ingreso",`<button class="btn sec sm" data-wiz="2" type="button">Cambiar</button>`],
+        ["Requisitos","2 pendientes, con motivo registrado",`<button class="btn sec sm" data-wiz="3" type="button">Cambiar</button>`]
+      ])}
+    </div>`;
+  }
+
+  return `<div class="pagehead">
+    <div><h1>Nueva matrícula</h1><p class="sub">Ciclo 2026 · asistente de cuatro pasos</p></div>
+    <div class="acts"><button class="btn sec" data-modal="cancelar-wizard" type="button">Cancelar</button></div>
+  </div>
+  <div class="steps">${barra}</div>
+  ${cuerpo}
+  <div class="wizardnav">
+    ${p > 1 ? `<button class="btn sec" data-wiz="${p-1}" type="button">Atras</button>` : ""}
+    ${p < 4
+      ? `<button class="btn" data-wiz="${p+1}" type="button">Siguiente</button>`
+      : `<button class="btn gold" data-modal="matricula-ok" type="button">Registrar matrícula</button>`}
+  </div>`;
+}
+
+/* -------------------------------- Reportes -------------------------------- */
+function vistaReportes(){
+  const esDocente = state.role === "docente";
+  const grupos = [
+    ["Matrícula", [
+      ["Matrícula por grado y sección","Conteo del ciclo seleccionado", true],
+      ["Estudiantes por estado","Activos, retirados y traslados", true]
+    ]],
+    ["Estructura", [
+      ["Ocupacion de secciones","Cupo contra matriculados", !esDocente],
+      ["Asignaciones docentes","Cursos con y sin docente", !esDocente]
+    ]],
+    ["Control", [
+      ["Requisitos pendientes","Matrículas con documentos incompletos", state.role==="admin"||state.role==="director"],
+      ["Bitácora de accesos","Acciones y lecturas sensibles", state.role==="admin"]
+    ]]
+  ];
+
+  return `<div class="pagehead">
+    <div><h1>Reportes</h1><p class="sub">El resultado siempre se filtra por su alcance</p></div>
+  </div>
+
+  ${grupos.map(([titulo, items]) => {
+    const visibles = items.filter(i=>i[2]);
+    if(!visibles.length) return "";
+    return `<h3>${titulo}</h3>
+    <div class="grid g2" style="margin-bottom:1.2rem">
+      ${visibles.map(i=>`<div class="card" style="margin:0">
+        <b style="display:block;font-size:.92rem">${esc(i[0])}</b>
+        <span style="font-size:.8rem;color:var(--muted)">${esc(i[1])}</span>
+        <div style="margin-top:.7rem"><button class="btn sec sm" data-modal="reporte" type="button">Generar</button></div>
+      </div>`).join("")}
+    </div>`;
+  }).join("")}
+
+  <h3>Resultado de ejemplo · Matrícula por grado y sección</h3>
+  <div class="card">
+    <div class="filters">
+      <label>Ciclo</label><select><option>2026</option></select>
+      <label>Sede</label><select><option>Todas</option></select>
+      <label>Jornada</label><select><option>Todas</option></select>
+      <button class="btn sec sm" type="button">Generar</button>
+      <span style="flex:1"></span>
+      <button class="btn sec sm" type="button">Exportar CSV</button>
+      <button class="btn sec sm" type="button">Imprimir</button>
+    </div>
+    ${tabla(["Grado","Sección","Cupo","Matriculados","Ocupacion","Disponibles"],[
+      ["Primero Básico","A","35","32","91 %","3"],
+      ["Primero Básico","B","35","32","91 %","3"],
+      ["Segundo Básico","A","35","29","83 %","6"],
+      ["Segundo Básico","B","35","29","83 %","6"],
+      ["Tercero Básico","A","35","31","89 %","4"]
+    ], { foot:["Total","5","175","153","87 %","22"] })}
+  </div>`;
+}
+
+/* ---------------------------- Usuarios y permisos ------------------------- */
+function vistaUsuarios(){
+  return `<div class="pagehead">
+    <div><h1>Usuarios y permisos</h1><p class="sub">Cuentas institucionales, roles y alcances</p></div>
+    <div class="acts">
+      <button class="btn sec" data-go="#/permisos" type="button">Matriz de accesos</button>
+      <button class="btn" type="button">+ Nuevo usuario</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="filters">
+      <input placeholder="Buscar usuario o persona" type="text" />
+      <label>Rol</label><select><option>Todos</option><option>Administrador</option><option>Director</option><option>Docente</option></select>
+      <label>Estado</label><select><option>Todos</option><option>Activa</option><option>Bloqueada</option></select>
+      <button class="btn sec sm" type="button">Buscar</button>
+    </div>
+    ${tabla(["Usuario","Persona","Roles","Estado","Último acceso",""],
+      USUARIOS.map(u=>[
+        `<code>${esc(u.u)}</code>`, esc(u.p), esc(u.rol),
+        u.est === "Activa" ? `<span class="tag ok">Activa</span>` : `<span class="tag bad">Bloqueada</span>`,
+        esc(u.acc),
+        `<button class="btn sec sm" data-modal="detalle-usuario" type="button">Ver</button>`
+      ]))}
+  </div>
+
+  <div class="card">
+    <h2>Detalle de cuenta · cperez</h2>
+    <h3>Roles y alcances asignados</h3>
+    ${tabla(["Rol","Alcance","Vigencia",""],[
+      ["Docente",'Ciclo 2026 · 1o "A" · Matemática',"15/01 – 31/10",`<button class="btn sec sm" type="button">Quitar</button>`],
+      ["Docente",'Ciclo 2026 · 2o "B" · Matemática',"15/01 – 31/10",`<button class="btn sec sm" type="button">Quitar</button>`]
+    ])}
+    <h3 style="margin-top:1.2rem">Permisos efectivos · solo lectura</h3>
+    ${tabla(["Permiso","Alcance derivado"],[
+      ["<code>student.view_basic</code>","Secciones asignadas"],
+      ["<code>grade.write</code>","Cursos asignados, ciclo abierto"],
+      ["<code>attendance.record_manual</code>","Secciones asignadas"]
+    ])}
+    <p style="font-size:.8rem;color:var(--muted);margin:.9rem 0 0">Los permisos se derivan de los roles. No se editan uno por uno.</p>
+    <div style="display:flex;gap:.5rem;margin-top:.9rem">
+      <button class="btn sec" type="button">Restablecer contrasena</button>
+      <button class="btn danger" data-modal="desactivar" type="button">Desactivar cuenta</button>
+    </div>
+  </div>`;
+}
+
+function vistaPermisos(){
+  const cabecera = ["Módulo","Admin","Director","Coordinador","Administrativo","Docente","Encargado"];
+  const pinta = (v) => {
+    if(v === "No") return `<span class="tag neutral">No</span>`;
+    if(v === "Total") return `<span class="tag ok">Total</span>`;
+    if(v === "Edición") return `<span class="tag ok">Edición</span>`;
+    if(v === "Lectura") return `<span class="tag warn">Lectura</span>`;
+    return `<span class="tag warn">${esc(v)}</span>`;
+  };
+  return `<div class="pagehead">
+    <div><h1>Matriz de accesos</h1><p class="sub">Que puede hacer cada rol en cada módulo</p></div>
+    <div class="acts"><button class="btn sec" type="button">Exportar matriz</button></div>
+  </div>
+
+  <div class="card">
+    <div class="matrix">
+      ${tabla(cabecera, MATRIZ.map(f => [f[0], ...f.slice(1).map(pinta)]))}
+    </div>
+    <div class="legend">
+      <b>Total</b> ve el módulo y ejecuta sus operaciones dentro de su alcance ·
+      <b>Edición</b> crea y modifica, no elimina ni cierra periodos ·
+      <b>Lectura</b> ve el módulo sin acciones de escritura ·
+      <b>No</b> el módulo no aparece en el menú ni es alcanzable por URL.
+    </div>
+  </div>
+
+  <div class="notice info">Use el selector <b>Ver como</b> de la barra superior para comprobar cada fila en el prototipo.</div>`;
+}
+
+/* ---------------------------- Mapa de navegación -------------------------- */
+function vistaMapa(){
+  const r = role();
+  const niveles = [0,1,2,3];
+  const nombres = ["Nivel 0 · entrada","Nivel 1 · reparto","Nivel 2 · módulos","Nivel 3 · detalle"];
+
+  const bloques = niveles.map(n => {
+    const pantallas = PANTALLAS.filter(p => p.nivel === n);
+    return `<div class="maplevel">${nombres[n]}</div>
+    <div class="mapgrid">
+      ${pantallas.map(p => {
+        const mod = moduloDe(p.ruta);
+        const visible = !mod || r.modules.includes(mod) || p.ruta === "#/login";
+        return `<div class="mapnode" data-go="${p.ruta}">
+          <b>${esc(p.nom)}</b>
+          <code>${esc(p.ruta)}</code>
+          <div style="font-size:.72rem;color:var(--muted);margin-top:.35rem">App: <code>${esc(p.real)}</code></div>
+          <div style="margin-top:.4rem">${visible ? `<span class="tag ok">Visible para ${esc(r.short)}</span>` : `<span class="tag neutral">Oculto para ${esc(r.short)}</span>`}</div>
+        </div>`;
+      }).join("")}
+    </div>`;
+  }).join("");
+
+  return `<div class="pagehead">
+    <div><h1>Mapa de navegación</h1>
+    <p class="sub">Vista de diseno. No forma parte del sistema: sirve para validar la estructura con la institución.</p></div>
+  </div>
+
+  <div class="notice info">Rol activo: <b>${esc(r.label)}</b>. Alcance: ${esc(r.scope)}. Cambie el rol en la barra superior para ver como se recorta el mapa.</div>
+
+  ${bloques}
+
+  <div class="card" style="margin-top:1.2rem">
+    <h2>Saltos entre módulos</h2>
+    ${tabla(["Desde","Hacia","Motivo"],[
+      ["Expediente","Matrículas","Consultar o corregir la matrícula del ciclo"],
+      ["Expediente","Personas","Abrir la ficha del encargado vinculado"],
+      ["Personas","Usuarios","Crear la cuenta de una persona ya registrada"],
+      ["Oferta del ciclo","Matrículas","Matricular sobre una sección con cupo"]
+    ])}
+  </div>
+
+  <div class="card">
+    <h2>Estados de navegación previstos</h2>
+    ${tabla(["Estado","Cuando ocurre","Qué hace el sistema"],[
+      ["Sesión expirada","La sesión caduca en cualquier pantalla","Vuelve a Login y recuerda el destino"],
+      ["Acceso denegado","Ruta valida fuera del alcance del rol","Explica el motivo y ofrece volver al panel"],
+      ["Pantalla no encontrada","Ruta inexistente","Retorno al panel"],
+      ["Asistente abierto","Nueva matrícula en curso","Pide confirmación antes de salir"]
+    ])}
+    <div style="margin-top:.9rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn sec sm" data-go="#/usuarios" type="button">Probar acceso denegado</button>
+      <button class="btn sec sm" data-go="#/inexistente" type="button">Probar pantalla no encontrada</button>
+    </div>
+  </div>`;
+}
+
+/* ---------------------------- Pantallas de estado ------------------------- */
+function vistaDenegado(mod){
+  const m = MODULES.find(x=>x.id===mod);
+  return `<div class="empty" style="padding-top:3.5rem">
+    <b style="font-size:1.2rem">Acceso denegado</b>
+    <p style="max-width:440px;margin:.6rem auto">El rol <b>${esc(role().label)}</b> no tiene permiso para abrir
+    <b>${esc(m ? m.label : "esta pantalla")}</b>. Si necesita acceso, solicitelo a administración.</p>
+    <p style="font-size:.8rem">El intento quedo registrado en la bitácora de auditoría.</p>
+    <button class="btn" data-go="#/app" style="margin-top:.8rem" type="button">Volver al panel</button>
+  </div>`;
+}
+
+function vista404(){
+  return `<div class="empty" style="padding-top:3.5rem">
+    <b style="font-size:1.2rem">Pantalla no encontrada</b>
+    <p style="max-width:440px;margin:.6rem auto">La dirección no corresponde a ninguna pantalla del sistema.</p>
+    <button class="btn" data-go="#/app" style="margin-top:.8rem" type="button">Volver al panel</button>
+  </div>`;
+}
+
+/* --------------------------------- Modales -------------------------------- */
+const MODALES = {
+  "cerrar-ciclo": {
+    t: "Cerrar el ciclo 2026?",
+    p: "El cierre impide nuevas matrículas y cambios de estructura. La información se conserva en historia. Escriba el ciclo para confirmar.",
+    extra: `<div class="field"><input placeholder="2026" type="text" /></div>`,
+    ok: "Cerrar ciclo", danger: true
+  },
+  "cancelar-wizard": {
+    t: "Cancelar la matrícula en curso?",
+    p: "No se guardara ningún dato capturado en los pasos previos.",
+    ok: "Cancelar matrícula", danger: true, action: () => { state.wizardStep = 1; go("#/matriculas"); }
+  },
+  "matricula-ok": {
+    t: "Matrícula registrada",
+    p: "Se creo la matrícula MAT-1209 para López García, María José en Primero Básico \"A\". Quedan 2 requisitos pendientes con motivo registrado.",
+    ok: "Ver matrícula", action: () => { state.wizardStep = 1; go("#/matriculas"); }
+  },
+  "desactivar": {
+    t: "Desactivar la cuenta cperez?",
+    p: "La cuenta no podrá iniciar sesión. No se elimina y su historial se conserva. La acción queda auditada.",
+    ok: "Desactivar cuenta", danger: true
+  },
+  "detalle-matricula": {
+    t: "Matrícula MAT-1204",
+    p: "López García, María José · Primero Básico \"A\" · Ciclo 2026 · Estado activa. Movimientos: creada el 15/01/2026, cambio de sección el 20/02/2026.",
+    ok: "Cerrar"
+  },
+  "detalle-usuario": {
+    t: "Detalle de cuenta",
+    p: "El detalle completo se muestra en la parte inferior de esta misma pantalla en el prototipo. En el sistema real abre la ruta /app/usuarios/:id.",
+    ok: "Cerrar"
+  },
+  "reporte": {
+    t: "Reporte generado",
+    p: "El resultado de ejemplo se muestra al final de la pantalla de reportes. En el sistema real abre /app/reportes/:reporte con sus parámetros.",
+    ok: "Cerrar"
+  }
+};
+
+function pintarModal(){
+  const cont = document.getElementById("modal-root");
+  if(!state.modal){ cont.innerHTML = ""; return; }
+  const m = MODALES[state.modal];
+  if(!m){ cont.innerHTML = ""; return; }
+  cont.innerHTML = `<div class="modal-back" id="mback">
+    <div class="modal">
+      <h2>${esc(m.t)}</h2>
+      <p>${esc(m.p)}</p>
+      ${m.extra || ""}
+      <div class="acts">
+        <button class="btn sec" id="mcancel" type="button">Cancelar</button>
+        <button class="btn ${m.danger ? "danger" : ""}" id="mok" type="button">${esc(m.ok)}</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById("mcancel").onclick = () => { state.modal = null; pintarModal(); };
+  document.getElementById("mok").onclick = () => {
+    const act = m.action; state.modal = null; pintarModal();
+    if(act) act(); else render();
+  };
+  document.getElementById("mback").onclick = (e) => {
+    if(e.target.id === "mback"){ state.modal = null; pintarModal(); }
+  };
+}
+
+/* --------------------------------- Router --------------------------------- */
+function render(){
+  const root = document.getElementById("root");
+  let hash = location.hash || "#/login";
+  const r = role();
+
+  if(hash === "#/login" || !state.authenticated){
+    if(hash !== "#/login"){ state.intended = hash; }
+    root.innerHTML = vistaLogin();
+    const sel = document.getElementById("loginrole");
+    sel.onchange = () => { state.role = sel.value; sincronizarSelector(); render(); };
+    document.getElementById("btning").onclick = () => {
+      state.authenticated = true;
+      const destino = state.intended || "#/app";
+      state.intended = null;
+      if(location.hash === destino) render(); else go(destino);
+    };
+    return;
+  }
+
+  const mod = moduloDe(hash);
+  const rutasConocidas = PANTALLAS.map(p=>p.ruta).concat(["#/mapa"]);
+
+  let crumbs = `<a href="#/app">Inicio</a>`;
+  let contenido;
+
+  if(hash === "#/mapa"){
+    crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>Mapa de navegación</span>`;
+    contenido = vistaMapa();
+  } else if(!rutasConocidas.includes(hash)){
+    crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>No encontrada</span>`;
+    contenido = vista404();
+  } else if(mod && !r.modules.includes(mod)){
+    crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>Acceso denegado</span>`;
+    contenido = vistaDenegado(mod);
+  } else {
+    switch(hash){
+      case "#/app":
+        crumbs = `<span>Panel</span>`;
+        contenido = vistaPanel(); break;
+      case "#/estudiantes":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>${state.role==="encargado"?"Mis estudiantes":"Estudiantes"}</span>`;
+        contenido = vistaEstudiantes(); break;
+      case "#/estudiantes/expediente":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <a href="#/estudiantes">Estudiantes</a> &rsaquo; <span>López García, María José</span>`;
+        contenido = vistaExpediente(); break;
+      case "#/personas":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>Personas</span>`;
+        contenido = vistaPersonas(); break;
+      case "#/academico":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>Estructura académica</span>`;
+        contenido = vistaAcademico(); break;
+      case "#/academico/oferta":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <a href="#/academico">Estructura académica</a> &rsaquo; <span>Primero Básico · Matutina</span>`;
+        contenido = vistaOferta(); break;
+      case "#/matriculas":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>Matrículas</span>`;
+        contenido = vistaMatriculas(); break;
+      case "#/matriculas/nueva":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <a href="#/matriculas">Matrículas</a> &rsaquo; <span>Nueva matrícula</span>`;
+        contenido = puede("operarMatricula") ? vistaWizard() : vistaDenegado("matriculas"); break;
+      case "#/reportes":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>Reportes</span>`;
+        contenido = vistaReportes(); break;
+      case "#/usuarios":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <span>Usuarios y permisos</span>`;
+        contenido = vistaUsuarios(); break;
+      case "#/permisos":
+        crumbs = `<a href="#/app">Inicio</a> &rsaquo; <a href="#/usuarios">Usuarios y permisos</a> &rsaquo; <span>Matriz de accesos</span>`;
+        contenido = vistaPermisos(); break;
+      case "#/login":
+        contenido = ""; break;
+      default:
+        contenido = vista404();
+    }
+  }
+
+  root.innerHTML = marco(hash, crumbs, contenido);
+
+  const salir = document.getElementById("btnsalir");
+  if(salir) salir.onclick = () => { state.authenticated = false; state.intended = null; go("#/login"); render(); };
+}
+
+/* ------------------------------- Interaccion ------------------------------ */
+document.addEventListener("click", (e) => {
+  const ir = e.target.closest("[data-go]");
+  if(ir){ go(ir.getAttribute("data-go")); return; }
+
+  const tabE = e.target.closest("[data-tab-exp]");
+  if(tabE){ state.tabExpediente = tabE.getAttribute("data-tab-exp"); render(); return; }
+
+  const tabA = e.target.closest("[data-tab-aca]");
+  if(tabA){ state.tabAcademico = tabA.getAttribute("data-tab-aca"); render(); return; }
+
+  const wz = e.target.closest("[data-wiz]");
+  if(wz){ state.wizardStep = Number(wz.getAttribute("data-wiz")); render(); return; }
+
+  const wst = e.target.closest("[data-wiz-st]");
+  if(wst){ state.wizardStudent = wst.getAttribute("data-wiz-st"); render(); return; }
+
+  const md = e.target.closest("[data-modal]");
+  if(md){ state.modal = md.getAttribute("data-modal"); pintarModal(); return; }
+});
+
+function sincronizarSelector(){
+  const sel = document.getElementById("rolesel");
+  sel.value = state.role;
+}
+
+function iniciarSelector(){
+  const sel = document.getElementById("rolesel");
+  sel.innerHTML = Object.entries(ROLES).map(([k,r]) => `<option value="${k}">${esc(r.short)}</option>`).join("");
+  sel.value = state.role;
+  sel.onchange = () => {
+    state.role = sel.value;
+    state.tabExpediente = "general";
+    render();
+  };
+  document.getElementById("btnmapa").onclick = () => {
+    if(!state.authenticated){ state.authenticated = true; }
+    go("#/mapa");
+    render();
+  };
+  document.getElementById("btnreset").onclick = () => {
+    state.authenticated = false; state.intended = null; state.wizardStep = 1;
+    state.tabExpediente = "general"; state.tabAcademico = "sedes"; state.modal = null;
+    pintarModal();
+    if(location.hash === "#/login") render(); else go("#/login");
+  };
+}
+
+window.addEventListener("hashchange", render);
+iniciarSelector();
+render();
+</script>
+</body>
+</html>

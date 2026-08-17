@@ -9,6 +9,11 @@ const LIST_METHODS = [
   "listLevelGrades",
   "listSubjects",
   "listLevelSubjects",
+  "listCycles",
+  "listCycleOfferings",
+  "listOfferingSections",
+  "listCurriculum",
+  "listSectionAssignments",
 ];
 
 const WRITE_METHODS = [
@@ -24,6 +29,16 @@ const WRITE_METHODS = [
   "updateSubject",
   "linkSubjectToLevel",
   "updateLevelSubject",
+  "createCycle",
+  "updateCycle",
+  "changeCycleStatus",
+  "createOffering",
+  "createSection",
+  "updateSection",
+  "addCurriculumEntry",
+  "updateCurriculumEntry",
+  "assignTeacher",
+  "endAssignmentOn",
 ];
 
 const DELETE_METHODS = [
@@ -33,6 +48,10 @@ const DELETE_METHODS = [
   "deactivateGrade",
   "deactivateSubject",
   "unlinkSubjectFromLevel",
+  "withdrawOffering",
+  "deactivateSection",
+  "removeCurriculumEntry",
+  "endAssignment",
 ];
 
 const DETAIL_METHODS = [
@@ -41,6 +60,9 @@ const DETAIL_METHODS = [
   "getLevel",
   "getGrade",
   "getSubject",
+  "getCycle",
+  "getOffering",
+  "getSection",
 ];
 
 export const academicsServiceMock = Object.fromEntries(

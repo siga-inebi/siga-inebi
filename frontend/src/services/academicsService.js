@@ -101,4 +101,60 @@ export const academicsService = {
     ),
   unlinkSubjectFromLevel: (levelId, subjectId) =>
     apiClient.del(`${ROOT}/levels/${levelId}/subjects/${subjectId}/`),
+
+  // ciclos escolares: el estado avanza draft -> active -> closed y no retrocede
+  listCycles: (params) => apiClient.get(withQuery(`${ROOT}/cycles/`, params)),
+  getCycle: (cycleId) => apiClient.get(`${ROOT}/cycles/${cycleId}/`),
+  createCycle: (payload) => apiClient.post(`${ROOT}/cycles/`, payload),
+  updateCycle: (cycleId, payload) =>
+    apiClient.patch(`${ROOT}/cycles/${cycleId}/`, payload),
+  changeCycleStatus: (cycleId, status) =>
+    apiClient.post(`${ROOT}/cycles/${cycleId}/status/`, { status }),
+
+  // oferta de grados: que grado se imparte en que jornada durante el ciclo
+  listCycleOfferings: (cycleId, params) =>
+    apiClient.get(withQuery(`${ROOT}/cycles/${cycleId}/offerings/`, params)),
+  createOffering: (cycleId, payload) =>
+    apiClient.post(`${ROOT}/cycles/${cycleId}/offerings/`, payload),
+  getOffering: (offeringId) =>
+    apiClient.get(`${ROOT}/offerings/${offeringId}/`),
+  withdrawOffering: (offeringId) =>
+    apiClient.del(`${ROOT}/offerings/${offeringId}/`),
+
+  // secciones: siempre dentro de una oferta
+  listOfferingSections: (offeringId, params) =>
+    apiClient.get(
+      withQuery(`${ROOT}/offerings/${offeringId}/sections/`, params)
+    ),
+  createSection: (offeringId, payload) =>
+    apiClient.post(`${ROOT}/offerings/${offeringId}/sections/`, payload),
+  getSection: (sectionId) => apiClient.get(`${ROOT}/sections/${sectionId}/`),
+  updateSection: (sectionId, payload) =>
+    apiClient.patch(`${ROOT}/sections/${sectionId}/`, payload),
+  deactivateSection: (sectionId) =>
+    apiClient.del(`${ROOT}/sections/${sectionId}/`),
+
+  // plan de estudios del ciclo: acepta `grade` para ver el plan de un grado
+  listCurriculum: (cycleId, params) =>
+    apiClient.get(withQuery(`${ROOT}/cycles/${cycleId}/curriculum/`, params)),
+  addCurriculumEntry: (cycleId, payload) =>
+    apiClient.post(`${ROOT}/cycles/${cycleId}/curriculum/`, payload),
+  updateCurriculumEntry: (entryId, payload) =>
+    apiClient.patch(`${ROOT}/curriculum/${entryId}/`, payload),
+  removeCurriculumEntry: (entryId) =>
+    apiClient.del(`${ROOT}/curriculum/${entryId}/`),
+
+  // asignacion docente: cerrar no borra, deja la fila como historia
+  listSectionAssignments: (sectionId, params) =>
+    apiClient.get(
+      withQuery(`${ROOT}/sections/${sectionId}/assignments/`, params)
+    ),
+  assignTeacher: (sectionId, payload) =>
+    apiClient.post(`${ROOT}/sections/${sectionId}/assignments/`, payload),
+  endAssignmentOn: (assignmentId, endsOn) =>
+    apiClient.patch(`${ROOT}/assignments/${assignmentId}/`, {
+      ends_on: endsOn,
+    }),
+  endAssignment: (assignmentId) =>
+    apiClient.del(`${ROOT}/assignments/${assignmentId}/`),
 };

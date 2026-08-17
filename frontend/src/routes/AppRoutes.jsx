@@ -3,11 +3,13 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth.js";
 import { AppLayout } from "../layouts/AppLayout.jsx";
 import { CampusesPage } from "../pages/CampusesPage.jsx";
+import { CyclesPage } from "../pages/CyclesPage.jsx";
 import { DashboardPage } from "../pages/DashboardPage.jsx";
 import { HomePage } from "../pages/HomePage.jsx";
 import { LevelsPage } from "../pages/LevelsPage.jsx";
 import { LoginPage } from "../pages/LoginPage.jsx";
 import { NotFoundPage } from "../pages/NotFoundPage.jsx";
+import { OfferingPage } from "../pages/OfferingPage.jsx";
 import { SubjectsPage } from "../pages/SubjectsPage.jsx";
 
 function PrivateRoute({ children }) {
@@ -62,6 +64,22 @@ export function AppRoutes() {
             </PrivateRoute>
           }
           path="/app/cursos"
+        />
+        <Route
+          element={
+            <PrivateRoute>
+              <CyclesPage />
+            </PrivateRoute>
+          }
+          path="/app/ciclos"
+        />
+        <Route
+          element={
+            <PrivateRoute>
+              <OfferingPage />
+            </PrivateRoute>
+          }
+          path="/app/ofertas/:offeringId"
         />
         <Route element={<NotFoundPage />} path="*" />
       </Routes>

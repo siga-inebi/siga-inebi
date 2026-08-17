@@ -151,13 +151,16 @@ function FormField({ field, inputId, value, onChange }) {
         name={field.name}
         onChange={(event) => onChange(field.name, event.target.value)}
         placeholder={field.placeholder}
-        type={field.type === "number" ? "number" : "text"}
+        type={INPUT_TYPES[field.type] || "text"}
         value={value ?? ""}
       />
       {help}
     </div>
   );
 }
+
+// Los tipos que no aparecen aqui se pintan como texto.
+const INPUT_TYPES = { number: "number", date: "date" };
 
 /**
  * Los inputs siempre devuelven texto; el backend espera enteros y booleanos.

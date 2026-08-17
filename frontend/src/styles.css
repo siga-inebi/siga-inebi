@@ -471,6 +471,24 @@ input {
   color: #52627a;
 }
 
+.badge-draft {
+  background: #fdf0d5;
+  color: #7a4d00;
+}
+
+.badge-closed {
+  background: #dde3ec;
+  color: #3d4d63;
+}
+
+.field-inline select {
+  border: 1px solid #b9c7d6;
+  border-radius: 10px;
+  padding: 0.45rem 0.6rem;
+  background: rgba(248, 250, 252, 0.9);
+  font: inherit;
+}
+
 .button-small {
   padding: 0.4rem 0.85rem;
   font-size: 0.85rem;

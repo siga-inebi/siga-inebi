@@ -34,7 +34,7 @@ describe("navegacion de modulos", () => {
 
     const nav = await screen.findByRole("navigation", { name: "Modulos" });
 
-    for (const label of ["Panel", "Sedes", "Niveles", "Cursos"]) {
+    for (const label of ["Panel", "Sedes", "Niveles", "Cursos", "Ciclos"]) {
       expect(
         within(nav).getByRole("link", { name: label })
       ).toBeInTheDocument();

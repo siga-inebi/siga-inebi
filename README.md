@@ -153,6 +153,7 @@ make ci-local
 - Alcance funcional: [functional scope](docs/requirements/functional-scope.md)
 - Catalogo de requerimientos: [requirements catalogue](docs/requirements/requirements-catalogue.md)
 - Trazabilidad: [traceability matrix](docs/requirements/traceability-matrix.md)
+- Diseno de interfaz y navegacion: [design](docs/design/README.md)
 - Mapa de dominios: [domain map](docs/architecture/domain-map.md)
 - Autorizacion: [authorization model](docs/architecture/authorization-model.md)
 - Base de datos y ambientes: [database strategy](docs/architecture/database-strategy.md)

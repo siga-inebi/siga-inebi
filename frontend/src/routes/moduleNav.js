@@ -24,4 +24,9 @@ export const MODULE_NAV = [
     label: "Cursos",
     description: "Catalogo de cursos de la institucion.",
   },
+  {
+    to: "/app/ciclos",
+    label: "Ciclos",
+    description: "Ciclo escolar, oferta de grados y plan de estudios.",
+  },
 ];
