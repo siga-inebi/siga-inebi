@@ -16,7 +16,6 @@ from apps.identity.services import (
 )
 from apps.students.models import Student
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
-from tests.factories.people import PersonFactory
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -24,6 +23,7 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
 
