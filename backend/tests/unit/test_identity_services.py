@@ -210,12 +210,72 @@ def test_queryset_filter_only_returns_records_inside_effective_scope():
 
 
 # ---------------------------------------------------------------------------
+# RF-CTA-007 — Prohibición de autoescalamiento
 # RF-CTA-006 — Desactivación con verificación de dependencias
 # RF-CTA-004 — Política de contraseñas
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
+def test_rf_cta_007_self_role_assignment_is_rejected_and_audited():
+    """Escenario 1: Intento de asignarse un rol adicional a sí mismo."""
+    actor = UserFactory()
+    role_admin = RoleFactory(permissions=[PermissionFactory(codename="role_assign")])
+    RoleAssignmentFactory(user=actor, role=role_admin)
+    extra_role = RoleFactory()
+
+    with pytest.raises(PermissionDenied, match="Users cannot assign roles to themselves."):
+        assign_role(
+            actor=actor,
+            user=actor,
+            role=extra_role,
+            scope={"module_key": "identity"},
+        )
+
+    event = AuditEvent.objects.filter(
+        action="identity.role_assignment.create_denied",
+        resource_identifier=str(actor.pk),
+    ).latest("created_at")
+    assert event.actor == actor
+    assert event.context["reason"] == "self_escalation"
+
+
+@pytest.mark.django_db
+def test_rf_cta_007_self_role_revocation_is_rejected_and_audited():
+    """Intento de revocar un rol propio -> rechazado y auditado."""
+    actor = UserFactory()
+    role_admin = RoleFactory(permissions=[PermissionFactory(codename="role_assign")])
+    assignment = RoleAssignmentFactory(user=actor, role=role_admin)
+
+    with pytest.raises(PermissionDenied, match="Users cannot revoke their own roles."):
+        revoke_role_assignment(actor=actor, assignment=assignment)
+
+    event = AuditEvent.objects.filter(
+        action="identity.role_assignment.revoke_denied",
+        resource_identifier=str(assignment.public_id),
+    ).latest("created_at")
+    assert event.actor == actor
+    assert event.context["reason"] == "self_escalation"
+
+
+@pytest.mark.django_db
+def test_rf_cta_007_self_account_disable_is_rejected_and_audited():
+    """Intento de desactivar la propia cuenta -> rechazado y auditado."""
+    actor = UserFactory()
+    RoleAssignmentFactory(
+        user=actor,
+        role=RoleFactory(permissions=[PermissionFactory(codename="account_disable")]),
+    )
+
+    with pytest.raises(PermissionDenied, match="Users cannot disable their own accounts."):
+        disable_account(actor=actor, user=actor)
+
+    event = AuditEvent.objects.filter(
+        action="identity.account.disable_denied",
+        resource_identifier=str(actor.pk),
+    ).latest("created_at")
+    assert event.actor == actor
+    assert event.context["reason"] == "self_deactivation"
 def test_rf_cta_006_disable_warns_about_active_teaching_assignments():
     """Escenario 1: docente con secciones vigentes → advierte antes de desactivar."""
     from apps.academics.models import AcademicCycle, TeachingAssignment

@@ -378,6 +378,19 @@ def reissue_activation_challenge(*, actor, account):
             },
         )
         raise PermissionDenied("Actor lacks permission to issue activation challenges.")
+    if actor.pk == account.pk:
+        record_event(
+            actor=actor,
+            action="identity.activation_challenge.issue_denied",
+            resource="UserAccount",
+            resource_identifier=str(account.pk),
+            context={
+                "target_user_id": account.pk,
+                "result": "denied",
+                "reason": "self_activation",
+            },
+        )
+        raise PermissionDenied("Users cannot reissue activation challenges for themselves.")
 
     with transaction.atomic():
         locked_account = account.__class__.objects.select_for_update().get(pk=account.pk)
@@ -735,6 +748,19 @@ def disable_account(*, actor, user, force=False):
             },
         )
         raise PermissionDenied("Actor lacks permission to disable accounts.")
+    if actor.pk == user.pk:
+        record_event(
+            actor=actor,
+            action="identity.account.disable_denied",
+            resource="UserAccount",
+            resource_identifier=str(user.pk),
+            context={
+                "target_user_id": user.pk,
+                "result": "denied",
+                "reason": "self_deactivation",
+            },
+        )
+        raise PermissionDenied("Users cannot disable their own accounts.")
 
     deps = get_account_active_dependencies(user)
     if deps["teaching_assignments"] and not force:
