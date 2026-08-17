@@ -176,7 +176,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CTA-001 | Creacion exclusivamente administrativa | Debe | identity-access | Implemented | #139 | backend/tests/permissions/test_identity_permissions.py; backend/tests/api/test_identity_account_provisioning_api.py | Provision protegida por account.create y ausencia de ruta publica de autorregistro verificadas |
 | RF-CTA-002 | Vinculacion de la cuenta a una persona registrada | Debe | people-registry | Not implemented | #140 | TBD | Nucleo fundacional |
 | RF-CTA-003 | Activacion mediante codigo de un solo uso | Debe | identity-access | Not implemented | #141 | TBD | Seguridad |
-| RF-CTA-004 | Politica de contrasenas | Debe | identity-access | Not implemented | #142 | TBD | Seguridad |
+| RF-CTA-004 | Politica de contrasenas | Debe | identity-access | Implemented | #142 | backend/tests/unit/test_identity_services.py | Longitud minima configurable y rechazo de comunes; no exige mayusculas ni simbolos |
 | RF-CTA-005 | Restablecimiento asistido | Debe | identity-access | Not implemented | #143 | TBD | Seguridad |
 | RF-CTA-006 | Desactivacion con verificacion de dependencias | Debe | identity-access | Not implemented | #144 | TBD | Historia y control |
 | RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Not implemented | #145 | TBD | Seguridad |

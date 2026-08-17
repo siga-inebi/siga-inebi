@@ -204,3 +204,30 @@ def test_queryset_filter_only_returns_records_inside_effective_scope():
     )
 
     assert list(scoped_students) == [allowed_student]
+
+
+# ---------------------------------------------------------------------------
+# RF-CTA-004 — Política de contraseñas
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_rf_cta_004_common_password_is_rejected():
+    """Escenario 1: contraseña presente en la lista de comunes → rechazada."""
+    from django.contrib.auth.password_validation import validate_password
+    from django.core.exceptions import ValidationError
+
+    user = UserFactory()
+    with pytest.raises(ValidationError) as exc_info:
+        validate_password("password", user=user)
+    assert any("común" in msg or "common" in msg for msg in exc_info.value.messages)
+
+
+@pytest.mark.django_db
+def test_rf_cta_004_long_password_without_symbols_is_accepted():
+    """Escenario 2: contraseña larga sin símbolos, no común → aceptada."""
+    from django.contrib.auth.password_validation import validate_password
+
+    user = UserFactory()
+    # Solo minúsculas, sin mayúsculas, números ni símbolos; supera longitud mínima.
+    validate_password("alargadaycorrecta", user=user)
