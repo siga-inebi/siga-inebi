@@ -185,7 +185,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EXP-001 | Registro del estudiante | Debe | student-records | Not implemented | #185 | TBD | Nucleo fundacional |
 | RF-EXP-002 | Codigo estudiantil | Debe | student-records | Not implemented | #186 | TBD | Identificador institucional |
 | RF-EXP-003 | Estado del estudiante | Debe | student-records | Not implemented | #187 | TBD | Alimenta modulos |
-| RF-EXP-004 | Vinculo con encargados | Debe | student-records | Not implemented | #188 | TBD | Cruza auth |
+| RF-EXP-004 | Vinculo con encargados | Debe | student-records | Implemented | #188 | TBD | Cruza auth; multiples vinculos, parentesco, principal e historial |
 | RF-EXP-005 | Contactos de emergencia | Debe | student-records | Not implemented | #189 | TBD | Dato sensible moderado |
 | RF-EXP-006 | Observaciones y anotaciones disciplinarias | Deberia | student-records | Not implemented | #190 | TBD | Politica de acceso pendiente |
 | RF-EXP-007 | Fotografia del estudiante | Debe | student-records | Not implemented | #191 | TBD | Soporte escaneo |

@@ -75,12 +75,15 @@ class GuardianSerializer(serializers.ModelSerializer):
 
 
 class StudentGuardianRelationSerializer(serializers.ModelSerializer):
+    guardian_detail = GuardianSerializer(source="guardian", read_only=True)
+
     class Meta:
         model = StudentGuardianRelation
         fields = [
             "id",
             "student",
             "guardian",
+            "guardian_detail",
             "relationship_label",
             "is_primary",
             "starts_at",

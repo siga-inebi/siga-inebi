@@ -54,6 +54,9 @@
 - La consulta exitosa y el intento autenticado denegado generan eventos de auditoria.
 ## Relaciones estudiante-encargado
 
+- `GET /api/v1/students/guardian-relations/` lista solo relaciones de estudiantes dentro del
+  alcance `student.view_basic`. Cada elemento conserva `guardian` como identificador y agrega
+  `guardian_detail` de solo lectura con los datos necesarios para presentar al encargado.
 - `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por
   el servicio y no se acepta en el payload.
 - `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como

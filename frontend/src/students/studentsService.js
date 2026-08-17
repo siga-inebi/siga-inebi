@@ -5,6 +5,10 @@ export const studentsService = {
   // AlumnosPage's own client-side pagination assumes it has the full list.
   list: () => apiClient.get("/students/").then((page) => page.results),
   get: (id) => apiClient.get(`/students/${id}/`),
+  listGuardianRelations: () =>
+    apiClient.get("/students/guardian-relations/").then((page) => page.results),
+  createGuardianRelation: (data) =>
+    apiClient.post("/students/guardian-relations/", data),
   create: async ({ photo, ...data }) => {
     const created = await apiClient.post("/students/", data);
     if (!photo) {

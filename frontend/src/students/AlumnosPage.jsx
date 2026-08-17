@@ -5,10 +5,13 @@ import Box from "@mui/material/Box";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import ButtonBase from "@mui/material/ButtonBase";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
+import { guardiansService } from "@guardians/guardiansService.js";
 import { studentsService } from "@students/studentsService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { useLocalList } from "@shared/crud/useLocalList.js";
@@ -58,6 +61,44 @@ export function AlumnosPage() {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState(null);
+  const [guardianRelations, setGuardianRelations] = useState([]);
+  const [availableGuardians, setAvailableGuardians] = useState([]);
+  const [linkingGuardian, setLinkingGuardian] = useState(false);
+  const [guardianError, setGuardianError] = useState("");
+
+  const handleSelect = async (student) => {
+    setSelected(student);
+    setGuardianRelations([]);
+    setGuardianError("");
+    try {
+      const relations = await studentsService.listGuardianRelations();
+      setGuardianRelations(
+        relations.filter((relation) => relation.student === student.id)
+      );
+    } catch (error) {
+      setGuardianError(error.message);
+    }
+  };
+
+  const openGuardianLink = async () => {
+    setGuardianError("");
+    try {
+      setAvailableGuardians(await guardiansService.list());
+      setLinkingGuardian(true);
+    } catch (error) {
+      setGuardianError(error.message);
+    }
+  };
+
+  const handleGuardianLink = async (values) => {
+    const created = await studentsService.createGuardianRelation({
+      student: selected.id,
+      guardian: Number(values.guardian),
+      relationship_label: values.relationship_label,
+    });
+    setGuardianRelations((current) => [...current, created]);
+    setLinkingGuardian(false);
+  };
 
   const handleExport = () => {
     downloadCsv(
@@ -144,7 +185,7 @@ export function AlumnosPage() {
       render: (student) => (
         <ViewDetailButton
           label={`Ver detalle de ${fullName(student)}`}
-          onClick={() => setSelected(student)}
+          onClick={() => handleSelect(student)}
         />
       ),
     },
@@ -207,7 +248,7 @@ export function AlumnosPage() {
             }
             fillHeight
             loading={list.loading}
-            onRowClick={setSelected}
+            onRowClick={handleSelect}
             pagination={list.pagination}
             rows={list.items}
           />
@@ -217,9 +258,14 @@ export function AlumnosPage() {
       <DetailWindow
         actions={
           selected ? (
-            <Button onClick={() => setEditing(selected)} variant="contained">
-              Editar
-            </Button>
+            <Stack direction="row" gap={1}>
+              <Button onClick={openGuardianLink} variant="outlined">
+                Vincular encargado
+              </Button>
+              <Button onClick={() => setEditing(selected)} variant="contained">
+                Editar
+              </Button>
+            </Stack>
           ) : null
         }
         fields={
@@ -266,12 +312,37 @@ export function AlumnosPage() {
                     <MutedCell>Sin foto</MutedCell>
                   ),
                 },
+                {
+                  label: "Encargados",
+                  value: guardianError ? (
+                    <Alert severity="error">{guardianError}</Alert>
+                  ) : guardianRelations.length ? (
+                    <Stack gap={0.75}>
+                      {guardianRelations.map((relation) => (
+                        <Box key={relation.id}>
+                          <Typography fontWeight={600} variant="body2">
+                            {fullName(relation.guardian_detail)}
+                          </Typography>
+                          <Typography color="text.secondary" variant="body2">
+                            {relation.relationship_label}
+                            {relation.is_primary ? " · Principal" : ""}
+                            {relation.ends_at ? " · Finalizado" : ""}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <MutedCell>Sin encargados vinculados</MutedCell>
+                  ),
+                },
               ]
             : []
         }
         onClose={() => {
           setSelected(null);
           setViewingPhoto(null);
+          setGuardianRelations([]);
+          setGuardianError("");
         }}
         open={Boolean(selected)}
         title={selected ? fullName(selected) : ""}
@@ -315,6 +386,33 @@ export function AlumnosPage() {
           title={`Editar ${fullName(editing)}`}
         />
       ) : null}
+
+      <EntityFormWindow
+        fields={[
+          {
+            name: "guardian",
+            label: "Encargado",
+            type: "select",
+            required: true,
+            options: availableGuardians.map((guardian) => ({
+              value: guardian.id,
+              label: fullName(guardian),
+            })),
+          },
+          {
+            name: "relationship_label",
+            label: "Parentesco o responsabilidad",
+            required: true,
+          },
+        ]}
+        initialValues={{ guardian: "", relationship_label: "" }}
+        key={linkingGuardian ? `guardian-${selected?.id}` : "guardian-closed"}
+        onCancel={() => setLinkingGuardian(false)}
+        onSubmit={handleGuardianLink}
+        open={linkingGuardian}
+        submitLabel="Vincular encargado"
+        title="Vincular encargado"
+      />
     </>
   );
 }
