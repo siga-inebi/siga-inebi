@@ -120,11 +120,15 @@ class Command(BaseCommand):
             },
         )
 
+        has_main_campus = Campus.objects.filter(institution=institution, is_main=True).exists()
         campus, _ = Campus.objects.get_or_create(
             institution=institution,
             code="CENTRAL",
-            defaults={"name": "Sede Central", "is_main": True},
+            defaults={"name": "Sede Central", "is_main": not has_main_campus},
         )
+        if not Campus.objects.filter(institution=institution, is_main=True).exists():
+            campus.is_main = True
+            campus.save(update_fields=["is_main"])
         shifts = [
             Shift.objects.get_or_create(
                 campus=campus,
@@ -142,23 +146,34 @@ class Command(BaseCommand):
             code="BAS",
             defaults={"name": "Basico", "sequence": 3},
         )
-        grades = [
-            Grade.objects.get_or_create(
-                level=level,
-                code="B1",
-                defaults={"name": "Primero Basico", "sequence": 1},
-            )[0],
-            Grade.objects.get_or_create(
-                level=level,
-                code="B2",
-                defaults={"name": "Segundo Basico", "sequence": 2},
-            )[0],
-            Grade.objects.get_or_create(
-                level=level,
-                code="B3",
-                defaults={"name": "Tercero Basico", "sequence": 3},
-            )[0],
-        ]
+        grades = []
+        for code, name, sequence in (
+            ("B1", "Primero Basico", 1),
+            ("B2", "Segundo Basico", 2),
+            ("B3", "Tercero Basico", 3),
+        ):
+            grade = Grade.objects.filter(institution=institution, code=code).first()
+            if grade is None:
+                grade = Grade.objects.create(
+                    level=level,
+                    name=name,
+                    code=code,
+                    sequence=sequence,
+                )
+            else:
+                updates = []
+                if grade.level_id != level.id:
+                    grade.level = level
+                    updates.append("level")
+                if grade.name != name:
+                    grade.name = name
+                    updates.append("name")
+                if grade.sequence != sequence:
+                    grade.sequence = sequence
+                    updates.append("sequence")
+                if updates:
+                    grade.save(update_fields=updates)
+            grades.append(grade)
         subjects = [
             Subject.objects.get_or_create(
                 institution=institution,

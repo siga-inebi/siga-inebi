@@ -11,6 +11,54 @@ import django.db.models.deletion
 import uuid
 
 
+def backfill_academic_catalogue(apps, schema_editor):
+    Institution = apps.get_model("academics", "Institution")
+    Campus = apps.get_model("academics", "Campus")
+    Shift = apps.get_model("academics", "Shift")
+    Level = apps.get_model("academics", "Level")
+    Grade = apps.get_model("academics", "Grade")
+    GradeOffering = apps.get_model("academics", "GradeOffering")
+    Section = apps.get_model("academics", "Section")
+
+    for institution in Institution.objects.order_by("pk"):
+        campus, _ = Campus.objects.get_or_create(
+            institution_id=institution.pk,
+            code="LEGACY",
+            defaults={
+                "name": "Sede migrada",
+                "address": "",
+                "is_main": True,
+            },
+        )
+        Shift.objects.filter(institution_id=institution.pk, campus__isnull=True).update(campus_id=campus.pk)
+
+        level, _ = Level.objects.get_or_create(
+            institution_id=institution.pk,
+            code="LEGACY",
+            defaults={
+                "name": "Nivel migrado",
+                "sequence": 1,
+            },
+        )
+
+        for sequence, grade in enumerate(
+            Grade.objects.filter(institution_id=institution.pk).order_by("pk"),
+            start=1,
+        ):
+            grade.level_id = level.pk
+            grade.sequence = sequence
+            grade.save(update_fields=["level", "sequence"])
+
+    for section in Section.objects.filter(offering__isnull=True).order_by("pk"):
+        offering, _ = GradeOffering.objects.get_or_create(
+            academic_cycle_id=section.academic_cycle_id,
+            shift_id=section.shift_id,
+            grade_id=section.grade_id,
+        )
+        section.offering_id = offering.pk
+        section.save(update_fields=["offering"])
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -147,33 +195,15 @@ class Migration(migrations.Migration):
             name='subject',
             unique_together=set(),
         ),
-        migrations.RemoveField(
-            model_name='shift',
-            name='institution',
-        ),
         migrations.AddField(
             model_name='shift',
             name='campus',
-            field=models.ForeignKey(default=1, on_delete=django.db.models.deletion.CASCADE, related_name='shifts', to='academics.campus'),
-            preserve_default=False,
-        ),
-        migrations.RemoveField(
-            model_name='section',
-            name='academic_cycle',
-        ),
-        migrations.RemoveField(
-            model_name='section',
-            name='grade',
-        ),
-        migrations.RemoveField(
-            model_name='section',
-            name='shift',
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='shifts', to='academics.campus'),
         ),
         migrations.AddField(
             model_name='section',
             name='offering',
-            field=models.ForeignKey(default=1, on_delete=django.db.models.deletion.CASCADE, related_name='sections', to='academics.gradeoffering'),
-            preserve_default=False,
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='sections', to='academics.gradeoffering'),
         ),
         migrations.AddField(
             model_name='grade',
@@ -189,8 +219,39 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='grade',
             name='level',
-            field=models.ForeignKey(default=1, on_delete=django.db.models.deletion.PROTECT, related_name='grades', to='academics.level'),
-            preserve_default=False,
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='grades', to='academics.level'),
+        ),
+        migrations.RunPython(backfill_academic_catalogue, migrations.RunPython.noop),
+        migrations.AlterField(
+            model_name='shift',
+            name='campus',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='shifts', to='academics.campus'),
+        ),
+        migrations.AlterField(
+            model_name='section',
+            name='offering',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='sections', to='academics.gradeoffering'),
+        ),
+        migrations.AlterField(
+            model_name='grade',
+            name='level',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='grades', to='academics.level'),
+        ),
+        migrations.RemoveField(
+            model_name='shift',
+            name='institution',
+        ),
+        migrations.RemoveField(
+            model_name='section',
+            name='academic_cycle',
+        ),
+        migrations.RemoveField(
+            model_name='section',
+            name='grade',
+        ),
+        migrations.RemoveField(
+            model_name='section',
+            name='shift',
         ),
         migrations.AddField(
             model_name='subject',
