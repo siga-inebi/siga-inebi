@@ -168,7 +168,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PER-006 | Vigencia inmediata de los cambios de autorizacion | Deberia | identity-access | Implemented | #246 | backend/tests/unit/test_identity_services.py; backend/tests/api/test_identity_roles_api.py | Composicion y revocacion evaluadas por operacion |
 | RF-PER-007 | Roles del sistema protegidos | Debe | identity-access | Implemented | #247 | backend/tests/unit/test_identity_services.py | Protege ultimo rol, permiso y cuenta administradora |
 | RF-AUT-001 | Inicio de sesion | Debe | identity-access | Not implemented | #105 | TBD | Nucleo fundacional |
-| RF-AUT-002 | Bloqueo temporal por intentos fallidos | Debe | identity-access | Not implemented | #106 | TBD | Seguridad |
+| RF-AUT-002 | Bloqueo temporal por intentos fallidos | Debe | identity-access | Implemented | #106 | backend/tests/{unit/test_identity_services.py,api/test_identity_api.py,api/test_auth_api.py,permissions/test_identity_permissions.py,integration/test_identity.py}; frontend/src/test/App.test.jsx | Bloqueo configurable tras 5 intentos fallidos y levantamiento automatico |
 | RF-AUT-003 | Duracion de sesion configurable por rol | Deberia | identity-access | Not implemented | #107 | TBD | Posterior controlable |
 | RF-AUT-004 | Cierre de sesion | Debe | identity-access | Not implemented | #108 | TBD | Nucleo fundacional |
 | RF-AUT-005 | Cierre del turno de captura | Debe | attendance-capture | Not implemented | #109 | TBD | Operacion de operador |
