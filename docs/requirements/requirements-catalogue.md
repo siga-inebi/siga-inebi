@@ -179,7 +179,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CTA-004 | Politica de contrasenas | Debe | identity-access | Not implemented | #142 | TBD | Seguridad |
 | RF-CTA-005 | Restablecimiento asistido | Debe | identity-access | Not implemented | #143 | TBD | Seguridad |
 | RF-CTA-006 | Desactivacion con verificacion de dependencias | Debe | identity-access | Not implemented | #144 | TBD | Historia y control |
-| RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Not implemented | #145 | TBD | Seguridad |
+| RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Implemented | #145 | backend/tests/unit/test_identity_services.py; backend/tests/permissions/test_identity_permissions.py | Prohibicion estricta y auditada de autoasignacion/revocacion de roles, autodesactivacion y autoactivacion |
 | RF-EXP-001 | Registro del estudiante | Debe | student-records | Not implemented | #185 | TBD | Nucleo fundacional |
 | RF-EXP-002 | Codigo estudiantil | Debe | student-records | Not implemented | #186 | TBD | Identificador institucional |
 | RF-EXP-003 | Estado del estudiante | Debe | student-records | Not implemented | #187 | TBD | Alimenta modulos |
