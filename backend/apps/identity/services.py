@@ -2,9 +2,10 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
-from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth import authenticate, get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Permission
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.sessions.models import Session
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.signing import salted_hmac
 from django.db import models, transaction
@@ -744,3 +745,53 @@ def disable_account(*, actor, user):
             },
         )
         return account
+
+
+def _invalidate_other_user_sessions(*, user, current_session_key=None):
+    """Cierra todas las demás sesiones activas de la cuenta."""
+    user_id_str = str(user.pk)
+    for session in Session.objects.filter(expire_date__gte=timezone.now()):
+        data = session.get_decoded()
+        if str(data.get("_auth_user_id")) == user_id_str:
+            if current_session_key and session.session_key == current_session_key:
+                continue
+            session.delete()
+
+
+def change_password(*, user, current_password, new_password, request=None):
+    """
+    RF-AUT-006: Permite al titular cambiar su contraseña exigiendo la contraseña vigente.
+    Cierra las demás sesiones activas y registra el evento en bitácora sin guardar texto claro.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        raise PermissionDenied("Debe estar autenticado para cambiar la contraseña.")
+
+    if not user.check_password(current_password):
+        record_event(
+            actor=user,
+            action="identity.password.change_denied",
+            resource="UserAccount",
+            resource_identifier=str(user.pk),
+            context={"reason": "invalid_current_password"},
+        )
+        raise DomainError("La contraseña actual es incorrecta.")
+
+    validate_password(new_password, user=user)
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+
+    current_session_key = getattr(getattr(request, "session", None), "session_key", None)
+    _invalidate_other_user_sessions(user=user, current_session_key=current_session_key)
+
+    if request and hasattr(request, "session") and getattr(request, "user", None) == user:
+        update_session_auth_hash(request, user)
+
+    record_event(
+        actor=user,
+        action="identity.password.changed",
+        resource="UserAccount",
+        resource_identifier=str(user.pk),
+        context={"result": "success"},
+    )
+    return user

@@ -1,5 +1,6 @@
 import logging
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import DatabaseError, connection
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -9,11 +10,14 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.models import DomainError
 from apps.identity.serializers import (
     CurrentSessionSerializer,
     CurrentUserSerializer,
     LoginSerializer,
+    PasswordChangeSerializer,
 )
+from apps.identity.services import change_password
 from config.api.serializers import EmptySerializer, HealthSerializer
 
 logger = logging.getLogger(__name__)
@@ -104,5 +108,51 @@ class MeView(GenericAPIView):
                 "authenticated": True,
                 "user": CurrentUserSerializer(request.user).data,
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordChangeView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PasswordChangeSerializer
+
+    @extend_schema(
+        request=PasswordChangeSerializer,
+        responses={200: OpenApiResponse(description="Contraseña actualizada exitosamente")},
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            change_password(
+                user=request.user,
+                current_password=serializer.validated_data["current_password"],
+                new_password=serializer.validated_data["new_password"],
+                request=request,
+            )
+        except DomainError as exc:
+            return Response(
+                {
+                    "error": {
+                        "code": "domain_error",
+                        "message": str(exc),
+                        "detail": {"current_password": [str(exc)]},
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except DjangoValidationError as exc:
+            return Response(
+                {
+                    "error": {
+                        "code": "validation_error",
+                        "message": "Contraseña no cumple con los requisitos de seguridad.",
+                        "detail": {"new_password": list(exc.messages)},
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {"status": "ok", "message": "Contraseña actualizada exitosamente."},
             status=status.HTTP_200_OK,
         )

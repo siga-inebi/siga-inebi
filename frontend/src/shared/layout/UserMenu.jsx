@@ -9,8 +9,10 @@ import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
+import LockResetIcon from "@mui/icons-material/LockReset";
 import LogoutIcon from "@mui/icons-material/Logout";
 
+import { ChangePasswordWindow } from "@auth/ChangePasswordWindow.jsx";
 import { formatFullName } from "@shared/utils/format.js";
 
 /** Iniciales para el avatar cuando no hay foto. */
@@ -33,6 +35,7 @@ function initials(name) {
  */
 export function UserMenu({ onLogout, user }) {
   const [anchor, setAnchor] = useState(null);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const displayName =
     formatFullName(user?.person) !== "—"
       ? formatFullName(user.person)
@@ -100,6 +103,17 @@ export function UserMenu({ onLogout, user }) {
         <MenuItem
           onClick={() => {
             setAnchor(null);
+            setChangePasswordOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <LockResetIcon fontSize="small" />
+          </ListItemIcon>
+          Cambiar contrasena
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchor(null);
             onLogout();
           }}
         >
@@ -109,6 +123,11 @@ export function UserMenu({ onLogout, user }) {
           Cerrar sesion
         </MenuItem>
       </Menu>
+
+      <ChangePasswordWindow
+        onClose={() => setChangePasswordOpen(false)}
+        open={changePasswordOpen}
+      />
     </>
   );
 }
