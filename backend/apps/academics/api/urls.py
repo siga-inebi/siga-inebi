@@ -17,6 +17,8 @@ from .views import (
     LevelListCreateView,
     LevelSubjectDetailView,
     LevelSubjectListCreateView,
+    SectionDetailView,
+    SectionListCreateView,
     ShiftDetailView,
     SubjectDetailView,
     SubjectListCreateView,
@@ -91,6 +93,8 @@ urlpatterns = [
     ),
     path("subjects/", SubjectListCreateView.as_view(), name="subject-list-create"),
     path("subjects/<uuid:public_id>/", SubjectDetailView.as_view(), name="subject-detail"),
+    path("sections/", SectionListCreateView.as_view(), name="section-list-create"),
+    path("sections/<uuid:public_id>/", SectionDetailView.as_view(), name="section-detail"),
     path(
         "teaching-assignments/",
         TeachingAssignmentListCreateView.as_view(),

@@ -11,6 +11,10 @@ export const studentsService = {
       .then((page) => page.results),
   createHealthNote: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/health-notes/`, data),
+  listGuardianRelations: () =>
+    apiClient.get("/students/guardian-relations/").then((page) => page.results),
+  createGuardianRelation: (data) =>
+    apiClient.post("/students/guardian-relations/", data),
   create: async ({ photo, ...data }) => {
     const created = await apiClient.post("/students/", data);
     if (!photo) {

@@ -38,6 +38,12 @@ class StudentListCreateView(generics.ListCreateAPIView):
             queryset=super().get_queryset(),
         )
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        if not user.has_scoped_permission("student_edit_basic", scope={"module_key": "students"}):
+            raise PermissionDenied("Actor lacks the required permission or scope.")
+        serializer.save()
+
 
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Student.objects.all()
@@ -69,7 +75,7 @@ class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
-    queryset = StudentGuardianRelation.objects.all()
+    queryset = StudentGuardianRelation.objects.select_related("student", "guardian__person")
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):

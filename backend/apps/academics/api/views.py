@@ -22,7 +22,7 @@ from rest_framework.response import Response
 
 from apps.academics import services
 from apps.academics.api import queries
-from apps.academics.models import AcademicCycle, Section, Subject, TeachingAssignment
+from apps.academics.models import AcademicCycle, Grade, Section, Shift, Subject, TeachingAssignment
 from apps.common.models import DomainError
 from apps.teachers.models import Teacher
 
@@ -43,6 +43,9 @@ from .serializers import (
     LevelSubjectSerializer,
     LevelSubjectUpdateSerializer,
     LevelUpdateSerializer,
+    SectionCreateSerializer,
+    SectionSerializer,
+    SectionUpdateSerializer,
     ShiftCreateSerializer,
     ShiftSerializer,
     ShiftUpdateSerializer,
@@ -666,6 +669,105 @@ class LevelSubjectDetailView(UpdateMixin, DeactivateMixin, CatalogueDetailView):
         services.unlink_subject_from_level(
             level=link.level, subject=link.subject, actor=request.user
         )
+
+
+# --------------------------------------------------------------------------- #
+# sections ("secciones")
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar secciones",
+        description=(
+            "Secciones de la institucion. Filtra opcionalmente por ciclo (`academic_cycle_id`) "
+            "y grado (`grade_id`). Solo activas salvo `include_inactive=true`."
+        ),
+        tags=CATALOGUE,
+        parameters=[
+            INCLUDE_INACTIVE,
+            OpenApiParameter("academic_cycle_id", str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("grade_id", str, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: SectionSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Crear seccion",
+        description=(
+            "Registra una seccion dentro de la oferta (ciclo, grado, jornada) indicada. "
+            "La oferta se resuelve o se crea automaticamente si todavia no existia."
+        ),
+        tags=CATALOGUE,
+        request=SectionCreateSerializer,
+        responses={201: SectionSerializer},
+    ),
+)
+class SectionListCreateView(CatalogueListCreateView):
+    list_serializer = SectionSerializer
+    create_serializer = SectionCreateSerializer
+
+    def list_queryset(self, request):
+        return queries.sections(self.institution, request)
+
+    def create(self, request, payload):
+        academic_cycle = _resolve(
+            AcademicCycle.objects.filter(institution=self.institution),
+            payload["academic_cycle_id"],
+            "Academic cycle",
+        )
+        grade = _resolve(
+            Grade.objects.filter(level__institution=self.institution),
+            payload["grade_id"],
+            "Grade",
+        )
+        shift = _resolve(
+            Shift.objects.filter(campus__institution=self.institution),
+            payload["shift_id"],
+            "Shift",
+        )
+        section = services.create_section(
+            academic_cycle=academic_cycle,
+            grade=grade,
+            shift=shift,
+            name=payload["name"],
+            capacity=payload.get("capacity", 0),
+            actor=request.user,
+        )
+        return queries.section_or_404(self.institution, section.public_id)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar seccion", tags=CATALOGUE, responses={200: SectionSerializer}
+    ),
+    patch=extend_schema(
+        summary="Actualizar seccion",
+        tags=CATALOGUE,
+        request=SectionUpdateSerializer,
+        responses={200: SectionSerializer},
+    ),
+    delete=extend_schema(
+        summary="Desactivar seccion",
+        description=(
+            "Desactiva la seccion en lugar de eliminarla. Se rechaza si tiene matriculas "
+            "activas o si el ciclo ya esta cerrado."
+        ),
+        tags=CATALOGUE,
+        responses={204: None},
+    ),
+)
+class SectionDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = SectionSerializer
+    update_serializer = SectionUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.section_or_404(self.institution, public_id)
+
+    def update(self, request, section, payload):
+        services.update_section(section=section, actor=request.user, **payload)
+
+    def deactivate(self, request, section):
+        services.deactivate_section(section=section, actor=request.user)
 
 
 # --------------------------------------------------------------------------- #

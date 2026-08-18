@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("students", "0003_studentguardianrelation_current_primary"),
+        ("students", "0004_student_graduated_status"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
