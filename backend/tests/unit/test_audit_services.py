@@ -4,6 +4,7 @@ import pytest
 
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event, record_sensitive_read, sanitize_context
+from apps.audit.services import diff_fields, record_event, sanitize_context
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
@@ -147,3 +148,79 @@ def test_record_sensitive_read_creates_a_real_audit_event():
     )
 
     assert AuditEvent.objects.filter(action="attendance.day_status.read").exists()
+# record_event(reason=..., changes=...) -- RF-BIT-002
+# --------------------------------------------------------------------------- #
+
+
+def test_record_event_reason_lands_in_context():
+    event = record_event(
+        actor=None, action="test.action", resource="Resource", reason="user requested it"
+    )
+
+    assert event.context["reason"] == "user requested it"
+
+
+def test_record_event_blank_reason_is_not_recorded():
+    event = record_event(actor=None, action="test.action", resource="Resource", reason="")
+
+    assert "reason" not in event.context
+
+
+def test_record_event_changes_lands_in_context():
+    changes = {"name": {"before": "Old", "after": "New"}}
+
+    event = record_event(actor=None, action="test.action", resource="Resource", changes=changes)
+
+    assert event.context["changes"] == changes
+
+
+def test_record_event_no_changes_supplied_is_not_recorded():
+    event = record_event(actor=None, action="test.action", resource="Resource")
+
+    assert "changes" not in event.context
+
+
+# --------------------------------------------------------------------------- #
+# diff_fields -- RF-BIT-002
+# --------------------------------------------------------------------------- #
+
+
+class _Dummy:
+    def __init__(self, name, kind):
+        self.name = name
+        self.kind = kind
+
+
+def test_diff_fields_captures_before_and_after_for_supplied_fields():
+    instance = _Dummy(name="Old", kind="report")
+
+    changes = diff_fields(instance, name="New", kind=None)
+
+    assert changes == {"name": {"before": "Old", "after": "New"}}
+
+
+def test_diff_fields_ignores_fields_not_supplied():
+    instance = _Dummy(name="Old", kind="report")
+
+    changes = diff_fields(instance, name=None, kind=None)
+
+    assert changes == {}
+# actor_label is a snapshot -- RF-BIT-007
+# --------------------------------------------------------------------------- #
+
+
+def test_actor_label_does_not_follow_later_username_changes():
+    """
+    Attribution must survive whatever happens to the account afterwards
+    (RF-BIT-007). Proven at the unit level: actor_label is captured once,
+    at record time -- it is not a live reference to actor.username.
+    """
+    actor = UserFactory(username="original-name")
+
+    event = record_event(actor=actor, action="test.action", resource="Resource")
+
+    actor.username = "renamed-later"
+    actor.save(update_fields=["username"])
+
+    event.refresh_from_db()
+    assert event.actor_label == "original-name"

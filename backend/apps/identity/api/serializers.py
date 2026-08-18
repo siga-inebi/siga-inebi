@@ -197,3 +197,9 @@ class AccountListSerializer(serializers.ModelSerializer):
 
 class AccountDisableSerializer(serializers.Serializer):
     force = serializers.BooleanField(default=False)
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Motivo declarado de la desactivacion (RF-BIT-002).",
+    )

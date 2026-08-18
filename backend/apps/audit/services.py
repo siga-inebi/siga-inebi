@@ -30,11 +30,31 @@ def sanitize_context(value):
     return value
 
 
-def record_event(*, actor, action, resource, resource_identifier="", context=None, ip_address=None):
+def record_event(
+    *,
+    actor,
+    action,
+    resource,
+    resource_identifier="",
+    context=None,
+    ip_address=None,
+    reason="",
+    changes=None,
+):
+    """
+    ``reason`` and ``changes`` are RF-BIT-002's "motivo declarado" and "valor
+    anterior y el nuevo" -- optional, so every existing call keeps behaving
+    exactly as before. Both land inside ``context`` (no new columns): that's
+    already where every other unstructured fact about an event lives.
+    """
     merged_context = {}
     merged_context.update(get_audit_context())
     if context:
         merged_context.update(context)
+    if reason:
+        merged_context["reason"] = reason
+    if changes:
+        merged_context["changes"] = changes
 
     return AuditEvent.objects.create(
         actor=actor,
@@ -62,3 +82,14 @@ def record_sensitive_read(*, actor, action, resource, resource_identifier, stude
         resource_identifier=resource_identifier,
         context={"student_id": student.pk, "result": "success"},
     )
+def diff_fields(instance, **candidates):
+    """
+    Before/after map for ``record_event(changes=...)``. Same ``None`` means
+    "not supplied" convention every domain's ``_changed``-style helper
+    already uses -- call this *before* mutating ``instance``.
+    """
+    return {
+        name: {"before": getattr(instance, name), "after": new_value}
+        for name, new_value in candidates.items()
+        if new_value is not None
+    }

@@ -60,6 +60,11 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      // Keep graphics visible in the manifest so the static raster cap cannot
+      // be bypassed by Vite's default small-asset inlining.
+      assetsInlineLimit: 0,
+      manifest: true,
+      target: ["chrome107", "edge107", "firefox104", "safari16"],
       rollupOptions: {
         output: {
           // Chunks explicitos para las dependencias que no cambian: el usuario
