@@ -4,6 +4,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from apps.audit.services import record_sensitive_read
 from apps.identity.scopes import authorized_student_queryset
 from apps.students import services
 from apps.students.api import queries
@@ -258,7 +259,15 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
     create_serializer = EmergencyContactCreateSerializer
 
     def list_queryset(self, request, public_id):
-        return queries.emergency_contacts(queries.student_or_404(public_id), request)
+        student = queries.student_or_404(public_id)
+        record_sensitive_read(
+            actor=request.user,
+            action="students.emergency_contacts.read",
+            resource="EmergencyContact",
+            resource_identifier=str(student.pk),
+            student=student,
+        )
+        return queries.emergency_contacts(student, request)
 
     def create(self, request, payload, public_id):
         student = queries.student_or_404(public_id)
