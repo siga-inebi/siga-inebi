@@ -2,7 +2,12 @@ from rest_framework import serializers
 
 from apps.people.api.serializers import PersonSerializer
 from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
-from apps.students.services import create_guardian, create_student, create_student_guardian_relation
+from apps.students.services import (
+    create_guardian,
+    create_student,
+    create_student_guardian_relation,
+    update_student,
+)
 
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a parent record
@@ -46,7 +51,8 @@ class StudentSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # Nested person edits aren't supported yet — edit via /api/v1/people/<id>/.
         validated_data.pop("person", None)
-        return super().update(instance, validated_data)
+        actor = getattr(self.context.get("request"), "user", None)
+        return update_student(student=instance, actor=actor, **validated_data)
 
 
 class GuardianSerializer(serializers.ModelSerializer):

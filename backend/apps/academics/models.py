@@ -105,6 +105,10 @@ class AcademicCycle(TimeStampedModel):
     def is_closed(self):
         return self.status == self.CycleStatus.CLOSED
 
+    @property
+    def is_planning(self):
+        return self.status == self.CycleStatus.DRAFT
+
 
 class Shift(TimeStampedModel):
     """

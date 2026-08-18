@@ -36,12 +36,29 @@ const STUDENT_FIELDS = [
   { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
 ];
 
+const STUDENT_EDIT_FIELDS = [
+  ...STUDENT_FIELDS,
+  {
+    name: "status",
+    label: "Estado",
+    type: "select",
+    required: true,
+    options: [
+      { value: "pre_enrolled", label: "Preinscrito" },
+      { value: "active", label: "Activo" },
+      { value: "inactive", label: "Inactivo" },
+      { value: "withdrawn", label: "Retirado" },
+      { value: "graduated", label: "Graduado" },
+    ],
+  },
+];
+
 /** Estados de expediente del estudiante -> variante semantica de chip. */
 const STATUS_VARIANT = {
-  enrolled: "success",
+  active: "success",
   pre_enrolled: "primary",
+  inactive: "neutral",
   withdrawn: "danger",
-  suspended: "warning",
   graduated: "purple",
 };
 
@@ -138,6 +155,7 @@ export function AlumnosPage() {
         phone_number: values.phone_number,
       },
       student_code: values.student_code,
+      status: values.status,
       photo: values.photo,
     });
     list.replaceItem(updated, (item) => item.id === updated.id);
@@ -369,13 +387,14 @@ export function AlumnosPage() {
 
       {editing ? (
         <EntityFormWindow
-          fields={STUDENT_FIELDS}
+          fields={STUDENT_EDIT_FIELDS}
           initialValues={{
             first_name: editing.person.first_name,
             last_name: editing.person.last_name,
             email: editing.person.email ?? "",
             phone_number: editing.person.phone_number ?? "",
             student_code: editing.student_code,
+            status: editing.status,
             photo: null,
           }}
           key={editing.id}

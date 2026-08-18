@@ -292,6 +292,7 @@ describe("AlumnosPage", () => {
           phone_number: "555-0101",
         },
         student_code: "EST-2026-014",
+        status: "active",
       })
     );
     expect(
