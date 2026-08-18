@@ -1,16 +1,8 @@
-import pytest
-from django.urls import reverse
 from datetime import timedelta
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
-from rest_framework import status
-from rest_framework.test import APIClient
-
-from tests.factories.identity import UserFactory
-import pytest
-from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 

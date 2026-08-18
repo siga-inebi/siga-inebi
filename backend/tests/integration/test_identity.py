@@ -7,11 +7,8 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.audit.models import AuditEvent
-from tests.factories.identity import UserFactory
-import pytest
-
 from apps.academics.services import create_teaching_assignment
+from apps.audit.models import AuditEvent
 from apps.identity.scopes import scope_matches
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.identity import (
