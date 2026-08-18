@@ -4,7 +4,7 @@ import pytest
 
 from apps.academics.api.queries import historical_cycle_or_404
 from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, Section
-from apps.academics.services import activate_academic_cycle, create_academic_cycle
+from apps.academics.services import activate_academic_cycle, create_academic_cycle, create_section
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
@@ -69,6 +69,36 @@ def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
     with pytest.raises(DomainError, match="must be closed"):
         activate_academic_cycle(cycle=prepared, actor=actor)
     assert AuditEvent.objects.filter(action="academics.cycle.created").count() == 2
+
+
+def test_created_sections_satisfy_cycle_activation_structure_check():
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2028,
+        name="Ciclo 2028",
+        starts_on=date(2028, 1, 1),
+        ends_on=date(2028, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+
+    section = create_section(
+        academic_cycle=cycle, grade=grade, shift=shift, name="A", capacity=30, actor=actor
+    )
+    CurriculumPlan.objects.create(
+        academic_cycle=cycle, grade=grade, subject=SubjectFactory(institution=institution)
+    )
+
+    activated = activate_academic_cycle(cycle=cycle, actor=actor)
+
+    assert activated.status == AcademicCycle.CycleStatus.ACTIVE
+    assert section.offering.academic_cycle_id == cycle.pk
+    assert GradeOffering.objects.filter(academic_cycle=cycle, grade=grade, shift=shift).count() == 1
+    assert AuditEvent.objects.filter(action="academics.grade_offering.created").count() == 1
+    assert AuditEvent.objects.filter(action="academics.section.created").count() == 1
 
 
 def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():

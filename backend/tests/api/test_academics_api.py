@@ -7,8 +7,10 @@ from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
+    GradeFactory,
     GradeOfferingFactory,
     SectionFactory,
+    ShiftFactory,
     SubjectFactory,
 )
 from tests.factories.students import StudentFactory
@@ -70,6 +72,66 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
 
     assert response.status_code == 400
     assert "must be closed" in response.json()["error"]["detail"]
+
+
+def test_create_section_api_creates_offering_and_section(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+
+    response = auth_client.post(
+        reverse("section-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "shift_id": str(shift.public_id),
+            "name": "A",
+            "capacity": 30,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "A"
+    assert body["capacity"] == 30
+    assert body["academic_cycle_id"] == str(cycle.public_id)
+
+
+def test_create_section_api_rejects_duplicate_name(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    payload = {
+        "academic_cycle_id": str(cycle.public_id),
+        "grade_id": str(grade.public_id),
+        "shift_id": str(shift.public_id),
+        "name": "A",
+    }
+    url = reverse("section-list-create")
+    auth_client.post(url, payload, content_type="application/json")
+
+    response = auth_client.post(url, payload, content_type="application/json")
+
+    assert response.status_code == 400
+    assert "already exists" in response.json()["error"]["detail"]
+
+
+def test_deactivate_section_api_contract(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    response = auth_client.delete(reverse("section-detail", args=[section.public_id]))
+
+    assert response.status_code == 204
+    section.refresh_from_db()
+    assert section.is_active is False
+
+
+def test_section_endpoints_require_authentication(client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    assert client.get(reverse("section-list-create")).status_code == 403
+    assert client.get(reverse("section-detail", args=[section.public_id])).status_code == 403
 
 
 def test_cycle_endpoints_require_authentication(client, institution):
