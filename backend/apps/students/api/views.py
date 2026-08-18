@@ -73,7 +73,7 @@ class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
-    queryset = StudentGuardianRelation.objects.all()
+    queryset = StudentGuardianRelation.objects.select_related("student", "guardian__person")
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):

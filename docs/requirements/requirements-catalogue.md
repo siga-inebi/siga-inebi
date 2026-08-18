@@ -182,6 +182,10 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Implemented | #145 | backend/tests/unit/test_identity_services.py; backend/tests/permissions/test_identity_permissions.py | Prohibicion estricta y auditada de autoasignacion/revocacion de roles, autodesactivacion y autoactivacion |
 | RF-CTA-006 | Desactivacion con verificacion de dependencias | Debe | identity-access | Implemented | #144 | backend/tests/unit/test_identity_services.py | Desactivacion advierte asignaciones vigentes; eventos historicos sobreviven |
 | RF-CTA-007 | Prohibicion de autoescalamiento | Debe | identity-access | Not implemented | #145 | TBD | Seguridad |
+| RF-EXP-001 | Registro del estudiante | Debe | student-records | Not implemented | #185 | TBD | Nucleo fundacional |
+| RF-EXP-002 | Codigo estudiantil | Debe | student-records | Not implemented | #186 | TBD | Identificador institucional |
+| RF-EXP-003 | Estado del estudiante | Debe | student-records | Not implemented | #187 | TBD | Alimenta modulos |
+| RF-EXP-004 | Vinculo con encargados | Debe | student-records | Implemented | #188 | TBD | Cruza auth; multiples vinculos, parentesco, principal e historial |
 | RF-EXP-001 | Registro del estudiante | Debe | student-records | In progress | #185 | backend/tests/api/test_students_api.py; backend/tests/integration/test_student_lifecycle.py | Registro transaccional y autorizado; campos demograficos adicionales no estan definidos en la fuente |
 | RF-EXP-002 | Codigo estudiantil | Debe | student-records | Implemented | #186 | backend/tests/unit/test_students.py; backend/tests/api/test_students_api.py | Codigo obligatorio y unico con rollback ante duplicado |
 | RF-EXP-003 | Estado del estudiante | Debe | student-records | In progress | #187 | backend/tests/unit/test_students_services.py; backend/tests/api/test_students_api.py | Estados publicados y cambios auditados; matriz completa de restricciones por estado no esta definida |

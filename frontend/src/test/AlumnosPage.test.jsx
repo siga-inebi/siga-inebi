@@ -10,10 +10,20 @@ const studentsServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  listGuardianRelations: vi.fn(),
+  createGuardianRelation: vi.fn(),
+}));
+
+const guardiansServiceMock = vi.hoisted(() => ({
+  list: vi.fn(),
 }));
 
 vi.mock("@students/studentsService.js", () => ({
   studentsService: studentsServiceMock,
+}));
+
+vi.mock("@guardians/guardiansService.js", () => ({
+  guardiansService: guardiansServiceMock,
 }));
 
 const downloadCsvMock = vi.hoisted(() => vi.fn());
@@ -54,6 +64,10 @@ describe("AlumnosPage", () => {
     studentsServiceMock.list.mockReset();
     studentsServiceMock.create.mockReset();
     studentsServiceMock.update.mockReset();
+    studentsServiceMock.listGuardianRelations.mockReset();
+    studentsServiceMock.createGuardianRelation.mockReset();
+    studentsServiceMock.listGuardianRelations.mockResolvedValue([]);
+    guardiansServiceMock.list.mockReset();
     downloadCsvMock.mockReset();
   });
 
@@ -297,5 +311,62 @@ describe("AlumnosPage", () => {
 
     expect(screen.getByText(/Complete el campo/)).toBeInTheDocument();
     expect(studentsServiceMock.create).not.toHaveBeenCalled();
+  });
+
+  test("links a guardian from the student detail", async () => {
+    const guardian = {
+      id: 21,
+      person: {
+        id: 31,
+        first_name: "Rosa",
+        last_name: "Garcia",
+        email: "rosa@example.test",
+        phone_number: "555-0103",
+      },
+    };
+    studentsServiceMock.list.mockResolvedValue(SAMPLE);
+    guardiansServiceMock.list.mockResolvedValue([guardian]);
+    studentsServiceMock.createGuardianRelation.mockResolvedValue({
+      id: 41,
+      student: 1,
+      guardian: guardian.id,
+      guardian_detail: guardian,
+      relationship_label: "Madre",
+      is_primary: true,
+      ends_at: null,
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<AlumnosPage />);
+
+    await screen.findByText("Maria Jose Lopez Garcia");
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
+    await user.click(
+      screen.getByRole("button", { name: "Vincular encargado" })
+    );
+
+    await waitFor(() =>
+      expect(guardiansServiceMock.list).toHaveBeenCalledTimes(1)
+    );
+    await user.click(
+      await screen.findByRole("combobox", { name: /^Encargado/ })
+    );
+    await user.click(screen.getByRole("option", { name: "Rosa Garcia" }));
+    await user.type(
+      screen.getByLabelText(/^Parentesco o responsabilidad/),
+      "Madre"
+    );
+    await user.click(
+      screen.getAllByRole("button", { name: "Vincular encargado" }).at(-1)
+    );
+
+    await waitFor(() =>
+      expect(studentsServiceMock.createGuardianRelation).toHaveBeenCalledWith({
+        student: 1,
+        guardian: 21,
+        relationship_label: "Madre",
+      })
+    );
+    expect(await screen.findByText("Rosa Garcia")).toBeInTheDocument();
+    expect(screen.getByText(/Madre.*Principal/)).toBeInTheDocument();
   });
 });
