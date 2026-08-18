@@ -95,6 +95,8 @@ RoleAssignment -> ScopeGrant
 - `GET /api/v1/students/` y los detalles de estudiante usan el resolvedor central. Las lecturas
   requieren `student_view_basic`; las modificaciones y bajas requieren `student_edit_basic`.
   Las vistas no contienen filtros de alcance ad hoc.
+- Crear un estudiante requiere `student_edit_basic` con `module_key=students`, porque el recurso
+  aun no existe y por tanto no admite un alcance directo por estudiante.
 - Las relaciones `StudentGuardianRelation` reutilizan el mismo resolvedor: listados y detalle se
   filtran por los estudiantes autorizados con `student_view_basic`; crear, marcar principal y
   terminar requieren `student_edit_basic` sobre el estudiante afectado. Las asignaciones docentes

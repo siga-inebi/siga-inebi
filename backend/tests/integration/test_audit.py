@@ -2,15 +2,27 @@ from datetime import timedelta
 
 import pytest
 from django.core.exceptions import PermissionDenied
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
 from apps.enrolments.services import change_section, create_enrolment
 from apps.identity.services import assign_role, authenticate_account
+from tests.factories.academic import CampusFactory, SectionFactory
+from tests.factories.attendance import JornadaParametersFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+    UserFactory,
+)
+from apps.identity.services import assign_role, authenticate_account, disable_account
 from tests.factories.academic import SectionFactory
 from tests.factories.identity import PermissionFactory, RoleFactory, UserFactory
 from tests.factories.students import StudentFactory
+from tests.factories.teachers import TeacherFactory
 
 
 @pytest.mark.integration
@@ -153,6 +165,120 @@ def test_successful_login_clearing_stale_lockout_is_audited():
     assert event.action == "identity.login.lockout_cleared"
     assert event.actor_id == user.id
     assert event.context["cleared_failed_attempts"] == 3
+
+
+@pytest.mark.integration
+@pytest.mark.security
+@pytest.mark.django_db
+def test_reading_an_individual_students_attendance_status_is_audited(auth_client):
+    """
+    RF-BIT-003, Escenario 1: "GIVEN un usuario autorizado que consulta el
+    historial de entradas y salidas de un estudiante, WHEN el sistema
+    presenta el resultado, THEN registra un asiento de lectura sensible con
+    el usuario, el estudiante y el momento."
+
+    No multi-day "history" list endpoint exists yet -- substituted with
+    AttendanceDayStatusView, the closest real read that identifies one
+    student, same as the RF-BIT-001/002 scenario substitutions.
+    """
+    permission = PermissionFactory(codename="student_view_basic")
+    assignment = RoleAssignmentFactory(
+        user=auth_client.user, role=RoleFactory(permissions=[permission])
+    )
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    ScopeGrantFactory(assignment=assignment, student=student)
+
+    response = auth_client.get(
+        reverse("attendance-day-status"),
+        {
+            "student_id": str(student.public_id),
+            "shift_id": str(parameters.shift.public_id),
+            "event_date": str(parameters.effective_from),
+        },
+    )
+
+    assert response.status_code == 200
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.day_status.read"
+    assert event.actor_id == auth_client.user.id
+    assert event.context["student_id"] == student.pk
+
+
+@pytest.mark.integration
+@pytest.mark.security
+@pytest.mark.django_db
+def test_aggregated_non_student_query_is_not_audited_as_a_sensitive_read(auth_client):
+    """
+    RF-BIT-003, Escenario 2: "GIVEN un usuario que consulta el porcentaje de
+    asistencia de una sección, WHEN el sistema presenta el resultado, THEN
+    no genera un asiento de lectura sensible."
+
+    No attendance-percentage endpoint exists yet either -- the principle is
+    verified against a real, already-existing aggregate read that doesn't
+    identify one student: the campus catalogue (counts only, no student PII).
+    """
+    CampusFactory()
+    before = AuditEvent.objects.filter(action__endswith=".read").count()
+
+    response = auth_client.get(reverse("campus-list-create"))
+
+    assert response.status_code == 200
+    after = AuditEvent.objects.filter(action__endswith=".read").count()
+    assert after == before
+def test_disabling_an_account_with_a_declared_reason_is_audited():
+    """
+    RF-BIT-002's own scenario ("GIVEN un usuario que registra manualmente un
+    movimiento indicando el motivo, WHEN se consulta el asiento
+    correspondiente, THEN incluye usuario, acción, fecha y hora, registro
+    afectado, dispositivo y motivo"), substituted with a real equivalent:
+    attendance's manual-entry path is an explicitly provisional skeleton
+    ("A separate attendance-capture effort owns the real scanning/ingestion
+    workflow and may replace this mapping" -- apps/attendance/api/views.py).
+    Disabling an account with a declared reason is the same shape -- a
+    sensitive operation that requires a user-declared motivo -- on stable
+    code.
+    """
+    actor = UserFactory(is_superuser=True)
+    target = UserFactory()
+
+    disable_account(actor=actor, user=target, reason="Solicitud del titular")
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.actor_id == actor.id
+    assert event.action == "identity.account.disabled"
+    assert event.resource_identifier == str(target.pk)
+    assert event.context["reason"] == "Solicitud del titular"
+    assert "before" in event.context and "after" in event.context
+def test_events_stay_attributed_to_a_teacher_after_their_account_is_disabled():
+    """
+    RF-BIT-007's own scenario, reproducible as-is (no substitution needed):
+    "GIVEN asientos generados por un docente cuya cuenta fue desactivada,
+    WHEN un auditor los consulta, THEN siguen atribuidos a esa identidad."
+
+    disable_account() never touches AuditEvent.actor -- deactivation is not
+    deletion -- so this mostly documents/locks in behaviour that already
+    holds, rather than closing a gap.
+    """
+    admin = UserFactory(is_superuser=True)
+    teacher = TeacherFactory()
+    teacher_user = UserFactory(person=teacher.person, username="docente-original")
+
+    record_event(
+        actor=teacher_user,
+        action="attendance.event.recorded",
+        resource="AttendanceEvent",
+        resource_identifier="123",
+    )
+
+    disable_account(actor=admin, user=teacher_user, force=True)
+    teacher_user.refresh_from_db()
+
+    assert teacher_user.is_active is False
+
+    event = AuditEvent.objects.get(action="attendance.event.recorded")
+    assert event.actor_id == teacher_user.pk
+    assert event.actor_label == "docente-original"
 
 
 @pytest.mark.integration
