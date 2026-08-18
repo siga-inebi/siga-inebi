@@ -61,6 +61,17 @@
 - `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
   Debe incluir `replacement_relation` al terminar la relacion principal.
 
+## Expediente estudiantil basico
+
+- `POST /api/v1/students/` registra persona y expediente en una transaccion. Requiere
+  `student.edit_basic` con alcance de modulo `students`; permiso sin alcance se deniega.
+- `PATCH /api/v1/students/{id}/` modifica codigo, estado o fotografia mediante servicio de
+  dominio y genera auditoria. Los datos de `Person` mantienen su endpoint propio.
+- Estados publicados: `pre_enrolled`, `active`, `inactive`, `withdrawn` y `graduated`.
+- `DELETE /api/v1/students/{id}/` desactiva el expediente; no elimina el registro ni su persona.
+- La fotografia se clasifica `Restricted`; modificarla exige `student.edit_basic` y alcance sobre
+  el estudiante. Normalizacion y limites generales del binario pertenecen a RF-ARC-001/002.
+
 ## Ciclos escolares
 
 - `GET /api/v1/academics/cycles/` lista ciclos de la institucion configurada.
