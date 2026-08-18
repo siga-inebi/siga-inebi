@@ -74,3 +74,21 @@ class EmergencyContact(TimeStampedModel):
     name = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=30)
     relationship_label = models.CharField(max_length=100)
+
+
+class StudentHealthNote(TimeStampedModel):
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.PROTECT,
+        related_name="health_notes",
+    )
+    author = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="student_health_notes",
+    )
+    content = models.TextField()
+    recorded_on = models.DateField(default=timezone.localdate)
+
+    class Meta:
+        ordering = ["-recorded_on", "-created_at"]

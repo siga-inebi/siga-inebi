@@ -4,7 +4,13 @@ from django.utils import timezone
 from apps.audit.services import record_event
 from apps.common.models import DomainError
 from apps.people.models import Person
-from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
+from apps.students.models import (
+    EmergencyContact,
+    Guardian,
+    Student,
+    StudentGuardianRelation,
+    StudentHealthNote,
+)
 
 
 def create_student(*, person_data, student_code, status=None, actor=None):
@@ -315,3 +321,29 @@ def update_emergency_contact(
         return emergency_contact
 
     return _changed(emergency_contact, actor, "students.emergency_contact.updated", **candidates)
+
+
+@transaction.atomic
+def create_student_health_note(*, student, content, actor, recorded_on=None):
+    _require_active(student, "Student")
+    content = _clean_text(content, field="content")
+    recorded_on = recorded_on or timezone.localdate()
+    if recorded_on > timezone.localdate():
+        raise DomainError("A health note cannot be recorded in the future.")
+    note = StudentHealthNote.objects.create(
+        student=student, author=actor, content=content, recorded_on=recorded_on
+    )
+    _audit(actor, "students.health_note.created", note, student_id=student.pk)
+    return note
+
+
+def deactivate_student_health_note(*, health_note, actor):
+    health_note.is_active = False
+    health_note.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "students.health_note.deactivated",
+        health_note,
+        student_id=health_note.student_id,
+    )
+    return health_note
