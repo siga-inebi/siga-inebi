@@ -5,12 +5,14 @@ from django.urls import reverse
 from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
+from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
     GradeOfferingFactory,
     SectionFactory,
     SubjectFactory,
 )
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -70,6 +72,34 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
 
     assert response.status_code == 400
     assert "must be closed" in response.json()["error"]["detail"]
+
+
+def test_close_cycle_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
+
+    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "closed"
+
+
+def test_close_cycle_api_rejects_open_evaluation_unit(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    unit = EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.OPEN)
+
+    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 400
+    assert unit.name in response.json()["error"]["detail"]
+
+
+def test_close_cycle_endpoint_requires_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+
+    response = client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 403
 
 
 def test_cycle_endpoints_require_authentication(client, institution):
