@@ -42,6 +42,7 @@ def test_updating_a_resource_via_the_api_is_audited(auth_client, institution):
     event = AuditEvent.objects.latest("created_at")
     assert event.action == "documents.template.updated"
     assert event.resource_identifier == str(template.pk)
+    assert event.context["changes"]["name"] == {"before": "Old", "after": "New"}
 
 
 def test_deactivating_a_resource_via_the_api_is_audited(auth_client, institution):
