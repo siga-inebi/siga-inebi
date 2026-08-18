@@ -131,6 +131,31 @@ def level_subjects(level):
     return LevelSubject.objects.filter(level=level).select_related("level", "subject")
 
 
+_SECTION_RELATED = ("offering__grade__level", "offering__shift__campus", "offering__academic_cycle")
+
+
+def sections(institution, request):
+    queryset = Section.objects.filter(
+        offering__academic_cycle__institution=institution
+    ).select_related(*_SECTION_RELATED)
+    queryset = _filter_active(queryset, request)
+
+    academic_cycle_id = request.query_params.get("academic_cycle_id")
+    if academic_cycle_id:
+        queryset = queryset.filter(offering__academic_cycle__public_id=academic_cycle_id)
+    grade_id = request.query_params.get("grade_id")
+    if grade_id:
+        queryset = queryset.filter(offering__grade__public_id=grade_id)
+    return queryset
+
+
+def section_or_404(institution, public_id):
+    queryset = Section.objects.filter(
+        offering__academic_cycle__institution=institution
+    ).select_related(*_SECTION_RELATED)
+    return _get(queryset, public_id, "Section")
+
+
 def teaching_assignment_history(institution, *, teacher=None, academic_cycle=None):
     queryset = TeachingAssignment.objects.filter(
         academic_cycle__institution=institution

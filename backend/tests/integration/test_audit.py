@@ -11,6 +11,7 @@ from apps.identity.services import assign_role, authenticate_account, disable_ac
 from tests.factories.academic import SectionFactory
 from tests.factories.identity import PermissionFactory, RoleFactory, UserFactory
 from tests.factories.students import StudentFactory
+from tests.factories.teachers import TeacherFactory
 
 
 @pytest.mark.integration
@@ -160,6 +161,35 @@ def test_disabling_an_account_with_a_declared_reason_is_audited():
     assert event.resource_identifier == str(target.pk)
     assert event.context["reason"] == "Solicitud del titular"
     assert "before" in event.context and "after" in event.context
+def test_events_stay_attributed_to_a_teacher_after_their_account_is_disabled():
+    """
+    RF-BIT-007's own scenario, reproducible as-is (no substitution needed):
+    "GIVEN asientos generados por un docente cuya cuenta fue desactivada,
+    WHEN un auditor los consulta, THEN siguen atribuidos a esa identidad."
+
+    disable_account() never touches AuditEvent.actor -- deactivation is not
+    deletion -- so this mostly documents/locks in behaviour that already
+    holds, rather than closing a gap.
+    """
+    admin = UserFactory(is_superuser=True)
+    teacher = TeacherFactory()
+    teacher_user = UserFactory(person=teacher.person, username="docente-original")
+
+    record_event(
+        actor=teacher_user,
+        action="attendance.event.recorded",
+        resource="AttendanceEvent",
+        resource_identifier="123",
+    )
+
+    disable_account(actor=admin, user=teacher_user, force=True)
+    teacher_user.refresh_from_db()
+
+    assert teacher_user.is_active is False
+
+    event = AuditEvent.objects.get(action="attendance.event.recorded")
+    assert event.actor_id == teacher_user.pk
+    assert event.actor_label == "docente-original"
 
 
 @pytest.mark.integration

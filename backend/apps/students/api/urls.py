@@ -10,7 +10,11 @@ from apps.students.api.views import (
     StudentGuardianRelationEndView,
     StudentGuardianRelationListCreateView,
     StudentGuardianRelationPrimaryView,
+    StudentHealthNoteDetailView,
+    StudentHealthNoteListCreateView,
     StudentListCreateView,
+    StudentObservationDetailView,
+    StudentObservationListCreateView,
 )
 
 urlpatterns = [
@@ -48,5 +52,23 @@ urlpatterns = [
         "emergency-contacts/<uuid:public_id>/",
         EmergencyContactDetailView.as_view(),
         name="emergency-contact-detail",
+    ),
+    path(
+        "<uuid:public_id>/observations/",
+        StudentObservationListCreateView.as_view(),
+        name="student-observation-list-create",
+    ),
+    path(
+        "observations/<uuid:public_id>/",
+        StudentObservationDetailView.as_view(),
+        name="student-observation-detail",
+        "<uuid:public_id>/health-notes/",
+        StudentHealthNoteListCreateView.as_view(),
+        name="student-health-note-list-create",
+    ),
+    path(
+        "health-notes/<uuid:public_id>/",
+        StudentHealthNoteDetailView.as_view(),
+        name="student-health-note-detail",
     ),
 ]

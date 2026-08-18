@@ -2,7 +2,7 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
-import logo from "@shared/assets/logo.jpg";
+import logo from "@shared/assets/logo.webp";
 import { palette } from "@theme/tokens/color.js";
 
 /**
