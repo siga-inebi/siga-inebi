@@ -148,7 +148,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-BIT-002 | Contenido del asiento | Debe | audit-compliance | Not implemented | #112 | TBD | Modelo obligatorio |
 | RF-BIT-003 | Catalogo de lecturas sensibles | Debe | audit-compliance | Not implemented | #113 | TBD | Transversal |
 | RF-BIT-004 | Registro de intentos denegados | Deberia | audit-compliance | Not implemented | #114 | TBD | RNF exige varios casos |
-| RF-BIT-005 | Inmutabilidad de la bitacora | Debe | audit-compliance | Not implemented | #115 | TBD | Critico |
+| RF-BIT-005 | Inmutabilidad de la bitacora | Debe | audit-compliance | Implemented | #115 | backend/tests/integration/test_audit.py; backend/tests/permissions/test_audit_permissions.py | Critico; se cerro un hueco real de borrado/edicion masiva via queryset que el guard de instancia no cubria |
 | RF-BIT-006 | Consulta y exportacion restringidas | Deberia | audit-compliance | Not implemented | #116 | TBD | Rol auditor |
 | RF-BIT-007 | Atribucion persistente | Debe | audit-compliance | Not implemented | #117 | TBD | No perder responsable |
 | RF-ALC-001 | El alcance acompana siempre al permiso | Debe | identity-access | Implemented | #69 | backend/tests/permissions/test_identity_permissions.py; backend/tests/unit/test_identity_services.py | Evaluacion y filtrado compartidos; grant sin dimension rechazado |
