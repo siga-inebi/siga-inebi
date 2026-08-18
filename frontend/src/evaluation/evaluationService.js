@@ -57,4 +57,22 @@ export const evaluationService = {
       `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/capture-exceptions/`,
       payload
     ),
+
+  /**
+   * Notas de unidad (RF-CAL-001): la nota consolidada que el docente ya
+   * calculo para un estudiante, una subarea y una unidad. Registrar de nuevo
+   * la misma combinacion actualiza la nota existente.
+   */
+  listGrades: (cyclePublicId, unitPublicId, params) =>
+    apiClient.get(
+      withQuery(
+        `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/grades/`,
+        params
+      )
+    ),
+  registerGrade: (cyclePublicId, unitPublicId, payload) =>
+    apiClient.post(
+      `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/grades/`,
+      payload
+    ),
 };

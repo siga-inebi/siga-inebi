@@ -15,6 +15,7 @@ Scenario 5: Recuperación fuera de fecha
 Scenario 6: Docente que no alcanzó a subir notas
 Scenario 7: Expiración automática
 Scenario 8: Ciclo que se aparta del valor global
+Scenario 9: Registro de una nota por el docente
 """
 
 from datetime import date, timedelta
@@ -23,12 +24,14 @@ import pytest
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.evaluation.models import EvaluationUnit
+from apps.enrolments.services import create_enrolment
+from apps.evaluation.models import EvaluationUnit, Grade
 from apps.evaluation.services import (
     create_evaluation_unit,
     get_effective_unit_count,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
     update_global_evaluation_config,
@@ -36,8 +39,10 @@ from apps.evaluation.services import (
     validate_capture_window_open,
     validate_recovery_window_open,
 )
-from tests.factories.academic import AcademicCycleFactory, SubjectFactory
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.people import PersonFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -560,3 +565,133 @@ class TestGlobalEvaluationConfig:
 
         with pytest.raises(DomainError, match="positive integer"):
             set_cycle_unit_count(academic_cycle=cycle, unit_count=0)
+
+
+class TestRegisterUnitGrade:
+    """Tests for RF-CAL-001: Registro de la nota de unidad."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        """
+        A unit whose capture window brackets today explicitly. The factory's
+        default dates are offset by ``number``, a sequence shared across the
+        whole test session, so they drift away from today as more units are
+        created; the window bounds must be set explicitly here.
+        """
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_register_grade_within_capture_window(self):
+        """
+        Scenario 9: Registro de una nota por el docente
+        GIVEN un docente con una subárea a su cargo y la ventana de captura abierta
+        WHEN registra la nota de un estudiante para la unidad en curso
+        THEN el sistema la almacena asociada al estudiante, la subárea, la unidad y el ciclo
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        grade = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=85,
+        )
+
+        assert grade.enrolment == enrolment
+        assert grade.subject == subject
+        assert grade.evaluation_unit == unit
+        assert grade.evaluation_unit.academic_cycle == cycle
+        assert grade.value == 85
+
+    def test_register_grade_again_updates_the_single_consolidated_value(self):
+        """
+        Registering the same (enrolment, subject, unit) again updates the
+        existing grade instead of creating a duplicate row.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        first = register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=70
+        )
+        second = register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=90
+        )
+
+        assert first.pk == second.pk
+        assert second.value == 90
+        assert (
+            Grade.objects.filter(enrolment=enrolment, subject=subject, evaluation_unit=unit).count()
+            == 1
+        )
+
+    def test_reject_grade_when_capture_window_closed(self):
+        """
+        Test that a grade is rejected when the capture window is closed and no
+        exceptional grant covers the teacher and subject.
+        """
+        cycle = AcademicCycleFactory()
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="Grade capture window is closed"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=85,
+            )
+
+    def test_reject_enrolment_and_unit_from_different_cycles(self):
+        """
+        Test that an enrolment and a unit from different academic cycles are
+        rejected.
+        """
+        cycle = AcademicCycleFactory()
+        other_cycle = AcademicCycleFactory()
+        unit = EvaluationUnitFactory(academic_cycle=other_cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="different academic cycles"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=85,
+            )

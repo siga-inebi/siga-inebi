@@ -28,14 +28,16 @@ from apps.evaluation.api.serializers import (
     CycleEvaluationConfigSerializer,
     EvaluationGlobalConfigSerializer,
     EvaluationUnitSerializer,
+    GradeSerializer,
     RecoveryWindowSerializer,
 )
-from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
+from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
 from apps.evaluation.services import (
     create_evaluation_unit,
     get_effective_unit_count,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
     update_global_evaluation_config,
@@ -428,3 +430,84 @@ class CycleEvaluationConfigView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class GradeListCreateView(ListAPIView, CreateAPIView):
+    """
+    List and register unit grades for an evaluation unit (RF-CAL-001).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    GET  {base}/grades/
+    POST {base}/grades/
+    """
+
+    serializer_class = GradeSerializer
+    lookup_field = "public_id"
+
+    def check_teacher_permission(self):
+        """
+        Verify the caller may capture grades.
+        TODO: enforce docente scope over the subarea once RF-CAL-006 lands.
+        """
+        return bool(self.request.user and self.request.user.is_authenticated)
+
+    def get_queryset(self):
+        """Filter grades by unit and cycle from URL parameters."""
+        cycle_public_id = self.kwargs.get("cycle_public_id")
+        unit_public_id = self.kwargs.get("unit_public_id")
+        return Grade.objects.filter(
+            evaluation_unit__public_id=unit_public_id,
+            evaluation_unit__academic_cycle__public_id=cycle_public_id,
+            is_active=True,
+        )
+
+    def create(self, request, *args, **kwargs):
+        """
+        POST .../grades/
+
+        Registers (or updates) the consolidated grade for a student, subarea
+        and unit.
+        """
+        if not self.check_teacher_permission():
+            return Response(
+                {"error": "Permission denied. Only teachers can register grades."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        cycle_public_id = kwargs.get("cycle_public_id")
+        unit_public_id = kwargs.get("unit_public_id")
+
+        try:
+            unit = EvaluationUnit.objects.get(
+                public_id=unit_public_id,
+                academic_cycle__public_id=cycle_public_id,
+                is_active=True,
+            )
+        except EvaluationUnit.DoesNotExist:
+            return Response(
+                {"error": "Evaluation unit not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            grade = register_unit_grade(
+                enrolment=serializer.validated_data["enrolment"],
+                subject=serializer.validated_data["subject"],
+                evaluation_unit=unit,
+                teacher=serializer.validated_data["teacher"],
+                value=serializer.validated_data["value"],
+                actor=request.user,
+            )
+        except DomainError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.get_serializer(grade)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

@@ -23,10 +23,12 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit
-from tests.factories.academic import AcademicCycleFactory, SubjectFactory
+from apps.enrolments.services import create_enrolment
+from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.people import PersonFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -496,4 +498,197 @@ class TestEvaluationConfigAPI:
         response = auth_client.get(
             reverse("cycle-evaluation-config", kwargs={"cycle_public_id": str(uuid.uuid4())})
         )
+        assert response.status_code == 404
+
+
+class TestGradeAPI:
+    """Tests for RF-CAL-001: Registro de la nota de unidad."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        """
+        A unit whose capture window brackets today explicitly. The factory's
+        default dates are offset by ``number``, a sequence shared across the
+        whole test session, so they drift away from today as more units are
+        created; the window bounds must be set explicitly here.
+        """
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_register_grade_success(self, auth_client, institution):
+        """
+        Scenario 9: Registro de una nota por el docente
+        POST /api/v1/academics/cycles/{cycle_id}/evaluation-units/{unit_id}/grades/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 85,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201, response.json()
+        data = response.json()
+        assert data["value"] == 85
+        assert data["subject"] == subject.id
+        assert Grade.objects.filter(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit
+        ).exists()
+
+    def test_register_grade_again_updates_existing_row(self, auth_client, institution):
+        """
+        Test that posting the same (enrolment, subject, unit) again updates
+        the existing grade instead of creating a duplicate.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(unit.public_id),
+            },
+        )
+        payload = {
+            "enrolment": enrolment.id,
+            "subject": subject.id,
+            "teacher": teacher.id,
+            "value": 70,
+        }
+        first = auth_client.post(url, payload, content_type="application/json")
+        assert first.status_code == 201
+
+        payload["value"] = 90
+        second = auth_client.post(url, payload, content_type="application/json")
+        assert second.status_code == 201
+        assert second.json()["value"] == 90
+        assert (
+            Grade.objects.filter(enrolment=enrolment, subject=subject, evaluation_unit=unit).count()
+            == 1
+        )
+
+    def test_reject_grade_when_capture_window_closed_api(self, auth_client, institution):
+        """
+        Test that a grade is rejected via the API when the capture window is closed.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 85,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "closed" in response.json()["error"].lower()
+
+    def test_list_grades_by_unit(self, auth_client, institution):
+        """
+        GET /api/v1/academics/cycles/{cycle_id}/evaluation-units/{unit_id}/grades/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        subject = SubjectFactory(institution=institution)
+        for _ in range(3):
+            enrolment = self._enrolment(cycle)
+            Grade.objects.create(
+                enrolment=enrolment, subject=subject, evaluation_unit=unit, value=80
+            )
+
+        response = auth_client.get(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 3
+
+    def test_unit_not_found_returns_404_for_grade(self, auth_client, institution):
+        """
+        Test endpoint with invalid unit ID.
+        """
+        import uuid
+
+        cycle = AcademicCycleFactory(institution=institution)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(uuid.uuid4()),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 85,
+            },
+            content_type="application/json",
+        )
+
         assert response.status_code == 404

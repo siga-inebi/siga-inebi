@@ -11,7 +11,9 @@ from apps.evaluation.models import (
     CycleEvaluationConfig,
     EvaluationGlobalConfig,
     EvaluationUnit,
+    Grade,
 )
+from apps.people.models import Person
 
 
 class EvaluationUnitSerializer(serializers.ModelSerializer):
@@ -122,3 +124,30 @@ class CycleEvaluationConfigSerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError("unit_count must be a positive integer.")
         return value
+
+
+class GradeSerializer(serializers.ModelSerializer):
+    """Contract for registering a unit grade (RF-CAL-001)."""
+
+    public_id = serializers.UUIDField(read_only=True)
+    teacher = serializers.PrimaryKeyRelatedField(
+        queryset=Person.objects.all(),
+        write_only=True,
+        help_text="Teacher capturing the grade, checked against the capture window.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = Grade
+        fields = [
+            "public_id",
+            "enrolment",
+            "subject",
+            "evaluation_unit",
+            "teacher",
+            "value",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["public_id", "evaluation_unit", "created_at", "updated_at"]

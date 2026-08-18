@@ -7,6 +7,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
+import GradingOutlinedIcon from "@mui/icons-material/GradingOutlined";
 import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
@@ -26,6 +27,7 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 
 import { CaptureExceptionsWindow } from "./CaptureExceptionsWindow.jsx";
+import { GradesWindow } from "./GradesWindow.jsx";
 
 const UNIT_COLUMNS = [
   { key: "number", label: "N.", align: "right", render: (row) => row.number },
@@ -156,6 +158,7 @@ export function EvaluationPage() {
   const [configError, setConfigError] = useState("");
   const [editing, setEditing] = useState(null);
   const [exceptionsFor, setExceptionsFor] = useState(null);
+  const [gradesFor, setGradesFor] = useState(null);
 
   // El selector de ciclo se llena una vez y preselecciona el vigente: es el que
   // el usuario quiere ver el 95% de las veces.
@@ -359,6 +362,12 @@ export function EvaluationPage() {
                       >
                         <KeyOutlinedIcon fontSize="small" />
                       </ActionIconButton>
+                      <ActionIconButton
+                        label="Notas de la unidad"
+                        onClick={() => setGradesFor(unit)}
+                      >
+                        <GradingOutlinedIcon fontSize="small" />
+                      </ActionIconButton>
                     </Stack>
                   ),
                 },
@@ -455,6 +464,15 @@ export function EvaluationPage() {
           key={exceptionsFor.public_id}
           onClose={() => setExceptionsFor(null)}
           unit={exceptionsFor}
+        />
+      ) : null}
+
+      {gradesFor ? (
+        <GradesWindow
+          cycleId={cycleId}
+          key={gradesFor.public_id}
+          onClose={() => setGradesFor(null)}
+          unit={gradesFor}
         />
       ) : null}
     </>

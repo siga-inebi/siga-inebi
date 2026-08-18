@@ -6,6 +6,7 @@ RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
 RF-EVC-005: Configuracion global heredable
+RF-CAL-001: Registro de la nota de unidad
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -22,11 +23,13 @@ from apps.academics.models import AcademicCycle, Subject
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
+from apps.enrolments.models import Enrolment
 from apps.evaluation.models import (
     CaptureExceptionGrant,
     CycleEvaluationConfig,
     EvaluationGlobalConfig,
     EvaluationUnit,
+    Grade,
 )
 from apps.people.models import Person
 
@@ -407,3 +410,67 @@ def create_evaluation_unit(
     )
 
     return unit
+
+
+def register_unit_grade(
+    enrolment: Enrolment,
+    subject: Subject,
+    evaluation_unit: EvaluationUnit,
+    teacher: Person,
+    value: int,
+    actor=None,
+) -> Grade:
+    """
+    Register the consolidated grade a teacher already computed for a student,
+    subarea and unit (RF-CAL-001).
+
+    The capture window must be open, or an active exceptional grant (RF-EVC-004)
+    must cover this teacher and subject for the unit (validate_capture_allowed
+    checks both). Calling this again for the same (enrolment, subject,
+    evaluation_unit) updates the existing grade instead of creating a
+    duplicate: it is the single consolidated value for that combination, not
+    a new entry.
+
+    Args:
+        enrolment: Ties the grade to the student, section and cycle.
+        subject: Subarea the grade belongs to.
+        evaluation_unit: Unit the grade belongs to.
+        teacher: Teacher capturing the grade (checked against the capture
+            window and any exceptional grant).
+        value: Consolidated grade value.
+        actor: User performing the action (for audit trail).
+
+    Returns:
+        Grade: The registered (created or updated) grade.
+
+    Raises:
+        DomainError: If the enrolment and the unit belong to different
+            academic cycles, or if capture is not allowed for this teacher,
+            subject and unit right now.
+    """
+    if evaluation_unit.academic_cycle_id != enrolment.academic_cycle_id:
+        raise DomainError(
+            "The evaluation unit and the enrolment belong to different academic cycles."
+        )
+
+    validate_capture_allowed(evaluation_unit, subject, teacher)
+
+    grade, created = Grade.objects.update_or_create(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit=evaluation_unit,
+        defaults={"value": value},
+    )
+
+    _audit(
+        actor,
+        "evaluation.grade_registered" if created else "evaluation.grade_updated",
+        grade,
+        enrolment_id=str(enrolment.public_id),
+        subject_id=str(subject.public_id),
+        unit_id=str(evaluation_unit.public_id),
+        teacher_id=str(teacher.public_id),
+        value=value,
+    )
+
+    return grade

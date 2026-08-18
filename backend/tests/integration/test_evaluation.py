@@ -17,12 +17,14 @@ from django.utils import timezone
 
 from apps.academics.models import AcademicCycle
 from apps.common.models import DomainError
+from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
     get_effective_unit_count,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
     update_global_evaluation_config,
@@ -30,8 +32,10 @@ from apps.evaluation.services import (
     validate_capture_window_open,
     validate_recovery_window_open,
 )
-from tests.factories.academic import AcademicCycleFactory, SubjectFactory
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.people import PersonFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -418,3 +422,82 @@ class TestGlobalEvaluationConfigIntegration:
         assert event.resource_identifier == str(config.pk)
         assert event.context["cycle_id"] == str(cycle.public_id)
         assert event.context["unit_count"] == 2
+
+
+class TestRegisterUnitGradeIntegration:
+    """Integration tests for RF-CAL-001: Registro de la nota de unidad."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        """
+        A unit whose capture window brackets today explicitly. The factory's
+        default dates are offset by ``number``, a sequence shared across the
+        whole test session, so they drift away from today as more units are
+        created; the window bounds must be set explicitly here.
+        """
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_register_grade_across_enrolment_and_academics_domains(self):
+        """
+        Scenario 9: Registro de una nota por el docente (cross-domain)
+        GIVEN un docente con una subárea a su cargo y la ventana de captura abierta
+        WHEN registra la nota de un estudiante para la unidad en curso
+        THEN el sistema la almacena asociada al estudiante, la subárea, la unidad y el ciclo
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        grade = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=85,
+        )
+
+        assert grade.enrolment.student == enrolment.student
+        assert grade.evaluation_unit.academic_cycle == cycle
+
+    def test_register_grade_audit_trail(self):
+        """
+        Test that registering a grade is recorded in the audit trail.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        grade = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=85,
+        )
+
+        from apps.audit.models import AuditEvent
+
+        event = AuditEvent.objects.get(action="evaluation.grade_registered")
+        assert event.resource_identifier == str(grade.pk)
+        assert event.context["enrolment_id"] == str(enrolment.public_id)
+        assert event.context["subject_id"] == str(subject.public_id)
+        assert event.context["unit_id"] == str(unit.public_id)
+        assert event.context["value"] == 85
