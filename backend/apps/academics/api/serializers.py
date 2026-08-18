@@ -250,6 +250,49 @@ class LevelSubjectUpdateSerializer(serializers.Serializer):
 
 
 # --------------------------------------------------------------------------- #
+# sections ("secciones")
+# --------------------------------------------------------------------------- #
+
+
+class SectionSerializer(serializers.ModelSerializer):
+    academic_cycle_id = serializers.UUIDField(
+        source="offering.academic_cycle.public_id", read_only=True
+    )
+    grade = GradeRefSerializer(source="offering.grade", read_only=True)
+    shift = ShiftRefSerializer(source="offering.shift", read_only=True)
+
+    class Meta:
+        model = Section
+        fields = [
+            "public_id",
+            "name",
+            "capacity",
+            "is_active",
+            "academic_cycle_id",
+            "grade",
+            "shift",
+        ]
+
+
+class SectionCreateSerializer(serializers.Serializer):
+    academic_cycle_id = serializers.UUIDField(help_text="Public ID del ciclo escolar.")
+    grade_id = serializers.UUIDField(help_text="Public ID del grado.")
+    shift_id = serializers.UUIDField(help_text="Public ID de la jornada.")
+    name = serializers.CharField(max_length=50, help_text='Ej. "A", "B".')
+    capacity = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        default=0,
+        help_text="Cupo maximo declarado. 0 significa sin limite.",
+    )
+
+
+class SectionUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=50, required=False)
+    capacity = serializers.IntegerField(min_value=0, required=False)
+
+
+# --------------------------------------------------------------------------- #
 # teaching assignments
 # --------------------------------------------------------------------------- #
 

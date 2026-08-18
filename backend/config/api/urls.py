@@ -19,6 +19,7 @@ urlpatterns = [
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", MeView.as_view(), name="auth-me"),
     path("auth/password/change/", PasswordChangeView.as_view(), name="auth-password-change"),
+    path("audit/", include("apps.audit.api.urls")),
     path("identity/", include("apps.identity.api.urls")),
     path("people/", include("apps.people.api.urls")),
     path("students/", include("apps.students.api.urls")),
