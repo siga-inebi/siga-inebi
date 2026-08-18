@@ -678,6 +678,8 @@ def test_rf_aut_006_unauthenticated_user_cannot_change_password():
         )
 
 
+@pytest.mark.permissions
+@pytest.mark.security
 @pytest.mark.django_db
 def test_rf_aut_002_locked_account_cannot_authenticate():
     """RF-AUT-002: Cuenta bloqueada temporalmente es rechazada al intentar autenticarse."""
@@ -692,6 +694,8 @@ def test_rf_aut_002_locked_account_cannot_authenticate():
         authenticate_account(request=None, username=user.username, password="secure-pass-123")
 
 
+@pytest.mark.permissions
+@pytest.mark.security
 @pytest.mark.django_db
 def test_rf_alc_005_teacher_cannot_write_in_closed_cycle():
     """RF-ALC-005: Intento de modificar calificaciones en un ciclo cerrado es denegado."""

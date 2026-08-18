@@ -812,7 +812,7 @@ def disable_account(*, actor, user, force=False):
                 "forced_with_dependencies": bool(deps["teaching_assignments"]),
             },
         )
-        return {"account": account, "disabled": True}
+        return {"account": account, "disabled": True, "warnings": deps}
 
 
 def _invalidate_other_user_sessions(*, user, current_session_key=None):
