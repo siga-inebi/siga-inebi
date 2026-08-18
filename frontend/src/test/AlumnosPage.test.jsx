@@ -339,9 +339,13 @@ describe("AlumnosPage", () => {
 
     await screen.findByText("Maria Jose Lopez Garcia");
     await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
-    await user.click(screen.getByRole("button", { name: "Vincular encargado" }));
+    await user.click(
+      screen.getByRole("button", { name: "Vincular encargado" })
+    );
 
-    await waitFor(() => expect(guardiansServiceMock.list).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(guardiansServiceMock.list).toHaveBeenCalledTimes(1)
+    );
     await user.click(
       await screen.findByRole("combobox", { name: /^Encargado/ })
     );
