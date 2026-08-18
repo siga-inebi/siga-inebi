@@ -223,6 +223,27 @@ class AcademicCycleActivateView(CatalogueView):
         return Response(AcademicCycleSerializer(activated).data)
 
 
+class AcademicCycleCloseView(CatalogueView):
+    @extend_schema(
+        summary="Cerrar ciclo escolar",
+        description=(
+            "Cierra un ciclo activo. Exige que todas sus unidades de evaluacion esten "
+            "cerradas y que la ventana de recuperacion, si existe, ya haya vencido."
+        ),
+        tags=["academics: cycles"],
+        request=None,
+        responses={200: AcademicCycleSerializer},
+    )
+    def post(self, request, public_id):
+        cycle = get_object_or_404(
+            AcademicCycle,
+            public_id=public_id,
+            institution=self.institution,
+        )
+        closed = services.close_academic_cycle(cycle=cycle, actor=request.user)
+        return Response(AcademicCycleSerializer(closed).data)
+
+
 class AcademicCycleCloneView(CatalogueView):
     serializer_class = AcademicCycleCloneSerializer
 
