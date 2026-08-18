@@ -276,6 +276,9 @@ def test_rf_cta_007_self_account_disable_is_rejected_and_audited():
     ).latest("created_at")
     assert event.actor == actor
     assert event.context["reason"] == "self_deactivation"
+
+
+@pytest.mark.django_db
 def test_rf_cta_006_disable_warns_about_active_teaching_assignments():
     """Escenario 1: docente con secciones vigentes → advierte antes de desactivar."""
     from apps.academics.models import AcademicCycle, TeachingAssignment
@@ -322,6 +325,9 @@ def test_rf_cta_006_disabled_account_historical_events_survive():
 
     event = AuditEvent.objects.get(action="grades.published")
     assert event.actor_id == target.pk
+
+
+@pytest.mark.django_db
 def test_rf_cta_004_common_password_is_rejected():
     """Escenario 1: contraseña presente en la lista de comunes → rechazada."""
     from django.contrib.auth.password_validation import validate_password
@@ -341,6 +347,8 @@ def test_rf_cta_004_long_password_without_symbols_is_accepted():
     user = UserFactory()
     # Solo minúsculas, sin mayúsculas, números ni símbolos; supera longitud mínima.
     validate_password("alargadaycorrecta", user=user)
+
+
 @pytest.mark.django_db
 def test_rf_aut_006_change_password_requires_correct_current_password():
     """RF-AUT-006: Rechaza cambio si la contraseña actual no coincide."""
@@ -417,6 +425,9 @@ def test_rf_aut_006_change_password_updates_password_and_invalidates_other_sessi
     assert event.resource_identifier == str(user.pk)
     assert event.context["result"] == "success"
     assert "New-Secure-Pass-2026!" not in str(event.context)
+
+
+@pytest.mark.django_db
 def test_rf_aut_002_authenticate_account_locks_after_max_failed_attempts():
     """RF-AUT-002: Bloqueo tras superar el número configurado de intentos fallidos."""
     from django.utils import timezone
@@ -476,6 +487,9 @@ def test_rf_aut_002_locked_account_rejects_correct_password_and_lifts_automatica
     user.refresh_from_db()
     assert user.failed_login_attempts == 0
     assert user.locked_until is None
+
+
+@pytest.mark.django_db
 def test_scope_matches_denies_write_permissions_on_closed_cycle():
     from apps.identity.scopes import scope_matches
     from tests.factories.academic import AcademicCycleFactory

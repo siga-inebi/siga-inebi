@@ -1,11 +1,13 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, TeachingAssignment
 from apps.academics.services import (
     activate_academic_cycle,
     clone_academic_cycle,
+    close_academic_cycle,
     create_academic_cycle,
     create_section,
     deactivate_section,
@@ -13,6 +15,7 @@ from apps.academics.services import (
 )
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
+from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
     GradeFactory,
@@ -23,6 +26,7 @@ from tests.factories.academic import (
     SubjectFactory,
 )
 from tests.factories.students import StudentFactory
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.teachers import TeacherFactory
 
 pytestmark = pytest.mark.django_db
@@ -308,3 +312,62 @@ def test_deactivate_section_rejects_when_it_has_active_enrolments():
 
     with pytest.raises(DomainError, match="active enrolments"):
         deactivate_section(section=section)
+def test_close_cycle_rejects_when_cycle_is_not_active():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+
+    with pytest.raises(DomainError, match="active academic cycle"):
+        close_academic_cycle(cycle=cycle)
+
+
+def test_close_cycle_rejects_when_a_unit_is_still_open():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
+    open_unit = EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.OPEN)
+
+    with pytest.raises(DomainError, match=open_unit.name):
+        close_academic_cycle(cycle=cycle)
+
+    cycle.refresh_from_db()
+    assert cycle.status == AcademicCycle.CycleStatus.ACTIVE
+
+
+def test_close_cycle_rejects_when_recovery_window_has_not_expired():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    today = timezone.localdate()
+    pending_unit = EvaluationUnitFactory(
+        academic_cycle=cycle,
+        status=EvaluationUnit.UnitStatus.CLOSED,
+        recovery_starts_on=today - timedelta(days=5),
+        recovery_ends_on=today + timedelta(days=5),
+    )
+
+    with pytest.raises(DomainError, match=pending_unit.name):
+        close_academic_cycle(cycle=cycle)
+
+    cycle.refresh_from_db()
+    assert cycle.status == AcademicCycle.CycleStatus.ACTIVE
+
+
+def test_close_cycle_succeeds_when_units_are_closed_and_settled():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    today = timezone.localdate()
+    EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
+    EvaluationUnitFactory(
+        academic_cycle=cycle,
+        status=EvaluationUnit.UnitStatus.CLOSED,
+        recovery_starts_on=today - timedelta(days=20),
+        recovery_ends_on=today - timedelta(days=5),
+    )
+
+    closed = close_academic_cycle(cycle=cycle)
+
+    assert closed.status == AcademicCycle.CycleStatus.CLOSED
+
+
+def test_close_cycle_succeeds_when_cycle_has_no_evaluation_units():
+    """No units configured is vacuously "all units settled" — documented on purpose."""
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+
+    closed = close_academic_cycle(cycle=cycle)
+
+    assert closed.status == AcademicCycle.CycleStatus.CLOSED
