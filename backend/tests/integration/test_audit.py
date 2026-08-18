@@ -7,7 +7,7 @@ from django.utils import timezone
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
 from apps.enrolments.services import change_section, create_enrolment
-from apps.identity.services import assign_role, authenticate_account
+from apps.identity.services import assign_role, authenticate_account, disable_account
 from tests.factories.academic import SectionFactory
 from tests.factories.identity import PermissionFactory, RoleFactory, UserFactory
 from tests.factories.students import StudentFactory
@@ -131,6 +131,35 @@ def test_successful_login_clearing_stale_lockout_is_audited():
     assert event.action == "identity.login.lockout_cleared"
     assert event.actor_id == user.id
     assert event.context["cleared_failed_attempts"] == 3
+
+
+@pytest.mark.integration
+@pytest.mark.security
+@pytest.mark.django_db
+def test_disabling_an_account_with_a_declared_reason_is_audited():
+    """
+    RF-BIT-002's own scenario ("GIVEN un usuario que registra manualmente un
+    movimiento indicando el motivo, WHEN se consulta el asiento
+    correspondiente, THEN incluye usuario, acción, fecha y hora, registro
+    afectado, dispositivo y motivo"), substituted with a real equivalent:
+    attendance's manual-entry path is an explicitly provisional skeleton
+    ("A separate attendance-capture effort owns the real scanning/ingestion
+    workflow and may replace this mapping" -- apps/attendance/api/views.py).
+    Disabling an account with a declared reason is the same shape -- a
+    sensitive operation that requires a user-declared motivo -- on stable
+    code.
+    """
+    actor = UserFactory(is_superuser=True)
+    target = UserFactory()
+
+    disable_account(actor=actor, user=target, reason="Solicitud del titular")
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.actor_id == actor.id
+    assert event.action == "identity.account.disabled"
+    assert event.resource_identifier == str(target.pk)
+    assert event.context["reason"] == "Solicitud del titular"
+    assert "before" in event.context and "after" in event.context
 
 
 @pytest.mark.integration

@@ -752,7 +752,7 @@ def get_account_active_dependencies(user):
     return {"teaching_assignments": assignments}
 
 
-def disable_account(*, actor, user, force=False):
+def disable_account(*, actor, user, force=False, reason=""):
     is_authorized = bool(_has_identity_permission(actor, ACCOUNT_DISABLE_PERMISSION))
     if not is_authorized:
         record_event(
@@ -801,6 +801,7 @@ def disable_account(*, actor, user, force=False):
             action="identity.account.disabled",
             resource="UserAccount",
             resource_identifier=str(account.pk),
+            reason=reason,
             context={
                 "target_user_id": account.pk,
                 "before": previous_state,

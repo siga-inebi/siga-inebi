@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from apps.audit.services import record_event, sanitize_context
+from apps.audit.services import diff_fields, record_event, sanitize_context
 from tests.factories.identity import UserFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
@@ -108,3 +108,63 @@ def test_record_event_falls_back_to_context_ip_address():
     )
 
     assert event.ip_address == "10.0.0.1"
+
+
+# --------------------------------------------------------------------------- #
+# record_event(reason=..., changes=...) -- RF-BIT-002
+# --------------------------------------------------------------------------- #
+
+
+def test_record_event_reason_lands_in_context():
+    event = record_event(
+        actor=None, action="test.action", resource="Resource", reason="user requested it"
+    )
+
+    assert event.context["reason"] == "user requested it"
+
+
+def test_record_event_blank_reason_is_not_recorded():
+    event = record_event(actor=None, action="test.action", resource="Resource", reason="")
+
+    assert "reason" not in event.context
+
+
+def test_record_event_changes_lands_in_context():
+    changes = {"name": {"before": "Old", "after": "New"}}
+
+    event = record_event(actor=None, action="test.action", resource="Resource", changes=changes)
+
+    assert event.context["changes"] == changes
+
+
+def test_record_event_no_changes_supplied_is_not_recorded():
+    event = record_event(actor=None, action="test.action", resource="Resource")
+
+    assert "changes" not in event.context
+
+
+# --------------------------------------------------------------------------- #
+# diff_fields -- RF-BIT-002
+# --------------------------------------------------------------------------- #
+
+
+class _Dummy:
+    def __init__(self, name, kind):
+        self.name = name
+        self.kind = kind
+
+
+def test_diff_fields_captures_before_and_after_for_supplied_fields():
+    instance = _Dummy(name="Old", kind="report")
+
+    changes = diff_fields(instance, name="New", kind=None)
+
+    assert changes == {"name": {"before": "Old", "after": "New"}}
+
+
+def test_diff_fields_ignores_fields_not_supplied():
+    instance = _Dummy(name="Old", kind="report")
+
+    changes = diff_fields(instance, name=None, kind=None)
+
+    assert changes == {}
