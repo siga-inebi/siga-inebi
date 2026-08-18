@@ -3,22 +3,29 @@ from datetime import date, timedelta
 import pytest
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
+from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, TeachingAssignment
 from apps.academics.services import (
     activate_academic_cycle,
     clone_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_section,
+    deactivate_section,
+    update_section,
 )
 from apps.common.models import DomainError
+from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    GradeFactory,
     GradeOfferingFactory,
     InstitutionFactory,
     SectionFactory,
+    ShiftFactory,
     SubjectFactory,
 )
+from tests.factories.students import StudentFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -182,6 +189,100 @@ def test_activate_cycle_accepts_available_complete_structure():
     assert activated.status == AcademicCycle.CycleStatus.ACTIVE
 
 
+def test_create_section_creates_offering_and_section_when_missing():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=cycle.institution)
+    shift = ShiftFactory(campus__institution=cycle.institution)
+
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", capacity=30)
+
+    assert section.name == "A"
+    assert section.capacity == 30
+    assert GradeOffering.objects.filter(
+        academic_cycle=cycle, grade=grade, shift=shift
+    ).exists()
+
+
+def test_create_section_reuses_existing_offering():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=cycle.institution)
+    shift = ShiftFactory(campus__institution=cycle.institution)
+
+    create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
+    create_section(academic_cycle=cycle, grade=grade, shift=shift, name="B")
+
+    assert GradeOffering.objects.filter(academic_cycle=cycle, grade=grade, shift=shift).count() == 1
+
+
+def test_create_section_rejects_duplicate_name_in_offering():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=cycle.institution)
+    shift = ShiftFactory(campus__institution=cycle.institution)
+    create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
+
+    with pytest.raises(DomainError, match="already exists"):
+        create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
+
+
+def test_create_section_rejects_when_cycle_is_closed():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    grade = GradeFactory(institution=cycle.institution)
+    shift = ShiftFactory(campus__institution=cycle.institution)
+
+    with pytest.raises(DomainError, match="do not accept academic changes"):
+        create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
+
+
+def test_create_section_rejects_grade_from_other_institution():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory()  # different institution
+    shift = ShiftFactory(campus__institution=cycle.institution)
+
+    with pytest.raises(DomainError, match="must belong to the academic cycle institution"):
+        create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
+
+
+def test_update_section_renames_and_changes_capacity():
+    section = SectionFactory(name="A", capacity=30)
+
+    updated = update_section(section=section, name="B", capacity=40)
+
+    assert updated.name == "B"
+    assert updated.capacity == 40
+
+
+def test_update_section_rejects_when_cycle_is_closed():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    section = SectionFactory(academic_cycle=cycle)
+
+    with pytest.raises(DomainError, match="do not accept academic changes"):
+        update_section(section=section, name="B")
+
+
+def test_deactivate_section_soft_deletes_and_is_idempotent():
+    section = SectionFactory()
+
+    deactivated = deactivate_section(section=section)
+    assert deactivated.is_active is False
+
+    # Calling it again on an already-inactive section is a no-op, not an error.
+    again = deactivate_section(section=deactivated)
+    assert again.is_active is False
+
+
+def test_deactivate_section_rejects_when_it_has_active_enrolments():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+        status="active",
+    )
+
+    with pytest.raises(DomainError, match="active enrolments"):
+        deactivate_section(section=section)
 def test_close_cycle_rejects_when_cycle_is_not_active():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
 
