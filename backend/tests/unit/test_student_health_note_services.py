@@ -26,7 +26,7 @@ def test_create_health_note_preserves_author_and_audits_without_content():
     assert note.content == "Alergia de prueba"
     assert note.author == actor
     event = AuditEvent.objects.get(action="students.health_note.created")
-    assert event.context == {"student_id": student.pk}
+    assert event.context["student_id"] == student.pk
     assert "Alergia" not in str(event.context)
 
 

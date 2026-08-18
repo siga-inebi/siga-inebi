@@ -76,7 +76,10 @@ export function AlumnosPage() {
   };
 
   const handleCreateHealthNote = async (values) => {
-    const created = await studentsService.createHealthNote(selected.public_id, values);
+    const created = await studentsService.createHealthNote(
+      selected.public_id,
+      values
+    );
     setHealthNotes((current) => [created, ...current]);
     setCreatingHealthNote(false);
   };
@@ -309,7 +312,10 @@ export function AlumnosPage() {
 
       <DetailWindow
         actions={
-          <Button onClick={() => setCreatingHealthNote(true)} variant="contained">
+          <Button
+            onClick={() => setCreatingHealthNote(true)}
+            variant="contained"
+          >
             Nueva nota
           </Button>
         }
@@ -340,7 +346,9 @@ export function AlumnosPage() {
       />
 
       <EntityFormWindow
-        fields={[{ name: "content", label: "Información de salud", required: true }]}
+        fields={[
+          { name: "content", label: "Información de salud", required: true },
+        ]}
         initialValues={{ content: "" }}
         key={creatingHealthNote ? `health-${selected?.id}` : "health-closed"}
         onCancel={() => setCreatingHealthNote(false)}

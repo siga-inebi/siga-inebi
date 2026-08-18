@@ -322,7 +322,10 @@ describe("AlumnosPage", () => {
 
     expect(await screen.findByText("Sin notas de salud")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Nueva nota" }));
-    await user.type(screen.getByLabelText(/^Información de salud/), "Alergia de prueba");
+    await user.type(
+      screen.getByLabelText(/^Información de salud/),
+      "Alergia de prueba"
+    );
     await user.click(screen.getByRole("button", { name: "Registrar nota" }));
 
     await waitFor(() =>
