@@ -5,6 +5,8 @@ import Box from "@mui/material/Box";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import ButtonBase from "@mui/material/ButtonBase";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
@@ -58,6 +60,26 @@ export function AlumnosPage() {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState(null);
+  const [observationsOpen, setObservationsOpen] = useState(false);
+  const [observations, setObservations] = useState([]);
+  const [observationError, setObservationError] = useState("");
+  const [creatingObservation, setCreatingObservation] = useState(false);
+
+  const openObservations = async () => {
+    setObservationError("");
+    try {
+      setObservations(await studentsService.listObservations(selected.public_id));
+      setObservationsOpen(true);
+    } catch (error) {
+      setObservationError(error.message);
+    }
+  };
+
+  const handleCreateObservation = async (values) => {
+    const created = await studentsService.createObservation(selected.public_id, values);
+    setObservations((current) => [created, ...current]);
+    setCreatingObservation(false);
+  };
 
   const handleExport = () => {
     downloadCsv(
@@ -217,9 +239,14 @@ export function AlumnosPage() {
       <DetailWindow
         actions={
           selected ? (
-            <Button onClick={() => setEditing(selected)} variant="contained">
-              Editar
-            </Button>
+            <Stack direction="row" gap={1}>
+              <Button onClick={openObservations} variant="outlined">
+                Observaciones
+              </Button>
+              <Button onClick={() => setEditing(selected)} variant="contained">
+                Editar
+              </Button>
+            </Stack>
           ) : null
         }
         fields={
@@ -272,9 +299,55 @@ export function AlumnosPage() {
         onClose={() => {
           setSelected(null);
           setViewingPhoto(null);
+          setObservationsOpen(false);
+          setObservations([]);
+          setObservationError("");
         }}
         open={Boolean(selected)}
         title={selected ? fullName(selected) : ""}
+      />
+
+      <DetailWindow
+        actions={
+          <Button onClick={() => setCreatingObservation(true)} variant="contained">
+            Nueva observación
+          </Button>
+        }
+        fields={[
+          {
+            label: "Observaciones sensibles",
+            value: observationError ? (
+              <Alert severity="error">{observationError}</Alert>
+            ) : observations.length ? (
+              <Stack gap={1}>
+                {observations.map((observation) => (
+                  <Box key={observation.public_id}>
+                    <Typography fontWeight={600} variant="body2">
+                      {observation.observed_on} · {observation.author}
+                    </Typography>
+                    <Typography variant="body2">{observation.description}</Typography>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <MutedCell>Sin observaciones</MutedCell>
+            ),
+          },
+        ]}
+        onClose={() => setObservationsOpen(false)}
+        open={observationsOpen}
+        title={selected ? `Observaciones de ${fullName(selected)}` : "Observaciones"}
+      />
+
+      <EntityFormWindow
+        fields={[{ name: "description", label: "Descripción", required: true }]}
+        initialValues={{ description: "" }}
+        key={creatingObservation ? `observation-${selected?.id}` : "observation-closed"}
+        onCancel={() => setCreatingObservation(false)}
+        onSubmit={handleCreateObservation}
+        open={creatingObservation}
+        submitLabel="Registrar observación"
+        title="Nueva observación"
       />
 
       <ImageDialog

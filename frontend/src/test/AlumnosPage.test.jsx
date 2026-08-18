@@ -10,6 +10,8 @@ const studentsServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  listObservations: vi.fn(),
+  createObservation: vi.fn(),
 }));
 
 vi.mock("@students/studentsService.js", () => ({
@@ -54,6 +56,9 @@ describe("AlumnosPage", () => {
     studentsServiceMock.list.mockReset();
     studentsServiceMock.create.mockReset();
     studentsServiceMock.update.mockReset();
+    studentsServiceMock.listObservations.mockReset();
+    studentsServiceMock.createObservation.mockReset();
+    studentsServiceMock.listObservations.mockResolvedValue([]);
     downloadCsvMock.mockReset();
   });
 
@@ -296,5 +301,36 @@ describe("AlumnosPage", () => {
 
     expect(screen.getByText(/Complete el campo/)).toBeInTheDocument();
     expect(studentsServiceMock.create).not.toHaveBeenCalled();
+  });
+
+  test("opens sensitive observations and creates one", async () => {
+    studentsServiceMock.list.mockResolvedValue([
+      { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
+    ]);
+    studentsServiceMock.createObservation.mockResolvedValue({
+      public_id: "22222222-2222-2222-2222-222222222222",
+      author: "directora",
+      description: "Seguimiento pedagogico",
+      observed_on: "2026-08-17",
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<AlumnosPage />);
+
+    await screen.findByText("Maria Jose Lopez Garcia");
+    await user.click(screen.getByRole("button", { name: /Ver detalle/ }));
+    await user.click(screen.getByRole("button", { name: "Observaciones" }));
+
+    expect(await screen.findByText("Sin observaciones")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Nueva observación" }));
+    await user.type(screen.getByLabelText(/^Descripción/), "Seguimiento pedagogico");
+    await user.click(screen.getByRole("button", { name: "Registrar observación" }));
+
+    await waitFor(() =>
+      expect(studentsServiceMock.createObservation).toHaveBeenCalledWith(
+        "11111111-1111-1111-1111-111111111111",
+        { description: "Seguimiento pedagogico" }
+      )
+    );
+    expect(await screen.findByText("Seguimiento pedagogico")).toBeInTheDocument();
   });
 });

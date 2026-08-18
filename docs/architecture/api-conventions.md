@@ -61,6 +61,16 @@
 - `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
   Debe incluir `replacement_relation` al terminar la relacion principal.
 
+## Observaciones del estudiante
+
+- `GET /api/v1/students/{public_id}/observations/` exige `student.view_sensitive` y alcance sobre
+  estudiante. Las observaciones viven fuera del resumen general.
+- `POST` sobre misma ruta exige ademas `student.edit_basic`; autor se deriva de sesion y fecha no
+  puede ser futura.
+- `GET` y `DELETE /api/v1/students/observations/{public_id}/` conservan mismos controles. `DELETE`
+  desactiva sin borrar historia.
+- `PD-005` mantiene pendiente qué roles reciben permiso sensible; API no hardcodea roles.
+
 ## Ciclos escolares
 
 - `GET /api/v1/academics/cycles/` lista ciclos de la institucion configurada.
