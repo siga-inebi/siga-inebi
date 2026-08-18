@@ -10,6 +10,7 @@ stay easy to read side by side.
 
 from rest_framework.exceptions import NotFound
 
+from apps.students.models import EmergencyContact, Student, StudentObservation
 from apps.students.models import EmergencyContact, Student, StudentHealthNote
 
 
@@ -54,6 +55,9 @@ def emergency_contact_or_404(public_id):
     )
 
 
+def observations(student, request):
+    return _filter_active(
+        StudentObservation.objects.filter(student=student).select_related("student", "author"),
 def health_notes(student, request):
     return _filter_active(
         StudentHealthNote.objects.filter(student=student).select_related("student", "author"),
@@ -61,6 +65,11 @@ def health_notes(student, request):
     )
 
 
+def observation_or_404(public_id):
+    return _get(
+        StudentObservation.objects.select_related("student", "author"),
+        public_id,
+        "Student observation",
 def health_note_or_404(public_id):
     return _get(
         StudentHealthNote.objects.select_related("student", "author"),

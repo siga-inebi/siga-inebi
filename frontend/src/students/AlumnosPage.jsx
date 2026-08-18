@@ -78,6 +78,30 @@ export function AlumnosPage() {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState(null);
+  const [observationsOpen, setObservationsOpen] = useState(false);
+  const [observations, setObservations] = useState([]);
+  const [observationError, setObservationError] = useState("");
+  const [creatingObservation, setCreatingObservation] = useState(false);
+
+  const openObservations = async () => {
+    setObservationError("");
+    try {
+      setObservations(
+        await studentsService.listObservations(selected.public_id)
+      );
+      setObservationsOpen(true);
+    } catch (error) {
+      setObservationError(error.message);
+    }
+  };
+
+  const handleCreateObservation = async (values) => {
+    const created = await studentsService.createObservation(
+      selected.public_id,
+      values
+    );
+    setObservations((current) => [created, ...current]);
+    setCreatingObservation(false);
   const [healthOpen, setHealthOpen] = useState(false);
   const [healthNotes, setHealthNotes] = useState([]);
   const [healthError, setHealthError] = useState("");
@@ -299,6 +323,8 @@ export function AlumnosPage() {
         actions={
           selected ? (
             <Stack direction="row" gap={1}>
+              <Button onClick={openObservations} variant="outlined">
+                Observaciones
               <Button onClick={openHealth} variant="outlined">
                 Salud
               <Button onClick={openGuardianLink} variant="outlined">
@@ -383,6 +409,9 @@ export function AlumnosPage() {
         onClose={() => {
           setSelected(null);
           setViewingPhoto(null);
+          setObservationsOpen(false);
+          setObservations([]);
+          setObservationError("");
           setHealthOpen(false);
           setHealthNotes([]);
           setHealthError("");
@@ -396,6 +425,10 @@ export function AlumnosPage() {
       <DetailWindow
         actions={
           <Button
+            onClick={() => setCreatingObservation(true)}
+            variant="contained"
+          >
+            Nueva observación
             onClick={() => setCreatingHealthNote(true)}
             variant="contained"
           >
@@ -404,6 +437,19 @@ export function AlumnosPage() {
         }
         fields={[
           {
+            label: "Observaciones sensibles",
+            value: observationError ? (
+              <Alert severity="error">{observationError}</Alert>
+            ) : observations.length ? (
+              <Stack gap={1}>
+                {observations.map((observation) => (
+                  <Box key={observation.public_id}>
+                    <Typography fontWeight={600} variant="body2">
+                      {observation.observed_on} · {observation.author}
+                    </Typography>
+                    <Typography variant="body2">
+                      {observation.description}
+                    </Typography>
             label: "Notas de salud",
             value: healthError ? (
               <Alert severity="error">{healthError}</Alert>
@@ -419,6 +465,30 @@ export function AlumnosPage() {
                 ))}
               </Stack>
             ) : (
+              <MutedCell>Sin observaciones</MutedCell>
+            ),
+          },
+        ]}
+        onClose={() => setObservationsOpen(false)}
+        open={observationsOpen}
+        title={
+          selected ? `Observaciones de ${fullName(selected)}` : "Observaciones"
+        }
+      />
+
+      <EntityFormWindow
+        fields={[{ name: "description", label: "Descripción", required: true }]}
+        initialValues={{ description: "" }}
+        key={
+          creatingObservation
+            ? `observation-${selected?.id}`
+            : "observation-closed"
+        }
+        onCancel={() => setCreatingObservation(false)}
+        onSubmit={handleCreateObservation}
+        open={creatingObservation}
+        submitLabel="Registrar observación"
+        title="Nueva observación"
               <MutedCell>Sin notas de salud</MutedCell>
             ),
           },

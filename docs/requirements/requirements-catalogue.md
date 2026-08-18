@@ -191,7 +191,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EXP-003 | Estado del estudiante | Debe | student-records | In progress | #187 | backend/tests/unit/test_students_services.py; backend/tests/api/test_students_api.py | Estados publicados y cambios auditados; matriz completa de restricciones por estado no esta definida |
 | RF-EXP-004 | Vinculo con encargados | Debe | student-records | Not implemented | #188 | TBD | Cruza auth |
 | RF-EXP-005 | Contactos de emergencia | Debe | student-records | Not implemented | #189 | TBD | Dato sensible moderado |
-| RF-EXP-006 | Observaciones y anotaciones disciplinarias | Deberia | student-records | Not implemented | #190 | TBD | Politica de acceso pendiente |
+| RF-EXP-006 | Observaciones y anotaciones disciplinarias | Deberia | student-records | In Progress | #190 | TBD | Flujo protegido implementado; asignacion exacta de roles pendiente en PD-005 |
 | RF-EXP-007 | Fotografia del estudiante | Debe | student-records | Not implemented | #191 | TBD | Soporte escaneo |
 | RF-EXP-008 | Conservacion del expediente | Debe | student-records | Not implemented | #192 | TBD | Historia obligatoria |
 | RF-EXP-009 | Notas de salud del estudiante | Deberia | student-records | Implemented | #193 | TBD | Sensitive Special; lectura y escritura auditadas; permiso sensible y alcance obligatorio |

@@ -76,6 +76,11 @@ class EmergencyContact(TimeStampedModel):
     relationship_label = models.CharField(max_length=100)
 
 
+class StudentObservation(TimeStampedModel):
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.PROTECT,
+        related_name="observations",
 class StudentHealthNote(TimeStampedModel):
     student = models.ForeignKey(
         Student,

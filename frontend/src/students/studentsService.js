@@ -5,6 +5,12 @@ export const studentsService = {
   // AlumnosPage's own client-side pagination assumes it has the full list.
   list: () => apiClient.get("/students/").then((page) => page.results),
   get: (id) => apiClient.get(`/students/${id}/`),
+  listObservations: (studentPublicId) =>
+    apiClient
+      .get(`/students/${studentPublicId}/observations/`)
+      .then((page) => page.results),
+  createObservation: (studentPublicId, data) =>
+    apiClient.post(`/students/${studentPublicId}/observations/`, data),
   listHealthNotes: (studentPublicId) =>
     apiClient
       .get(`/students/${studentPublicId}/health-notes/`)
