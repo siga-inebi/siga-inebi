@@ -577,7 +577,7 @@ def test_authorized_actor_disables_account_without_deleting_it():
     result = disable_account(actor=actor, user=target)
 
     target.refresh_from_db()
-    assert result["account"].pk == target.pk
+    assert result.pk == target.pk
     assert target.status == target.AccountStatus.DISABLED
     assert target.is_active is False
     assert target.__class__.objects.filter(pk=target.pk).exists()
@@ -676,6 +676,11 @@ def test_rf_aut_006_unauthenticated_user_cannot_change_password():
             current_password="old-pass",
             new_password="New-Pass-2026!",
         )
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
 def test_rf_aut_002_locked_account_cannot_authenticate():
     """RF-AUT-002: Cuenta bloqueada temporalmente es rechazada al intentar autenticarse."""
     from apps.identity.services import AccountTemporarilyLockedError, authenticate_account
@@ -687,6 +692,11 @@ def test_rf_aut_002_locked_account_cannot_authenticate():
 
     with pytest.raises(AccountTemporarilyLockedError):
         authenticate_account(request=None, username=user.username, password="secure-pass-123")
+
+
+@pytest.mark.permissions
+@pytest.mark.security
+@pytest.mark.django_db
 def test_rf_alc_005_teacher_cannot_write_in_closed_cycle():
     """RF-ALC-005: Intento de modificar calificaciones en un ciclo cerrado es denegado."""
     cycle = AcademicCycleFactory(status="active")
