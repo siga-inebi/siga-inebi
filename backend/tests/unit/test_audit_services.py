@@ -108,3 +108,25 @@ def test_record_event_falls_back_to_context_ip_address():
     )
 
     assert event.ip_address == "10.0.0.1"
+
+
+# --------------------------------------------------------------------------- #
+# actor_label is a snapshot -- RF-BIT-007
+# --------------------------------------------------------------------------- #
+
+
+def test_actor_label_does_not_follow_later_username_changes():
+    """
+    Attribution must survive whatever happens to the account afterwards
+    (RF-BIT-007). Proven at the unit level: actor_label is captured once,
+    at record time -- it is not a live reference to actor.username.
+    """
+    actor = UserFactory(username="original-name")
+
+    event = record_event(actor=actor, action="test.action", resource="Resource")
+
+    actor.username = "renamed-later"
+    actor.save(update_fields=["username"])
+
+    event.refresh_from_db()
+    assert event.actor_label == "original-name"

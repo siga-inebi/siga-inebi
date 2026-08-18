@@ -19,6 +19,7 @@ would leave a window for two concurrent requests to both pass the check.
 from datetime import timedelta
 
 from django.db import transaction
+from django.utils import timezone
 
 from apps.academics.cycle_policies import require_cycle_academic_writes
 from apps.academics.models import (
@@ -277,6 +278,50 @@ def activate_academic_cycle(*, cycle, actor=None):
     with unique_violation_as(_cycle_conflicts(year=locked.year, name=locked.name)):
         locked.save(update_fields=["status", "updated_at"])
     _audit(actor, "academics.cycle.activated", locked, status=locked.status)
+    return locked
+
+
+def _cycle_closure_gaps(cycle):
+    """
+    Evaluation units that block closing the cycle (RF-CIC-004): still open, or
+    closed with a recovery window that has not expired yet.
+
+    Read through the reverse relation only (``cycle.evaluation_units``), the
+    same way ``Section.active_enrolment_count`` reads ``enrolments`` without
+    importing that domain's models — ``evaluation`` depends on ``academics``,
+    not the other way around (domain-map.md).
+    """
+    today = timezone.localdate()
+    gaps = []
+    for unit in cycle.evaluation_units.order_by("number"):
+        if unit.status != "closed":
+            gaps.append(f"evaluation unit '{unit.name}' is still open")
+        elif unit.recovery_ends_on is not None and today <= unit.recovery_ends_on:
+            gaps.append(f"evaluation unit '{unit.name}' recovery window has not expired yet")
+    return gaps
+
+
+@transaction.atomic
+def close_academic_cycle(*, cycle, actor=None):
+    """
+    Close an active cycle once every evaluation unit is settled (RF-CIC-004).
+
+    Closing freezes the cycle: ``cycle_policies.require_cycle_academic_writes``
+    already rejects academic mutations once ``status`` is ``CLOSED``, so no
+    separate "freeze results" step exists yet here — there is no results
+    capability implemented in the codebase to freeze (see PR notes).
+    """
+    locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
+    if locked.status != AcademicCycle.CycleStatus.ACTIVE:
+        raise DomainError("Only an active academic cycle can be closed.")
+
+    gaps = _cycle_closure_gaps(locked)
+    if gaps:
+        raise DomainError("Academic cycle cannot be closed: " + "; ".join(gaps) + ".")
+
+    locked.status = AcademicCycle.CycleStatus.CLOSED
+    locked.save(update_fields=["status", "updated_at"])
+    _audit(actor, "academics.cycle.closed", locked, status=locked.status)
     return locked
 
 
