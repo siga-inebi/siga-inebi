@@ -11,6 +11,7 @@ class Student(TimeStampedModel):
         ACTIVE = "active", "Active"
         INACTIVE = "inactive", "Inactive"
         WITHDRAWN = "withdrawn", "Withdrawn"
+        GRADUATED = "graduated", "Graduated"
 
     person = models.OneToOneField(
         "people.Person",
@@ -80,14 +81,19 @@ class StudentObservation(TimeStampedModel):
         Student,
         on_delete=models.PROTECT,
         related_name="observations",
+class StudentHealthNote(TimeStampedModel):
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.PROTECT,
+        related_name="health_notes",
     )
     author = models.ForeignKey(
         "identity.UserAccount",
         on_delete=models.PROTECT,
-        related_name="student_observations",
+        related_name="student_health_notes",
     )
-    description = models.TextField()
-    observed_on = models.DateField(default=timezone.localdate)
+    content = models.TextField()
+    recorded_on = models.DateField(default=timezone.localdate)
 
     class Meta:
-        ordering = ["-observed_on", "-created_at"]
+        ordering = ["-recorded_on", "-created_at"]

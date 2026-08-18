@@ -11,6 +11,7 @@ import AddIcon from "@mui/icons-material/Add";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
+import { guardiansService } from "@guardians/guardiansService.js";
 import { studentsService } from "@students/studentsService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { useLocalList } from "@shared/crud/useLocalList.js";
@@ -35,12 +36,29 @@ const STUDENT_FIELDS = [
   { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
 ];
 
+const STUDENT_EDIT_FIELDS = [
+  ...STUDENT_FIELDS,
+  {
+    name: "status",
+    label: "Estado",
+    type: "select",
+    required: true,
+    options: [
+      { value: "pre_enrolled", label: "Preinscrito" },
+      { value: "active", label: "Activo" },
+      { value: "inactive", label: "Inactivo" },
+      { value: "withdrawn", label: "Retirado" },
+      { value: "graduated", label: "Graduado" },
+    ],
+  },
+];
+
 /** Estados de expediente del estudiante -> variante semantica de chip. */
 const STATUS_VARIANT = {
-  enrolled: "success",
+  active: "success",
   pre_enrolled: "primary",
+  inactive: "neutral",
   withdrawn: "danger",
-  suspended: "warning",
   graduated: "purple",
 };
 
@@ -84,6 +102,65 @@ export function AlumnosPage() {
     );
     setObservations((current) => [created, ...current]);
     setCreatingObservation(false);
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [healthNotes, setHealthNotes] = useState([]);
+  const [healthError, setHealthError] = useState("");
+  const [creatingHealthNote, setCreatingHealthNote] = useState(false);
+
+  const openHealth = async () => {
+    setHealthError("");
+    try {
+      setHealthNotes(await studentsService.listHealthNotes(selected.public_id));
+      setHealthOpen(true);
+    } catch (error) {
+      setHealthError(error.message);
+    }
+  };
+
+  const handleCreateHealthNote = async (values) => {
+    const created = await studentsService.createHealthNote(
+      selected.public_id,
+      values
+    );
+    setHealthNotes((current) => [created, ...current]);
+    setCreatingHealthNote(false);
+  const [guardianRelations, setGuardianRelations] = useState([]);
+  const [availableGuardians, setAvailableGuardians] = useState([]);
+  const [linkingGuardian, setLinkingGuardian] = useState(false);
+  const [guardianError, setGuardianError] = useState("");
+
+  const handleSelect = async (student) => {
+    setSelected(student);
+    setGuardianRelations([]);
+    setGuardianError("");
+    try {
+      const relations = await studentsService.listGuardianRelations();
+      setGuardianRelations(
+        relations.filter((relation) => relation.student === student.id)
+      );
+    } catch (error) {
+      setGuardianError(error.message);
+    }
+  };
+
+  const openGuardianLink = async () => {
+    setGuardianError("");
+    try {
+      setAvailableGuardians(await guardiansService.list());
+      setLinkingGuardian(true);
+    } catch (error) {
+      setGuardianError(error.message);
+    }
+  };
+
+  const handleGuardianLink = async (values) => {
+    const created = await studentsService.createGuardianRelation({
+      student: selected.id,
+      guardian: Number(values.guardian),
+      relationship_label: values.relationship_label,
+    });
+    setGuardianRelations((current) => [...current, created]);
+    setLinkingGuardian(false);
   };
 
   const handleExport = () => {
@@ -124,6 +201,7 @@ export function AlumnosPage() {
         phone_number: values.phone_number,
       },
       student_code: values.student_code,
+      status: values.status,
       photo: values.photo,
     });
     list.replaceItem(updated, (item) => item.id === updated.id);
@@ -171,7 +249,7 @@ export function AlumnosPage() {
       render: (student) => (
         <ViewDetailButton
           label={`Ver detalle de ${fullName(student)}`}
-          onClick={() => setSelected(student)}
+          onClick={() => handleSelect(student)}
         />
       ),
     },
@@ -234,7 +312,7 @@ export function AlumnosPage() {
             }
             fillHeight
             loading={list.loading}
-            onRowClick={setSelected}
+            onRowClick={handleSelect}
             pagination={list.pagination}
             rows={list.items}
           />
@@ -247,6 +325,10 @@ export function AlumnosPage() {
             <Stack direction="row" gap={1}>
               <Button onClick={openObservations} variant="outlined">
                 Observaciones
+              <Button onClick={openHealth} variant="outlined">
+                Salud
+              <Button onClick={openGuardianLink} variant="outlined">
+                Vincular encargado
               </Button>
               <Button onClick={() => setEditing(selected)} variant="contained">
                 Editar
@@ -298,6 +380,29 @@ export function AlumnosPage() {
                     <MutedCell>Sin foto</MutedCell>
                   ),
                 },
+                {
+                  label: "Encargados",
+                  value: guardianError ? (
+                    <Alert severity="error">{guardianError}</Alert>
+                  ) : guardianRelations.length ? (
+                    <Stack gap={0.75}>
+                      {guardianRelations.map((relation) => (
+                        <Box key={relation.id}>
+                          <Typography fontWeight={600} variant="body2">
+                            {fullName(relation.guardian_detail)}
+                          </Typography>
+                          <Typography color="text.secondary" variant="body2">
+                            {relation.relationship_label}
+                            {relation.is_primary ? " · Principal" : ""}
+                            {relation.ends_at ? " · Finalizado" : ""}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <MutedCell>Sin encargados vinculados</MutedCell>
+                  ),
+                },
               ]
             : []
         }
@@ -307,6 +412,11 @@ export function AlumnosPage() {
           setObservationsOpen(false);
           setObservations([]);
           setObservationError("");
+          setHealthOpen(false);
+          setHealthNotes([]);
+          setHealthError("");
+          setGuardianRelations([]);
+          setGuardianError("");
         }}
         open={Boolean(selected)}
         title={selected ? fullName(selected) : ""}
@@ -319,6 +429,10 @@ export function AlumnosPage() {
             variant="contained"
           >
             Nueva observación
+            onClick={() => setCreatingHealthNote(true)}
+            variant="contained"
+          >
+            Nueva nota
           </Button>
         }
         fields={[
@@ -336,6 +450,17 @@ export function AlumnosPage() {
                     <Typography variant="body2">
                       {observation.description}
                     </Typography>
+            label: "Notas de salud",
+            value: healthError ? (
+              <Alert severity="error">{healthError}</Alert>
+            ) : healthNotes.length ? (
+              <Stack gap={1}>
+                {healthNotes.map((note) => (
+                  <Box key={note.public_id}>
+                    <Typography fontWeight={600} variant="body2">
+                      {note.recorded_on} · {note.author}
+                    </Typography>
+                    <Typography variant="body2">{note.content}</Typography>
                   </Box>
                 ))}
               </Stack>
@@ -364,6 +489,26 @@ export function AlumnosPage() {
         open={creatingObservation}
         submitLabel="Registrar observación"
         title="Nueva observación"
+              <MutedCell>Sin notas de salud</MutedCell>
+            ),
+          },
+        ]}
+        onClose={() => setHealthOpen(false)}
+        open={healthOpen}
+        title={selected ? `Salud de ${fullName(selected)}` : "Salud"}
+      />
+
+      <EntityFormWindow
+        fields={[
+          { name: "content", label: "Información de salud", required: true },
+        ]}
+        initialValues={{ content: "" }}
+        key={creatingHealthNote ? `health-${selected?.id}` : "health-closed"}
+        onCancel={() => setCreatingHealthNote(false)}
+        onSubmit={handleCreateHealthNote}
+        open={creatingHealthNote}
+        submitLabel="Registrar nota"
+        title="Nueva nota de salud"
       />
 
       <ImageDialog
@@ -387,13 +532,14 @@ export function AlumnosPage() {
 
       {editing ? (
         <EntityFormWindow
-          fields={STUDENT_FIELDS}
+          fields={STUDENT_EDIT_FIELDS}
           initialValues={{
             first_name: editing.person.first_name,
             last_name: editing.person.last_name,
             email: editing.person.email ?? "",
             phone_number: editing.person.phone_number ?? "",
             student_code: editing.student_code,
+            status: editing.status,
             photo: null,
           }}
           key={editing.id}
@@ -404,6 +550,33 @@ export function AlumnosPage() {
           title={`Editar ${fullName(editing)}`}
         />
       ) : null}
+
+      <EntityFormWindow
+        fields={[
+          {
+            name: "guardian",
+            label: "Encargado",
+            type: "select",
+            required: true,
+            options: availableGuardians.map((guardian) => ({
+              value: guardian.id,
+              label: fullName(guardian),
+            })),
+          },
+          {
+            name: "relationship_label",
+            label: "Parentesco o responsabilidad",
+            required: true,
+          },
+        ]}
+        initialValues={{ guardian: "", relationship_label: "" }}
+        key={linkingGuardian ? `guardian-${selected?.id}` : "guardian-closed"}
+        onCancel={() => setLinkingGuardian(false)}
+        onSubmit={handleGuardianLink}
+        open={linkingGuardian}
+        submitLabel="Vincular encargado"
+        title="Vincular encargado"
+      />
     </>
   );
 }

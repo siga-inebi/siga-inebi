@@ -7,6 +7,7 @@ from apps.students.models import (
     Student,
     StudentGuardianRelation,
     StudentObservation,
+    StudentHealthNote,
 )
 from tests.factories.people import PersonFactory
 
@@ -56,3 +57,10 @@ class StudentObservationFactory(factory.django.DjangoModelFactory):
     student = factory.SubFactory(StudentFactory)
     author = factory.SubFactory("tests.factories.identity.UserFactory")
     description = "Observacion pedagogica de prueba"
+class StudentHealthNoteFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = StudentHealthNote
+
+    student = factory.SubFactory(StudentFactory)
+    author = factory.SubFactory("tests.factories.identity.UserFactory")
+    content = "Alergia de prueba"
