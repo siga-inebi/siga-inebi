@@ -76,11 +76,6 @@ class EmergencyContact(TimeStampedModel):
     relationship_label = models.CharField(max_length=100)
 
 
-class StudentObservation(TimeStampedModel):
-    student = models.ForeignKey(
-        Student,
-        on_delete=models.PROTECT,
-        related_name="observations",
 class StudentHealthNote(TimeStampedModel):
     student = models.ForeignKey(
         Student,
@@ -97,3 +92,15 @@ class StudentHealthNote(TimeStampedModel):
 
     class Meta:
         ordering = ["-recorded_on", "-created_at"]
+
+
+class StudentObservation(TimeStampedModel):
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="observations")
+    author = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="student_observations"
+    )
+    description = models.TextField()
+    observed_on = models.DateField(default=timezone.localdate)
+
+    class Meta:
+        ordering = ["-observed_on", "-created_at"]

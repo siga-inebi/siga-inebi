@@ -4,16 +4,15 @@ from unittest.mock import patch
 import pytest
 from django.utils import timezone
 
+from apps.audit.models import AuditEvent
 from apps.audit.services import (
+    diff_fields,
     list_audit_events,
     record_audit_export,
     record_event,
+    record_sensitive_read,
     sanitize_context,
 )
-
-from apps.audit.models import AuditEvent
-from apps.audit.services import record_event, record_sensitive_read, sanitize_context
-from apps.audit.services import diff_fields, record_event, sanitize_context
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
@@ -170,6 +169,8 @@ def test_record_audit_export_captures_range_and_count():
     assert event.context["date_from"] == "2026-01-01"
     assert event.context["date_to"] == "2026-01-31"
     assert event.context["count"] == 7
+
+
 # record_sensitive_read -- RF-BIT-003
 # --------------------------------------------------------------------------- #
 
@@ -204,6 +205,8 @@ def test_record_sensitive_read_creates_a_real_audit_event():
     )
 
     assert AuditEvent.objects.filter(action="attendance.day_status.read").exists()
+
+
 # record_event(reason=..., changes=...) -- RF-BIT-002
 # --------------------------------------------------------------------------- #
 
@@ -261,6 +264,8 @@ def test_diff_fields_ignores_fields_not_supplied():
     changes = diff_fields(instance, name=None, kind=None)
 
     assert changes == {}
+
+
 # actor_label is a snapshot -- RF-BIT-007
 # --------------------------------------------------------------------------- #
 

@@ -99,6 +99,8 @@ def record_audit_export(*, actor, date_from, date_to, count):
             "count": count,
         },
     )
+
+
 def record_sensitive_read(*, actor, action, resource, resource_identifier, student):
     """
     Audits a read that reveals sensitive/confidential data about one
@@ -114,6 +116,8 @@ def record_sensitive_read(*, actor, action, resource, resource_identifier, stude
         resource_identifier=resource_identifier,
         context={"student_id": student.pk, "result": "success"},
     )
+
+
 def diff_fields(instance, **candidates):
     """
     Before/after map for ``record_event(changes=...)``. Same ``None`` means
