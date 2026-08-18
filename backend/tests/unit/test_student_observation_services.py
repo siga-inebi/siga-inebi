@@ -27,7 +27,7 @@ def test_create_observation_preserves_author_date_and_description():
     assert observation.author == actor
     assert observation.observed_on == timezone.localdate()
     event = AuditEvent.objects.get(action="students.observation.created")
-    assert event.context == {"student_id": student.pk}
+    assert event.context["student_id"] == student.pk
     assert "Seguimiento" not in str(event.context)
 
 

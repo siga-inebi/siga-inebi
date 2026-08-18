@@ -322,8 +322,13 @@ describe("AlumnosPage", () => {
 
     expect(await screen.findByText("Sin observaciones")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Nueva observación" }));
-    await user.type(screen.getByLabelText(/^Descripción/), "Seguimiento pedagogico");
-    await user.click(screen.getByRole("button", { name: "Registrar observación" }));
+    await user.type(
+      screen.getByLabelText(/^Descripción/),
+      "Seguimiento pedagogico"
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Registrar observación" })
+    );
 
     await waitFor(() =>
       expect(studentsServiceMock.createObservation).toHaveBeenCalledWith(
@@ -331,6 +336,8 @@ describe("AlumnosPage", () => {
         { description: "Seguimiento pedagogico" }
       )
     );
-    expect(await screen.findByText("Seguimiento pedagogico")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Seguimiento pedagogico")
+    ).toBeInTheDocument();
   });
 });

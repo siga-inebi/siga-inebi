@@ -68,7 +68,9 @@ export function AlumnosPage() {
   const openObservations = async () => {
     setObservationError("");
     try {
-      setObservations(await studentsService.listObservations(selected.public_id));
+      setObservations(
+        await studentsService.listObservations(selected.public_id)
+      );
       setObservationsOpen(true);
     } catch (error) {
       setObservationError(error.message);
@@ -76,7 +78,10 @@ export function AlumnosPage() {
   };
 
   const handleCreateObservation = async (values) => {
-    const created = await studentsService.createObservation(selected.public_id, values);
+    const created = await studentsService.createObservation(
+      selected.public_id,
+      values
+    );
     setObservations((current) => [created, ...current]);
     setCreatingObservation(false);
   };
@@ -309,7 +314,10 @@ export function AlumnosPage() {
 
       <DetailWindow
         actions={
-          <Button onClick={() => setCreatingObservation(true)} variant="contained">
+          <Button
+            onClick={() => setCreatingObservation(true)}
+            variant="contained"
+          >
             Nueva observación
           </Button>
         }
@@ -325,7 +333,9 @@ export function AlumnosPage() {
                     <Typography fontWeight={600} variant="body2">
                       {observation.observed_on} · {observation.author}
                     </Typography>
-                    <Typography variant="body2">{observation.description}</Typography>
+                    <Typography variant="body2">
+                      {observation.description}
+                    </Typography>
                   </Box>
                 ))}
               </Stack>
@@ -336,13 +346,19 @@ export function AlumnosPage() {
         ]}
         onClose={() => setObservationsOpen(false)}
         open={observationsOpen}
-        title={selected ? `Observaciones de ${fullName(selected)}` : "Observaciones"}
+        title={
+          selected ? `Observaciones de ${fullName(selected)}` : "Observaciones"
+        }
       />
 
       <EntityFormWindow
         fields={[{ name: "description", label: "Descripción", required: true }]}
         initialValues={{ description: "" }}
-        key={creatingObservation ? `observation-${selected?.id}` : "observation-closed"}
+        key={
+          creatingObservation
+            ? `observation-${selected?.id}`
+            : "observation-closed"
+        }
         onCancel={() => setCreatingObservation(false)}
         onSubmit={handleCreateObservation}
         open={creatingObservation}
