@@ -5,9 +5,9 @@ el Sprint Backlog inicial y las asignaciones verificables de la etapa. El
 [GitHub Project de desarrollo](https://github.com/orgs/siga-inebi/projects/1) es la fuente viva para
 estado, responsable y seguimiento; este documento conserva los acuerdos y resultados esperados.
 
-**Periodo:** 14 de agosto al 24 de septiembre de 2026  
-**Última revisión:** 17 de agosto de 2026  
-**Detalle operativo de S9:** [`sprint-2026-08-14.md`](./sprint-2026-08-14.md)
+- **Periodo:** 14 de agosto al 24 de septiembre de 2026
+- **Última revisión:** 17 de agosto de 2026
+- **Detalle operativo de S9:** [`sprint-2026-08-14.md`](./sprint-2026-08-14.md)
 
 ## Evidencia de los entregables
 
