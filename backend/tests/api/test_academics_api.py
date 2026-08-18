@@ -77,7 +77,7 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
 
 
 def test_create_section_api_creates_offering_and_section(auth_client, institution):
-    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
 
@@ -101,7 +101,7 @@ def test_create_section_api_creates_offering_and_section(auth_client, institutio
 
 
 def test_create_section_api_rejects_duplicate_name(auth_client, institution):
-    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
     payload = {
@@ -119,6 +119,30 @@ def test_create_section_api_rejects_duplicate_name(auth_client, institution):
     assert "already exists" in response.json()["error"]["detail"]
 
 
+def test_create_section_api_rejects_when_cycle_is_active(auth_client, institution):
+    """RF-EST-011: structure only changes while the cycle is still in planning."""
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+
+    response = auth_client.post(
+        reverse("section-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "shift_id": str(shift.public_id),
+            "name": "A",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "in planning" in response.json()["error"]["detail"]
+
+
+def test_deactivate_section_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    section = SectionFactory(academic_cycle=cycle)
 def test_deactivate_section_api_contract(auth_client, institution):
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
 

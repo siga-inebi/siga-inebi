@@ -21,7 +21,10 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
-from apps.academics.cycle_policies import require_cycle_academic_writes
+from apps.academics.cycle_policies import (
+    require_cycle_academic_writes,
+    require_cycle_planning_writes,
+)
 from apps.academics.models import (
     AcademicCycle,
     Campus,
@@ -815,11 +818,14 @@ def create_section(*, academic_cycle, grade, shift, name, capacity=0, actor=None
     Rules:
     - Rejected once the academic cycle is closed (cycle_policies), the same
       shared guard every other cycle-scoped write already consults.
+    - Rejected unless the cycle is still in planning (RF-EST-011): the
+      structure itself only changes before the cycle activates.
     - The offering is resolved or created as a side effect; see
       ``_resolve_or_create_grade_offering``.
     - Name unique within the offering; capacity 0 means uncapped.
     """
     require_cycle_academic_writes(cycle=academic_cycle, operation="section.create")
+    require_cycle_planning_writes(cycle=academic_cycle, operation="section.create")
     name = _clean_name(name)
     _validate_capacity(capacity)
 
@@ -844,8 +850,9 @@ def create_section(*, academic_cycle, grade, shift, name, capacity=0, actor=None
 
 
 def update_section(*, section, name=None, capacity=None, actor=None):
-    """Rename a section or change its declared capacity."""
+    """Rename a section or change its declared capacity. Planning-only (RF-EST-011)."""
     require_cycle_academic_writes(cycle=section.academic_cycle, operation="section.update")
+    require_cycle_planning_writes(cycle=section.academic_cycle, operation="section.update")
     if name is not None:
         name = _clean_name(name)
     _validate_capacity(capacity)
@@ -856,11 +863,15 @@ def update_section(*, section, name=None, capacity=None, actor=None):
 
 @transaction.atomic
 def deactivate_section(*, section, actor=None):
-    """Deactivate a section instead of deleting it, unless it still has active enrolments."""
+    """
+    Deactivate a section instead of deleting it (planning-only, RF-EST-011),
+    unless it still has active enrolments.
+    """
     if not section.is_active:
         return section
 
     require_cycle_academic_writes(cycle=section.academic_cycle, operation="section.deactivate")
+    require_cycle_planning_writes(cycle=section.academic_cycle, operation="section.deactivate")
     if section.enrolments.filter(status="active").exists():
         raise DomainError(
             f"Section '{section.name}' has active enrolments and cannot be deactivated."
