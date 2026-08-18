@@ -4,6 +4,7 @@ from apps.evaluation.api.views import (
     CurrentAverageView,
     CycleEvaluationConfigView,
     EvaluationGlobalConfigView,
+    FinalSubjectGradeView,
 )
 
 from .views import (
@@ -66,6 +67,11 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/enrolments/<int:enrolment_id>/subjects/<int:subject_id>/current-average/",
         CurrentAverageView.as_view(),
         name="grade-current-average",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<int:enrolment_id>/subjects/<int:subject_id>/final-grade/",
+        FinalSubjectGradeView.as_view(),
+        name="grade-final-subject-grade",
     ),
     path(
         "cycles/<uuid:public_id>/clone/",

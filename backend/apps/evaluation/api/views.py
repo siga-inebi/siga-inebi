@@ -39,6 +39,7 @@ from apps.evaluation.services import (
     create_evaluation_unit,
     get_current_average,
     get_effective_unit_count,
+    get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
     register_unit_grade,
@@ -561,6 +562,37 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
+    """
+    Resolve (enrolment, subject) for the current-average and final-grade
+    endpoints, both keyed the same way. Returns (enrolment, subject, None) on
+    success, or (None, None, error_response) on a 404.
+    """
+    try:
+        enrolment = Enrolment.objects.get(
+            pk=enrolment_id,
+            academic_cycle__public_id=cycle_public_id,
+            is_active=True,
+        )
+    except Enrolment.DoesNotExist:
+        return (
+            None,
+            None,
+            Response({"error": "Enrolment not found."}, status=status.HTTP_404_NOT_FOUND),
+        )
+
+    try:
+        subject = Subject.objects.get(pk=subject_id, is_active=True)
+    except Subject.DoesNotExist:
+        return (
+            None,
+            None,
+            Response({"error": "Subject not found."}, status=status.HTTP_404_NOT_FOUND),
+        )
+
+    return enrolment, subject, None
+
+
 @extend_schema_view(
     get=extend_schema(
         summary="Consultar el promedio en curso de un estudiante en una subarea",
@@ -582,20 +614,40 @@ class CurrentAverageView(APIView):
     """
 
     def get(self, request, *args, **kwargs):
-        cycle_public_id = kwargs.get("cycle_public_id")
-
-        try:
-            enrolment = Enrolment.objects.get(
-                pk=kwargs.get("enrolment_id"),
-                academic_cycle__public_id=cycle_public_id,
-                is_active=True,
-            )
-        except Enrolment.DoesNotExist:
-            return Response({"error": "Enrolment not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            subject = Subject.objects.get(pk=kwargs.get("subject_id"), is_active=True)
-        except Subject.DoesNotExist:
-            return Response({"error": "Subject not found."}, status=status.HTTP_404_NOT_FOUND)
+        enrolment, subject, error = _resolve_enrolment_subject(
+            kwargs.get("cycle_public_id"), kwargs.get("enrolment_id"), kwargs.get("subject_id")
+        )
+        if error:
+            return error
 
         return Response(get_current_average(enrolment, subject))
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar la nota final de un estudiante en una subarea",
+        description=(
+            "Promedio de las notas de unidad de la subarea. Mientras el ciclo esta "
+            "abierto, se recalcula ante cualquier correccion."
+        ),
+        tags=TAGS,
+        responses={200: dict},
+    ),
+)
+class FinalSubjectGradeView(APIView):
+    """
+    Final grade of a student's subarea for the cycle (RF-RES-001).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/subjects/{subject_id}/final-grade/
+    """
+
+    def get(self, request, *args, **kwargs):
+        enrolment, subject, error = _resolve_enrolment_subject(
+            kwargs.get("cycle_public_id"), kwargs.get("enrolment_id"), kwargs.get("subject_id")
+        )
+        if error:
+            return error
+
+        return Response(get_final_subject_grade(enrolment, subject))

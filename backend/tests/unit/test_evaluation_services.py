@@ -18,6 +18,7 @@ Scenario 8: Ciclo que se aparta del valor global
 Scenario 9: Registro de una nota por el docente
 Scenario 10: Nota fuera de rango
 Scenario 11: Promedio en curso con notas pendientes
+Scenario 12: Promedio de las unidades
 """
 
 from datetime import date, timedelta
@@ -32,6 +33,7 @@ from apps.evaluation.services import (
     create_evaluation_unit,
     get_current_average,
     get_effective_unit_count,
+    get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
     register_unit_grade,
@@ -911,3 +913,102 @@ class TestGetCurrentAverage:
 
         assert result["average"] == 70
         assert result["graded_units"] == 1
+
+
+class TestGetFinalSubjectGrade:
+    """Tests for RF-RES-001: Nota final de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_final_grade_is_the_average_of_all_graded_units(self):
+        """
+        Scenario 12: Promedio de las unidades
+        GIVEN un estudiante con todas las unidades calificadas en una subárea
+        WHEN se calcula su nota final
+        THEN el resultado es el promedio de esas notas
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 3)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        for unit, value in zip(units, (60, 75, 90), strict=True):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=value,
+            )
+
+        result = get_final_subject_grade(enrolment, subject)
+
+        assert result["average"] == 75
+        assert result["graded_units"] == 3
+        assert result["pending_units"] == 0
+
+    def test_final_grade_recalculates_on_correction(self):
+        """
+        Test that the final grade, while the cycle is open, recalculates on
+        every correction (comportamiento exigido) rather than freezing after
+        the first computation.
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=60,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=60,
+        )
+        assert get_final_subject_grade(enrolment, subject)["average"] == 60
+
+        # A correction to an already-registered unit changes the final grade.
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=100,
+        )
+
+        assert get_final_subject_grade(enrolment, subject)["average"] == 80
