@@ -45,3 +45,20 @@ def record_event(*, actor, action, resource, resource_identifier="", context=Non
         ip_address=ip_address or merged_context.get("ip_address") or None,
         context=sanitize_context(merged_context),
     )
+
+
+def record_sensitive_read(*, actor, action, resource, resource_identifier, student):
+    """
+    Audits a read that reveals sensitive/confidential data about one
+    identified student (RF-BIT-003). Only call this when the request
+    unambiguously names a single student -- never for aggregate or
+    unscoped queries, which must not appear in the audit trail
+    (docs/requirements/openspec/auditoria-bitacora.md).
+    """
+    return record_event(
+        actor=actor,
+        action=action,
+        resource=resource,
+        resource_identifier=resource_identifier,
+        context={"student_id": student.pk, "result": "success"},
+    )

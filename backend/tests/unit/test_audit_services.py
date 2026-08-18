@@ -2,8 +2,10 @@ from unittest.mock import patch
 
 import pytest
 
-from apps.audit.services import record_event, sanitize_context
+from apps.audit.models import AuditEvent
+from apps.audit.services import record_event, record_sensitive_read, sanitize_context
 from tests.factories.identity import UserFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
@@ -108,3 +110,40 @@ def test_record_event_falls_back_to_context_ip_address():
     )
 
     assert event.ip_address == "10.0.0.1"
+
+
+# --------------------------------------------------------------------------- #
+# record_sensitive_read -- RF-BIT-003
+# --------------------------------------------------------------------------- #
+
+
+def test_record_sensitive_read_captures_the_identified_student():
+    actor = UserFactory()
+    student = StudentFactory()
+
+    event = record_sensitive_read(
+        actor=actor,
+        action="students.emergency_contacts.read",
+        resource="EmergencyContact",
+        resource_identifier=str(student.pk),
+        student=student,
+    )
+
+    assert event.actor_id == actor.id
+    assert event.action == "students.emergency_contacts.read"
+    assert event.context["student_id"] == student.pk
+    assert event.context["result"] == "success"
+
+
+def test_record_sensitive_read_creates_a_real_audit_event():
+    student = StudentFactory()
+
+    record_sensitive_read(
+        actor=None,
+        action="attendance.day_status.read",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        student=student,
+    )
+
+    assert AuditEvent.objects.filter(action="attendance.day_status.read").exists()

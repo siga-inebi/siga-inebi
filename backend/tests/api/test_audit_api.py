@@ -10,6 +10,7 @@ from django.urls import reverse
 
 from apps.audit.models import AuditEvent
 from tests.factories.documents import DocumentTemplateFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -50,3 +51,18 @@ def test_deactivating_a_resource_via_the_api_is_audited(auth_client, institution
     assert response.status_code == 204
     event = AuditEvent.objects.latest("created_at")
     assert event.action == "documents.template.deactivated"
+
+
+def test_reading_a_students_family_contacts_via_the_api_is_audited(auth_client):
+    """RF-BIT-003: consulting one identified student's family contact data is a sensitive read."""
+    student = StudentFactory()
+
+    response = auth_client.get(
+        reverse("student-emergency-contact-list-create", args=[student.public_id])
+    )
+
+    assert response.status_code == 200
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "students.emergency_contacts.read"
+    assert event.context["student_id"] == student.pk
+    assert event.actor_id == auth_client.user.id
