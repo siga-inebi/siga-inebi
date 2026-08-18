@@ -5,12 +5,16 @@ from django.urls import reverse
 from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
+from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    GradeFactory,
     GradeOfferingFactory,
     SectionFactory,
+    ShiftFactory,
     SubjectFactory,
 )
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -70,6 +74,116 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
 
     assert response.status_code == 400
     assert "must be closed" in response.json()["error"]["detail"]
+
+
+def test_create_section_api_creates_offering_and_section(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+
+    response = auth_client.post(
+        reverse("section-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "shift_id": str(shift.public_id),
+            "name": "A",
+            "capacity": 30,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "A"
+    assert body["capacity"] == 30
+    assert body["academic_cycle_id"] == str(cycle.public_id)
+
+
+def test_create_section_api_rejects_duplicate_name(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    payload = {
+        "academic_cycle_id": str(cycle.public_id),
+        "grade_id": str(grade.public_id),
+        "shift_id": str(shift.public_id),
+        "name": "A",
+    }
+    url = reverse("section-list-create")
+    auth_client.post(url, payload, content_type="application/json")
+
+    response = auth_client.post(url, payload, content_type="application/json")
+
+    assert response.status_code == 400
+    assert "already exists" in response.json()["error"]["detail"]
+
+
+def test_create_section_api_rejects_when_cycle_is_active(auth_client, institution):
+    """RF-EST-011: structure only changes while the cycle is still in planning."""
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+
+    response = auth_client.post(
+        reverse("section-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "shift_id": str(shift.public_id),
+            "name": "A",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "in planning" in response.json()["error"]["detail"]
+
+
+def test_deactivate_section_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    section = SectionFactory(academic_cycle=cycle)
+def test_deactivate_section_api_contract(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    response = auth_client.delete(reverse("section-detail", args=[section.public_id]))
+
+    assert response.status_code == 204
+    section.refresh_from_db()
+    assert section.is_active is False
+
+
+def test_section_endpoints_require_authentication(client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    assert client.get(reverse("section-list-create")).status_code == 403
+    assert client.get(reverse("section-detail", args=[section.public_id])).status_code == 403
+def test_close_cycle_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
+
+    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "closed"
+
+
+def test_close_cycle_api_rejects_open_evaluation_unit(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    unit = EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.OPEN)
+
+    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 400
+    assert unit.name in response.json()["error"]["detail"]
+
+
+def test_close_cycle_endpoint_requires_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+
+    response = client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 403
 
 
 def test_cycle_endpoints_require_authentication(client, institution):
