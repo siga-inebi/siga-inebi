@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from apps.academics.models import AcademicCycle, Shift
 from apps.attendance import services
 from apps.attendance.models import AttendanceAlert, AttendanceEvent, JornadaParameters
+from apps.audit.services import record_sensitive_read
 from apps.common.models import DomainError
 from apps.identity.scopes import authorized_student_queryset, can_access_student
 from apps.students.models import Student
@@ -227,6 +228,13 @@ class AttendanceDayStatusView(GenericAPIView):
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
             raise PermissionDenied("Actor lacks the required permission or student scope.")
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.day_status.read",
+            resource="Student",
+            resource_identifier=str(student.pk),
+            student=student,
+        )
         result = services.derive_day_status(
             student=student, shift=shift, event_date=payload["event_date"]
         )

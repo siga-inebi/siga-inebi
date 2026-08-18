@@ -8,9 +8,15 @@ from django.core.exceptions import PermissionDenied
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
+from apps.audit.services import record_event
 from apps.identity.models import Role
 from apps.identity.services import create_role
-from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    UserFactory,
+)
 
 pytestmark = [pytest.mark.permissions, pytest.mark.django_db]
 
@@ -51,3 +57,24 @@ def test_audit_events_cannot_be_listed_or_exported_without_the_audit_permission(
 
     assert list_response.status_code == 403
     assert export_response.status_code == 403
+def test_audit_event_cannot_be_deleted_even_by_the_highest_privilege_actor():
+    """
+    RF-BIT-005, Escenario 1: "GIVEN un usuario con el rol de mayor privilegio,
+    WHEN intenta eliminar un asiento de bitacora, THEN el sistema no ofrece
+    esa operacion y la rechaza si se invoca directamente."
+
+    ``has_atomic_permission`` has no superuser bypass anywhere else in this
+    system, so the highest-privilege actor available is a Django
+    ``is_superuser=True`` account -- and even it is rejected, both through
+    the instance and the queryset delete path.
+    """
+    actor = UserFactory(is_superuser=True)
+    event = record_event(actor=actor, action="test.action", resource="Resource")
+
+    with pytest.raises(RuntimeError):
+        event.delete()
+
+    with pytest.raises(RuntimeError):
+        AuditEvent.objects.filter(pk=event.pk).delete()
+
+    assert AuditEvent.objects.filter(pk=event.pk).exists()

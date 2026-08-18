@@ -19,8 +19,12 @@ would leave a window for two concurrent requests to both pass the check.
 from datetime import timedelta
 
 from django.db import transaction
+from django.utils import timezone
 
-from apps.academics.cycle_policies import require_cycle_academic_writes
+from apps.academics.cycle_policies import (
+    require_cycle_academic_writes,
+    require_cycle_planning_writes,
+)
 from apps.academics.models import (
     AcademicCycle,
     Campus,
@@ -277,6 +281,50 @@ def activate_academic_cycle(*, cycle, actor=None):
     with unique_violation_as(_cycle_conflicts(year=locked.year, name=locked.name)):
         locked.save(update_fields=["status", "updated_at"])
     _audit(actor, "academics.cycle.activated", locked, status=locked.status)
+    return locked
+
+
+def _cycle_closure_gaps(cycle):
+    """
+    Evaluation units that block closing the cycle (RF-CIC-004): still open, or
+    closed with a recovery window that has not expired yet.
+
+    Read through the reverse relation only (``cycle.evaluation_units``), the
+    same way ``Section.active_enrolment_count`` reads ``enrolments`` without
+    importing that domain's models — ``evaluation`` depends on ``academics``,
+    not the other way around (domain-map.md).
+    """
+    today = timezone.localdate()
+    gaps = []
+    for unit in cycle.evaluation_units.order_by("number"):
+        if unit.status != "closed":
+            gaps.append(f"evaluation unit '{unit.name}' is still open")
+        elif unit.recovery_ends_on is not None and today <= unit.recovery_ends_on:
+            gaps.append(f"evaluation unit '{unit.name}' recovery window has not expired yet")
+    return gaps
+
+
+@transaction.atomic
+def close_academic_cycle(*, cycle, actor=None):
+    """
+    Close an active cycle once every evaluation unit is settled (RF-CIC-004).
+
+    Closing freezes the cycle: ``cycle_policies.require_cycle_academic_writes``
+    already rejects academic mutations once ``status`` is ``CLOSED``, so no
+    separate "freeze results" step exists yet here — there is no results
+    capability implemented in the codebase to freeze (see PR notes).
+    """
+    locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
+    if locked.status != AcademicCycle.CycleStatus.ACTIVE:
+        raise DomainError("Only an active academic cycle can be closed.")
+
+    gaps = _cycle_closure_gaps(locked)
+    if gaps:
+        raise DomainError("Academic cycle cannot be closed: " + "; ".join(gaps) + ".")
+
+    locked.status = AcademicCycle.CycleStatus.CLOSED
+    locked.save(update_fields=["status", "updated_at"])
+    _audit(actor, "academics.cycle.closed", locked, status=locked.status)
     return locked
 
 
@@ -708,6 +756,131 @@ def unlink_subject_from_level(*, level, subject, actor=None):
         subject_id=subject.pk,
     )
     link.delete()
+
+
+# --------------------------------------------------------------------------- #
+# sections ("secciones")
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_or_create_grade_offering(*, academic_cycle, grade, shift, actor=None):
+    """
+    Get the (cycle, grade, shift) offering a section attaches to, creating it
+    if missing.
+
+    ``GradeOffering`` has no requirement or endpoint of its own — RF-EST-003
+    and RF-EST-004 are unrelated ("Subareas del ciclo" and an unimplemented
+    display label) — so a section is otherwise unreachable for any cycle that
+    was not built by ``clone_academic_cycle``, which already creates offerings
+    the same way, by hand. Treating it as an implementation detail here keeps
+    RF-EST-007 usable end-to-end without exposing a new public resource.
+    """
+    if grade.institution_id != academic_cycle.institution_id:
+        raise DomainError("Grade must belong to the academic cycle institution.")
+    if shift.institution != academic_cycle.institution:
+        raise DomainError("Shift must belong to the academic cycle institution.")
+    _require_active(grade, "Grade")
+    _require_active(shift, "Shift")
+
+    offering, created = GradeOffering.objects.get_or_create(
+        academic_cycle=academic_cycle, grade=grade, shift=shift
+    )
+    if created:
+        _audit(
+            actor,
+            "academics.grade_offering.created",
+            offering,
+            academic_cycle_id=academic_cycle.pk,
+            grade_id=grade.pk,
+            shift_id=shift.pk,
+        )
+    return offering
+
+
+def _section_conflicts(name):
+    return {
+        "unique_section_name_per_offering": (
+            f"Section '{name}' already exists for this grade offering."
+        ),
+    }
+
+
+def _validate_capacity(capacity):
+    if capacity is not None and capacity < 0:
+        raise DomainError("Section capacity cannot be negative.")
+
+
+@transaction.atomic
+def create_section(*, academic_cycle, grade, shift, name, capacity=0, actor=None):
+    """
+    Register a section inside a grade offering (RF-EST-007).
+
+    Rules:
+    - Rejected once the academic cycle is closed (cycle_policies), the same
+      shared guard every other cycle-scoped write already consults.
+    - Rejected unless the cycle is still in planning (RF-EST-011): the
+      structure itself only changes before the cycle activates.
+    - The offering is resolved or created as a side effect; see
+      ``_resolve_or_create_grade_offering``.
+    - Name unique within the offering; capacity 0 means uncapped.
+    """
+    require_cycle_academic_writes(cycle=academic_cycle, operation="section.create")
+    require_cycle_planning_writes(cycle=academic_cycle, operation="section.create")
+    name = _clean_name(name)
+    _validate_capacity(capacity)
+
+    offering = _resolve_or_create_grade_offering(
+        academic_cycle=academic_cycle, grade=grade, shift=shift, actor=actor
+    )
+
+    with unique_violation_as(_section_conflicts(name)):
+        section = Section.objects.create(offering=offering, name=name, capacity=capacity or 0)
+
+    _audit(
+        actor,
+        "academics.section.created",
+        section,
+        offering_id=offering.pk,
+        academic_cycle_id=academic_cycle.pk,
+        grade_id=grade.pk,
+        shift_id=shift.pk,
+        capacity=section.capacity,
+    )
+    return section
+
+
+def update_section(*, section, name=None, capacity=None, actor=None):
+    """Rename a section or change its declared capacity. Planning-only (RF-EST-011)."""
+    require_cycle_academic_writes(cycle=section.academic_cycle, operation="section.update")
+    require_cycle_planning_writes(cycle=section.academic_cycle, operation="section.update")
+    if name is not None:
+        name = _clean_name(name)
+    _validate_capacity(capacity)
+
+    with unique_violation_as(_section_conflicts(name or section.name)):
+        return _changed(section, actor, "academics.section.updated", name=name, capacity=capacity)
+
+
+@transaction.atomic
+def deactivate_section(*, section, actor=None):
+    """
+    Deactivate a section instead of deleting it (planning-only, RF-EST-011),
+    unless it still has active enrolments.
+    """
+    if not section.is_active:
+        return section
+
+    require_cycle_academic_writes(cycle=section.academic_cycle, operation="section.deactivate")
+    require_cycle_planning_writes(cycle=section.academic_cycle, operation="section.deactivate")
+    if section.enrolments.filter(status="active").exists():
+        raise DomainError(
+            f"Section '{section.name}' has active enrolments and cannot be deactivated."
+        )
+
+    section.is_active = False
+    section.save(update_fields=["is_active", "updated_at"])
+    _audit(actor, "academics.section.deactivated", section, offering_id=section.offering_id)
+    return section
 
 
 # --------------------------------------------------------------------------- #
