@@ -75,4 +75,15 @@ export const evaluationService = {
       `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/grades/`,
       payload
     ),
+
+  /**
+   * Promedio en curso de un estudiante en una subarea (RF-CAL-003).
+   *
+   * Promedia solo las unidades con nota registrada; una unidad sin nota
+   * nunca se trata como cero, se cuenta aparte como pendiente.
+   */
+  getCurrentAverage: (cyclePublicId, enrolmentId, subjectId) =>
+    apiClient.get(
+      `${ROOT}/cycles/${cyclePublicId}/enrolments/${enrolmentId}/subjects/${subjectId}/current-average/`
+    ),
 };

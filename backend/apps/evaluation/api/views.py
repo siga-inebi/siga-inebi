@@ -21,8 +21,9 @@ from rest_framework.generics import CreateAPIView, ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.academics.models import AcademicCycle
+from apps.academics.models import AcademicCycle, Subject
 from apps.common.models import DomainError
+from apps.enrolments.models import Enrolment
 from apps.evaluation.api.serializers import (
     CaptureExceptionGrantSerializer,
     CycleEvaluationConfigSerializer,
@@ -34,6 +35,7 @@ from apps.evaluation.api.serializers import (
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_current_average,
     get_effective_unit_count,
     get_global_evaluation_config,
     grant_capture_exception,
@@ -511,3 +513,43 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
 
         serializer = self.get_serializer(grade)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el promedio en curso de un estudiante en una subarea",
+        description=(
+            "Promedia unicamente las unidades con nota registrada. Una unidad sin "
+            "nota nunca se trata como cero: se cuenta como pendiente."
+        ),
+        tags=TAGS,
+        responses={200: dict},
+    ),
+)
+class CurrentAverageView(APIView):
+    """
+    Running average of a student's grades for a subarea (RF-CAL-003).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/subjects/{subject_id}/current-average/
+    """
+
+    def get(self, request, *args, **kwargs):
+        cycle_public_id = kwargs.get("cycle_public_id")
+
+        try:
+            enrolment = Enrolment.objects.get(
+                pk=kwargs.get("enrolment_id"),
+                academic_cycle__public_id=cycle_public_id,
+                is_active=True,
+            )
+        except Enrolment.DoesNotExist:
+            return Response({"error": "Enrolment not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            subject = Subject.objects.get(pk=kwargs.get("subject_id"), is_active=True)
+        except Subject.DoesNotExist:
+            return Response({"error": "Subject not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(get_current_average(enrolment, subject))

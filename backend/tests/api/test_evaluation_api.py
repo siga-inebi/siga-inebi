@@ -836,3 +836,151 @@ class TestGradeScaleAPI:
             )
             assert response.status_code == 201, response.json()
             assert response.json()["value"] == value
+
+
+class TestCurrentAverageAPI:
+    """Tests for RF-CAL-003: Distinción entre sin calificar y cero."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                EvaluationUnitFactory(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_current_average_excludes_pending_units_api(self, auth_client, institution):
+        """
+        Scenario 11: Promedio en curso con notas pendientes
+        GET {cycle}/enrolments/{enrolment_id}/subjects/{subject_id}/current-average/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        units = self._units(cycle, 4)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        grades_url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(units[0].public_id),
+            },
+        )
+        auth_client.post(
+            grades_url,
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 80,
+            },
+            content_type="application/json",
+        )
+        grades_url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(units[1].public_id),
+            },
+        )
+        auth_client.post(
+            grades_url,
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 90,
+            },
+            content_type="application/json",
+        )
+
+        response = auth_client.get(
+            reverse(
+                "grade-current-average",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.id,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average"] == 85
+        assert data["graded_units"] == 2
+        assert data["pending_units"] == 2
+        assert data["total_units"] == 4
+
+    def test_current_average_is_none_when_nothing_graded_api(self, auth_client, institution):
+        """
+        Test that the average is null, not zero, when nothing is graded yet.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "grade-current-average",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.id,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average"] is None
+        assert data["pending_units"] == 2
+
+    def test_current_average_enrolment_not_found_returns_404(self, auth_client, institution):
+        """
+        Test endpoint with an enrolment from a different cycle.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        other_cycle = AcademicCycleFactory(
+            institution=institution,
+            year=cycle.year + 1,
+            starts_on=date(cycle.year + 1, 1, 1),
+            ends_on=date(cycle.year + 1, 12, 31),
+            status="draft",
+        )
+        enrolment = self._enrolment(other_cycle)
+        subject = SubjectFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "grade-current-average",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.id,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 404

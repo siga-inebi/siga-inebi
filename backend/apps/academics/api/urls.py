@@ -1,6 +1,10 @@
 from django.urls import include, path
 
-from apps.evaluation.api.views import CycleEvaluationConfigView, EvaluationGlobalConfigView
+from apps.evaluation.api.views import (
+    CurrentAverageView,
+    CycleEvaluationConfigView,
+    EvaluationGlobalConfigView,
+)
 
 from .views import (
     AcademicCycleActivateView,
@@ -57,6 +61,11 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/evaluation-config/",
         CycleEvaluationConfigView.as_view(),
         name="cycle-evaluation-config",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<int:enrolment_id>/subjects/<int:subject_id>/current-average/",
+        CurrentAverageView.as_view(),
+        name="grade-current-average",
     ),
     path(
         "cycles/<uuid:public_id>/clone/",
