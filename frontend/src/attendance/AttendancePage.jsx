@@ -5,6 +5,7 @@ import Button from "@mui/material/Button";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
+import PhotoCameraOutlinedIcon from "@mui/icons-material/PhotoCameraOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 
 import {
@@ -26,6 +27,7 @@ import { DataTable } from "@ui/table/DataTable.jsx";
 import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
+import { CameraPreviewWindow } from "@ui/display/CameraPreviewWindow.jsx";
 
 import { DayStatusProbe } from "./DayStatusProbe.jsx";
 import { JornadaParametersWindow } from "./JornadaParametersWindow.jsx";
@@ -200,6 +202,7 @@ export function AttendancePage() {
   });
 
   const [creating, setCreating] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [showParameters, setShowParameters] = useState(false);
 
   const handleCreateEvent = async (payload) => {
@@ -214,7 +217,14 @@ export function AttendancePage() {
     <>
       <PageHeader
         action={
-          <Stack direction="row" gap={1}>
+          <Stack direction="row" flexWrap="wrap" gap={1}>
+            <Button
+              onClick={() => setShowCamera(true)}
+              startIcon={<PhotoCameraOutlinedIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Abrir camara
+            </Button>
             <Button
               onClick={() => setShowParameters(true)}
               startIcon={<TuneOutlinedIcon fontSize="small" />}
@@ -308,6 +318,10 @@ export function AttendancePage() {
 
       {showParameters ? (
         <JornadaParametersWindow onClose={() => setShowParameters(false)} />
+      ) : null}
+
+      {showCamera ? (
+        <CameraPreviewWindow onClose={() => setShowCamera(false)} />
       ) : null}
     </>
   );
