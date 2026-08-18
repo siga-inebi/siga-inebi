@@ -149,7 +149,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-BIT-003 | Catalogo de lecturas sensibles | Debe | audit-compliance | Not implemented | #113 | TBD | Transversal |
 | RF-BIT-004 | Registro de intentos denegados | Deberia | audit-compliance | Not implemented | #114 | TBD | RNF exige varios casos |
 | RF-BIT-005 | Inmutabilidad de la bitacora | Debe | audit-compliance | Not implemented | #115 | TBD | Critico |
-| RF-BIT-006 | Consulta y exportacion restringidas | Deberia | audit-compliance | Not implemented | #116 | TBD | Rol auditor |
+| RF-BIT-006 | Consulta y exportacion restringidas | Deberia | audit-compliance | Implemented | #116 | backend/tests/unit/test_audit_services.py; backend/tests/api/test_audit_api.py; backend/tests/permissions/test_audit_permissions.py | Rol auditor; primer endpoint de `apps/audit/api/` (consulta filtrable + exportacion CSV), ambos tras el permiso atomico `audit_read`; la exportacion se audita a si misma |
 | RF-BIT-007 | Atribucion persistente | Debe | audit-compliance | Not implemented | #117 | TBD | No perder responsable |
 | RF-ALC-001 | El alcance acompana siempre al permiso | Debe | identity-access | Implemented | #69 | backend/tests/permissions/test_identity_permissions.py; backend/tests/unit/test_identity_services.py | Evaluacion y filtrado compartidos; grant sin dimension rechazado |
 | RF-ALC-002 | Alcance del docente por asignacion | Debe | identity-access | Not implemented | #70 | TBD | Cruza estructura |
