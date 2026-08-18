@@ -82,7 +82,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EST-006 | Carga horaria de la subarea | Deberia | institutional-structure | Not implemented | #170 | TBD | Cruza horario |
 | RF-EST-007 | Secciones | Debe | institutional-structure | Not implemented | #171 | TBD | Nucleo fundacional |
 | RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Not implemented | #172 | TBD | Afecta matricula |
-| RF-EST-009 | Asignacion de docentes a subareas de seccion | Debe | institutional-structure | Not implemented | #173 | TBD | Base de alcance docente |
+| RF-EST-009 | Asignacion de docentes a subareas de seccion | Debe | institutional-structure | Implemented | #173 | backend/tests/{unit/test_teaching_assignment_services.py,api/test_teaching_assignments_api.py} | Ya implementado por RF-ALC-003/RF-CIC-002 |
 | RF-EST-010 | Cobertura completa para la activacion del ciclo | Deberia | school-cycle | Not implemented | #174 | TBD | Regla de activacion |
 | RF-EST-011 | Mutabilidad de la estructura segun el estado del ciclo | Debe | school-cycle | Not implemented | #175 | TBD | Regla transversal |
 | RF-EST-012 | Desactivacion en lugar de eliminacion | Deberia | institutional-structure | Not implemented | #176 | TBD | Linea con historia |
