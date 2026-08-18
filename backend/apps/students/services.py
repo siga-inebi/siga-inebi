@@ -14,6 +14,7 @@ from apps.students.models import (
 
 
 def create_student(*, person_data, student_code, status=None, actor=None):
+    student_code = _clean_text(student_code, field="student code")
     with transaction.atomic():
         person = Person.objects.create(**person_data)
         student = Student.objects.create(
@@ -28,6 +29,36 @@ def create_student(*, person_data, student_code, status=None, actor=None):
             resource_identifier=str(student.pk),
             context={"student_code": student.student_code},
         )
+    return student
+
+
+def update_student(*, student, actor=None, **changes):
+    """Update basic student data through the domain layer and audit supplied fields."""
+    allowed_fields = {"student_code", "status", "photo"}
+    supplied = {name: value for name, value in changes.items() if name in allowed_fields}
+    if "student_code" in supplied:
+        supplied["student_code"] = _clean_text(supplied["student_code"], field="student code")
+    if "status" in supplied and supplied["status"] not in Student.StudentStatus.values:
+        raise DomainError("Student status is invalid.")
+    if "photo" in supplied:
+        content_type = getattr(supplied["photo"], "content_type", "")
+        if content_type and not content_type.startswith("image/"):
+            raise DomainError("Student photo must be an image.")
+    if not supplied:
+        return student
+
+    before = {name: getattr(student, name) for name in supplied if name != "photo"}
+    for name, value in supplied.items():
+        setattr(student, name, value)
+    student.save(update_fields=[*supplied, "updated_at"])
+    after = {name: getattr(student, name) for name in supplied if name != "photo"}
+    record_event(
+        actor=actor,
+        action="students.student.updated",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={"fields": sorted(supplied), "before": before, "after": after},
+    )
     return student
 
 

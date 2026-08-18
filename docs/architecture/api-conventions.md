@@ -54,6 +54,9 @@
 - La consulta exitosa y el intento autenticado denegado generan eventos de auditoria.
 ## Relaciones estudiante-encargado
 
+- `GET /api/v1/students/guardian-relations/` lista solo relaciones de estudiantes dentro del
+  alcance `student.view_basic`. Cada elemento conserva `guardian` como identificador y agrega
+  `guardian_detail` de solo lectura con los datos necesarios para presentar al encargado.
 - `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por
   el servicio y no se acepta en el payload.
 - `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como
@@ -69,6 +72,16 @@
   no futura y autor autenticado. El contenido medico nunca se copia a la bitacora.
 - `GET` y `DELETE /api/v1/students/health-notes/{public_id}/` conservan el mismo control. `DELETE`
   desactiva la nota sin borrar historia.
+## Expediente estudiantil basico
+
+- `POST /api/v1/students/` registra persona y expediente en una transaccion. Requiere
+  `student.edit_basic` con alcance de modulo `students`; permiso sin alcance se deniega.
+- `PATCH /api/v1/students/{id}/` modifica codigo, estado o fotografia mediante servicio de
+  dominio y genera auditoria. Los datos de `Person` mantienen su endpoint propio.
+- Estados publicados: `pre_enrolled`, `active`, `inactive`, `withdrawn` y `graduated`.
+- `DELETE /api/v1/students/{id}/` desactiva el expediente; no elimina el registro ni su persona.
+- La fotografia se clasifica `Restricted`; modificarla exige `student.edit_basic` y alcance sobre
+  el estudiante. Normalizacion y limites generales del binario pertenecen a RF-ARC-001/002.
 
 ## Ciclos escolares
 

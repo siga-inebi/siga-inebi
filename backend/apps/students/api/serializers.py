@@ -53,7 +53,8 @@ class StudentSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # Nested person edits aren't supported yet — edit via /api/v1/people/<id>/.
         validated_data.pop("person", None)
-        return super().update(instance, validated_data)
+        actor = getattr(self.context.get("request"), "user", None)
+        return update_student(student=instance, actor=actor, **validated_data)
 
 
 class GuardianSerializer(serializers.ModelSerializer):
@@ -82,12 +83,15 @@ class GuardianSerializer(serializers.ModelSerializer):
 
 
 class StudentGuardianRelationSerializer(serializers.ModelSerializer):
+    guardian_detail = GuardianSerializer(source="guardian", read_only=True)
+
     class Meta:
         model = StudentGuardianRelation
         fields = [
             "id",
             "student",
             "guardian",
+            "guardian_detail",
             "relationship_label",
             "is_primary",
             "starts_at",
