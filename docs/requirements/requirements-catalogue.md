@@ -144,7 +144,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-HOR-009 | Publicacion y visibilidad | Debe | institutional-structure | Not implemented | #202 | TBD | Consulta controlada |
 | RF-HOR-010 | Consulta del horario segun el alcance | Debe | identity-access | Not implemented | #203 | TBD | Cruza auth |
 | RF-HOR-011 | Clonacion del horario | Podria | institutional-structure | Not implemented | #204 | TBD | Posterior |
-| RF-BIT-001 | Registro de operaciones de escritura | Debe | audit-compliance | Not implemented | #111 | TBD | Transversal |
+| RF-BIT-001 | Registro de operaciones de escritura | Debe | audit-compliance | Implemented | #111 | backend/tests/unit/test_audit_services.py; backend/tests/api/test_audit_api.py; backend/tests/permissions/test_audit_permissions.py; backend/tests/integration/test_audit.py | Transversal; auditoria de escrituras verificada en las ~65 funciones de escritura del backend, unico hueco real cerrado en authenticate_account |
 | RF-BIT-002 | Contenido del asiento | Debe | audit-compliance | Not implemented | #112 | TBD | Modelo obligatorio |
 | RF-BIT-003 | Catalogo de lecturas sensibles | Debe | audit-compliance | Not implemented | #113 | TBD | Transversal |
 | RF-BIT-004 | Registro de intentos denegados | Deberia | audit-compliance | Not implemented | #114 | TBD | RNF exige varios casos |

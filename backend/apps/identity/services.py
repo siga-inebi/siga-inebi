@@ -533,6 +533,22 @@ def _audit_login_denied(*, account, reason, failed_attempts=None, locked_until=N
     )
 
 
+def _audit_login_lockout_cleared(*, account, cleared_attempts):
+    """
+    A successful login cleared stale lockout state left over from earlier
+    failed attempts. That write went unaudited before RF-BIT-001 -- every
+    other branch of ``authenticate_account`` was already covered by
+    ``_audit_login_denied``.
+    """
+    record_event(
+        actor=account,
+        action="identity.login.lockout_cleared",
+        resource="UserAccount",
+        resource_identifier=str(account.pk),
+        context={"result": "success", "cleared_failed_attempts": cleared_attempts},
+    )
+
+
 def authenticate_account(*, request, username, password):
     user_model = get_user_model()
     account = user_model.objects.filter(username=username).first()
@@ -577,9 +593,11 @@ def authenticate_account(*, request, username, password):
         raise InvalidCredentialsError
 
     if user.failed_login_attempts or user.locked_until:
+        cleared_attempts = user.failed_login_attempts
         user.failed_login_attempts = 0
         user.locked_until = None
         user.save(update_fields=["failed_login_attempts", "locked_until"])
+        _audit_login_lockout_cleared(account=user, cleared_attempts=cleared_attempts)
     return user
 
 

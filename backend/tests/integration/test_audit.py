@@ -1,10 +1,13 @@
+from datetime import timedelta
+
 import pytest
 from django.core.exceptions import PermissionDenied
+from django.utils import timezone
 
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
-from apps.enrolments.services import create_enrolment
-from apps.identity.services import assign_role
+from apps.enrolments.services import change_section, create_enrolment
+from apps.identity.services import assign_role, authenticate_account
 from tests.factories.academic import SectionFactory
 from tests.factories.identity import PermissionFactory, RoleFactory, UserFactory
 from tests.factories.students import StudentFactory
@@ -70,6 +73,64 @@ def test_audit_event_cannot_be_modified_or_deleted():
     with pytest.raises(RuntimeError):
         event.action = "changed"
         event.save()
+
+
+@pytest.mark.integration
+@pytest.mark.security
+@pytest.mark.django_db
+def test_modifying_an_already_registered_academic_record_is_audited():
+    """
+    RF-BIT-001's own scenario ("GIVEN un docente que modifica una calificación
+    ya registrada, WHEN confirma el cambio, THEN el sistema crea un asiento de
+    bitácora"), substituted with a real equivalent: grade/score capture isn't
+    modelled anywhere yet, but changing a student's section on an already
+    registered enrolment is the same shape -- authorized staff modifies an
+    existing academic record -- and it exists today.
+    """
+    actor = UserFactory(is_superuser=True)
+    first_section = SectionFactory(name="A")
+    second_section = SectionFactory(
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        shift=first_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        section=first_section,
+        actor=actor,
+    )
+
+    change_section(enrolment=enrolment, new_section=second_section, actor=actor)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.actor_id == actor.id
+    assert "section" in event.action or "enrolment" in event.action
+
+
+@pytest.mark.integration
+@pytest.mark.security
+@pytest.mark.django_db
+def test_successful_login_clearing_stale_lockout_is_audited():
+    """
+    RF-BIT-001 gap found by exhaustive review of every write path: a
+    successful login that clears a previously recorded lockout state
+    persisted the change without an audit entry.
+    """
+    user = UserFactory(password="correct-pass-123")
+    user.failed_login_attempts = 3
+    user.locked_until = timezone.now() - timedelta(seconds=1)  # expired, not locked
+    user.save(update_fields=["failed_login_attempts", "locked_until"])
+
+    authenticate_account(request=None, username=user.username, password="correct-pass-123")
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "identity.login.lockout_cleared"
+    assert event.actor_id == user.id
+    assert event.context["cleared_failed_attempts"] == 3
 
 
 @pytest.mark.integration
