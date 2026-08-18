@@ -61,6 +61,15 @@
 - `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
   Debe incluir `replacement_relation` al terminar la relacion principal.
 
+## Notas de salud del estudiante
+
+- `GET /api/v1/students/{public_id}/health-notes/` exige `student.view_sensitive` y alcance sobre
+  el estudiante; cada consulta genera auditoria de lectura sensible.
+- `POST` sobre la misma ruta exige ademas `student.edit_basic`; registra contenido no vacio, fecha
+  no futura y autor autenticado. El contenido medico nunca se copia a la bitacora.
+- `GET` y `DELETE /api/v1/students/health-notes/{public_id}/` conservan el mismo control. `DELETE`
+  desactiva la nota sin borrar historia.
+
 ## Ciclos escolares
 
 - `GET /api/v1/academics/cycles/` lista ciclos de la institucion configurada.

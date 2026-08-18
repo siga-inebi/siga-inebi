@@ -10,6 +10,8 @@ const studentsServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  listHealthNotes: vi.fn(),
+  createHealthNote: vi.fn(),
 }));
 
 vi.mock("@students/studentsService.js", () => ({
@@ -54,6 +56,9 @@ describe("AlumnosPage", () => {
     studentsServiceMock.list.mockReset();
     studentsServiceMock.create.mockReset();
     studentsServiceMock.update.mockReset();
+    studentsServiceMock.listHealthNotes.mockReset();
+    studentsServiceMock.createHealthNote.mockReset();
+    studentsServiceMock.listHealthNotes.mockResolvedValue([]);
     downloadCsvMock.mockReset();
   });
 
@@ -296,5 +301,36 @@ describe("AlumnosPage", () => {
 
     expect(screen.getByText(/Complete el campo/)).toBeInTheDocument();
     expect(studentsServiceMock.create).not.toHaveBeenCalled();
+  });
+
+  test("opens sensitive health section and creates a note", async () => {
+    studentsServiceMock.list.mockResolvedValue([
+      { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
+    ]);
+    studentsServiceMock.createHealthNote.mockResolvedValue({
+      public_id: "22222222-2222-2222-2222-222222222222",
+      author: "directora",
+      content: "Alergia de prueba",
+      recorded_on: "2026-08-17",
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<AlumnosPage />);
+
+    await screen.findByText("Maria Jose Lopez Garcia");
+    await user.click(screen.getByRole("button", { name: /Ver detalle/ }));
+    await user.click(screen.getByRole("button", { name: "Salud" }));
+
+    expect(await screen.findByText("Sin notas de salud")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Nueva nota" }));
+    await user.type(screen.getByLabelText(/^Información de salud/), "Alergia de prueba");
+    await user.click(screen.getByRole("button", { name: "Registrar nota" }));
+
+    await waitFor(() =>
+      expect(studentsServiceMock.createHealthNote).toHaveBeenCalledWith(
+        "11111111-1111-1111-1111-111111111111",
+        { content: "Alergia de prueba" }
+      )
+    );
+    expect(await screen.findByText("Alergia de prueba")).toBeInTheDocument();
   });
 });

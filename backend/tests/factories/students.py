@@ -1,7 +1,13 @@
 import factory
 from django.utils import timezone
 
-from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
+from apps.students.models import (
+    EmergencyContact,
+    Guardian,
+    Student,
+    StudentGuardianRelation,
+    StudentHealthNote,
+)
 from tests.factories.people import PersonFactory
 
 
@@ -41,3 +47,12 @@ class EmergencyContactFactory(factory.django.DjangoModelFactory):
     name = factory.Sequence(lambda n: f"Contact {n}")
     phone_number = "555-0100"
     relationship_label = "Tia"
+
+
+class StudentHealthNoteFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = StudentHealthNote
+
+    student = factory.SubFactory(StudentFactory)
+    author = factory.SubFactory("tests.factories.identity.UserFactory")
+    content = "Alergia de prueba"

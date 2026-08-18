@@ -190,7 +190,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EXP-006 | Observaciones y anotaciones disciplinarias | Deberia | student-records | Not implemented | #190 | TBD | Politica de acceso pendiente |
 | RF-EXP-007 | Fotografia del estudiante | Debe | student-records | Not implemented | #191 | TBD | Soporte escaneo |
 | RF-EXP-008 | Conservacion del expediente | Debe | student-records | Not implemented | #192 | TBD | Historia obligatoria |
-| RF-EXP-009 | Notas de salud del estudiante | Deberia | student-records | Not implemented | #193 | TBD | Dato sensible especial |
+| RF-EXP-009 | Notas de salud del estudiante | Deberia | student-records | Implemented | #193 | TBD | Sensitive Special; lectura y escritura auditadas; permiso sensible y alcance obligatorio |
 | RF-MAT-001 | La inscripcion como registro con vigencia | Debe | enrollment-lifecycle | Not implemented | #225 | TBD | Nucleo fundacional |
 | RF-MAT-002 | Matricula de un estudiante | Debe | enrollment-lifecycle | Not implemented | #226 | TBD | Nucleo fundacional |
 | RF-MAT-003 | Reinscripcion con datos heredados | Debe | enrollment-lifecycle | Not implemented | #227 | TBD | Nucleo fundacional |
