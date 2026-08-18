@@ -186,7 +186,7 @@ def test_activate_cycle_accepts_available_complete_structure():
 
 
 def test_create_section_creates_offering_and_section_when_missing():
-    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=cycle.institution)
     shift = ShiftFactory(campus__institution=cycle.institution)
 
@@ -200,7 +200,7 @@ def test_create_section_creates_offering_and_section_when_missing():
 
 
 def test_create_section_reuses_existing_offering():
-    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=cycle.institution)
     shift = ShiftFactory(campus__institution=cycle.institution)
 
@@ -211,7 +211,7 @@ def test_create_section_reuses_existing_offering():
 
 
 def test_create_section_rejects_duplicate_name_in_offering():
-    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=cycle.institution)
     shift = ShiftFactory(campus__institution=cycle.institution)
     create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
@@ -229,8 +229,18 @@ def test_create_section_rejects_when_cycle_is_closed():
         create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
 
 
-def test_create_section_rejects_grade_from_other_institution():
+def test_create_section_rejects_when_cycle_is_active():
+    """RF-EST-011: structure only changes while the cycle is still in planning."""
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=cycle.institution)
+    shift = ShiftFactory(campus__institution=cycle.institution)
+
+    with pytest.raises(DomainError, match="in planning"):
+        create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
+
+
+def test_create_section_rejects_grade_from_other_institution():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory()  # different institution
     shift = ShiftFactory(campus__institution=cycle.institution)
 
@@ -239,7 +249,8 @@ def test_create_section_rejects_grade_from_other_institution():
 
 
 def test_update_section_renames_and_changes_capacity():
-    section = SectionFactory(name="A", capacity=30)
+    draft = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    section = SectionFactory(academic_cycle=draft)
 
     updated = update_section(section=section, name="B", capacity=40)
 
@@ -255,8 +266,17 @@ def test_update_section_rejects_when_cycle_is_closed():
         update_section(section=section, name="B")
 
 
+def test_update_section_rejects_when_cycle_is_active():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+
+    with pytest.raises(DomainError, match="in planning"):
+        update_section(section=section, name="B")
+
+
 def test_deactivate_section_soft_deletes_and_is_idempotent():
-    section = SectionFactory()
+    draft = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    section = SectionFactory(academic_cycle=draft)
 
     deactivated = deactivate_section(section=section)
     assert deactivated.is_active is False
@@ -266,8 +286,17 @@ def test_deactivate_section_soft_deletes_and_is_idempotent():
     assert again.is_active is False
 
 
-def test_deactivate_section_rejects_when_it_has_active_enrolments():
+def test_deactivate_section_rejects_when_cycle_is_active():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+
+    with pytest.raises(DomainError, match="in planning"):
+        deactivate_section(section=section)
+
+
+def test_deactivate_section_rejects_when_it_has_active_enrolments():
+    # Draft on purpose: isolates the enrolment check from the RF-EST-011 planning guard.
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
     section = SectionFactory(academic_cycle=cycle)
     Enrolment.objects.create(
         student=StudentFactory(),
