@@ -1,6 +1,15 @@
+from datetime import date
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
+
+from apps.audit.services import (
+    list_audit_events,
+    record_audit_export,
+    record_event,
+    sanitize_context,
+)
 
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event, record_sensitive_read, sanitize_context
@@ -114,6 +123,53 @@ def test_record_event_falls_back_to_context_ip_address():
 
 
 # --------------------------------------------------------------------------- #
+# list_audit_events / record_audit_export -- RF-BIT-006
+# --------------------------------------------------------------------------- #
+
+
+def test_list_audit_events_filters_by_actor_resource_action_and_date_range():
+    actor = UserFactory()
+    other_actor = UserFactory()
+    matching = record_event(
+        actor=actor, action="test.match", resource="Resource", resource_identifier="1"
+    )
+    record_event(
+        actor=other_actor, action="test.match", resource="Resource", resource_identifier="2"
+    )
+    record_event(actor=actor, action="test.other", resource="Resource", resource_identifier="3")
+    record_event(actor=actor, action="test.match", resource="Other", resource_identifier="4")
+
+    today = timezone.localdate()
+    results = list_audit_events(
+        actor_id=actor.id,
+        resource="Resource",
+        action="test.match",
+        date_from=today,
+        date_to=today,
+    )
+
+    assert list(results) == [matching]
+
+
+def test_list_audit_events_without_filters_returns_everything():
+    record_event(actor=None, action="a", resource="R")
+    record_event(actor=None, action="b", resource="R")
+
+    assert list_audit_events().count() == 2
+
+
+def test_record_audit_export_captures_range_and_count():
+    actor = UserFactory()
+
+    event = record_audit_export(
+        actor=actor, date_from=date(2026, 1, 1), date_to=date(2026, 1, 31), count=7
+    )
+
+    assert event.actor_id == actor.id
+    assert event.action == "audit.export.created"
+    assert event.context["date_from"] == "2026-01-01"
+    assert event.context["date_to"] == "2026-01-31"
+    assert event.context["count"] == 7
 # record_sensitive_read -- RF-BIT-003
 # --------------------------------------------------------------------------- #
 
