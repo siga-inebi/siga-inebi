@@ -1,16 +1,8 @@
-import pytest
-from django.urls import reverse
 from datetime import timedelta
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
-from rest_framework import status
-from rest_framework.test import APIClient
-
-from tests.factories.identity import UserFactory
-import pytest
-from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -80,6 +72,8 @@ def test_password_change_api_requires_authentication():
         format="json",
     )
     assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+
 def test_api_rejection_for_temporarily_locked_account():
     """
     RF-AUT-002 (API): Validar que el endpoint /api/v1/auth/login/ rechace
@@ -128,6 +122,8 @@ def test_api_allows_login_after_lockout_period_expires():
     user.refresh_from_db()
     assert user.failed_login_attempts == 0
     assert user.locked_until is None
+
+
 def test_api_rejection_for_write_operation_on_closed_cycle():
     """
     Validar que el API rechace mutaciones cuando el actor
