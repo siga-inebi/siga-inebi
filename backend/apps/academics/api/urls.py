@@ -5,6 +5,7 @@ from apps.evaluation.api.views import CycleEvaluationConfigView, EvaluationGloba
 from .views import (
     AcademicCycleActivateView,
     AcademicCycleCloneView,
+    AcademicCycleCloseView,
     AcademicCycleListCreateView,
     CampusDetailView,
     CampusListCreateView,
@@ -35,6 +36,11 @@ urlpatterns = [
         "cycles/<uuid:public_id>/activate/",
         AcademicCycleActivateView.as_view(),
         name="academic-cycle-activate",
+    ),
+    path(
+        "cycles/<uuid:public_id>/close/",
+        AcademicCycleCloseView.as_view(),
+        name="academic-cycle-close",
     ),
     path(
         "cycles/<uuid:cycle_public_id>/evaluation-units/",

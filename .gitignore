@@ -6,6 +6,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Local Claude Code config (machine-specific permissions, not shared tooling)
+.claude/
+
 # Caches de herramientas locales
 .atl/
 .codegraph/

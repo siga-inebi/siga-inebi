@@ -7,11 +7,8 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.audit.models import AuditEvent
-from tests.factories.identity import UserFactory
-import pytest
-
 from apps.academics.services import create_teaching_assignment
+from apps.audit.models import AuditEvent
 from apps.identity.scopes import scope_matches
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.identity import (
@@ -84,6 +81,8 @@ def test_password_change_lifecycle_and_session_invalidation():
         format="json",
     )
     assert login_new.status_code == status.HTTP_200_OK
+
+
 def test_lockout_lifecycle_consecutive_failures_lock_and_auto_recover():
     """
     RF-AUT-002 (Integration): Verifica el ciclo completo de bloqueo tras 5 intentos fallidos,
@@ -140,6 +139,8 @@ def test_lockout_lifecycle_consecutive_failures_lock_and_auto_recover():
     assert user.failed_login_attempts == 0
     assert user.locked_until is None
     assert user.is_locked() is False
+
+
 def test_write_scope_denies_mutations_when_cycle_transitions_to_closed():
     """
     RF-ALC-005 (Integration): Cross-domain validation that active teaching assignments
