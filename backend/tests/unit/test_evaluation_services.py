@@ -16,6 +16,7 @@ Scenario 6: Docente que no alcanzó a subir notas
 Scenario 7: Expiración automática
 Scenario 8: Ciclo que se aparta del valor global
 Scenario 9: Registro de una nota por el docente
+Scenario 10: Nota fuera de rango
 """
 
 from datetime import date, timedelta
@@ -695,3 +696,95 @@ class TestRegisterUnitGrade:
                 teacher=teacher,
                 value=85,
             )
+
+
+class TestGradeScale:
+    """Tests for RF-CAL-002: Escala y validación de la nota."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_reject_value_above_scale(self):
+        """
+        Scenario 10: Nota fuera de rango
+        GIVEN un docente registrando notas
+        WHEN introduce un valor superior a cien
+        THEN el sistema rechaza el valor indicando el rango admitido
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="between 0 and 100"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=101,
+            )
+
+    def test_reject_negative_value(self):
+        """
+        Test that a negative value is rejected, indicating the admitted range.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="between 0 and 100"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=-1,
+            )
+
+    def test_accept_boundary_values(self):
+        """
+        Test that the scale boundaries (0 and 100) are accepted.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        zero_enrolment = self._enrolment(cycle)
+        zero_grade = register_unit_grade(
+            enrolment=zero_enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=0,
+        )
+        assert zero_grade.value == 0
+
+        hundred_enrolment = self._enrolment(cycle)
+        hundred_grade = register_unit_grade(
+            enrolment=hundred_enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=100,
+        )
+        assert hundred_grade.value == 100

@@ -49,7 +49,7 @@ const GRADE_FIELDS = [
     type: "number",
     min: 0,
     required: true,
-    help: "Nota ya calculada por el docente para esta unidad; el sistema no la deriva de actividades.",
+    help: "Escala de 0 a 100. Nota ya calculada por el docente para esta unidad; el sistema no la deriva de actividades.",
   },
 ];
 

@@ -692,3 +692,147 @@ class TestGradeAPI:
         )
 
         assert response.status_code == 404
+
+
+class TestGradeScaleAPI:
+    """Tests for RF-CAL-002: Escala y validación de la nota."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_reject_value_above_scale_api(self, auth_client, institution):
+        """
+        Scenario 10: Nota fuera de rango
+        GIVEN un docente registrando notas
+        WHEN introduce un valor superior a cien
+        THEN el sistema rechaza el valor indicando el rango admitido
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 101,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "0 and 100" in response.json()["value"][0]
+
+    def test_reject_negative_value_api(self, auth_client, institution):
+        """
+        Test that a negative value is rejected via the API.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": -1,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+
+    def test_reject_non_numeric_value_api(self, auth_client, institution):
+        """
+        Test that a non-numeric value is rejected via the API.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": "not-a-number",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+
+    def test_accept_boundary_values_api(self, auth_client, institution):
+        """
+        Test that the scale boundaries (0 and 100) are accepted via the API.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(unit.public_id),
+            },
+        )
+
+        for value in (0, 100):
+            enrolment = self._enrolment(cycle)
+            response = auth_client.post(
+                url,
+                {
+                    "enrolment": enrolment.id,
+                    "subject": subject.id,
+                    "teacher": teacher.id,
+                    "value": value,
+                },
+                content_type="application/json",
+            )
+            assert response.status_code == 201, response.json()
+            assert response.json()["value"] == value

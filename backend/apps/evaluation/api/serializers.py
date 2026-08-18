@@ -7,6 +7,8 @@ Contracts for POST/PATCH operations. Validation happens here before calling serv
 from rest_framework import serializers
 
 from apps.evaluation.models import (
+    GRADE_MAX_VALUE,
+    GRADE_MIN_VALUE,
     CaptureExceptionGrant,
     CycleEvaluationConfig,
     EvaluationGlobalConfig,
@@ -127,7 +129,7 @@ class CycleEvaluationConfigSerializer(serializers.ModelSerializer):
 
 
 class GradeSerializer(serializers.ModelSerializer):
-    """Contract for registering a unit grade (RF-CAL-001)."""
+    """Contract for registering a unit grade (RF-CAL-001, RF-CAL-002)."""
 
     public_id = serializers.UUIDField(read_only=True)
     teacher = serializers.PrimaryKeyRelatedField(
@@ -151,3 +153,11 @@ class GradeSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["public_id", "evaluation_unit", "created_at", "updated_at"]
+
+    def validate_value(self, value):
+        """RF-CAL-002: reject values outside the 0-100 scale."""
+        if value < GRADE_MIN_VALUE or value > GRADE_MAX_VALUE:
+            raise serializers.ValidationError(
+                f"Grade value must be between {GRADE_MIN_VALUE} and {GRADE_MAX_VALUE}."
+            )
+        return value

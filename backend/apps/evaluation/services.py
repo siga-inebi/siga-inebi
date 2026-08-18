@@ -25,6 +25,8 @@ from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import (
+    GRADE_MAX_VALUE,
+    GRADE_MIN_VALUE,
     CaptureExceptionGrant,
     CycleEvaluationConfig,
     EvaluationGlobalConfig,
@@ -444,10 +446,17 @@ def register_unit_grade(
         Grade: The registered (created or updated) grade.
 
     Raises:
-        DomainError: If the enrolment and the unit belong to different
-            academic cycles, or if capture is not allowed for this teacher,
-            subject and unit right now.
+        DomainError: If the value is outside the 0-100 scale (RF-CAL-002), if
+            the enrolment and the unit belong to different academic cycles,
+            or if capture is not allowed for this teacher, subject and unit
+            right now.
     """
+    if not GRADE_MIN_VALUE <= value <= GRADE_MAX_VALUE:
+        raise DomainError(
+            f"Grade value must be between {GRADE_MIN_VALUE} and {GRADE_MAX_VALUE} "
+            f"(received {value})."
+        )
+
     if evaluation_unit.academic_cycle_id != enrolment.academic_cycle_id:
         raise DomainError(
             "The evaluation unit and the enrolment belong to different academic cycles."

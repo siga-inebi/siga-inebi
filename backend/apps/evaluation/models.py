@@ -26,6 +26,11 @@ from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
 
+# RF-CAL-002: admitted grade scale, shared by the model constraint and by the
+# service/serializer validation so the three layers can't drift apart.
+GRADE_MIN_VALUE = 0
+GRADE_MAX_VALUE = 100
+
 
 class EvaluationUnit(TimeStampedModel):
     """
@@ -309,7 +314,8 @@ class Grade(TimeStampedModel):
     given combination, not by a null value: a registered value of zero and a
     combination with no row must stay distinguishable.
 
-    Range validation (0-100) is added by RF-CAL-002, not here.
+    RF-CAL-002: the grade is expressed on a 0-100 scale, enforced at the
+    database level so no write path can bypass it.
     """
 
     enrolment = models.ForeignKey(
@@ -338,6 +344,10 @@ class Grade(TimeStampedModel):
             models.UniqueConstraint(
                 fields=["enrolment", "subject", "evaluation_unit"],
                 name="unique_grade_per_enrolment_subject_unit",
+            ),
+            models.CheckConstraint(
+                condition=Q(value__gte=GRADE_MIN_VALUE) & Q(value__lte=GRADE_MAX_VALUE),
+                name="grade_value_within_scale",
             ),
         ]
 

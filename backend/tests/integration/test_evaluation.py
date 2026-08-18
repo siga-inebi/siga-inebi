@@ -501,3 +501,67 @@ class TestRegisterUnitGradeIntegration:
         assert event.context["subject_id"] == str(subject.public_id)
         assert event.context["unit_id"] == str(unit.public_id)
         assert event.context["value"] == 85
+
+
+class TestGradeScaleIntegration:
+    """Integration tests for RF-CAL-002: Escala y validación de la nota."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_reject_value_above_scale_integration(self):
+        """
+        Scenario 10: Nota fuera de rango (cross-domain)
+        GIVEN un docente registrando notas
+        WHEN introduce un valor superior a cien
+        THEN el sistema rechaza el valor indicando el rango admitido
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="between 0 and 100"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=150,
+            )
+
+    def test_database_rejects_out_of_range_value_bypassing_the_service(self):
+        """
+        Test that the DB constraint holds even if a write bypasses the
+        service layer: the range guarantee doesn't depend on a single caller
+        remembering to validate it.
+        """
+        from django.db import IntegrityError
+
+        from apps.evaluation.models import Grade
+
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+
+        with pytest.raises(IntegrityError):
+            Grade.objects.create(
+                enrolment=enrolment, subject=subject, evaluation_unit=unit, value=101
+            )
