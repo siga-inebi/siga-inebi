@@ -90,6 +90,28 @@ def test_audit_event_cannot_be_modified_or_deleted():
 @pytest.mark.integration
 @pytest.mark.security
 @pytest.mark.django_db
+def test_audit_event_cannot_be_bulk_deleted_or_updated_via_queryset():
+    """
+    RF-BIT-005: ``QuerySet.delete()``/``update()`` run as a direct SQL
+    statement and never call the model's own ``delete()``/``save()``
+    overrides, so the instance-level guard above isn't enough on its own --
+    a bulk operation through the manager must be rejected too.
+    """
+    record_event(actor=None, action="test.action", resource="Resource", resource_identifier="1")
+
+    with pytest.raises(RuntimeError):
+        AuditEvent.objects.all().delete()
+
+    with pytest.raises(RuntimeError):
+        AuditEvent.objects.all().update(action="changed")
+
+    event = AuditEvent.objects.get(action="test.action")
+    assert event.resource_identifier == "1"
+
+
+@pytest.mark.integration
+@pytest.mark.security
+@pytest.mark.django_db
 def test_modifying_an_already_registered_academic_record_is_audited():
     """
     RF-BIT-001's own scenario ("GIVEN un docente que modifica una calificación
