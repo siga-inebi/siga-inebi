@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { collectAllPages } from "@shared/api/pages.js";
-
-export { collectAllPages };
-
 /**
  * Catalogo cargado una vez y expuesto como opciones `{value,label}`.
  *

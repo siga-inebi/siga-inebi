@@ -213,7 +213,12 @@ const SECTION = {
   public_id: "section-a",
   name: "A",
   academic_cycle_id: "cycle-2026",
-  grade: { public_id: "grade-1", name: "Primero Basico", code: "B1", sequence: 1 },
+  grade: {
+    public_id: "grade-1",
+    name: "Primero Basico",
+    code: "B1",
+    sequence: 1,
+  },
   shift: { public_id: "shift-1", name: "Matutina", code: "MOR" },
 };
 
@@ -245,7 +250,9 @@ describe("pantallas de los modulos con backend previo", () => {
   beforeEach(() => {
     resetAcademicsServiceMock();
 
-    teachersServiceMock.listPage.mockReset().mockResolvedValue(paged([TEACHER]));
+    teachersServiceMock.listPage
+      .mockReset()
+      .mockResolvedValue(paged([TEACHER]));
     studentsServiceMock.listPage.mockReset().mockResolvedValue(paged([]));
 
     cyclesServiceMock.list
@@ -444,7 +451,9 @@ describe("pantallas de los modulos con backend previo", () => {
       await user.click(
         await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
       );
-      await user.click(within(window).getByRole("combobox", { name: /Seccion/ }));
+      await user.click(
+        within(window).getByRole("combobox", { name: /Seccion/ })
+      );
       await user.click(
         await screen.findByRole("option", { name: "Primero Basico A" })
       );
@@ -758,7 +767,9 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<TeachingAssignmentsPage />);
       await screen.findByText("Vigente");
 
-      await user.click(screen.getByRole("button", { name: "Nueva asignacion" }));
+      await user.click(
+        screen.getByRole("button", { name: "Nueva asignacion" })
+      );
 
       // Sin ciclo elegido el catalogo de secciones no aplica: ofrecer las de
       // otro ciclo terminaria en un rechazo del backend al guardar.
@@ -781,7 +792,15 @@ describe("pantallas de los modulos con backend previo", () => {
     test("asigna varios cursos de una seccion en un solo paso", async () => {
       const user = userEvent.setup();
       academicsServiceMock.listSubjects.mockResolvedValue(
-        paged([SUBJECT, { ...SUBJECT, public_id: "subject-com", name: "Comunicacion", code: "COM" }])
+        paged([
+          SUBJECT,
+          {
+            ...SUBJECT,
+            public_id: "subject-com",
+            name: "Comunicacion",
+            code: "COM",
+          },
+        ])
       );
       // El historial ya cubre Matematica en esa seccion, asi que el lote solo
       // debe ofrecer (y crear) el curso que sigue sin docente.
@@ -791,7 +810,9 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<TeachingAssignmentsPage />);
       await screen.findByText("Vigente");
 
-      await user.click(screen.getByRole("button", { name: "Asignar por lotes" }));
+      await user.click(
+        screen.getByRole("button", { name: "Asignar por lotes" })
+      );
       const window = await screen.findByRole("dialog", {
         name: "Asignacion docente por lotes",
       });
@@ -802,7 +823,9 @@ describe("pantallas de los modulos con backend previo", () => {
       await user.click(
         await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
       );
-      await user.click(within(window).getByRole("combobox", { name: /Seccion/ }));
+      await user.click(
+        within(window).getByRole("combobox", { name: /Seccion/ })
+      );
       await user.click(
         await screen.findByRole("option", { name: "Primero Basico A" })
       );
@@ -818,7 +841,9 @@ describe("pantallas de los modulos con backend previo", () => {
 
       // Solo Comunicacion queda pendiente, asi que hay un unico selector de
       // docente en la tabla: el atajo "aplicar a todos" no aparece con uno solo.
-      await user.click(within(window).getByRole("combobox", { name: "Docente" }));
+      await user.click(
+        within(window).getByRole("combobox", { name: "Docente" })
+      );
       await user.click(
         await screen.findByRole("option", { name: "Ana Lopez · EMP-1" })
       );
@@ -846,7 +871,9 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<TeachingAssignmentsPage />);
       await screen.findByText("Vigente");
 
-      await user.click(screen.getByRole("button", { name: "Nueva asignacion" }));
+      await user.click(
+        screen.getByRole("button", { name: "Nueva asignacion" })
+      );
       await user.click(screen.getByRole("combobox", { name: /Ciclo escolar/ }));
       await user.click(
         await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
@@ -863,11 +890,10 @@ describe("pantallas de los modulos con backend previo", () => {
       await user.click(
         await screen.findByRole("option", { name: "Ana Lopez · EMP-1" })
       );
-      await user.type(
-        screen.getByLabelText(/Vigente desde/),
-        "2026-03-02"
+      await user.type(screen.getByLabelText(/Vigente desde/), "2026-03-02");
+      await user.click(
+        screen.getByRole("button", { name: "Crear asignacion" })
       );
-      await user.click(screen.getByRole("button", { name: "Crear asignacion" }));
 
       expect(
         academicsServiceMock.createTeachingAssignment

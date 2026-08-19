@@ -4,7 +4,8 @@ import { withQuery } from "@shared/api/query.js";
 
 export const guardiansService = {
   /** Pagina cruda del listado, con su `count` total. */
-  listPage: (params) => apiClient.get(withQuery("/students/guardians/", params)),
+  listPage: (params) =>
+    apiClient.get(withQuery("/students/guardians/", params)),
   // Ver studentsService.list: la pantalla pagina del lado del cliente y
   // necesita la lista completa, no la primera pagina.
   list: () => collectAllPages(guardiansService.listPage),

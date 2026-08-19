@@ -23,7 +23,9 @@ import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
 /** Nombre del catalogo, con el identificador crudo como respaldo. */
 function nameCell(index, id) {
-  return index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>);
+  return (
+    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>)
+  );
 }
 
 const exceptionColumns = (names) => [

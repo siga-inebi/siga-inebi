@@ -6,7 +6,9 @@ import { enrolmentsService } from "@enrolments/enrolmentsService.js";
 import { studentsService } from "@students/studentsService.js";
 import { teachersService } from "@teachers/teachersService.js";
 
-import { collectAllPages, useCatalogOptions } from "./useCatalogOptions.js";
+import { collectAllPages } from "@shared/api/pages.js";
+
+import { useCatalogOptions } from "./useCatalogOptions.js";
 
 /**
  * Catalogos que alimentan los selectores de los formularios.

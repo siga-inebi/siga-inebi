@@ -110,8 +110,7 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
 
   const visibleIds = candidates.map((student) => student.value);
   const allVisibleSelected =
-    visibleIds.length > 0 &&
-    visibleIds.every((id) => selected.includes(id));
+    visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
 
   const toggle = (studentId) =>
     setSelected((current) =>

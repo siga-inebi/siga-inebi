@@ -137,7 +137,10 @@ const parameterFields = ({ cycles, shifts }) => [
 export function JornadaParametersWindow({ onClose }) {
   const cycles = useCycleCatalog();
   const shifts = useShiftCatalog();
-  const shiftNames = useMemo(() => labelIndex(shifts.options), [shifts.options]);
+  const shiftNames = useMemo(
+    () => labelIndex(shifts.options),
+    [shifts.options]
+  );
 
   const loadParameters = useCallback(
     (params) => attendanceService.listJornadaParameters(params),

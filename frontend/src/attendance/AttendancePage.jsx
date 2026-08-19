@@ -51,7 +51,9 @@ import { ScanCaptureWindow } from "./ScanCaptureWindow.jsx";
  * error del sistema, y el identificador al menos es rastreable.
  */
 function nameCell(index, id) {
-  return index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>);
+  return (
+    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>)
+  );
 }
 
 const eventColumns = (names) => [

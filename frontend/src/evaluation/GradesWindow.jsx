@@ -28,7 +28,9 @@ import { CurrentAverageWindow } from "./CurrentAverageWindow.jsx";
 
 /** Nombre del catalogo, con el identificador crudo como respaldo. */
 function nameCell(index, id) {
-  return index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>);
+  return (
+    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>)
+  );
 }
 
 function buildGradeColumns(onViewAverage, names) {

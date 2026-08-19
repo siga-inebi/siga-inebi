@@ -8,6 +8,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { academicsService } from "@academics/academicsService.js";
+import { collectAllPages } from "@shared/api/pages.js";
 import {
   sectionsForCycle,
   useCycleCatalog,
@@ -15,7 +16,6 @@ import {
   useSubjectCatalog,
   useTeacherCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
-import { collectAllPages } from "@shared/catalogs/useCatalogOptions.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
@@ -63,7 +63,8 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
 
   const sectionOptions = sectionsForCycle(sections.options, cycleId);
   const teacherNames = useMemo(
-    () => new Map(teachers.options.map((option) => [option.value, option.label])),
+    () =>
+      new Map(teachers.options.map((option) => [option.value, option.label])),
     [teachers.options]
   );
 
@@ -180,7 +181,8 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
           <Stack alignItems="center" direction="row" gap={1}>
             <StatusChip label="Asignado" variant="success" />
             <span>
-              {teacherNames.get(assigned.get(row.value)) ?? "Docente sin nombre"}
+              {teacherNames.get(assigned.get(row.value)) ??
+                "Docente sin nombre"}
             </span>
           </Stack>
         ) : (

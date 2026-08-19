@@ -123,7 +123,10 @@ const thresholdFields = ({ cycles, shifts }) => [
 export function AbsenceThresholdsWindow({ onClose }) {
   const cycles = useCycleCatalog();
   const shifts = useShiftCatalog();
-  const shiftNames = useMemo(() => labelIndex(shifts.options), [shifts.options]);
+  const shiftNames = useMemo(
+    () => labelIndex(shifts.options),
+    [shifts.options]
+  );
 
   const loadThresholds = useCallback(
     (params) => reportingService.listAbsenceThresholds(params),
