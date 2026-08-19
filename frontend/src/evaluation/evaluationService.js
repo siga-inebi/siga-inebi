@@ -86,4 +86,15 @@ export const evaluationService = {
     apiClient.get(
       `${ROOT}/cycles/${cyclePublicId}/enrolments/${enrolmentId}/subjects/${subjectId}/current-average/`
     ),
+
+  /**
+   * Nota final de un estudiante en una subarea (RF-RES-001).
+   *
+   * Promedio de las notas de unidad registradas; se recalcula ante cualquier
+   * correccion mientras el ciclo esta abierto.
+   */
+  getFinalSubjectGrade: (cyclePublicId, enrolmentId, subjectId) =>
+    apiClient.get(
+      `${ROOT}/cycles/${cyclePublicId}/enrolments/${enrolmentId}/subjects/${subjectId}/final-grade/`
+    ),
 };

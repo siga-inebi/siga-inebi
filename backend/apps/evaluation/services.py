@@ -9,6 +9,7 @@ RF-EVC-005: Configuracion global heredable
 RF-CAL-001: Registro de la nota de unidad
 RF-CAL-002: Escala y validacion de la nota
 RF-CAL-003: Distincion entre sin calificar y cero
+RF-RES-001: Nota final de la subarea
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -525,3 +526,23 @@ def get_current_average(enrolment: Enrolment, subject: Subject) -> dict:
         "pending_units": total_units - graded_units,
         "total_units": total_units,
     }
+
+
+def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
+    """
+    Final grade of a subarea, as the average of its unit grades (RF-RES-001).
+
+    While the cycle is open, this is the same running average as RF-CAL-003
+    (get_current_average): it derives from whatever grades are registered
+    right now and recalculates on every correction, so it stays correct with
+    no extra bookkeeping. It is exposed under its own name and endpoint
+    because "resultado" is its own bounded concept in the domain map, and
+    later requirements (freezing the result once the cycle closes, the
+    single-rounding-point rule, promotion) will need to diverge from the
+    plain running average without touching RF-CAL-003's own contract.
+
+    Returns:
+        Same shape as get_current_average: ``average`` (None if no unit is
+        graded yet), ``graded_units``, ``pending_units`` and ``total_units``.
+    """
+    return get_current_average(enrolment, subject)

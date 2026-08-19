@@ -1227,3 +1227,120 @@ class TestCurrentAverageAPI:
         )
 
         assert response.status_code == 404
+
+
+class TestFinalSubjectGradeAPI:
+    """Tests for RF-RES-001: Nota final de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                EvaluationUnitFactory(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_final_grade_is_the_average_of_all_graded_units_api(self, auth_client, institution):
+        """
+        Scenario 12: Promedio de las unidades
+        GET {cycle}/enrolments/{enrolment_id}/subjects/{subject_id}/final-grade/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        grades_url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(units[0].public_id),
+            },
+        )
+        auth_client.post(
+            grades_url,
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 60,
+            },
+            content_type="application/json",
+        )
+        grades_url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(units[1].public_id),
+            },
+        )
+        auth_client.post(
+            grades_url,
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 100,
+            },
+            content_type="application/json",
+        )
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.id,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average"] == 80
+        assert data["graded_units"] == 2
+        assert data["pending_units"] == 0
+
+    def test_final_grade_enrolment_not_found_returns_404(self, auth_client, institution):
+        """
+        Test endpoint with an invalid enrolment ID.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        subject = SubjectFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": 999999,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 404
