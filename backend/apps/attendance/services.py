@@ -794,7 +794,9 @@ class RosterDayStatus:
     parameters: JornadaParameters
 
 
-def list_roster_day_statuses(*, shift, event_date, as_of=None, grade=None, section=None, students=None):
+def list_roster_day_statuses(
+    *, shift, event_date, as_of=None, grade=None, section=None, students=None
+):
     """
     The derived status of every actively enrolled student of ``shift`` on
     ``event_date`` (a read RF-JOR-007 consumes to evaluate absence alerts, and
@@ -857,7 +859,9 @@ def list_roster_day_statuses(*, shift, event_date, as_of=None, grade=None, secti
 # --------------------------------------------------------------------------- #
 
 
-def list_present_students(*, shift, event_date=None, grade=None, section=None, students=None, as_of=None):
+def list_present_students(
+    *, shift, event_date=None, grade=None, section=None, students=None, as_of=None
+):
     """
     Actively enrolled students of ``shift`` who have an entry registered and
     no exit yet, as of right now (RF-JOR-008). A pure filter over
@@ -865,7 +869,12 @@ def list_present_students(*, shift, event_date=None, grade=None, section=None, s
     """
     event_date = event_date or timezone.localdate()
     roster = list_roster_day_statuses(
-        shift=shift, event_date=event_date, as_of=as_of, grade=grade, section=section, students=students
+        shift=shift,
+        event_date=event_date,
+        as_of=as_of,
+        grade=grade,
+        section=section,
+        students=students,
     )
     return [entry for entry in roster if entry.entry_event is not None and entry.exit_event is None]
 
@@ -929,9 +938,7 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
     )
 
     def school_days_as_of(candidate_date):
-        version = next(
-            (v for v in versions if v.effective_from <= candidate_date), None
-        )
+        version = next((v for v in versions if v.effective_from <= candidate_date), None)
         return version.school_days if version is not None else None
 
     qualifying_dates = []

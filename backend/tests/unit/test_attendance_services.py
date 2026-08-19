@@ -1206,7 +1206,10 @@ def test_list_present_students_filters_by_grade_and_section():
         )
 
     by_section = services.list_present_students(
-        shift=shift, event_date=cycle.starts_on, section=section_a, as_of=_at(cycle.starts_on, 10, 0)
+        shift=shift,
+        event_date=cycle.starts_on,
+        section=section_a,
+        as_of=_at(cycle.starts_on, 10, 0),
     )
     by_grade = services.list_present_students(
         shift=shift,
@@ -1341,7 +1344,9 @@ def test_compute_attendance_percentage_excludes_days_not_yet_closed():
         effective_from=tomorrow,
     )
 
-    result = services.compute_attendance_percentage(student=student, shift=shift, as_of_date=tomorrow)
+    result = services.compute_attendance_percentage(
+        student=student, shift=shift, as_of_date=tomorrow
+    )
 
     assert result.elapsed_school_days == 0
     assert result.percentage is None
