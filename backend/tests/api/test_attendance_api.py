@@ -7,6 +7,8 @@ RF-JOR-005 — contrato de alertas de inconsistencia generadas al registrar even
 RF-JOR-006 — recalculo ante cambios, disparado desde los mismos endpoints.
 RF-JOR-008 — contrato del endpoint de presencia en tiempo real.
 RF-JOR-009 — contrato del endpoint de porcentaje de asistencia del ciclo.
+RF-ASI-001/002/004/010 — contrato del endpoint de captura por escaneo y del
+catalogo de puntos de control.
 """
 
 from datetime import datetime, time, timedelta
@@ -20,7 +22,11 @@ from apps.attendance import services
 from apps.attendance.models import AttendanceAlert, AttendanceEvent
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
-from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
+from tests.factories.attendance import (
+    AttendanceEventFactory,
+    ControlPointFactory,
+    JornadaParametersFactory,
+)
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -541,6 +547,27 @@ def test_presence_requires_authentication(client):
     assert response.status_code == 403
 
 
+def _scan_item(student, shift, control_point, client_event_id, captured_at, **overrides):
+    item = {
+        "client_event_id": client_event_id,
+        "student_code": student.student_code,
+        "shift_id": str(shift.public_id),
+        "control_point_id": str(control_point.public_id),
+        "movement_type": AttendanceEvent.MovementType.ENTRY,
+        "captured_at": captured_at.isoformat(),
+    }
+    item.update(overrides)
+    return item
+
+
+def test_scan_endpoint_requires_authentication(client):
+    response = client.post(
+        reverse("attendance-scan"), {"items": []}, content_type="application/json"
+    )
+
+    assert response.status_code == 403
+
+
 def test_presence_requires_student_scope(auth_client):
     shift = ShiftFactory()
 
@@ -637,6 +664,19 @@ def test_percentage_requires_student_scope(auth_client):
     assert response.status_code == 403
 
 
+def test_scan_endpoint_requires_attendance_scan_permission(auth_client):
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    item = _scan_item(student, parameters.shift, control_point, "perm-1", timezone.now())
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [item]}, content_type="application/json"
+    )
+
+    assert response.status_code == 403
+
+
 def test_percentage_returns_value_for_authorized_student(auth_client):
     day = timezone.localdate() - timedelta(days=1)
     cycle = AcademicCycleFactory(starts_on=day, ends_on=day + timedelta(days=200))
@@ -670,3 +710,114 @@ def test_percentage_returns_value_for_authorized_student(auth_client):
     assert data["elapsed_school_days"] == 1
     assert data["present_days"] == 1
     assert data["percentage"] == 100.0
+
+
+def test_scan_endpoint_creates_event_with_permission(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    item = _scan_item(student, parameters.shift, control_point, "created-1", timezone.now())
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [item]}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["outcome"] == "created"
+    assert body[0]["event"]["origin"] == AttendanceEvent.Origin.SCAN
+    assert body[0]["event"]["control_point_id"] == str(control_point.public_id)
+
+
+def test_scan_endpoint_rejects_duplicate_and_reports_existing_captured_at(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory(duplicate_suppression_minutes=10)
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    captured_at = timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0)))
+
+    auth_client.post(
+        reverse("attendance-scan"),
+        {"items": [_scan_item(student, parameters.shift, control_point, "dup-1", captured_at)]},
+        content_type="application/json",
+    )
+    response = auth_client.post(
+        reverse("attendance-scan"),
+        {
+            "items": [
+                _scan_item(
+                    student,
+                    parameters.shift,
+                    control_point,
+                    "dup-2",
+                    captured_at + timedelta(minutes=2),
+                )
+            ]
+        },
+        content_type="application/json",
+    )
+
+    body = response.json()
+    assert body[0]["outcome"] == "duplicate_suppressed"
+    assert body[0]["duplicate_of"]["captured_at"] is not None
+
+
+def test_scan_endpoint_resend_with_same_client_event_id_is_idempotent(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    item = _scan_item(student, parameters.shift, control_point, "idempotent-1", timezone.now())
+
+    auth_client.post(reverse("attendance-scan"), {"items": [item]}, content_type="application/json")
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [item]}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["outcome"] == "already_processed"
+    assert AttendanceEvent.objects.filter(client_event_id="idempotent-1").count() == 1
+
+
+def test_scan_batch_endpoint_reports_mixed_outcomes_per_item(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    now = timezone.now()
+    items = [
+        _scan_item(student, parameters.shift, control_point, "mix-1", now),
+        {
+            "client_event_id": "mix-2",
+            "student_code": "does-not-exist",
+            "shift_id": str(parameters.shift.public_id),
+            "control_point_id": str(control_point.public_id),
+            "movement_type": AttendanceEvent.MovementType.ENTRY,
+            "captured_at": now.isoformat(),
+        },
+    ]
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": items}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    outcomes = [entry["outcome"] for entry in response.json()]
+    assert outcomes == ["created", "rejected"]
+
+
+def test_control_points_list_requires_authentication(client):
+    response = client.get(reverse("attendance-control-point-list"))
+
+    assert response.status_code == 403
+
+
+def test_control_points_list_returns_catalogue(auth_client):
+    control_point = ControlPointFactory()
+
+    response = auth_client.get(reverse("attendance-control-point-list"))
+
+    assert response.status_code == 200
+    codes = {item["code"] for item in response.json()["results"]}
+    assert control_point.code in codes

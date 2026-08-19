@@ -7,6 +7,8 @@ from apps.attendance.api.views import (
     AttendanceEventResolutionView,
     AttendancePercentageView,
     AttendancePresenceListView,
+    AttendanceScanView,
+    ControlPointListView,
     JornadaClosureView,
     JornadaParametersListCreateView,
 )
@@ -51,5 +53,15 @@ urlpatterns = [
         "attendance-percentage/",
         AttendancePercentageView.as_view(),
         name="attendance-percentage",
+    ),
+    path(
+        "control-points/",
+        ControlPointListView.as_view(),
+        name="attendance-control-point-list",
+    ),
+    path(
+        "scan/",
+        AttendanceScanView.as_view(),
+        name="attendance-scan",
     ),
 ]

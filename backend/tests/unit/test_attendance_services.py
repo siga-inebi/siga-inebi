@@ -7,6 +7,8 @@ RF-JOR-005 — deteccion de inconsistencias entre fuentes.
 RF-JOR-006 — recalculo ante cambios.
 RF-JOR-008 — consulta de presencia en tiempo real.
 RF-JOR-009 — porcentaje de asistencia del ciclo.
+RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
+idempotencia.
 
 All in isolation from the API layer.
 """
@@ -36,6 +38,7 @@ from tests.factories.academic import (
 from tests.factories.attendance import (
     AttendanceAlertFactory,
     AttendanceEventFactory,
+    ControlPointFactory,
     JornadaParametersFactory,
 )
 from tests.factories.identity import UserFactory
@@ -1361,3 +1364,323 @@ def test_compute_attendance_percentage_raises_when_student_not_enrolled_in_cycle
         services.compute_attendance_percentage(
             student=unrelated_student, shift=shift, as_of_date=cycle.starts_on
         )
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-001/002/004/010 — captura por escaneo
+# --------------------------------------------------------------------------- #
+
+
+def _configure_jornada(*, shift, cycle):
+    return services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=cycle.starts_on,
+    )
+
+
+def test_record_scan_movement_creates_event_with_operator_control_point_and_client_event_id():
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    result = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 0),
+        client_event_id="scan-1",
+        operator=operator,
+    )
+
+    assert result.outcome == "created"
+    assert result.event.control_point == control_point
+    assert result.event.operator == operator
+    assert result.event.client_event_id == "scan-1"
+    assert result.event.origin == AttendanceEvent.Origin.SCAN
+
+
+def test_record_scan_movement_requires_operator():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+
+    with pytest.raises(DomainError):
+        services.record_scan_movement(
+            student=student,
+            shift=parameters.shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            client_event_id="scan-no-operator",
+            operator=None,
+        )
+
+
+def test_record_scan_movement_rejects_inactive_control_point():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus, is_active=False)
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.record_scan_movement(
+            student=student,
+            shift=parameters.shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            client_event_id="scan-inactive-cp",
+            operator=operator,
+        )
+
+
+def test_record_scan_movement_suppresses_duplicate_within_window_and_reports_existing():
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    first = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 0),
+        client_event_id="scan-a",
+        operator=operator,
+    )
+    second = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 3),
+        client_event_id="scan-b",
+        operator=operator,
+    )
+
+    assert second.outcome == "duplicate_suppressed"
+    assert second.duplicate_of == first.event
+    assert (
+        AttendanceEvent.objects.filter(
+            student=student, shift=shift, movement_type=AttendanceEvent.MovementType.ENTRY
+        ).count()
+        == 1
+    )
+
+
+def test_record_scan_movement_allows_new_movement_once_suppression_window_elapses():
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 0),
+        client_event_id="scan-c",
+        operator=operator,
+    )
+    second = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 10),
+        client_event_id="scan-d",
+        operator=operator,
+    )
+
+    assert second.outcome == "created"
+    assert (
+        AttendanceEvent.objects.filter(
+            student=student, shift=shift, movement_type=AttendanceEvent.MovementType.ENTRY
+        ).count()
+        == 2
+    )
+
+
+def test_record_scan_movement_duplicate_suppression_ignores_operator_and_control_point():
+    """
+    Escenario literal de asistencia-escaneo.md: dos operadores distintos, en
+    puntos de control distintos, dentro de la ventana de supresion -> se
+    rechaza igual.
+    """
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point_a = ControlPointFactory(campus=shift.campus)
+    control_point_b = ControlPointFactory(campus=shift.campus)
+    operator_a = UserFactory()
+    operator_b = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point_a,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 0),
+        client_event_id="scan-e",
+        operator=operator_a,
+    )
+    second = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point_b,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 1),
+        client_event_id="scan-f",
+        operator=operator_b,
+    )
+
+    assert second.outcome == "duplicate_suppressed"
+
+
+def test_record_scan_movement_rejected_duplicate_is_audited_without_creating_event():
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 0),
+        client_event_id="scan-g",
+        operator=operator,
+    )
+    services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 2),
+        client_event_id="scan-h",
+        operator=operator,
+    )
+
+    assert AuditEvent.objects.filter(action="attendance.event.rejected_duplicate").exists()
+    assert AttendanceEvent.objects.count() == 1
+
+
+def test_record_scan_movement_replays_same_client_event_id_without_creating_duplicate():
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    first = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 0),
+        client_event_id="scan-idempotent",
+        operator=operator,
+    )
+    second = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(cycle.starts_on, 7, 0),
+        client_event_id="scan-idempotent",
+        operator=operator,
+    )
+
+    assert second.outcome == "already_processed"
+    assert second.event == first.event
+    assert AttendanceEvent.objects.count() == 1
+
+
+def test_record_scan_batch_processes_items_independently_when_one_item_is_invalid():
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    inactive_student = StudentFactory(is_active=False)
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    results = services.record_scan_batch(
+        items=[
+            {
+                "student": student,
+                "shift": shift,
+                "control_point": control_point,
+                "movement_type": AttendanceEvent.MovementType.ENTRY,
+                "captured_at": _at(cycle.starts_on, 7, 0),
+                "client_event_id": "batch-1",
+            },
+            {
+                "student": inactive_student,
+                "shift": shift,
+                "control_point": control_point,
+                "movement_type": AttendanceEvent.MovementType.ENTRY,
+                "captured_at": _at(cycle.starts_on, 7, 5),
+                "client_event_id": "batch-2",
+            },
+        ],
+        operator=operator,
+    )
+
+    assert results[0].outcome == "created"
+    assert results[1].outcome == "rejected"
+    assert results[1].client_event_id == "batch-2"
+    assert AttendanceEvent.objects.count() == 1
+
+
+def test_record_scan_batch_resend_of_confirmed_batch_is_a_no_op_success():
+    """Escenario literal de asistencia-escaneo.md: reenvio de un lote ya confirmado."""
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+    items = [
+        {
+            "student": student,
+            "shift": shift,
+            "control_point": control_point,
+            "movement_type": AttendanceEvent.MovementType.ENTRY,
+            "captured_at": _at(cycle.starts_on, 7, 0),
+            "client_event_id": "batch-resend-1",
+            "batch_id": "batch-resend",
+        },
+        {
+            "student": student,
+            "shift": shift,
+            "control_point": control_point,
+            "movement_type": AttendanceEvent.MovementType.EXIT,
+            "captured_at": _at(cycle.starts_on, 15, 0),
+            "client_event_id": "batch-resend-2",
+            "batch_id": "batch-resend",
+        },
+    ]
+
+    first_results = services.record_scan_batch(items=items, operator=operator)
+    second_results = services.record_scan_batch(items=items, operator=operator)
+
+    assert [result.outcome for result in first_results] == ["created", "created"]
+    assert [result.outcome for result in second_results] == [
+        "already_processed",
+        "already_processed",
+    ]
+    assert AttendanceEvent.objects.count() == 2

@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 
 from apps.common.models import TimeStampedModel
 
@@ -45,6 +46,32 @@ class JornadaParameters(TimeStampedModel):
         return f"{self.shift} ({self.academic_cycle}) from {self.effective_from}"
 
 
+class ControlPoint(TimeStampedModel):
+    """
+    A physical checkpoint (turnstile, gate, entrance) where scans happen
+    (RF-ASI-002). Deliberately minimal: just enough for an
+    ``AttendanceEvent`` to reference where it was captured. Configuring
+    which movement types a point admits (RF-ASI-005) is a separate,
+    not-yet-built capability layered on top of this model, not part of it.
+    """
+
+    campus = models.ForeignKey(
+        "academics.Campus", on_delete=models.PROTECT, related_name="control_points"
+    )
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=30)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campus", "code"], name="unique_control_point_code_per_campus"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.campus})"
+
+
 class AttendanceEvent(TimeStampedModel):
     """
     A single movement record for a student in a jornada (RF-JOR-002/003):
@@ -81,9 +108,32 @@ class AttendanceEvent(TimeStampedModel):
         max_length=12, choices=Transmission.choices, default=Transmission.INDIVIDUAL
     )
     captured_at = models.DateTimeField()
+    control_point = models.ForeignKey(
+        ControlPoint,
+        on_delete=models.PROTECT,
+        related_name="attendance_events",
+        null=True,
+        blank=True,
+    )
+    operator = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="attendance_events_operated",
+        null=True,
+        blank=True,
+    )
+    client_event_id = models.CharField(max_length=100, blank=True, default="")
+    batch_id = models.CharField(max_length=100, blank=True, default="")
 
     class Meta:
         ordering = ["-captured_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["client_event_id"],
+                condition=~Q(client_event_id=""),
+                name="unique_attendance_event_client_event_id",
+            )
+        ]
         indexes = [
             models.Index(
                 fields=["student", "shift", "event_date", "movement_type"],
