@@ -8,26 +8,37 @@ Uniqueness is delegated to the database constraint and translated back into a
 would leave a window for two concurrent requests to both pass the check.
 """
 
+import hashlib
 import os
 import re
+import secrets
+from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Max
+from django.utils import timezone
 
-from apps.audit.services import record_event
+from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAGS
-from apps.documents.models import DocumentRecord, DocumentTemplate, DocumentTemplateVersion
+from apps.documents.models import (
+    DocumentDownloadToken,
+    DocumentRecord,
+    DocumentTemplate,
+    DocumentTemplateVersion,
+    OfficialFolio,
+)
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import pending_required_document_codes
 
 SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
 OFFICIAL_ISSUANCE_PERMISSION = "document_issue"
 DOCUMENT_READ_PERMISSION = "document_read"
+DOCUMENT_TYPE_CATALOG = DocumentTemplate.TemplateKind.choices
 ALLOWED_DOCUMENT_CONTENT_TYPES = {
     "application/pdf": {".pdf"},
     "image/jpeg": {".jpg", ".jpeg"},
@@ -104,6 +115,107 @@ def validate_document_upload(upload):
         "size_bytes": size_bytes,
         "extension": suffix,
     }
+
+
+def list_document_types():
+    """Return the fixed document-type catalogue for the current domain."""
+    return tuple(DOCUMENT_TYPE_CATALOG)
+
+
+def get_active_document_template(*, institution, kind):
+    """Resolve the single active template for a given institutional document kind."""
+    normalized_kind = str(kind or "").strip().lower()
+    valid_kinds = {code for code, _label in DOCUMENT_TYPE_CATALOG}
+    if normalized_kind not in valid_kinds:
+        raise DomainError(f"Unsupported document type '{kind}'.")
+
+    templates = DocumentTemplate.objects.filter(
+        institution=institution,
+        kind=normalized_kind,
+        is_active=True,
+    ).order_by("created_at")
+    if templates.count() != 1:
+        raise DomainError(
+            f"Exactly one active template is required for document type '{normalized_kind}', "
+            f"found {templates.count()}."
+        )
+    return templates.get()
+
+
+def ensure_document_access(*, actor, student=None, document=None):
+    """Guard document reads by permission and explicit student scope."""
+    target_student = student or getattr(document, "student", None)
+    if target_student is None:
+        raise PermissionDenied("Document access requires a student target.")
+
+    if not actor or not getattr(actor, "is_authenticated", False):
+        raise PermissionDenied("Actor must be authenticated to read documents.")
+
+    if actor.is_superuser:
+        return True
+
+    if not actor.has_atomic_permission(DOCUMENT_READ_PERMISSION):
+        record_event(
+            actor=actor,
+            action="documents.document.read_denied",
+            resource="StudentDocument",
+            resource_identifier=str(target_student.pk),
+            context={"result": "denied", "reason": "missing_permission"},
+        )
+        raise PermissionDenied("Actor lacks permission to read documents.")
+
+    if not actor.has_scoped_permission(DOCUMENT_READ_PERMISSION, scope={"student": target_student}):
+        record_event(
+            actor=actor,
+            action="documents.document.read_denied",
+            resource="StudentDocument",
+            resource_identifier=str(target_student.pk),
+            context={"result": "denied", "reason": "missing_scope"},
+        )
+        raise PermissionDenied("Actor lacks the required scope to read documents.")
+
+    record_event(
+        actor=actor,
+        action="documents.document.read",
+        resource="StudentDocument",
+        resource_identifier=str(target_student.pk),
+        context={"result": "success"},
+    )
+    return True
+
+
+def issue_document_download_token(*, actor, document):
+    """Issue a brief signed document download token."""
+    ensure_document_access(actor=actor, document=document)
+    raw_token = secrets.token_urlsafe(24)
+    expires_at = timezone.now() + timedelta(minutes=5)
+    token = DocumentDownloadToken.objects.create(
+        document=document,
+        created_by=actor,
+        token_hash=hashlib.sha256(raw_token.encode("utf-8")).hexdigest(),
+        expires_at=expires_at,
+    )
+    token.token = raw_token
+    return token
+
+
+def validate_document_download_token(*, document, token):
+    """Validate and reject expired or invalid download tokens."""
+    if not token:
+        raise DomainError("A valid download token is required.")
+
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    try:
+        download_token = DocumentDownloadToken.objects.get(document=document, token_hash=digest)
+    except DocumentDownloadToken.DoesNotExist as exc:
+        raise DomainError("The provided download token is invalid.") from exc
+
+    if not download_token.is_valid:
+        raise DomainError("The provided download token is invalid or expired.")
+
+    download_token.used_at = timezone.now()
+    download_token.save(update_fields=["used_at", "updated_at"])
+    return True
 
 
 def list_field_tags(*, actor=None, include_sensitive=False):
@@ -239,27 +351,30 @@ def _clean_name(value, *, field="name"):
     return name
 
 
-def _audit(actor, action, instance, **context):
+def _audit(actor, action, instance, *, changes=None, **context):
     record_event(
         actor=actor,
         action=action,
         resource=type(instance).__name__,
         resource_identifier=str(instance.pk),
         context=context,
+        changes=changes,
     )
 
 
 def _changed(instance, actor, action, **candidates):
     """
     Apply the fields whose value was actually supplied, persist only those, and
-    audit what changed. ``None`` means "not supplied", never "set to null".
+    audit what changed -- including before/after values (RF-BIT-002). ``None``
+    means "not supplied", never "set to null".
     """
     fields = [name for name, value in candidates.items() if value is not None]
+    changes = diff_fields(instance, **candidates)  # read before mutating
     for name in fields:
         setattr(instance, name, candidates[name])
 
     instance.save(update_fields=[*fields, "updated_at"])
-    _audit(actor, action, instance, fields=fields)
+    _audit(actor, action, instance, changes=changes, fields=fields)
     return instance
 
 
@@ -267,6 +382,9 @@ def _document_template_conflicts(code):
     return {
         "unique_document_template_code_per_institution": (
             f"Document template code '{code}' already exists for this institution."
+        ),
+        "unique_active_document_template_per_kind_per_institution": (
+            "An active document template already exists for this institution and document type."
         ),
     }
 
@@ -292,7 +410,14 @@ def _record_version(template):
 
 @transaction.atomic
 def create_document_template(
-    *, institution, name, code, kind=DocumentTemplate.TemplateKind.OTHER, description="", actor=None
+    *,
+    institution,
+    name,
+    code,
+    kind=DocumentTemplate.TemplateKind.OTHER,
+    description="",
+    actor=None,
+    is_active=True,
 ):
     """
     Register a document template.
@@ -311,6 +436,7 @@ def create_document_template(
             code=code,
             kind=kind,
             description=(description or "").strip(),
+            is_active=is_active,
         )
 
     _audit(actor, "documents.template.created", template, code=code, kind=kind)
@@ -369,6 +495,30 @@ def deactivate_document_record(*, record, actor=None):
     return record
 
 
+def issue_official_document_folio(*, institution, document_type="", issued_at=None):
+    """Allocate the next institutional sequential folio for an official document."""
+    if institution is None:
+        raise DomainError("An institution is required to issue a document folio.")
+
+    issued_at = issued_at or timezone.now()
+    year = issued_at.year
+    latest = (
+        OfficialFolio.objects.filter(institution=institution, year=year)
+        .order_by("-sequence")
+        .values_list("sequence", flat=True)
+        .first()
+    )
+    sequence = (latest or 0) + 1
+    folio = OfficialFolio.objects.create(
+        institution=institution,
+        year=year,
+        sequence=sequence,
+        document_type=(document_type or "").strip(),
+        issued_at=issued_at,
+    )
+    return folio.folio_code
+
+
 def compile_generated_document(*, template, payload=None, persist=False, actor=None):
     """Compile a document in memory and never store generated PDFs on disk.
 
@@ -382,7 +532,11 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
     student_name = str(data.get("student_name") or "Documento")
     document_type = str(data.get("document_type") or getattr(template, "name", "Documento"))
     title = f"{document_type}: {student_name}"
-
+    issued_at = data.get("issued_at") or timezone.now().isoformat()
+    folio = data.get("folio") or ""
+    metadata_line = f"Emitido: {issued_at}"
+    if folio:
+        metadata_line = f"{metadata_line} | Folio: {folio}"
     rendered = (
         b"%PDF-1.4\n"
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
@@ -394,6 +548,8 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
         b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
         b"xref\n0 6\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n0000000125 00000 n\n0000000267 00000 n\n0000000780 00000 n\ntrailer\n<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
     )
+    pdf_text = (title + "\n" + metadata_line).encode("utf-8")
+    rendered = b"%PDF-1.4\n" + b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" + b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" + b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n" + b"4 0 obj\n<< /Length " + str(len(pdf_text) + 40).encode("utf-8") + b" >>\nstream\nBT /F1 12 Tf 30 60 Td (" + pdf_text[:180] + b") Tj ET\nendstream\nendobj\n" + b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n" + b"xref\n0 6\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n0000000125 00000 n\n0000000267 00000 n\n0000000780 00000 n\ntrailer\n<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
 
     _audit(
         actor,
@@ -401,9 +557,11 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
         template,
         document_type=getattr(template, "kind", "other"),
         persisted=False,
+        issued_at=str(issued_at),
+        folio=folio,
     )
 
-    return type(
+    generated = type(
         "GeneratedDocument",
         (),
         {
@@ -411,8 +569,11 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
             "content_type": "application/pdf",
             "storage_key": None,
             "persisted": False,
+            "issued_at": str(issued_at),
+            "folio": folio,
         },
     )()
+    return generated
 
 
 def ensure_official_document_issuance_permission(*, actor):

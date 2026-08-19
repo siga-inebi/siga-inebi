@@ -244,6 +244,7 @@ class AccountDisableView(GenericAPIView):
             actor=request.user,
             user=account,
             force=serializer.validated_data["force"],
+            reason=serializer.validated_data["reason"],
         )
         if not result["disabled"]:
             return Response(result, status=status.HTTP_409_CONFLICT)

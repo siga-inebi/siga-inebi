@@ -1,4 +1,8 @@
+import re
+from datetime import timedelta
+
 from django.db import models
+from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
 
@@ -89,6 +93,11 @@ class DocumentTemplate(TimeStampedModel):
             models.UniqueConstraint(
                 fields=["institution", "code"], name="unique_document_template_code_per_institution"
             ),
+            models.UniqueConstraint(
+                fields=["institution", "kind"],
+                condition=models.Q(is_active=True),
+                name="unique_active_document_template_per_kind_per_institution",
+            ),
         ]
 
     def __str__(self):
@@ -150,3 +159,71 @@ class DocumentTemplateVersion(TimeStampedModel):
 
     def delete(self, *args, **kwargs):
         raise RuntimeError("Document template versions cannot be deleted.")
+
+
+class DocumentDownloadToken(TimeStampedModel):
+    """Short-lived token for controlled document downloads (RF-DOC-005)."""
+
+    document = models.ForeignKey(
+        DocumentRecord,
+        on_delete=models.PROTECT,
+        related_name="download_tokens",
+    )
+    created_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="document_download_tokens",
+        null=True,
+        blank=True,
+    )
+    token_hash = models.CharField(max_length=128, unique=True)
+    expires_at = models.DateTimeField(default=lambda: timezone.now() + timedelta(minutes=5))
+    used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def is_valid(self):
+        return (
+            self.is_active
+            and self.revoked_at is None
+            and self.used_at is None
+            and self.expires_at > timezone.now()
+        )
+
+    def __str__(self):
+        return f"Download token for {self.document_id}"
+
+
+class OfficialFolio(TimeStampedModel):
+    """Institutional counter for the official document folio sequence."""
+
+    institution = models.ForeignKey(
+        "academics.Institution",
+        on_delete=models.PROTECT,
+        related_name="official_folios",
+    )
+    year = models.PositiveSmallIntegerField()
+    sequence = models.PositiveIntegerField()
+    document_type = models.CharField(max_length=50, blank=True)
+    issued_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-year", "-sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "year", "sequence"],
+                name="unique_official_folio_per_institution_year_sequence",
+            )
+        ]
+
+    @property
+    def folio_code(self):
+        prefix = (self.institution.short_name or self.institution.name or "DOC").strip().upper()
+        prefix = re.sub(r"[^A-Z0-9]+", "", prefix) or "DOC"
+        return f"{prefix}-{self.year}-{self.sequence:04d}"
+
+    def __str__(self):
+        return self.folio_code
