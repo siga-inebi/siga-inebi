@@ -14,6 +14,8 @@ const studentsServiceMock = vi.hoisted(() => ({
   createHealthNote: vi.fn(),
   listObservations: vi.fn(),
   createObservation: vi.fn(),
+  listEmergencyContacts: vi.fn(),
+  createEmergencyContact: vi.fn(),
   listGuardianRelations: vi.fn(),
   createGuardianRelation: vi.fn(),
 }));
@@ -74,6 +76,9 @@ describe("AlumnosPage", () => {
     studentsServiceMock.listObservations.mockReset();
     studentsServiceMock.createObservation.mockReset();
     studentsServiceMock.listObservations.mockResolvedValue([]);
+    studentsServiceMock.listEmergencyContacts.mockReset();
+    studentsServiceMock.createEmergencyContact.mockReset();
+    studentsServiceMock.listEmergencyContacts.mockResolvedValue([]);
     studentsServiceMock.listGuardianRelations.mockReset();
     studentsServiceMock.createGuardianRelation.mockReset();
     studentsServiceMock.listGuardianRelations.mockResolvedValue([]);
@@ -449,5 +454,47 @@ describe("AlumnosPage", () => {
     expect(
       await screen.findByText("Seguimiento pedagogico")
     ).toBeInTheDocument();
+  });
+
+  test("lists and creates an emergency contact", async () => {
+    studentsServiceMock.list.mockResolvedValue([
+      { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
+    ]);
+    studentsServiceMock.createEmergencyContact.mockResolvedValue({
+      public_id: "33333333-3333-3333-3333-333333333333",
+      name: "Ana López",
+      phone_number: "555-0104",
+      relationship_label: "Tía",
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<AlumnosPage />);
+
+    await screen.findByText("Maria Jose Lopez Garcia");
+    await user.click(screen.getByRole("button", { name: /Ver detalle/ }));
+    await user.click(
+      screen.getByRole("button", { name: "Contactos de emergencia" })
+    );
+    expect(
+      await screen.findByText("Sin contactos de emergencia")
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Nuevo contacto" }));
+    await user.type(screen.getByLabelText(/^Nombre/), "Ana López");
+    await user.type(screen.getByLabelText(/^Teléfono/), "555-0104");
+    await user.type(screen.getByLabelText(/^Relación/), "Tía");
+    await user.click(
+      screen.getByRole("button", { name: "Registrar contacto" })
+    );
+
+    await waitFor(() =>
+      expect(studentsServiceMock.createEmergencyContact).toHaveBeenCalledWith(
+        "11111111-1111-1111-1111-111111111111",
+        {
+          name: "Ana López",
+          phone_number: "555-0104",
+          relationship_label: "Tía",
+        }
+      )
+    );
+    expect(await screen.findByText("Ana López · Tía")).toBeInTheDocument();
   });
 });

@@ -258,8 +258,20 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
     list_serializer = EmergencyContactSerializer
     create_serializer = EmergencyContactCreateSerializer
 
-    def list_queryset(self, request, public_id):
+    def _student(self, request, public_id, *, write=False):
         student = queries.student_or_404(public_id)
+        required = ["student_view_sensitive"]
+        if write:
+            required.append("student_edit_basic")
+        if not all(
+            request.user.has_scoped_permission(codename, scope={"student": student})
+            for codename in required
+        ):
+            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+        return student
+
+    def list_queryset(self, request, public_id):
+        student = self._student(request, public_id)
         record_sensitive_read(
             actor=request.user,
             action="students.emergency_contacts.read",
@@ -270,7 +282,7 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
         return queries.emergency_contacts(student, request)
 
     def create(self, request, payload, public_id):
-        student = queries.student_or_404(public_id)
+        student = self._student(request, public_id, write=True)
         return services.create_emergency_contact(student=student, actor=request.user, **payload)
 
 
@@ -281,7 +293,24 @@ class EmergencyContactDetailView(
     update_serializer = EmergencyContactUpdateSerializer
 
     def get_object(self, public_id):
-        return queries.emergency_contact_or_404(public_id)
+        contact = queries.emergency_contact_or_404(public_id)
+        required = ["student_view_sensitive"]
+        if self.request.method in {"PATCH", "DELETE"}:
+            required.append("student_edit_basic")
+        if not all(
+            self.request.user.has_scoped_permission(codename, scope={"student": contact.student})
+            for codename in required
+        ):
+            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+        if self.request.method == "GET":
+            record_sensitive_read(
+                actor=self.request.user,
+                action="students.emergency_contact.detail_read",
+                resource="EmergencyContact",
+                resource_identifier=str(contact.pk),
+                student=contact.student,
+            )
+        return contact
 
     def update(self, request, emergency_contact, payload):
         services.update_emergency_contact(
