@@ -123,6 +123,10 @@ STUDENT_LAST_NAMES = [
 
 GUARDIAN_RELATIONSHIPS = ["Madre", "Padre", "Abuela", "Tio"]
 
+# Estudiantes que quedan con expediente pero sin matricula, para que la
+# matriculacion por lotes tenga a quien matricular.
+UNENROLLED_STUDENTS = 15
+
 DEMO_ENV_KEYS = (
     "DEMO_ADMIN_USERNAME",
     "DEMO_ADMIN_EMAIL",
@@ -361,6 +365,9 @@ class Command(BaseCommand):
             admin_role = Role.objects.get(slug="system-administrator")
             assignment, _ = RoleAssignment.objects.get_or_create(user=user, role=admin_role)
             ScopeGrant.objects.get_or_create(assignment=assignment, module_key="identity")
+            # Sin el alcance del modulo de estudiantes el administrador no puede
+            # dar de alta a nadie, ni ver a quien todavia no tiene matricula.
+            ScopeGrant.objects.get_or_create(assignment=assignment, module_key="students")
             ScopeGrant.objects.get_or_create(assignment=assignment, institution=institution)
             self.stdout.write(self.style.SUCCESS(f"Demo admin ready: {username}"))
         else:
@@ -463,11 +470,17 @@ class Command(BaseCommand):
         """
         Reparte los estudiantes entre las secciones sin pasar del cupo.
 
+        Deja a proposito a los ultimos quince SIN matricula: es el estado real
+        de un ciclo que arranca (hay expediente, todavia no hay seccion) y es lo
+        que la matriculacion por lotes existe para resolver. Sin ese resto, la
+        pantalla solo se puede probar borrando datos a mano.
+
         No usa el servicio de matriculacion a proposito: ese valida cupo y
         jornada consultando la base por cada alta, y aqui interesa dejar el
         estado final, no simular el tramite.
         """
         created = 0
+        students = students[:-UNENROLLED_STUDENTS] if len(students) > UNENROLLED_STUDENTS else students
         capacity_left = {
             section.pk: section.capacity - section.enrolments.filter(status="active").count()
             for section in sections

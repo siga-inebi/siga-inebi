@@ -417,6 +417,64 @@ describe("pantallas de los modulos con backend previo", () => {
       });
     });
 
+    test("matricula a varios estudiantes en una sola pasada", async () => {
+      const user = userEvent.setup();
+      const OTRO = {
+        ...STUDENT,
+        public_id: "student-2",
+        person: { first_name: "Ines", last_name: "Xoy" },
+        student_code: "EST-2",
+      };
+      studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT, OTRO]));
+      // ENROLMENT ya cubre a student-1, asi que solo el segundo debe ofrecerse.
+      enrolmentsServiceMock.listActive.mockResolvedValue(paged([ENROLMENT]));
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByRole("heading", { name: "Matriculas vigentes" });
+
+      await user.click(
+        screen.getByRole("button", { name: "Matricular por lotes" })
+      );
+      const window = await screen.findByRole("dialog", {
+        name: "Matriculacion por lotes",
+      });
+
+      await user.click(
+        within(window).getByRole("combobox", { name: /Ciclo escolar/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+      );
+      await user.click(within(window).getByRole("combobox", { name: /Seccion/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Primero Basico A" })
+      );
+      await user.type(
+        within(window).getByLabelText(/Vigente desde/),
+        "2026-03-02"
+      );
+
+      expect(
+        await within(window).findByLabelText("Ines Xoy · EST-2")
+      ).toBeInTheDocument();
+      expect(
+        within(window).queryByLabelText("Luis Perez · EST-1")
+      ).not.toBeInTheDocument();
+
+      await user.click(within(window).getByLabelText("Ines Xoy · EST-2"));
+      await user.click(
+        within(window).getByRole("button", { name: /Matricular 1 estudiante/ })
+      );
+
+      expect(enrolmentsServiceMock.matriculate).toHaveBeenCalledWith({
+        student_id: "student-2",
+        academic_cycle_id: "cycle-2026",
+        grade_id: "grade-1",
+        shift_id: "shift-1",
+        section_id: "section-a",
+        effective_on: "2026-03-02",
+      });
+    });
+
     test("muestra las matriculas vigentes", async () => {
       renderWithRouter(<EnrolmentsPage />);
 

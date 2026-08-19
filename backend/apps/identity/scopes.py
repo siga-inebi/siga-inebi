@@ -221,9 +221,27 @@ def grant_matches_scope(grant, scope, *, when=None):
     return True
 
 
+#: Modulo cuya administracion cubre el expediente de cualquier estudiante.
+STUDENTS_MODULE_KEY = "students"
+
+
 def _student_filter_for_grant(grant):
-    if not grant.has_effective_scope() or grant.subject_id or grant.module_key:
+    if not grant.has_effective_scope() or grant.subject_id:
         return None
+
+    # Un permiso sobre el modulo de estudiantes alcanza a TODOS los expedientes,
+    # tambien a los que aun no tienen matricula. El resto de las dimensiones
+    # (institucion, ciclo, grado, seccion) resuelve al estudiante A TRAVES de su
+    # matricula, asi que sin ella nadie lo veria: quien acaba de dar de alta a un
+    # estudiante no lo encontraria en el listado, y no podria matricularlo porque
+    # ni siquiera aparece. La escritura ya usaba este mismo alcance
+    # (`student_edit_basic` sobre `module_key="students"`); la lectura solo lo
+    # acompana.
+    if grant.module_key:
+        # `Q(pk__isnull=False)` y no `Q()`: Django trata la Q vacia como
+        # elemento neutro al combinar, asi que un `Q(pk__in=[]) | Q()` sigue sin
+        # alcanzar a nadie. Hace falta una condicion que si diga "todos".
+        return Q(pk__isnull=False) if grant.module_key == STUDENTS_MODULE_KEY else None
 
     conditions = Q()
     has_student_dimension = False

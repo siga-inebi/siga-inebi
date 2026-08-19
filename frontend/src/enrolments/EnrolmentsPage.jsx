@@ -6,6 +6,7 @@ import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import AddIcon from "@mui/icons-material/Add";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
 import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
@@ -35,6 +36,7 @@ import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
 import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
+import { BulkEnrolmentWindow } from "./BulkEnrolmentWindow.jsx";
 import { EnrolmentDocumentsWindow } from "./EnrolmentDocumentsWindow.jsx";
 
 const EMPTY_ENROLMENT = {
@@ -66,6 +68,7 @@ export function EnrolmentsPage() {
   const [tab, setTab] = useState(ACTIVE_TAB);
   const [studentFilter, setStudentFilter] = useState("");
   const [creating, setCreating] = useState(null);
+  const [bulkEnrolling, setBulkEnrolling] = useState(false);
   const [documentsFor, setDocumentsFor] = useState(null);
 
   const students = useStudentCatalog();
@@ -252,7 +255,14 @@ export function EnrolmentsPage() {
     <>
       <PageHeader
         action={
-          <Stack direction="row" gap={1}>
+          <Stack direction="row" flexWrap="wrap" gap={1}>
+            <Button
+              onClick={() => setBulkEnrolling(true)}
+              startIcon={<PlaylistAddCheckOutlinedIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Matricular por lotes
+            </Button>
             <Button
               onClick={() => setCreating("reenrol")}
               startIcon={<ReplayOutlinedIcon fontSize="small" />}
@@ -350,6 +360,16 @@ export function EnrolmentsPage() {
               ? "Reinscribir estudiante"
               : "Nueva matricula"
           }
+        />
+      ) : null}
+
+      {bulkEnrolling ? (
+        <BulkEnrolmentWindow
+          onClose={() => setBulkEnrolling(false)}
+          onCreated={() => {
+            activeList.refresh();
+            if (historyReady) historyList.refresh();
+          }}
         />
       ) : null}
 

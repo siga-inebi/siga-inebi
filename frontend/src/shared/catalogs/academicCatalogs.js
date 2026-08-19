@@ -147,6 +147,7 @@ async function loadSections() {
     gradeId: section.grade?.public_id,
     shiftId: section.shift?.public_id,
     shiftName: section.shift?.name,
+    capacity: section.capacity,
   }));
 }
 

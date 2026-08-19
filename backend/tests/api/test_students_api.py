@@ -277,6 +277,28 @@ def test_retrieve_student_outside_scope_is_denied(logged_in_client):
 
 @pytest.mark.api
 @pytest.mark.django_db
+def test_students_module_scope_lists_a_student_without_enrolment(logged_in_client):
+    """
+    Un expediente sin matricula sigue siendo visible para quien administra el
+    modulo de estudiantes.
+
+    El resto de las dimensiones de alcance (institucion, ciclo, grado, seccion)
+    llega al estudiante A TRAVES de su matricula, asi que sin ella el registro
+    desaparecia del listado: quien acababa de darlo de alta no lo encontraba, y
+    tampoco podia matricularlo porque no aparecia en ningun lado.
+    """
+    student = StudentFactory(status=Student.StudentStatus.PRE_ENROLLED)
+    grant_student_permission(logged_in_client.user, module_key="students")
+
+    response = logged_in_client.get(reverse("student-list"))
+
+    assert response.status_code == 200
+    returned = [row["student_code"] for row in response.json()["results"]]
+    assert student.student_code in returned
+
+
+@pytest.mark.api
+@pytest.mark.django_db
 def test_create_student_duplicate_student_code_is_rejected(logged_in_client):
     grant_student_permission(
         logged_in_client.user,
