@@ -11,7 +11,7 @@ it (see ``docs/architecture/domain-map.md``).
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Case, IntegerField, Value, When
@@ -794,10 +794,13 @@ class RosterDayStatus:
     parameters: JornadaParameters
 
 
-def list_roster_day_statuses(*, shift, event_date, as_of=None):
+def list_roster_day_statuses(
+    *, shift, event_date, as_of=None, grade=None, section=None, students=None
+):
     """
     The derived status of every actively enrolled student of ``shift`` on
-    ``event_date`` (a read RF-JOR-007 consumes to evaluate absence alerts).
+    ``event_date`` (a read RF-JOR-007 consumes to evaluate absence alerts, and
+    RF-JOR-008's presence query narrows with ``grade``/``section``/``students``).
     Unlike ``close_jornada``, this is a pure read: no closing-time gating
     beyond what ``derive_day_status`` already applies on its own, and no
     alert side effects.
@@ -806,14 +809,19 @@ def list_roster_day_statuses(*, shift, event_date, as_of=None):
     parameters = get_effective_parameters(
         shift=shift, academic_cycle=academic_cycle, on_date=event_date
     )
-    enrolments = list(
-        Enrolment.objects.filter(
-            academic_cycle=academic_cycle,
-            status=Enrolment.EnrolmentStatus.ACTIVE,
-            section__offering__shift=shift,
-            student__is_active=True,
-        ).select_related("student", "section")
+    enrolments = Enrolment.objects.filter(
+        academic_cycle=academic_cycle,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+        section__offering__shift=shift,
+        student__is_active=True,
     )
+    if grade is not None:
+        enrolments = enrolments.filter(section__offering__grade=grade)
+    if section is not None:
+        enrolments = enrolments.filter(section=section)
+    if students is not None:
+        enrolments = enrolments.filter(student__in=students)
+    enrolments = list(enrolments.select_related("student", "section"))
     students = [enrolment.student for enrolment in enrolments]
 
     # Two batched reads for the whole roster instead of two per student: a
@@ -844,3 +852,129 @@ def list_roster_day_statuses(*, shift, event_date, as_of=None):
             )
         )
     return statuses
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-008/009 — presencia en tiempo real y porcentaje de asistencia
+# --------------------------------------------------------------------------- #
+
+
+def list_present_students(
+    *, shift, event_date=None, grade=None, section=None, students=None, as_of=None
+):
+    """
+    Actively enrolled students of ``shift`` who have an entry registered and
+    no exit yet, as of right now (RF-JOR-008). A pure filter over
+    ``list_roster_day_statuses``: no new query shape, no side effects.
+    """
+    event_date = event_date or timezone.localdate()
+    roster = list_roster_day_statuses(
+        shift=shift,
+        event_date=event_date,
+        as_of=as_of,
+        grade=grade,
+        section=section,
+        students=students,
+    )
+    return [entry for entry in roster if entry.entry_event is not None and entry.exit_event is None]
+
+
+@dataclass
+class AttendancePercentageResult:
+    student: object
+    shift: object
+    academic_cycle: AcademicCycle
+    as_of_date: object
+    elapsed_school_days: int
+    present_days: int
+    late_days: int
+    percentage: float | None
+
+
+def compute_attendance_percentage(*, student, shift, as_of_date=None):
+    """
+    RF-JOR-009: the share of elapsed school days, since the student's active
+    enrolment began, that resolved to present or late. A day still in
+    progress (no closure yet, no final status) doesn't count in either the
+    numerator or the denominator. Nothing here is persisted — like
+    ``DayStatus``, this is recomputed from events and parameters every time.
+    """
+    as_of_date = as_of_date or timezone.localdate()
+    academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=as_of_date)
+    enrolment = (
+        Enrolment.objects.filter(
+            student=student,
+            academic_cycle=academic_cycle,
+            status=Enrolment.EnrolmentStatus.ACTIVE,
+            section__offering__shift=shift,
+        )
+        .order_by("-effective_on")
+        .first()
+    )
+    if enrolment is None:
+        raise DomainError(
+            f"Student '{student}' has no active enrolment for shift '{shift}' in the "
+            f"cycle covering {as_of_date}."
+        )
+
+    start_date = max(academic_cycle.starts_on, enrolment.effective_on)
+    empty_result = AttendancePercentageResult(
+        student=student,
+        shift=shift,
+        academic_cycle=academic_cycle,
+        as_of_date=as_of_date,
+        elapsed_school_days=0,
+        present_days=0,
+        late_days=0,
+        percentage=None,
+    )
+    if start_date > as_of_date:
+        return empty_result
+
+    versions = list(
+        JornadaParameters.objects.filter(
+            shift=shift, academic_cycle=academic_cycle, is_active=True
+        ).order_by("-effective_from")
+    )
+
+    def school_days_as_of(candidate_date):
+        version = next((v for v in versions if v.effective_from <= candidate_date), None)
+        return version.school_days if version is not None else None
+
+    qualifying_dates = []
+    current = start_date
+    while current <= as_of_date:
+        school_days = school_days_as_of(current)
+        if school_days is not None and current.isoweekday() in school_days:
+            qualifying_dates.append(current)
+        current += timedelta(days=1)
+
+    if not qualifying_dates:
+        return empty_result
+
+    results = derive_day_statuses(
+        students=[student], shift=shift, event_dates=qualifying_dates, as_of=timezone.now()
+    )
+    resolved = [
+        results.get((student.pk, event_date))
+        for event_date in qualifying_dates
+        if results.get((student.pk, event_date)) is not None
+    ]
+    present_days = sum(1 for result in resolved if result.status == DayStatus.PRESENT)
+    late_days = sum(1 for result in resolved if result.status == DayStatus.LATE)
+    elapsed_school_days = len(resolved)
+    percentage = (
+        round((present_days + late_days) / elapsed_school_days * 100, 2)
+        if elapsed_school_days
+        else None
+    )
+    return AttendancePercentageResult(
+        student=student,
+        shift=shift,
+        academic_cycle=academic_cycle,
+        as_of_date=as_of_date,
+        elapsed_school_days=elapsed_school_days,
+        present_days=present_days,
+        late_days=late_days,
+        percentage=percentage,
+    )

@@ -5,6 +5,8 @@ RF-JOR-003 — precedencia entre eventos.
 RF-JOR-004 — cierre de jornada.
 RF-JOR-005 — deteccion de inconsistencias entre fuentes.
 RF-JOR-006 — recalculo ante cambios.
+RF-JOR-008 — consulta de presencia en tiempo real.
+RF-JOR-009 — porcentaje de asistencia del ciclo.
 
 All in isolation from the API layer.
 """
@@ -1103,3 +1105,259 @@ def test_derive_day_statuses_agrees_with_deriving_each_pair_on_its_own():
     assert batched[(present.pk, days[0])].status == DayStatus.PRESENT
     assert batched[(late.pk, days[0])].status == DayStatus.LATE
     assert batched[(absent.pk, days[0])].status == DayStatus.ABSENT_PENDING_JUSTIFICATION
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-008 — presencia en tiempo real
+# --------------------------------------------------------------------------- #
+
+
+def test_list_present_students_includes_entry_without_exit_and_excludes_entry_with_exit():
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    present_student = StudentFactory()
+    departed_student = StudentFactory()
+    create_enrolment(
+        student=present_student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    create_enrolment(
+        student=departed_student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=cycle.starts_on,
+    )
+    AttendanceEventFactory(
+        student=present_student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(cycle.starts_on, 7, 0),
+    )
+    AttendanceEventFactory(
+        student=departed_student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(cycle.starts_on, 7, 0),
+    )
+    AttendanceEventFactory(
+        student=departed_student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(cycle.starts_on, 15, 0),
+    )
+
+    present = services.list_present_students(
+        shift=shift, event_date=cycle.starts_on, as_of=_at(cycle.starts_on, 16, 0)
+    )
+
+    assert [entry.student for entry in present] == [present_student]
+
+
+def test_list_present_students_filters_by_grade_and_section():
+    cycle = AcademicCycleFactory()
+    shift = ShiftFactory(campus=CampusFactory(institution=cycle.institution))
+    section_a = SectionFactory(academic_cycle=cycle, shift=shift)
+    section_b = SectionFactory(academic_cycle=cycle, shift=shift)
+    student_a = StudentFactory()
+    student_b = StudentFactory()
+    create_enrolment(
+        student=student_a, academic_cycle=cycle, grade=section_a.offering.grade, section=section_a
+    )
+    create_enrolment(
+        student=student_b, academic_cycle=cycle, grade=section_b.offering.grade, section=section_b
+    )
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=cycle.starts_on,
+    )
+    for student in (student_a, student_b):
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=cycle.starts_on,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=_at(cycle.starts_on, 7, 0),
+        )
+
+    by_section = services.list_present_students(
+        shift=shift,
+        event_date=cycle.starts_on,
+        section=section_a,
+        as_of=_at(cycle.starts_on, 10, 0),
+    )
+    by_grade = services.list_present_students(
+        shift=shift,
+        event_date=cycle.starts_on,
+        grade=section_b.offering.grade,
+        as_of=_at(cycle.starts_on, 10, 0),
+    )
+
+    assert [entry.student for entry in by_section] == [student_a]
+    assert [entry.student for entry in by_grade] == [student_b]
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-009 — porcentaje de asistencia del ciclo
+# --------------------------------------------------------------------------- #
+
+
+def test_compute_attendance_percentage_counts_present_and_late_over_elapsed_school_days():
+    start = timezone.localdate() - timedelta(days=30)
+    day0, day1, day2 = start, start + timedelta(days=1), start + timedelta(days=2)
+    cycle = AcademicCycleFactory(starts_on=start, ends_on=start + timedelta(days=200))
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=start,
+    )
+    shift = section.offering.shift
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=start,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=day0,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(day0, 7, 0),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=day1,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(day1, 8, 0),
+    )
+    # day2 has no entry: closed and absent, since it's 28 days in the past.
+
+    result = services.compute_attendance_percentage(student=student, shift=shift, as_of_date=day2)
+
+    assert result.elapsed_school_days == 3
+    assert result.present_days == 1
+    assert result.late_days == 1
+    assert result.percentage == pytest.approx(66.67, rel=1e-2)
+
+
+def test_compute_attendance_percentage_bounds_start_to_enrolment_effective_on():
+    start = timezone.localdate() - timedelta(days=30)
+    enrolled_from = start + timedelta(days=2)
+    cycle = AcademicCycleFactory(starts_on=start, ends_on=start + timedelta(days=200))
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=enrolled_from,
+    )
+    shift = section.offering.shift
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=start,
+    )
+    # An entry before the enrolment started must never count.
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=start,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(start, 7, 0),
+    )
+
+    result = services.compute_attendance_percentage(
+        student=student, shift=shift, as_of_date=enrolled_from
+    )
+
+    assert result.elapsed_school_days == 1
+    assert result.present_days == 0
+    assert result.percentage == 0.0
+
+
+def test_compute_attendance_percentage_excludes_days_not_yet_closed():
+    tomorrow = timezone.localdate() + timedelta(days=1)
+    cycle = AcademicCycleFactory(starts_on=tomorrow, ends_on=tomorrow + timedelta(days=60))
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=tomorrow,
+    )
+    shift = section.offering.shift
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=tomorrow,
+    )
+
+    result = services.compute_attendance_percentage(
+        student=student, shift=shift, as_of_date=tomorrow
+    )
+
+    assert result.elapsed_school_days == 0
+    assert result.percentage is None
+
+
+def test_compute_attendance_percentage_raises_when_student_not_enrolled_in_cycle_shift():
+    cycle = AcademicCycleFactory()
+    _, _, shift = _enrolled_student(cycle)
+    unrelated_student = StudentFactory()
+
+    with pytest.raises(DomainError):
+        services.compute_attendance_percentage(
+            student=unrelated_student, shift=shift, as_of_date=cycle.starts_on
+        )
