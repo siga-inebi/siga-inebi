@@ -21,5 +21,12 @@ class Teacher(TimeStampedModel):
     appointment_date = models.DateField(null=True, blank=True)
     photo = models.FileField(upload_to="teacher_photos/", blank=True)
 
+    class Meta:
+        # Orden explicito: sin el, paginar es un sorteo. PostgreSQL no garantiza
+        # el mismo orden entre dos consultas con LIMIT/OFFSET sobre un queryset
+        # sin ordenar, asi que recorrer las paginas devolvia filas repetidas y
+        # omitia otras (DRF lo avisa con UnorderedObjectListWarning).
+        ordering = ["employee_code"]
+
     def __str__(self):
         return self.employee_code
