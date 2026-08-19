@@ -19,7 +19,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from apps.academics.models import AcademicCycle, Shift
+from apps.academics.models import AcademicCycle, Grade, Section, Shift
 from apps.attendance import services
 from apps.attendance.models import AttendanceAlert, AttendanceEvent, JornadaParameters
 from apps.audit.services import record_sensitive_read
@@ -32,12 +32,16 @@ from .serializers import (
     AttendanceEventCreateSerializer,
     AttendanceEventResolutionQuerySerializer,
     AttendanceEventSerializer,
+    AttendancePercentageQuerySerializer,
+    AttendancePercentageResultSerializer,
+    AttendancePresenceQuerySerializer,
     DayStatusQuerySerializer,
     DayStatusResultSerializer,
     JornadaClosureRequestSerializer,
     JornadaClosureResultSerializer,
     JornadaParametersCreateSerializer,
     JornadaParametersSerializer,
+    PresentStudentSerializer,
 )
 
 CONFIGURE_PERMISSION = "attendance_jornada_configure"
@@ -298,6 +302,96 @@ class AttendanceAlertListView(GenericAPIView):
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
         return self.get_paginated_response(AttendanceAlertSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar presencia en tiempo real",
+        description=(
+            "Estudiantes con ingreso registrado y sin egreso posterior para una "
+            "jornada y fecha, dentro del alcance del actor. Filtrable por grado y "
+            "seccion."
+        ),
+        tags=TAGS,
+        parameters=[AttendancePresenceQuerySerializer],
+        responses={200: PresentStudentSerializer(many=True)},
+    ),
+)
+class AttendancePresenceListView(GenericAPIView):
+    """RF-JOR-008 contract: who is currently inside, in real time."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PresentStudentSerializer
+
+    def get(self, request):
+        query = AttendancePresenceQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = query.validated_data
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        grade = (
+            _resolve(Grade.objects.all(), payload["grade_id"], "Grade")
+            if payload.get("grade_id")
+            else None
+        )
+        section = (
+            _resolve(Section.objects.all(), payload["section_id"], "Section")
+            if payload.get("section_id")
+            else None
+        )
+        authorized_students = authorized_student_queryset(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION
+        )
+        present = services.list_present_students(
+            shift=shift,
+            event_date=payload.get("event_date"),
+            grade=grade,
+            section=section,
+            students=authorized_students,
+        )
+        page = self.paginate_queryset(present)
+        return self.get_paginated_response(PresentStudentSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar porcentaje de asistencia del ciclo",
+        description=(
+            "Porcentaje de dias lectivos con presente o tarde sobre los dias "
+            "lectivos transcurridos desde el inicio de la matricula activa del "
+            "estudiante en el ciclo vigente."
+        ),
+        tags=TAGS,
+        parameters=[AttendancePercentageQuerySerializer],
+        responses={200: AttendancePercentageResultSerializer},
+    ),
+)
+class AttendancePercentageView(GenericAPIView):
+    """RF-JOR-009 contract: attendance-percentage indicator for the cycle."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendancePercentageResultSerializer
+
+    def get(self, request):
+        query = AttendancePercentageQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = query.validated_data
+        student = _resolve(Student.objects.all(), payload["student_id"], "Student")
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        if not can_access_student(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
+        ):
+            raise PermissionDenied("Actor lacks the required permission or student scope.")
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.percentage.read",
+            resource="Student",
+            resource_identifier=str(student.pk),
+            student=student,
+        )
+        result = services.compute_attendance_percentage(
+            student=student, shift=shift, as_of_date=payload.get("as_of_date")
+        )
+        return Response(AttendancePercentageResultSerializer(result).data)
 
 
 def _resolve(queryset, public_id, label):

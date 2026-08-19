@@ -132,3 +132,37 @@ class JornadaClosureResultSerializer(serializers.Serializer):
     event_date = serializers.DateField()
     statuses = StudentJornadaClosureStatusSerializer(many=True)
     alerts = AttendanceAlertSerializer(many=True)
+
+
+class AttendancePresenceQuerySerializer(serializers.Serializer):
+    shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
+    event_date = serializers.DateField(
+        required=False, help_text="Fecha a consultar; por omision, hoy."
+    )
+    grade_id = serializers.UUIDField(required=False, help_text="Filtro opcional por grado.")
+    section_id = serializers.UUIDField(required=False, help_text="Filtro opcional por seccion.")
+
+
+class PresentStudentSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(source="student.public_id")
+    section_id = serializers.UUIDField(source="section.public_id")
+    entry_event = AttendanceEventSerializer(allow_null=True)
+
+
+class AttendancePercentageQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField()
+    shift_id = serializers.UUIDField()
+    as_of_date = serializers.DateField(
+        required=False, help_text="Fecha de corte; por omision, hoy."
+    )
+
+
+class AttendancePercentageResultSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(source="student.public_id")
+    shift_id = serializers.UUIDField(source="shift.public_id")
+    academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id")
+    as_of_date = serializers.DateField()
+    elapsed_school_days = serializers.IntegerField()
+    present_days = serializers.IntegerField()
+    late_days = serializers.IntegerField()
+    percentage = serializers.FloatField(allow_null=True)

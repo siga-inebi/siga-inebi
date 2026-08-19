@@ -5,6 +5,8 @@ RF-JOR-003 — contrato del endpoint de resolucion de precedencia.
 RF-JOR-004 — contrato del endpoint de cierre de jornada y de alertas.
 RF-JOR-005 — contrato de alertas de inconsistencia generadas al registrar eventos.
 RF-JOR-006 — recalculo ante cambios, disparado desde los mismos endpoints.
+RF-JOR-008 — contrato del endpoint de presencia en tiempo real.
+RF-JOR-009 — contrato del endpoint de porcentaje de asistencia del ciclo.
 """
 
 from datetime import datetime, time, timedelta
@@ -524,3 +526,147 @@ def test_updating_jornada_parameters_does_not_change_earlier_days_derived_status
 
     after_response = auth_client.get(_day_status_url(student, shift, day_before))
     assert after_response.json()["status"] == "tarde"
+
+
+def _presence_url(shift, **params):
+    query = urlencode({"shift_id": str(shift.public_id), **params})
+    return f"{reverse('attendance-presence')}?{query}"
+
+
+def test_presence_requires_authentication(client):
+    shift = ShiftFactory()
+
+    response = client.get(_presence_url(shift))
+
+    assert response.status_code == 403
+
+
+def test_presence_requires_student_scope(auth_client):
+    shift = ShiftFactory()
+
+    response = auth_client.get(_presence_url(shift, event_date=str(timezone.localdate())))
+
+    assert response.status_code == 403
+
+
+def test_presence_lists_only_students_with_entry_and_no_exit_within_scope(auth_client):
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    visible_student = StudentFactory()
+    hidden_student = StudentFactory()
+    create_enrolment(
+        student=visible_student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    create_enrolment(
+        student=hidden_student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    _grant_student_scope(auth_client.user, visible_student)
+    JornadaParametersFactory(shift=shift, academic_cycle=cycle, effective_from=cycle.starts_on)
+    for student in (visible_student, hidden_student):
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=cycle.starts_on,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 0))),
+        )
+
+    response = auth_client.get(_presence_url(shift, event_date=str(cycle.starts_on)))
+
+    assert response.status_code == 200
+    student_ids = {item["student_id"] for item in response.json()["results"]}
+    assert student_ids == {str(visible_student.public_id)}
+
+
+def test_presence_filters_by_section(auth_client):
+    cycle = AcademicCycleFactory()
+    section_a = SectionFactory(academic_cycle=cycle)
+    section_b = SectionFactory(academic_cycle=cycle, shift=section_a.offering.shift)
+    shift = section_a.offering.shift
+    student_a = StudentFactory()
+    student_b = StudentFactory()
+    create_enrolment(
+        student=student_a, academic_cycle=cycle, grade=section_a.offering.grade, section=section_a
+    )
+    create_enrolment(
+        student=student_b, academic_cycle=cycle, grade=section_b.offering.grade, section=section_b
+    )
+    _grant_student_scope(auth_client.user, student_a)
+    _grant_student_scope(auth_client.user, student_b)
+    JornadaParametersFactory(shift=shift, academic_cycle=cycle, effective_from=cycle.starts_on)
+    for student in (student_a, student_b):
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=cycle.starts_on,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 0))),
+        )
+
+    response = auth_client.get(
+        _presence_url(shift, event_date=str(cycle.starts_on), section_id=str(section_a.public_id))
+    )
+
+    assert response.status_code == 200
+    student_ids = {item["student_id"] for item in response.json()["results"]}
+    assert student_ids == {str(student_a.public_id)}
+
+
+def _percentage_url(student, shift, **params):
+    query = urlencode(
+        {"student_id": str(student.public_id), "shift_id": str(shift.public_id), **params}
+    )
+    return f"{reverse('attendance-percentage')}?{query}"
+
+
+def test_percentage_requires_student_scope(auth_client):
+    shift = ShiftFactory()
+    student = StudentFactory()
+
+    response = auth_client.get(_percentage_url(student, shift))
+
+    assert response.status_code == 403
+
+
+def test_percentage_returns_value_for_authorized_student(auth_client):
+    day = timezone.localdate() - timedelta(days=1)
+    cycle = AcademicCycleFactory(starts_on=day, ends_on=day + timedelta(days=200))
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=day,
+    )
+    _grant_student_scope(auth_client.user, student)
+    JornadaParametersFactory(
+        shift=shift, academic_cycle=cycle, effective_from=day, school_days=[1, 2, 3, 4, 5, 6, 7]
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=day,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(day, time(7, 0))),
+    )
+
+    response = auth_client.get(_percentage_url(student, shift, as_of_date=str(day)))
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["elapsed_school_days"] == 1
+    assert data["present_days"] == 1
+    assert data["percentage"] == 100.0
