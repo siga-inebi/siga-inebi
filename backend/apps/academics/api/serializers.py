@@ -293,6 +293,39 @@ class SectionUpdateSerializer(serializers.Serializer):
 
 
 # --------------------------------------------------------------------------- #
+# curriculum plans ("plan de estudios")
+# --------------------------------------------------------------------------- #
+
+
+class CurriculumPlanSerializer(serializers.ModelSerializer):
+    academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
+    grade = GradeRefSerializer(read_only=True)
+    subject = SubjectRefSerializer(read_only=True)
+
+    class Meta:
+        model = CurriculumPlan
+        fields = [
+            "public_id",
+            "is_required",
+            "is_active",
+            "academic_cycle_id",
+            "grade",
+            "subject",
+        ]
+
+
+class CurriculumPlanCreateSerializer(serializers.Serializer):
+    academic_cycle_id = serializers.UUIDField(help_text="Public ID del ciclo escolar.")
+    grade_id = serializers.UUIDField(help_text="Public ID del grado.")
+    subject_id = serializers.UUIDField(help_text="Public ID del curso.")
+    is_required = serializers.BooleanField(required=False, default=True)
+
+
+class CurriculumPlanUpdateSerializer(serializers.Serializer):
+    is_required = serializers.BooleanField(required=False)
+
+
+# --------------------------------------------------------------------------- #
 # teaching assignments
 # --------------------------------------------------------------------------- #
 
