@@ -66,12 +66,12 @@ urlpatterns = [
         name="cycle-evaluation-config",
     ),
     path(
-        "cycles/<uuid:cycle_public_id>/enrolments/<int:enrolment_id>/subjects/<int:subject_id>/current-average/",
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/current-average/",
         CurrentAverageView.as_view(),
         name="grade-current-average",
     ),
     path(
-        "cycles/<uuid:cycle_public_id>/enrolments/<int:enrolment_id>/subjects/<int:subject_id>/final-grade/",
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/final-grade/",
         FinalSubjectGradeView.as_view(),
         name="grade-final-subject-grade",
     ),

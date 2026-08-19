@@ -15,6 +15,8 @@ from apps.evaluation.models import (
     EvaluationUnit,
     Grade,
 )
+from apps.academics.models import Subject
+from apps.enrolments.models import Enrolment
 from apps.people.models import Person
 
 
@@ -82,6 +84,20 @@ class CaptureExceptionGrantSerializer(serializers.ModelSerializer):
     """Contract for granting an exceptional capture window (RF-EVC-004)."""
 
     public_id = serializers.UUIDField(read_only=True)
+    # Opaque identifiers, like the rest of the API: internal primary keys are
+    # never part of the contract (docs/architecture/api-conventions.md, and the
+    # explicit note on PersonSerializer). Clients that only ever see public_id
+    # can also build a picker from any listing endpoint.
+    subject = serializers.SlugRelatedField(
+        slug_field="public_id",
+        queryset=Subject.objects.all(),
+        help_text="Public ID de la subarea alcanzada por la excepcion.",
+    )
+    teacher = serializers.SlugRelatedField(
+        slug_field="public_id",
+        queryset=Person.objects.all(),
+        help_text="Public ID de la persona docente autorizada.",
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
@@ -132,7 +148,19 @@ class GradeSerializer(serializers.ModelSerializer):
     """Contract for registering a unit grade (RF-CAL-001, RF-CAL-002)."""
 
     public_id = serializers.UUIDField(read_only=True)
-    teacher = serializers.PrimaryKeyRelatedField(
+    # Ver la nota de CaptureExceptionGrantSerializer: identificadores opacos.
+    enrolment = serializers.SlugRelatedField(
+        slug_field="public_id",
+        queryset=Enrolment.objects.all(),
+        help_text="Public ID de la matricula a la que pertenece la nota.",
+    )
+    subject = serializers.SlugRelatedField(
+        slug_field="public_id",
+        queryset=Subject.objects.all(),
+        help_text="Public ID de la subarea calificada.",
+    )
+    teacher = serializers.SlugRelatedField(
+        slug_field="public_id",
         queryset=Person.objects.all(),
         write_only=True,
         help_text="Teacher capturing the grade, checked against the capture window.",
