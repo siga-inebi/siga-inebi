@@ -61,7 +61,6 @@ def validate_document_upload(upload):
 
     original_name = getattr(upload, "name", "") or "document"
     content_type = (getattr(upload, "content_type", "") or "").lower()
-    size_bytes = 0
     payload = upload.read()
     size_bytes = len(payload)
     upload.seek(0)
@@ -70,11 +69,6 @@ def validate_document_upload(upload):
         raise DomainError("Uploaded document is empty.")
 
     suffix = Path(original_name).suffix.lower()
-    expected_types = {
-        suffix: {suffix}
-        for suffix in (".pdf", ".jpg", ".jpeg", ".png")
-        if suffix == suffix
-    }
     allowed_suffixes = set().union(*(types for types in ALLOWED_DOCUMENT_CONTENT_TYPES.values()))
     if suffix not in allowed_suffixes:
         raise DomainError("Uploaded document type is not supported.")
@@ -137,10 +131,21 @@ def list_field_tags(*, actor=None, include_sensitive=False):
     return FIELD_TAGS
 
 
-def record_document_read_audit(*, actor, subject=None, resource=None, action="documents.document.read", context=None):
+def record_document_read_audit(
+    *,
+    actor,
+    subject=None,
+    resource=None,
+    action="documents.document.read",
+    context=None,
+):
     """Audits a document read when the caller is allowed to access confidential dossier data."""
     subject_label = resource or type(subject).__name__ if subject is not None else "Document"
-    resource_identifier = str(subject.pk) if subject is not None and getattr(subject, "pk", None) is not None else ""
+    resource_identifier = (
+        str(subject.pk)
+        if subject is not None and getattr(subject, "pk", None) is not None
+        else ""
+    )
     is_authorized = bool(
         actor and (actor.is_superuser or actor.has_atomic_permission(DOCUMENT_READ_PERMISSION))
     )
@@ -379,7 +384,9 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
     they are assembled on demand and not persisted as a stored file record.
     """
     if persist:
-        raise DomainError("Generated documents are compiled in memory and must not be persisted to storage.")
+        raise DomainError(
+            "Generated documents are compiled in memory and must not be persisted to storage."
+        )
 
     data = payload or {}
     student_name = str(data.get("student_name") or "Documento")
@@ -390,12 +397,15 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
         b"%PDF-1.4\n"
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
         b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
-        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] "
+        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
         b"4 0 obj\n<< /Length 77 >>\nstream\nBT /F1 12 Tf 30 90 Td ("
         + title.encode("utf-8")[:80]
         + b") Tj ET\nendstream\nendobj\n"
         b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
-        b"xref\n0 6\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n0000000125 00000 n\n0000000267 00000 n\n0000000780 00000 n\ntrailer\n<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
+        b"xref\n0 6\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n"
+        b"0000000125 00000 n\n0000000267 00000 n\n0000000780 00000 n\ntrailer\n"
+        b"<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
     )
 
     _audit(
