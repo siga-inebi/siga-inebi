@@ -10,6 +10,10 @@ import { useEffect, useState } from "react";
  *
  * Un modulo que falla queda sin badge (`null`), no rompe el menu: el conteo es
  * informativo y su ausencia no debe impedir navegar.
+ *
+ * El numero sale del `count` de la respuesta paginada, no del largo de la
+ * primera pagina: con 100 estudiantes el badge decia 25, que es el tamano de
+ * pagina del backend y no una cantidad de nada.
  */
 export function useModuleCounts(enabled) {
   const [counts, setCounts] = useState({});
@@ -42,8 +46,8 @@ export function useModuleCounts(enabled) {
     Promise.all(
       loaders.map(([key, load]) =>
         load()
-          .then((service) => service.list())
-          .then((records) => [key, records.length])
+          .then((service) => service.listPage({}))
+          .then((page) => [key, page.count])
           .catch(() => [key, null])
       )
     ).then((entries) => {

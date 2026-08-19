@@ -1,12 +1,14 @@
 import { apiClient } from "@shared/api/apiClient.js";
+import { collectAllPages } from "@shared/api/pages.js";
 import { withQuery } from "@shared/api/query.js";
 
 export const studentsService = {
   /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
   listPage: (params) => apiClient.get(withQuery("/students/", params)),
-  // TODO(students-pagination): only returns page 1 (PAGE_SIZE=25 backend-side);
-  // AlumnosPage's own client-side pagination assumes it has the full list.
-  list: () => apiClient.get("/students/").then((page) => page.results),
+  // AlumnosPage pagina, busca y exporta del lado del cliente, asi que necesita
+  // la lista completa: con solo la primera pagina su paginador anunciaba
+  // "25 de 25" y el resto de los estudiantes no existia para quien buscaba.
+  list: () => collectAllPages(studentsService.listPage),
   get: (id) => apiClient.get(`/students/${id}/`),
   listHealthNotes: (studentPublicId) =>
     apiClient

@@ -1,29 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
-/** Tope de seguridad: ningun catalogo deberia recorrer mas paginas que estas. */
-const MAX_PAGES = 40;
+import { collectAllPages } from "@shared/api/pages.js";
 
-/**
- * Recorre todas las paginas de un listado del backend y devuelve las filas.
- *
- * Un selector que solo ofreciera la primera pagina ocultaria registros
- * existentes sin avisar, y el usuario concluiria que no estan dados de alta.
- *
- * @param {(params: object) => Promise<{results: Array, next: ?string}>} fetchPage
- */
-export async function collectAllPages(fetchPage) {
-  const collected = [];
-
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const payload = await fetchPage({ page });
-    collected.push(...(payload?.results ?? []));
-    if (!payload?.next) {
-      break;
-    }
-  }
-
-  return collected;
-}
+export { collectAllPages };
 
 /**
  * Catalogo cargado una vez y expuesto como opciones `{value,label}`.
