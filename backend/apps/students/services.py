@@ -4,13 +4,14 @@ from django.utils import timezone
 from apps.audit.services import record_event
 from apps.common.models import DomainError
 from apps.people.models import Person
+from apps.students.images import normalize_student_photo
 from apps.students.models import (
     EmergencyContact,
     Guardian,
     Student,
     StudentGuardianRelation,
-    StudentObservation,
     StudentHealthNote,
+    StudentObservation,
 )
 
 
@@ -45,6 +46,7 @@ def update_student(*, student, actor=None, **changes):
         content_type = getattr(supplied["photo"], "content_type", "")
         if content_type and not content_type.startswith("image/"):
             raise DomainError("Student photo must be an image.")
+        supplied["photo"] = normalize_student_photo(supplied["photo"])
     if not supplied:
         return student
 
@@ -95,6 +97,16 @@ def _clean_text(value, *, field):
 def _require_active(instance, label):
     if not instance.is_active:
         raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
+
+
+def student_allows_interaction(student):
+    """Only an active, institutionally current student allows ordinary writes."""
+    return student.is_active and student.status == Student.StudentStatus.ACTIVE
+
+
+def _require_student_interaction(student):
+    if not student_allows_interaction(student):
+        raise DomainError("Only active students allow ordinary record interactions.")
 
 
 def _audit(actor, action, instance, **context):
@@ -177,6 +189,8 @@ def create_student_guardian_relation(
     starts_at = starts_at or timezone.localdate()
     if starts_at > timezone.localdate():
         raise DomainError("A guardian relationship cannot start in the future.")
+
+    _require_student_interaction(student)
 
     relationship_label = _clean_text(relationship_label, field="relationship label")
     student = Student.objects.select_for_update().get(pk=student.pk)
@@ -287,7 +301,7 @@ def create_emergency_contact(*, student, name, phone_number, relationship_label,
     - The student must be active.
     - Name, phone number and relationship label cannot be blank.
     """
-    _require_active(student, "Student")
+    _require_student_interaction(student)
     name = _clean_text(name, field="name")
     phone_number = _clean_text(phone_number, field="phone_number")
     relationship_label = _clean_text(relationship_label, field="relationship_label")
@@ -325,34 +339,8 @@ def update_emergency_contact(
 
 
 @transaction.atomic
-def create_student_observation(*, student, description, actor, observed_on=None):
-    _require_active(student, "Student")
-    description = _clean_text(description, field="description")
-    observed_on = observed_on or timezone.localdate()
-    if observed_on > timezone.localdate():
-        raise DomainError("An observation cannot be recorded in the future.")
-    observation = StudentObservation.objects.create(
-        student=student,
-        author=actor,
-        description=description,
-        observed_on=observed_on,
-    )
-    _audit(actor, "students.observation.created", observation, student_id=student.pk)
-    return observation
-
-
-def deactivate_student_observation(*, observation, actor):
-    observation.is_active = False
-    observation.save(update_fields=["is_active", "updated_at"])
-    _audit(
-        actor,
-        "students.observation.deactivated",
-        observation,
-        student_id=observation.student_id,
-    )
-    return observation
 def create_student_health_note(*, student, content, actor, recorded_on=None):
-    _require_active(student, "Student")
+    _require_student_interaction(student)
     content = _clean_text(content, field="content")
     recorded_on = recorded_on or timezone.localdate()
     if recorded_on > timezone.localdate():
@@ -374,3 +362,29 @@ def deactivate_student_health_note(*, health_note, actor):
         student_id=health_note.student_id,
     )
     return health_note
+
+
+@transaction.atomic
+def create_student_observation(*, student, description, actor, observed_on=None):
+    _require_student_interaction(student)
+    description = _clean_text(description, field="description")
+    observed_on = observed_on or timezone.localdate()
+    if observed_on > timezone.localdate():
+        raise DomainError("An observation cannot be recorded in the future.")
+    observation = StudentObservation.objects.create(
+        student=student, author=actor, description=description, observed_on=observed_on
+    )
+    _audit(actor, "students.observation.created", observation, student_id=student.pk)
+    return observation
+
+
+def deactivate_student_observation(*, observation, actor):
+    observation.is_active = False
+    observation.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "students.observation.deactivated",
+        observation,
+        student_id=observation.student_id,
+    )
+    return observation

@@ -21,6 +21,31 @@ from tests.factories.teachers import TeacherFactory
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
 
+def test_close_cycle_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
+
+    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "closed"
+
+
+def test_close_cycle_api_rejects_open_evaluation_unit(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    unit = EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.OPEN)
+
+    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 400
+    assert unit.name in response.json()["error"]["detail"]
+
+
+def test_close_cycle_endpoint_requires_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    assert client.post(reverse("academic-cycle-close", args=[cycle.public_id])).status_code == 403
+
+
 def test_create_academic_cycle_contract(auth_client, institution):
     response = auth_client.post(
         reverse("academic-cycle-list-create"),
@@ -143,8 +168,6 @@ def test_create_section_api_rejects_when_cycle_is_active(auth_client, institutio
 def test_deactivate_section_api_contract(auth_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     section = SectionFactory(academic_cycle=cycle)
-def test_deactivate_section_api_contract(auth_client, institution):
-    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
 
     response = auth_client.delete(reverse("section-detail", args=[section.public_id]))
 
@@ -158,32 +181,6 @@ def test_section_endpoints_require_authentication(client, institution):
 
     assert client.get(reverse("section-list-create")).status_code == 403
     assert client.get(reverse("section-detail", args=[section.public_id])).status_code == 403
-def test_close_cycle_api_contract(auth_client, institution):
-    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
-    EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
-
-    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "closed"
-
-
-def test_close_cycle_api_rejects_open_evaluation_unit(auth_client, institution):
-    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
-    unit = EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.OPEN)
-
-    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
-
-    assert response.status_code == 400
-    assert unit.name in response.json()["error"]["detail"]
-
-
-def test_close_cycle_endpoint_requires_authentication(client, institution):
-    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
-
-    response = client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
-
-    assert response.status_code == 403
 
 
 def test_cycle_endpoints_require_authentication(client, institution):

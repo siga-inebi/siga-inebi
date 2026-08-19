@@ -33,7 +33,12 @@ const STUDENT_FIELDS = [
   { name: "email", label: "Correo (opcional)", type: "email" },
   { name: "phone_number", label: "Telefono (opcional)", type: "tel" },
   { name: "student_code", label: "Codigo de estudiante", required: true },
-  { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
+  {
+    name: "photo",
+    label: "Foto tamaño cédula (295 × 354 px, máximo 5 MB)",
+    type: "file",
+    accept: "image/*",
+  },
 ];
 
 const STUDENT_EDIT_FIELDS = [
@@ -78,10 +83,57 @@ export function AlumnosPage() {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [viewingPhoto, setViewingPhoto] = useState(null);
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [healthNotes, setHealthNotes] = useState([]);
+  const [healthError, setHealthError] = useState("");
+  const [creatingHealthNote, setCreatingHealthNote] = useState(false);
   const [observationsOpen, setObservationsOpen] = useState(false);
   const [observations, setObservations] = useState([]);
   const [observationError, setObservationError] = useState("");
   const [creatingObservation, setCreatingObservation] = useState(false);
+  const [emergencyContactsOpen, setEmergencyContactsOpen] = useState(false);
+  const [emergencyContacts, setEmergencyContacts] = useState([]);
+  const [emergencyContactError, setEmergencyContactError] = useState("");
+  const [creatingEmergencyContact, setCreatingEmergencyContact] =
+    useState(false);
+
+  const openHealth = async () => {
+    setHealthError("");
+    try {
+      setHealthNotes(await studentsService.listHealthNotes(selected.public_id));
+      setHealthOpen(true);
+    } catch (error) {
+      setHealthError(error.message);
+    }
+  };
+
+  const handleCreateHealthNote = async (values) => {
+    const created = await studentsService.createHealthNote(
+      selected.public_id,
+      values
+    );
+    setHealthNotes((current) => [created, ...current]);
+    setCreatingHealthNote(false);
+  };
+
+  const openHealth = async () => {
+    setHealthError("");
+    try {
+      setHealthNotes(await studentsService.listHealthNotes(selected.public_id));
+      setHealthOpen(true);
+    } catch (error) {
+      setHealthError(error.message);
+    }
+  };
+
+  const handleCreateHealthNote = async (values) => {
+    const created = await studentsService.createHealthNote(
+      selected.public_id,
+      values
+    );
+    setHealthNotes((current) => [created, ...current]);
+    setCreatingHealthNote(false);
+  };
 
   const openObservations = async () => {
     setObservationError("");
@@ -102,28 +154,29 @@ export function AlumnosPage() {
     );
     setObservations((current) => [created, ...current]);
     setCreatingObservation(false);
-  const [healthOpen, setHealthOpen] = useState(false);
-  const [healthNotes, setHealthNotes] = useState([]);
-  const [healthError, setHealthError] = useState("");
-  const [creatingHealthNote, setCreatingHealthNote] = useState(false);
+  };
 
-  const openHealth = async () => {
-    setHealthError("");
+  const openEmergencyContacts = async () => {
+    setEmergencyContactError("");
     try {
-      setHealthNotes(await studentsService.listHealthNotes(selected.public_id));
-      setHealthOpen(true);
+      setEmergencyContacts(
+        await studentsService.listEmergencyContacts(selected.public_id)
+      );
+      setEmergencyContactsOpen(true);
     } catch (error) {
-      setHealthError(error.message);
+      setEmergencyContactError(error.message);
     }
   };
 
-  const handleCreateHealthNote = async (values) => {
-    const created = await studentsService.createHealthNote(
+  const handleCreateEmergencyContact = async (values) => {
+    const created = await studentsService.createEmergencyContact(
       selected.public_id,
       values
     );
-    setHealthNotes((current) => [created, ...current]);
-    setCreatingHealthNote(false);
+    setEmergencyContacts((current) => [created, ...current]);
+    setCreatingEmergencyContact(false);
+  };
+
   const [guardianRelations, setGuardianRelations] = useState([]);
   const [availableGuardians, setAvailableGuardians] = useState([]);
   const [linkingGuardian, setLinkingGuardian] = useState(false);
@@ -323,10 +376,15 @@ export function AlumnosPage() {
         actions={
           selected ? (
             <Stack direction="row" gap={1}>
-              <Button onClick={openObservations} variant="outlined">
-                Observaciones
               <Button onClick={openHealth} variant="outlined">
                 Salud
+              </Button>
+              <Button onClick={openObservations} variant="outlined">
+                Observaciones
+              </Button>
+              <Button onClick={openEmergencyContacts} variant="outlined">
+                Contactos de emergencia
+              </Button>
               <Button onClick={openGuardianLink} variant="outlined">
                 Vincular encargado
               </Button>
@@ -409,12 +467,15 @@ export function AlumnosPage() {
         onClose={() => {
           setSelected(null);
           setViewingPhoto(null);
-          setObservationsOpen(false);
-          setObservations([]);
-          setObservationError("");
           setHealthOpen(false);
           setHealthNotes([]);
           setHealthError("");
+          setObservationsOpen(false);
+          setObservations([]);
+          setObservationError("");
+          setEmergencyContactsOpen(false);
+          setEmergencyContacts([]);
+          setEmergencyContactError("");
           setGuardianRelations([]);
           setGuardianError("");
         }}
@@ -425,14 +486,58 @@ export function AlumnosPage() {
       <DetailWindow
         actions={
           <Button
-            onClick={() => setCreatingObservation(true)}
-            variant="contained"
-          >
-            Nueva observación
             onClick={() => setCreatingHealthNote(true)}
             variant="contained"
           >
             Nueva nota
+          </Button>
+        }
+        fields={[
+          {
+            label: "Notas de salud",
+            value: healthError ? (
+              <Alert severity="error">{healthError}</Alert>
+            ) : healthNotes.length ? (
+              <Stack gap={1}>
+                {healthNotes.map((note) => (
+                  <Box key={note.public_id}>
+                    <Typography fontWeight={600} variant="body2">
+                      {note.recorded_on} · {note.author}
+                    </Typography>
+                    <Typography variant="body2">{note.content}</Typography>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <MutedCell>Sin notas de salud</MutedCell>
+            ),
+          },
+        ]}
+        onClose={() => setHealthOpen(false)}
+        open={healthOpen}
+        title={selected ? `Salud de ${fullName(selected)}` : "Salud"}
+      />
+
+      <EntityFormWindow
+        fields={[
+          { name: "content", label: "Información de salud", required: true },
+        ]}
+        initialValues={{ content: "" }}
+        key={creatingHealthNote ? `health-${selected?.id}` : "health-closed"}
+        onCancel={() => setCreatingHealthNote(false)}
+        onSubmit={handleCreateHealthNote}
+        open={creatingHealthNote}
+        submitLabel="Registrar nota"
+        title="Nueva nota de salud"
+      />
+
+      <DetailWindow
+        actions={
+          <Button
+            onClick={() => setCreatingObservation(true)}
+            variant="contained"
+          >
+            Nueva observación
           </Button>
         }
         fields={[
@@ -450,17 +555,6 @@ export function AlumnosPage() {
                     <Typography variant="body2">
                       {observation.description}
                     </Typography>
-            label: "Notas de salud",
-            value: healthError ? (
-              <Alert severity="error">{healthError}</Alert>
-            ) : healthNotes.length ? (
-              <Stack gap={1}>
-                {healthNotes.map((note) => (
-                  <Box key={note.public_id}>
-                    <Typography fontWeight={600} variant="body2">
-                      {note.recorded_on} · {note.author}
-                    </Typography>
-                    <Typography variant="body2">{note.content}</Typography>
                   </Box>
                 ))}
               </Stack>
@@ -489,26 +583,66 @@ export function AlumnosPage() {
         open={creatingObservation}
         submitLabel="Registrar observación"
         title="Nueva observación"
-              <MutedCell>Sin notas de salud</MutedCell>
+      />
+
+      <DetailWindow
+        actions={
+          <Button
+            onClick={() => setCreatingEmergencyContact(true)}
+            variant="contained"
+          >
+            Nuevo contacto
+          </Button>
+        }
+        fields={[
+          {
+            label: "Contactos de emergencia",
+            value: emergencyContactError ? (
+              <Alert severity="error">{emergencyContactError}</Alert>
+            ) : emergencyContacts.length ? (
+              <Stack gap={1}>
+                {emergencyContacts.map((contact) => (
+                  <Box key={contact.public_id}>
+                    <Typography fontWeight={600} variant="body2">
+                      {contact.name} · {contact.relationship_label}
+                    </Typography>
+                    <Typography variant="body2">
+                      {contact.phone_number}
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <MutedCell>Sin contactos de emergencia</MutedCell>
             ),
           },
         ]}
-        onClose={() => setHealthOpen(false)}
-        open={healthOpen}
-        title={selected ? `Salud de ${fullName(selected)}` : "Salud"}
+        onClose={() => setEmergencyContactsOpen(false)}
+        open={emergencyContactsOpen}
+        title={selected ? `Contactos de ${fullName(selected)}` : "Contactos"}
       />
 
       <EntityFormWindow
         fields={[
-          { name: "content", label: "Información de salud", required: true },
+          { name: "name", label: "Nombre", required: true },
+          { name: "phone_number", label: "Teléfono", required: true },
+          {
+            name: "relationship_label",
+            label: "Relación",
+            required: true,
+          },
         ]}
-        initialValues={{ content: "" }}
-        key={creatingHealthNote ? `health-${selected?.id}` : "health-closed"}
-        onCancel={() => setCreatingHealthNote(false)}
-        onSubmit={handleCreateHealthNote}
-        open={creatingHealthNote}
-        submitLabel="Registrar nota"
-        title="Nueva nota de salud"
+        initialValues={{ name: "", phone_number: "", relationship_label: "" }}
+        key={
+          creatingEmergencyContact
+            ? `emergency-contact-${selected?.id}`
+            : "emergency-contact-closed"
+        }
+        onCancel={() => setCreatingEmergencyContact(false)}
+        onSubmit={handleCreateEmergencyContact}
+        open={creatingEmergencyContact}
+        submitLabel="Registrar contacto"
+        title="Nuevo contacto de emergencia"
       />
 
       <ImageDialog

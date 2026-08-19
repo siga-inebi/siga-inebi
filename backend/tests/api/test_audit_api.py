@@ -11,9 +11,13 @@ from django.urls import reverse
 from apps.audit.models import AuditEvent
 from apps.identity.services import disable_account
 from tests.factories.documents import DocumentTemplateFactory
-from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    UserFactory,
+)
 from tests.factories.students import StudentFactory
-from tests.factories.identity import UserFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -103,6 +107,8 @@ def test_exporting_audit_events_via_the_api_generates_a_file_and_is_itself_audit
     assert export_event.action == "audit.export.created"
     assert export_event.actor_id == auth_client.user.id
     assert export_event.context["count"] >= 1
+
+
 def test_reading_a_students_family_contacts_via_the_api_is_audited(auth_client):
     """RF-BIT-003: consulting one identified student's family contact data is a sensitive read."""
     student = StudentFactory()
@@ -116,6 +122,8 @@ def test_reading_a_students_family_contacts_via_the_api_is_audited(auth_client):
     assert event.action == "students.emergency_contacts.read"
     assert event.context["student_id"] == student.pk
     assert event.actor_id == auth_client.user.id
+
+
 def test_disabling_the_actor_does_not_alter_their_past_audit_events(auth_client, institution):
     """
     RF-BIT-007: attribution for a request made through the real API survives
