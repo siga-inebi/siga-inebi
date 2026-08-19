@@ -87,9 +87,7 @@ def validate_document_upload(upload):
 
     max_size = getattr(settings, "DOCUMENT_MAX_UPLOAD_SIZE_BYTES", 10 * 1024 * 1024)
     if size_bytes > max_size:
-        raise DomainError(
-            f"Uploaded document exceeds the maximum size of {max_size} bytes."
-        )
+        raise DomainError(f"Uploaded document exceeds the maximum size of {max_size} bytes.")
 
     return {
         "filename": original_name,
@@ -142,9 +140,7 @@ def record_document_read_audit(
     """Audits a document read when the caller is allowed to access confidential dossier data."""
     subject_label = resource or type(subject).__name__ if subject is not None else "Document"
     resource_identifier = (
-        str(subject.pk)
-        if subject is not None and getattr(subject, "pk", None) is not None
-        else ""
+        str(subject.pk) if subject is not None and getattr(subject, "pk", None) is not None else ""
     )
     is_authorized = bool(
         actor and (actor.is_superuser or actor.has_atomic_permission(DOCUMENT_READ_PERMISSION))
