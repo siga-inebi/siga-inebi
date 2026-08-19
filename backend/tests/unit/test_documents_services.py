@@ -2,18 +2,26 @@ from unittest.mock import patch
 
 import pytest
 from django.core.exceptions import PermissionDenied
+from django.core.files.uploadedfile import SimpleUploadedFile
 
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
-from apps.documents.models import DocumentTemplate
+from apps.documents.models import DocumentRecord, DocumentTemplate
 from apps.documents.services import (
+    compile_generated_document,
     create_document_template,
+    deactivate_document_record,
     deactivate_document_template,
     ensure_official_document_issuance_allowed,
     ensure_official_document_issuance_permission,
     evaluate_official_document_issuance,
     list_field_tags,
+    normalize_document_filename,
+    record_document_read_audit,
+    student_document_dossier,
     update_document_template,
+    validate_document_upload,
 )
 from apps.enrolments.models import EnrolmentDocumentRequirement
 from apps.enrolments.services import create_enrolment, set_document_requirement
@@ -92,6 +100,38 @@ def test_create_document_template_rejects_blank_code():
 def test_create_document_template_rejects_blank_name():
     with pytest.raises(DomainError, match="name"):
         create_document_template(institution=InstitutionFactory(), name="  ", code="CONST")
+
+
+def test_validate_document_upload_accepts_supported_pdf_and_image_types():
+    allowed = [
+        SimpleUploadedFile("constancia.pdf", b"%PDF-1.4 test", content_type="application/pdf"),
+        SimpleUploadedFile("dni.JPG", b"fake-jpg-bytes", content_type="image/jpeg"),
+        SimpleUploadedFile("foto.png", b"fake-png-bytes", content_type="image/png"),
+    ]
+
+    for upload in allowed:
+        validated = validate_document_upload(upload)
+        assert validated["content_type"] in {"application/pdf", "image/jpeg", "image/png"}
+        assert validated["size_bytes"] == len(upload.read())
+        upload.seek(0)
+
+
+def test_validate_document_upload_rejects_unsupported_extension_and_oversized_payload():
+    with pytest.raises(DomainError, match="not supported|unsupported"):
+        validate_document_upload(SimpleUploadedFile("document.exe", b"bad", content_type="application/x-msdownload"))
+
+    oversized = SimpleUploadedFile(
+        "big.pdf",
+        b"%PDF-1.4 " + b"A" * (10 * 1024 * 1024),
+        content_type="application/pdf",
+    )
+    with pytest.raises(DomainError, match="size|too large|maximum"):
+        validate_document_upload(oversized)
+
+
+def test_normalize_document_filename_keeps_safe_and_stable_basename():
+    assert normalize_document_filename("  Mi Documento (oficial).PDF  ") == "mi-documento-oficial.pdf"
+    assert normalize_document_filename("../weird name.png") == "weird-name.png"
 
 
 def _enrolment():
@@ -237,6 +277,82 @@ def test_deactivate_document_template_does_not_record_a_version():
     deactivate_document_template(template=template)
 
     assert template.versions.count() == 1
+
+
+def test_document_template_delete_is_blocked_to_preserve_history():
+    template = DocumentTemplateFactory()
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        template.delete()
+
+
+def test_enrolment_document_requirement_delete_is_blocked_to_preserve_history():
+    enrolment = _enrolment()
+    requirement = set_document_requirement(
+        enrolment=enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+    )
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        requirement.delete()
+
+
+def test_document_record_is_soft_deactivated_instead_of_deleted():
+    student = StudentFactory()
+    record = DocumentRecord.objects.create(
+        student=student,
+        filename="birth-certificate.pdf",
+        storage_key="local/birth-certificate.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    deactivate_document_record(record=record)
+
+    record.refresh_from_db()
+    assert record.is_active is False
+    assert DocumentRecord.objects.filter(pk=record.pk).exists()
+
+
+def test_document_record_delete_is_blocked_to_preserve_history():
+    student = StudentFactory()
+    record = DocumentRecord.objects.create(
+        student=student,
+        filename="guardian-id.png",
+        storage_key="local/guardian-id.png",
+        content_type="image/png",
+        size_bytes=128,
+        checksum="def456",
+    )
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        record.delete()
+
+
+def test_document_record_links_cannot_be_reassigned_after_creation():
+    student = StudentFactory()
+    enrolment = _enrolment()
+    record = DocumentRecord.objects.create(
+        student=student,
+        enrolment=enrolment,
+        filename="student-link.pdf",
+        storage_key="local/student-link.pdf",
+        content_type="application/pdf",
+        size_bytes=512,
+        checksum="ghi789",
+    )
+
+    new_student = StudentFactory()
+    with pytest.raises(RuntimeError, match="cannot be modified|link"):
+        record.student = new_student
+        record.save(update_fields=["student"])
+
+    new_enrolment = _enrolment()
+    with pytest.raises(RuntimeError, match="cannot be modified|link"):
+        record.enrolment = new_enrolment
+        record.save(update_fields=["enrolment"])
 
 
 # --------------------------------------------------------------------------- #
@@ -386,3 +502,111 @@ def test_actor_with_student_view_sensitive_can_include_sensitive_tags():
     tags = list_field_tags(actor=assignment.user, include_sensitive=True)
 
     assert tags == _FAKE_CATALOGUE
+
+
+def test_document_read_audit_is_recorded_for_authorized_users():
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    record_document_read_audit(actor=assignment.user, subject=StudentFactory())
+
+    assert AuditEvent.objects.filter(action="documents.document.read").exists()
+
+
+def test_document_read_audit_logs_denial_for_unauthorized_users():
+    with pytest.raises(PermissionDenied, match="read documents"):
+        record_document_read_audit(actor=UserFactory(), subject=StudentFactory())
+
+    assert AuditEvent.objects.filter(action="documents.document.read_denied").exists()
+
+
+def test_generated_documents_are_compiled_in_memory_and_never_persisted():
+    template = DocumentTemplateFactory()
+
+    generated = compile_generated_document(
+        template=template,
+        payload={"student_name": "Ana López", "document_type": "Constancia"},
+    )
+
+    assert generated.persisted is False
+    assert generated.storage_key is None
+    assert generated.content_type == "application/pdf"
+    assert generated.content.startswith(b"%PDF")
+    assert DocumentRecord.objects.filter(storage_key=generated.storage_key).count() == 0
+
+
+def test_generated_documents_refuse_persistence_to_storage():
+    template = DocumentTemplateFactory()
+
+    with pytest.raises(DomainError, match="persist|storage"):
+        compile_generated_document(template=template, payload={"student_name": "Ana López"}, persist=True)
+
+
+def test_student_document_dossier_includes_document_records_for_the_student():
+    student = StudentFactory()
+    first_section = SectionFactory()
+    first_enrolment = create_enrolment(
+        student=student,
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        section=first_section,
+    )
+    record = DocumentRecord.objects.create(
+        student=student,
+        enrolment=first_enrolment,
+        filename="birth-certificate.pdf",
+        storage_key="local/birth-certificate.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+    set_document_requirement(
+        enrolment=first_enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+
+    dossier = student_document_dossier(student=student)
+
+    assert dossier["documents"][0]["filename"] == "birth-certificate.pdf"
+    assert dossier["documents"][0]["storage_key"] == "local/birth-certificate.pdf"
+    assert dossier["documents"][0]["status"] == DocumentRecord.StorageStatus.ACTIVE
+
+
+def test_student_document_dossier_lists_all_enrolments_and_requirements():
+    student = StudentFactory()
+    first_section = SectionFactory()
+    second_section = SectionFactory()
+    first_enrolment = create_enrolment(
+        student=student,
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        section=first_section,
+    )
+    second_enrolment = create_enrolment(
+        student=student,
+        academic_cycle=second_section.academic_cycle,
+        grade=second_section.grade,
+        section=second_section,
+    )
+    set_document_requirement(
+        enrolment=first_enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+    set_document_requirement(
+        enrolment=second_enrolment,
+        code="GUARDIAN-ID",
+        name="Guardian ID",
+    )
+
+    dossier = student_document_dossier(student=student)
+
+    assert len(dossier["enrolments"]) == 2
+    assert {entry["enrolment_id"] for entry in dossier["enrolments"]} == {
+        str(first_enrolment.public_id),
+        str(second_enrolment.public_id),
+    }
+    assert {item["code"] for item in dossier["requirements"]} == {"BIRTH-CERT", "GUARDIAN-ID"}

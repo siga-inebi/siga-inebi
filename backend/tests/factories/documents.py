@@ -1,7 +1,8 @@
 import factory
 
-from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
+from apps.documents.models import DocumentRecord, DocumentTemplate, DocumentTemplateVersion
 from tests.factories.academic import InstitutionFactory
+from tests.factories.students import StudentFactory
 
 
 class DocumentTemplateFactory(factory.django.DjangoModelFactory):
@@ -24,3 +25,15 @@ class DocumentTemplateVersionFactory(factory.django.DjangoModelFactory):
     name = factory.Sequence(lambda n: f"Template {n}")
     kind = DocumentTemplate.TemplateKind.OTHER
     description = ""
+
+
+class DocumentRecordFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = DocumentRecord
+
+    student = factory.SubFactory(StudentFactory)
+    filename = factory.Sequence(lambda n: f"record-{n}.pdf")
+    storage_key = factory.Sequence(lambda n: f"local/record-{n}.pdf")
+    content_type = "application/pdf"
+    size_bytes = 256
+    checksum = factory.Sequence(lambda n: f"sha256-{n}")

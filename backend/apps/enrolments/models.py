@@ -79,3 +79,6 @@ class EnrolmentDocumentRequirement(TimeStampedModel):
 
     def __str__(self):
         return f"{self.enrolment} - {self.code}"
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Enrolment document requirements cannot be deleted.")
