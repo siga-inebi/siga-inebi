@@ -97,6 +97,16 @@ def _require_active(instance, label):
         raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
 
 
+def student_allows_interaction(student):
+    """Only an active, institutionally current student allows ordinary writes."""
+    return student.is_active and student.status == Student.StudentStatus.ACTIVE
+
+
+def _require_student_interaction(student):
+    if not student_allows_interaction(student):
+        raise DomainError("Only active students allow ordinary record interactions.")
+
+
 def _audit(actor, action, instance, **context):
     record_event(
         actor=actor,
@@ -177,6 +187,8 @@ def create_student_guardian_relation(
     starts_at = starts_at or timezone.localdate()
     if starts_at > timezone.localdate():
         raise DomainError("A guardian relationship cannot start in the future.")
+
+    _require_student_interaction(student)
 
     relationship_label = _clean_text(relationship_label, field="relationship label")
     student = Student.objects.select_for_update().get(pk=student.pk)
@@ -287,7 +299,7 @@ def create_emergency_contact(*, student, name, phone_number, relationship_label,
     - The student must be active.
     - Name, phone number and relationship label cannot be blank.
     """
-    _require_active(student, "Student")
+    _require_student_interaction(student)
     name = _clean_text(name, field="name")
     phone_number = _clean_text(phone_number, field="phone_number")
     relationship_label = _clean_text(relationship_label, field="relationship_label")
@@ -326,7 +338,7 @@ def update_emergency_contact(
 
 @transaction.atomic
 def create_student_health_note(*, student, content, actor, recorded_on=None):
-    _require_active(student, "Student")
+    _require_student_interaction(student)
     content = _clean_text(content, field="content")
     recorded_on = recorded_on or timezone.localdate()
     if recorded_on > timezone.localdate():
@@ -352,7 +364,7 @@ def deactivate_student_health_note(*, health_note, actor):
 
 @transaction.atomic
 def create_student_observation(*, student, description, actor, observed_on=None):
-    _require_active(student, "Student")
+    _require_student_interaction(student)
     description = _clean_text(description, field="description")
     observed_on = observed_on or timezone.localdate()
     if observed_on > timezone.localdate():

@@ -4,7 +4,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.students.models import Student
-from apps.students.services import update_student
+from apps.students.services import student_allows_interaction, update_student
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
@@ -48,3 +48,25 @@ def test_update_student_rejects_non_image_photo_without_replacing_current_file()
 
     student.refresh_from_db()
     assert student.photo.name == original_name
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (Student.StudentStatus.PRE_ENROLLED, False),
+        (Student.StudentStatus.ACTIVE, True),
+        (Student.StudentStatus.INACTIVE, False),
+        (Student.StudentStatus.WITHDRAWN, False),
+        (Student.StudentStatus.GRADUATED, False),
+    ],
+)
+def test_only_active_status_allows_ordinary_interaction(status, expected):
+    student = StudentFactory(status=status, is_active=True)
+
+    assert student_allows_interaction(student) is expected
+
+
+def test_soft_deleted_active_student_does_not_allow_interaction():
+    student = StudentFactory(status=Student.StudentStatus.ACTIVE, is_active=False)
+
+    assert student_allows_interaction(student) is False

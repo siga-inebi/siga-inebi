@@ -131,8 +131,8 @@ def reenrol_student(
     *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
 ):
     """Create a new-cycle enrolment using the student's existing record."""
-    if student.status != student.StudentStatus.ACTIVE or not student.is_active:
-        raise DomainError("Only active students can be reenrolled.")
+    if student.status != student.StudentStatus.PRE_ENROLLED or not student.is_active:
+        raise DomainError("Only pre-enrolled students can be reenrolled.")
 
     previous = (
         Enrolment.objects.filter(student=student)
@@ -154,6 +154,8 @@ def reenrol_student(
         actor=actor,
         effective_on=effective_on,
     )
+    student.status = student.StudentStatus.ACTIVE
+    student.save(update_fields=["status", "updated_at"])
     record_event(
         actor=actor,
         action="enrolments.student.reenrolled",

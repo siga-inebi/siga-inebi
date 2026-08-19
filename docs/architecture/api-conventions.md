@@ -88,6 +88,10 @@
 - `PATCH /api/v1/students/{id}/` modifica codigo, estado o fotografia mediante servicio de
   dominio y genera auditoria. Los datos de `Person` mantienen su endpoint propio.
 - Estados publicados: `pre_enrolled`, `active`, `inactive`, `withdrawn` y `graduated`.
+- Semantica del expediente: `pre_enrolled` conserva al estudiante para matricula o rematricula
+  del siguiente ciclo; `active` habilita interacciones ordinarias; `withdrawn` conserva la salida
+  por desercion; `graduated` conserva la salida tras completar el pensum; `inactive` representa
+  una baja administrativa logica. Matricular o rematricular cambia `pre_enrolled` a `active`.
 - `DELETE /api/v1/students/{id}/` desactiva el expediente; no elimina el registro ni su persona.
 - La fotografia se clasifica `Restricted`; modificarla exige `student.edit_basic` y alcance sobre
   el estudiante. Normalizacion y limites generales del binario pertenecen a RF-ARC-001/002.
