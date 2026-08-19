@@ -41,6 +41,20 @@ const STUDENT_FIELDS = [
   },
 ];
 
+/** Estados de expediente del estudiante, tal como los expone el backend. */
+const STATUS_LABEL = {
+  pre_enrolled: "Preinscrito",
+  active: "Activo",
+  inactive: "Inactivo",
+  withdrawn: "Retirado",
+  graduated: "Graduado",
+};
+
+const STATUS_OPTIONS = Object.entries(STATUS_LABEL).map(([value, label]) => ({
+  value,
+  label,
+}));
+
 const STUDENT_EDIT_FIELDS = [
   ...STUDENT_FIELDS,
   {
@@ -48,13 +62,7 @@ const STUDENT_EDIT_FIELDS = [
     label: "Estado",
     type: "select",
     required: true,
-    options: [
-      { value: "pre_enrolled", label: "Preinscrito" },
-      { value: "active", label: "Activo" },
-      { value: "inactive", label: "Inactivo" },
-      { value: "withdrawn", label: "Retirado" },
-      { value: "graduated", label: "Graduado" },
-    ],
+    options: STATUS_OPTIONS,
   },
 ];
 
@@ -203,7 +211,10 @@ export function AlumnosPage() {
       [
         { label: "Nombre", value: fullName },
         { label: "Codigo", value: (item) => item.student_code },
-        { label: "Estado", value: (item) => item.status },
+        {
+          label: "Estado",
+          value: (item) => STATUS_LABEL[item.status] ?? item.status,
+        },
       ],
       list.filtered
     );
@@ -271,7 +282,7 @@ export function AlumnosPage() {
       label: "Estado",
       render: (student) => (
         <StatusChip
-          label={student.status}
+          label={STATUS_LABEL[student.status] ?? student.status}
           variant={STATUS_VARIANT[student.status] ?? "neutral"}
         />
       ),
@@ -384,7 +395,7 @@ export function AlumnosPage() {
                   label: "Estado",
                   value: (
                     <StatusChip
-                      label={selected.status}
+                      label={STATUS_LABEL[selected.status] ?? selected.status}
                       variant={STATUS_VARIANT[selected.status] ?? "neutral"}
                     />
                   ),
@@ -673,9 +684,14 @@ export function AlumnosPage() {
             label: "Encargado",
             type: "select",
             required: true,
+            // El correo entra en la etiqueta porque dos encargados pueden
+            // llamarse igual, y en un desplegable de nombres repetidos no hay
+            // forma de saber cual se esta eligiendo.
             options: availableGuardians.map((guardian) => ({
               value: guardian.id,
-              label: fullName(guardian),
+              label: [fullName(guardian), guardian.person?.email]
+                .filter(Boolean)
+                .join(" · "),
             })),
           },
           {

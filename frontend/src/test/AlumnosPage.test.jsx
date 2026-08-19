@@ -399,7 +399,9 @@ describe("AlumnosPage", () => {
     await user.click(
       await screen.findByRole("combobox", { name: /^Encargado/ })
     );
-    await user.click(screen.getByRole("option", { name: "Rosa Garcia" }));
+    await user.click(
+      screen.getByRole("option", { name: "Rosa Garcia · rosa@example.test" })
+    );
     await user.type(
       screen.getByLabelText(/^Parentesco o responsabilidad/),
       "Madre"

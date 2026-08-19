@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -11,6 +11,12 @@ import {
   CYCLE_STATUS_VARIANT,
   cyclesService,
 } from "@cycles/cyclesService.js";
+import {
+  labelIndex,
+  useSectionCatalog,
+  useSubjectCatalog,
+  useTeacherCatalog,
+} from "@shared/catalogs/academicCatalogs.js";
 import { formatDate } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
@@ -41,7 +47,13 @@ function CollectionBlock({ children, count, title }) {
   );
 }
 
-/** Lista compacta de texto: el detalle historico es de consulta, no de edicion. */
+/**
+ * Lista compacta de texto: el detalle historico es de consulta, no de edicion.
+ *
+ * Con tope de alto y desplazamiento propio: un ciclo completo trae decenas de
+ * asignaciones, y sin tope el bloque empuja a los demas fuera de la ventana y
+ * obliga a recorrerla entera para llegar al siguiente.
+ */
 function CompactList({ emptyMessage, items, render }) {
   if (items.length === 0) {
     return <EmptyState message={emptyMessage} />;
@@ -54,6 +66,8 @@ function CompactList({ emptyMessage, items, render }) {
         borderColor: "divider",
         borderRadius: 1,
         overflow: "hidden",
+        maxHeight: "18rem",
+        overflowY: "auto",
       }}
     >
       {items.map((item, index) => (
@@ -91,6 +105,19 @@ function refLabel(value) {
  * backend va a rechazar.
  */
 export function CycleDetailWindow({ cycle, onClose }) {
+  const sections = useSectionCatalog();
+  const subjects = useSubjectCatalog();
+  const teachers = useTeacherCatalog();
+
+  const names = useMemo(
+    () => ({
+      sections: labelIndex(sections.options),
+      subjects: labelIndex(subjects.options),
+      teachers: labelIndex(teachers.options),
+    }),
+    [sections.options, subjects.options, teachers.options]
+  );
+
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -197,9 +224,15 @@ export function CycleDetailWindow({ cycle, onClose }) {
               emptyMessage="Este ciclo no registro asignaciones docentes."
               items={assignments}
               render={(assignment) =>
-                `Seccion ${assignment.section_id} · Curso ${assignment.subject_id} · Docente ${
-                  assignment.teacher_id
-                } · desde ${formatDate(assignment.starts_on)}`
+                [
+                  names.sections.get(assignment.section_id) ??
+                    "Seccion sin nombre",
+                  names.subjects.get(assignment.subject_id) ??
+                    "Curso sin nombre",
+                  names.teachers.get(assignment.teacher_id) ??
+                    "Docente sin nombre",
+                  `desde ${formatDate(assignment.starts_on)}`,
+                ].join(" · ")
               }
             />
           </CollectionBlock>
