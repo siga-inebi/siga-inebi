@@ -52,17 +52,17 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ARC-004 | Versiones del documento | Deberia | document-management | Not implemented | #81 | TBD | Modelo versionado |
 | RF-ARC-005 | Consumo de almacenamiento consultable | Deberia | file-storage | Not implemented | #82 | TBD | Para monitoreo |
 | RF-ARC-006 | Retencion de adjuntos de justificacion | Deberia | document-management | Not implemented | #83 | TBD | Depende politica legal |
-| RF-ARC-007 | Los documentos no se eliminan | Debe | document-management | Not implemented | #84 | TBD | Preferir estados |
+| RF-ARC-007 | Los documentos no se eliminan | Debe | document-management | Implemented | #84 | backend/apps/documents/models.py; backend/apps/enrolments/models.py; backend/tests/unit/test_documents_services.py | Preferir estados |
 | RF-DOC-001 | Vinculacion del documento | Debe | document-management | Not implemented | #146 | TBD | Expediente y procesos |
 | RF-DOC-002 | Catalogo de tipos de documento | Debe | document-management | Not implemented | #147 | TBD | Configurable |
 | RF-DOC-003 | Los requisitos documentales se declaran en la matricula | Debe | enrollment-lifecycle | Not implemented | #148 | TBD | Cruza matricula y documentos |
 | RF-DOC-004 | Acceso segun el alcance | Debe | identity-access | Not implemented | #149 | TBD | Lectura restringida |
 | RF-DOC-005 | Descarga controlada | Debe | document-management | Not implemented | #150 | TBD | Enlaces breves |
-| RF-DOC-006 | Auditoria de lectura | Debe | audit-compliance | Not implemented | #151 | TBD | Sensible |
+| RF-DOC-006 | Auditoria de lectura | Debe | audit-compliance | Implemented | #151 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Sensible |
 | RF-DOC-007 | Digitalizacion desde escaner | Deberia | document-management | Not implemented | #152 | TBD | Posterior |
 | RF-DOC-008 | Los documentos generados no se archivan | Debe | document-generation | Not implemented | #153 | TBD | Regla de separacion |
-| RF-DOC-009 | Consulta del expediente documental | Debe | document-management | Not implemented | #154 | TBD | Nucleo administrativo |
-| RF-DOC-010 | Conservacion del vinculo | Debe | document-management | Not implemented | #155 | TBD | Historia persistente |
+| RF-DOC-009 | Consulta del expediente documental | Debe | document-management | Implemented | #154 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Consolidacion del expediente del estudiante, matrículas y requisitos con historial documental |
+| RF-DOC-010 | Conservacion del vinculo | Debe | document-management | Implemented | #155 | backend/apps/documents/models.py; backend/tests/unit/test_documents_services.py | Historial inmutable y bloqueo de cambios de enlace tras la creacion |
 | RF-CIC-001 | Registro del ciclo escolar | Debe | school-cycle | Implemented | #126 | backend/tests/unit/test_academics_services.py; backend/tests/api/test_academics_api.py; backend/tests/integration/test_academics.py | Registro en preparacion, fechas validas y no solapadas por institucion |
 | RF-CIC-002 | Estados del ciclo | Debe | school-cycle | In progress | #127 | backend/tests/unit/test_academics_services.py; backend/tests/unit/test_enrolments_services.py; backend/tests/unit/test_teaching_assignment_services.py; backend/tests/api/test_teaching_assignments_api.py; backend/tests/integration/test_academics.py; backend/tests/integration/test_cycle_state_guardrails.py | Estados explicitos, un solo ciclo activo y bloqueo de matriculas y asignaciones docentes en ciclos cerrados; visibilidad por portal y cobertura de futuros dominios consumidores pendientes |
 | RF-CIC-003 | Apertura del ciclo | Debe | school-cycle | Not implemented | #128 | TBD | Operacion sensible |
