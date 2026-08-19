@@ -94,7 +94,8 @@
   una baja administrativa logica. Matricular o rematricular cambia `pre_enrolled` a `active`.
 - `DELETE /api/v1/students/{id}/` desactiva el expediente; no elimina el registro ni su persona.
 - La fotografia se clasifica `Restricted`; modificarla exige `student.edit_basic` y alcance sobre
-  el estudiante. Normalizacion y limites generales del binario pertenecen a RF-ARC-001/002.
+  el estudiante. La carga admite hasta 5 MB y se valida por contenido; antes de almacenarla se
+  corrige orientacion, recorta y normaliza con Pillow a JPEG de 295 x 354 pixeles.
 
 ## Ciclos escolares
 

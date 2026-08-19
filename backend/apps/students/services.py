@@ -4,6 +4,7 @@ from django.utils import timezone
 from apps.audit.services import record_event
 from apps.common.models import DomainError
 from apps.people.models import Person
+from apps.students.images import normalize_student_photo
 from apps.students.models import (
     EmergencyContact,
     Guardian,
@@ -45,6 +46,7 @@ def update_student(*, student, actor=None, **changes):
         content_type = getattr(supplied["photo"], "content_type", "")
         if content_type and not content_type.startswith("image/"):
             raise DomainError("Student photo must be an image.")
+        supplied["photo"] = normalize_student_photo(supplied["photo"])
     if not supplied:
         return student
 

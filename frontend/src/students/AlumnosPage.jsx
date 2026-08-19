@@ -33,7 +33,12 @@ const STUDENT_FIELDS = [
   { name: "email", label: "Correo (opcional)", type: "email" },
   { name: "phone_number", label: "Telefono (opcional)", type: "tel" },
   { name: "student_code", label: "Codigo de estudiante", required: true },
-  { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
+  {
+    name: "photo",
+    label: "Foto tamaño cédula (295 × 354 px, máximo 5 MB)",
+    type: "file",
+    accept: "image/*",
+  },
 ];
 
 const STUDENT_EDIT_FIELDS = [
