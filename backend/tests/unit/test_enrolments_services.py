@@ -238,6 +238,8 @@ def test_reenrol_student_reuses_student_record_and_previous_enrolment():
         grade=previous_section.grade,
         section=previous_section,
     )
+    student.status = student.StudentStatus.PRE_ENROLLED
+    student.save(update_fields=["status", "updated_at"])
 
     enrolment = reenrol_student(
         student=student,
@@ -250,6 +252,8 @@ def test_reenrol_student_reuses_student_record_and_previous_enrolment():
     assert enrolment.student_id == student.id
     assert enrolment.academic_cycle_id == target_cycle.id
     assert student.enrolments.filter(pk=previous.pk).exists()
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.ACTIVE
 
 
 def test_reenrol_student_requires_previous_enrolment():
@@ -257,7 +261,7 @@ def test_reenrol_student_requires_previous_enrolment():
 
     with pytest.raises(DomainError, match="no previous enrolment"):
         reenrol_student(
-            student=StudentFactory(),
+            student=StudentFactory(status="pre_enrolled"),
             academic_cycle=section.academic_cycle,
             grade=section.grade,
             shift=section.shift,
@@ -265,12 +269,12 @@ def test_reenrol_student_requires_previous_enrolment():
         )
 
 
-def test_reenrol_student_rejects_pre_enrolled_student():
+def test_reenrol_student_rejects_active_student():
     section = SectionFactory(name="A")
 
-    with pytest.raises(DomainError, match="Only active students"):
+    with pytest.raises(DomainError, match="Only pre-enrolled students"):
         reenrol_student(
-            student=StudentFactory(status="pre_enrolled"),
+            student=StudentFactory(status="active"),
             academic_cycle=section.academic_cycle,
             grade=section.grade,
             shift=section.shift,
