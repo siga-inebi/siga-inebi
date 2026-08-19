@@ -10,10 +10,10 @@ const studentsServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
-  listObservations: vi.fn(),
-  createObservation: vi.fn(),
   listHealthNotes: vi.fn(),
   createHealthNote: vi.fn(),
+  listObservations: vi.fn(),
+  createObservation: vi.fn(),
   listGuardianRelations: vi.fn(),
   createGuardianRelation: vi.fn(),
 }));
@@ -68,12 +68,12 @@ describe("AlumnosPage", () => {
     studentsServiceMock.list.mockReset();
     studentsServiceMock.create.mockReset();
     studentsServiceMock.update.mockReset();
-    studentsServiceMock.listObservations.mockReset();
-    studentsServiceMock.createObservation.mockReset();
-    studentsServiceMock.listObservations.mockResolvedValue([]);
     studentsServiceMock.listHealthNotes.mockReset();
     studentsServiceMock.createHealthNote.mockReset();
     studentsServiceMock.listHealthNotes.mockResolvedValue([]);
+    studentsServiceMock.listObservations.mockReset();
+    studentsServiceMock.createObservation.mockReset();
+    studentsServiceMock.listObservations.mockResolvedValue([]);
     studentsServiceMock.listGuardianRelations.mockReset();
     studentsServiceMock.createGuardianRelation.mockReset();
     studentsServiceMock.listGuardianRelations.mockResolvedValue([]);
@@ -323,15 +323,6 @@ describe("AlumnosPage", () => {
     expect(studentsServiceMock.create).not.toHaveBeenCalled();
   });
 
-  test("opens sensitive observations and creates one", async () => {
-    studentsServiceMock.list.mockResolvedValue([
-      { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
-    ]);
-    studentsServiceMock.createObservation.mockResolvedValue({
-      public_id: "22222222-2222-2222-2222-222222222222",
-      author: "directora",
-      description: "Seguimiento pedagogico",
-      observed_on: "2026-08-17",
   test("opens sensitive health section and creates a note", async () => {
     studentsServiceMock.list.mockResolvedValue([
       { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
@@ -341,6 +332,31 @@ describe("AlumnosPage", () => {
       author: "directora",
       content: "Alergia de prueba",
       recorded_on: "2026-08-17",
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<AlumnosPage />);
+
+    await screen.findByText("Maria Jose Lopez Garcia");
+    await user.click(screen.getByRole("button", { name: /Ver detalle/ }));
+    await user.click(screen.getByRole("button", { name: "Salud" }));
+
+    expect(await screen.findByText("Sin notas de salud")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Nueva nota" }));
+    await user.type(
+      screen.getByLabelText(/^Información de salud/),
+      "Alergia de prueba"
+    );
+    await user.click(screen.getByRole("button", { name: "Registrar nota" }));
+
+    await waitFor(() =>
+      expect(studentsServiceMock.createHealthNote).toHaveBeenCalledWith(
+        "11111111-1111-1111-1111-111111111111",
+        { content: "Alergia de prueba" }
+      )
+    );
+    expect(await screen.findByText("Alergia de prueba")).toBeInTheDocument();
+  });
+
   test("links a guardian from the student detail", async () => {
     const guardian = {
       id: 21,
@@ -367,45 +383,6 @@ describe("AlumnosPage", () => {
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.click(screen.getByRole("button", { name: /Ver detalle/ }));
-    await user.click(screen.getByRole("button", { name: "Observaciones" }));
-
-    expect(await screen.findByText("Sin observaciones")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Nueva observación" }));
-    await user.type(
-      screen.getByLabelText(/^Descripción/),
-      "Seguimiento pedagogico"
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Registrar observación" })
-    );
-
-    await waitFor(() =>
-      expect(studentsServiceMock.createObservation).toHaveBeenCalledWith(
-        "11111111-1111-1111-1111-111111111111",
-        { description: "Seguimiento pedagogico" }
-      )
-    );
-    expect(
-      await screen.findByText("Seguimiento pedagogico")
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Salud" }));
-
-    expect(await screen.findByText("Sin notas de salud")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Nueva nota" }));
-    await user.type(
-      screen.getByLabelText(/^Información de salud/),
-      "Alergia de prueba"
-    );
-    await user.click(screen.getByRole("button", { name: "Registrar nota" }));
-
-    await waitFor(() =>
-      expect(studentsServiceMock.createHealthNote).toHaveBeenCalledWith(
-        "11111111-1111-1111-1111-111111111111",
-        { content: "Alergia de prueba" }
-      )
-    );
-    expect(await screen.findByText("Alergia de prueba")).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
     await user.click(
       screen.getByRole("button", { name: "Vincular encargado" })
@@ -435,5 +412,42 @@ describe("AlumnosPage", () => {
     );
     expect(await screen.findByText("Rosa Garcia")).toBeInTheDocument();
     expect(screen.getByText(/Madre.*Principal/)).toBeInTheDocument();
+  });
+
+  test("opens sensitive observations and creates one", async () => {
+    studentsServiceMock.list.mockResolvedValue([
+      { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
+    ]);
+    studentsServiceMock.createObservation.mockResolvedValue({
+      public_id: "22222222-2222-2222-2222-222222222222",
+      author: "directora",
+      description: "Seguimiento pedagogico",
+      observed_on: "2026-08-17",
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<AlumnosPage />);
+
+    await screen.findByText("Maria Jose Lopez Garcia");
+    await user.click(screen.getByRole("button", { name: /Ver detalle/ }));
+    await user.click(screen.getByRole("button", { name: "Observaciones" }));
+    expect(await screen.findByText("Sin observaciones")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Nueva observación" }));
+    await user.type(
+      screen.getByLabelText(/^Descripción/),
+      "Seguimiento pedagogico"
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Registrar observación" })
+    );
+
+    await waitFor(() =>
+      expect(studentsServiceMock.createObservation).toHaveBeenCalledWith(
+        "11111111-1111-1111-1111-111111111111",
+        { description: "Seguimiento pedagogico" }
+      )
+    );
+    expect(
+      await screen.findByText("Seguimiento pedagogico")
+    ).toBeInTheDocument();
   });
 });

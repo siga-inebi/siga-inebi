@@ -9,8 +9,8 @@ from apps.students.models import (
     Guardian,
     Student,
     StudentGuardianRelation,
-    StudentObservation,
     StudentHealthNote,
+    StudentObservation,
 )
 
 
@@ -325,32 +325,6 @@ def update_emergency_contact(
 
 
 @transaction.atomic
-def create_student_observation(*, student, description, actor, observed_on=None):
-    _require_active(student, "Student")
-    description = _clean_text(description, field="description")
-    observed_on = observed_on or timezone.localdate()
-    if observed_on > timezone.localdate():
-        raise DomainError("An observation cannot be recorded in the future.")
-    observation = StudentObservation.objects.create(
-        student=student,
-        author=actor,
-        description=description,
-        observed_on=observed_on,
-    )
-    _audit(actor, "students.observation.created", observation, student_id=student.pk)
-    return observation
-
-
-def deactivate_student_observation(*, observation, actor):
-    observation.is_active = False
-    observation.save(update_fields=["is_active", "updated_at"])
-    _audit(
-        actor,
-        "students.observation.deactivated",
-        observation,
-        student_id=observation.student_id,
-    )
-    return observation
 def create_student_health_note(*, student, content, actor, recorded_on=None):
     _require_active(student, "Student")
     content = _clean_text(content, field="content")
@@ -374,3 +348,29 @@ def deactivate_student_health_note(*, health_note, actor):
         student_id=health_note.student_id,
     )
     return health_note
+
+
+@transaction.atomic
+def create_student_observation(*, student, description, actor, observed_on=None):
+    _require_active(student, "Student")
+    description = _clean_text(description, field="description")
+    observed_on = observed_on or timezone.localdate()
+    if observed_on > timezone.localdate():
+        raise DomainError("An observation cannot be recorded in the future.")
+    observation = StudentObservation.objects.create(
+        student=student, author=actor, description=description, observed_on=observed_on
+    )
+    _audit(actor, "students.observation.created", observation, student_id=student.pk)
+    return observation
+
+
+def deactivate_student_observation(*, observation, actor):
+    observation.is_active = False
+    observation.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "students.observation.deactivated",
+        observation,
+        student_id=observation.student_id,
+    )
+    return observation

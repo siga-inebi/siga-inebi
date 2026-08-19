@@ -57,6 +57,8 @@ def test_audit_events_cannot_be_listed_or_exported_without_the_audit_permission(
 
     assert list_response.status_code == 403
     assert export_response.status_code == 403
+
+
 def test_audit_event_cannot_be_deleted_even_by_the_highest_privilege_actor():
     """
     RF-BIT-005, Escenario 1: "GIVEN un usuario con el rol de mayor privilegio,
