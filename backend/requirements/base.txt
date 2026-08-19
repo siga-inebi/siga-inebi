@@ -3,3 +3,4 @@ djangorestframework==3.16.1
 drf-spectacular==0.28.0
 django-cors-headers==4.7.0
 psycopg[binary]==3.2.9
+Pillow==12.3.0

@@ -1,7 +1,10 @@
+from io import BytesIO
+
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
 from django.urls import reverse
+from PIL import Image
 
 from apps.enrolments.services import create_enrolment
 from apps.people.models import Person
@@ -178,7 +181,9 @@ def test_upload_student_photo(logged_in_client):
         codename="student_edit_basic",
         student=student,
     )
-    photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
+    image_data = BytesIO()
+    Image.new("RGB", (600, 800), color="blue").save(image_data, format="JPEG")
+    photo = SimpleUploadedFile("photo.jpg", image_data.getvalue(), content_type="image/jpeg")
 
     response = logged_in_client.patch(
         reverse("student-detail", args=[student.pk]),
@@ -191,6 +196,9 @@ def test_upload_student_photo(logged_in_client):
     assert data["photo"]
     student.refresh_from_db()
     assert student.photo.name
+    assert student.photo.size <= 5 * 1024 * 1024
+    with Image.open(student.photo) as stored:
+        assert stored.size == (295, 354)
 
 
 @pytest.mark.api

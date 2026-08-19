@@ -240,6 +240,8 @@ def test_reenrolment_crosses_student_and_academic_domains():
         grade=previous_section.grade,
         section=previous_section,
     )
+    student.status = student.StudentStatus.PRE_ENROLLED
+    student.save(update_fields=["status", "updated_at"])
 
     current = reenrol_student(
         student=student,
@@ -252,6 +254,8 @@ def test_reenrolment_crosses_student_and_academic_domains():
     assert current.student_id == previous.student_id
     assert current.academic_cycle_id == target_cycle.id
     assert student.enrolments.count() == 2
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.ACTIVE
 
 
 @pytest.mark.integration
