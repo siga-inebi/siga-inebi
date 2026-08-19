@@ -22,6 +22,11 @@ import { FormTextField } from "@ui/forms/FormTextField.jsx";
  * (`{ name, label, type, help, required, options, min, placeholder, span }`),
  * asi que migrar una pantalla no obliga a reescribir su definicion de campos.
  *
+ * Los campos `select` aceptan ademas `loading`, `optionsError` y `emptyHint`
+ * para los catalogos que se traen del backend: mientras cargan el desplegable
+ * se muestra deshabilitado y no vacio, porque un select sin opciones se lee
+ * como "no hay nada" y esa es otra respuesta.
+ *
  * Los campos se acomodan en dos columnas desde `sm`. Un campo puede pedir el
  * ancho completo con `span: "full"`; los de tipo archivo y los interruptores lo
  * toman siempre, porque partirlos a media reja los deja ilegibles.
@@ -166,19 +171,27 @@ function EntityField({ disabled, field, onChange, value }) {
   }
 
   if (field.type === "select") {
+    const options = normalizeOptions(field.options);
+    // Un catalogo vacio no es un error del formulario, es un dato que falta en
+    // otra pantalla; decirlo ahi mismo evita que la persona busque el problema
+    // en lo que acaba de escribir.
+    const empty = !field.loading && options.length === 0;
+
     return (
       <FormSelect
-        disabled={disabled}
+        disabled={disabled || field.loading || empty}
+        error={field.optionsError}
         fullWidth
-        helperText={field.help}
+        helperText={empty ? (field.emptyHint ?? field.help) : field.help}
         label={field.label}
+        loading={field.loading}
         name={field.name}
         onChange={(event) => onChange(field.name, event.target.value)}
         // Se aceptan opciones como texto plano ("Matutina") o como par
         // {value,label}: las pantallas de listado usan lo primero y los
         // catalogos lo segundo, y no vale la pena forzar una sola forma.
-        options={normalizeOptions(field.options)}
-        placeholder="Seleccione una opcion"
+        options={options}
+        placeholder={field.placeholder ?? "Seleccione una opcion"}
         required={field.required}
         value={value ?? ""}
       />

@@ -80,6 +80,11 @@ export const academicsService = {
   unlinkSubjectFromLevel: (levelId, subjectId) =>
     apiClient.del(`${ROOT}/levels/${levelId}/subjects/${subjectId}/`),
 
+  // secciones: el listado global es plano y trae grado y jornada anidados, que
+  // es justo lo que necesita un selector para etiquetarse sin pedir mas datos.
+  listSections: (params) =>
+    apiClient.get(withQuery(`${ROOT}/sections/`, params)),
+
   // asignaciones docentes
   //
   // No hay endpoint de "asignaciones vigentes": el listado es el historial, y la

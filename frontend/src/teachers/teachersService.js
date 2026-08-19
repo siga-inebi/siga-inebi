@@ -1,6 +1,9 @@
 import { apiClient } from "@shared/api/apiClient.js";
+import { withQuery } from "@shared/api/query.js";
 
 export const teachersService = {
+  /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
+  listPage: (params) => apiClient.get(withQuery("/teachers/", params)),
   // TODO(teachers-pagination): only returns page 1 (PAGE_SIZE=25 backend-side);
   // DocentesPage's own client-side pagination assumes it has the full list.
   list: () => apiClient.get("/teachers/").then((page) => page.results),

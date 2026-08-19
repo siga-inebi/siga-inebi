@@ -12,6 +12,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         model = Teacher
         fields = [
             "id",
+            "public_id",
             "person",
             "employee_code",
             "specialty",
@@ -22,7 +23,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "is_active", "created_at", "updated_at"]
+        read_only_fields = ["id", "public_id", "is_active", "created_at", "updated_at"]
 
     def create(self, validated_data):
         person_data = validated_data.pop("person")
