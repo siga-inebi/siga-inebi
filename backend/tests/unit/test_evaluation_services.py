@@ -17,6 +17,8 @@ Scenario 7: Expiración automática
 Scenario 8: Ciclo que se aparta del valor global
 Scenario 9: Registro de una nota por el docente
 Scenario 10: Nota fuera de rango
+Scenario 11: Promedio en curso con notas pendientes
+Scenario 12: Promedio de las unidades
 """
 
 from datetime import date, timedelta
@@ -29,7 +31,9 @@ from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit, Grade
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_current_average,
     get_effective_unit_count,
+    get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
     register_unit_grade,
@@ -788,3 +792,223 @@ class TestGradeScale:
             value=100,
         )
         assert hundred_grade.value == 100
+
+
+class TestGetCurrentAverage:
+    """Tests for RF-CAL-003: Distinción entre sin calificar y cero."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        """
+        ``count`` units in the cycle, all with a capture window open today
+        so any of them can be graded, but with non-overlapping evaluation
+        periods to satisfy the unit's own exclusion constraint.
+        """
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_average_excludes_pending_units(self):
+        """
+        Scenario 11: Promedio en curso con notas pendientes
+        GIVEN un estudiante con dos unidades calificadas y dos sin registrar
+        WHEN consulta su promedio en curso
+        THEN el sistema lo calcula únicamente sobre las unidades calificadas
+        AND indica cuántas unidades están pendientes de registrar
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 4)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=80,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=90,
+        )
+        # units[2] and units[3] stay ungraded: "sin calificar", not zero.
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] == 85
+        assert result["graded_units"] == 2
+        assert result["pending_units"] == 2
+        assert result["total_units"] == 4
+
+    def test_average_is_none_when_nothing_graded(self):
+        """
+        Test that the average is None, not zero, when no unit has been
+        graded yet: an absence of data must never present as a zero.
+        """
+        cycle = AcademicCycleFactory()
+        self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] is None
+        assert result["graded_units"] == 0
+        assert result["pending_units"] == 2
+
+    def test_average_only_counts_the_given_subject(self):
+        """
+        Test that another subarea's grades don't leak into this subject's average.
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        other_subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=70,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=other_subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=40,
+        )
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] == 70
+        assert result["graded_units"] == 1
+
+
+class TestGetFinalSubjectGrade:
+    """Tests for RF-RES-001: Nota final de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_final_grade_is_the_average_of_all_graded_units(self):
+        """
+        Scenario 12: Promedio de las unidades
+        GIVEN un estudiante con todas las unidades calificadas en una subárea
+        WHEN se calcula su nota final
+        THEN el resultado es el promedio de esas notas
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 3)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        for unit, value in zip(units, (60, 75, 90), strict=True):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=value,
+            )
+
+        result = get_final_subject_grade(enrolment, subject)
+
+        assert result["average"] == 75
+        assert result["graded_units"] == 3
+        assert result["pending_units"] == 0
+
+    def test_final_grade_recalculates_on_correction(self):
+        """
+        Test that the final grade, while the cycle is open, recalculates on
+        every correction (comportamiento exigido) rather than freezing after
+        the first computation.
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=60,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=60,
+        )
+        assert get_final_subject_grade(enrolment, subject)["average"] == 60
+
+        # A correction to an already-registered unit changes the final grade.
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=100,
+        )
+
+        assert get_final_subject_grade(enrolment, subject)["average"] == 80

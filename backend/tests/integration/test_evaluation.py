@@ -21,7 +21,9 @@ from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_current_average,
     get_effective_unit_count,
+    get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
     register_unit_grade,
@@ -565,3 +567,134 @@ class TestGradeScaleIntegration:
             Grade.objects.create(
                 enrolment=enrolment, subject=subject, evaluation_unit=unit, value=101
             )
+
+
+class TestCurrentAverageIntegration:
+    """Integration tests for RF-CAL-003: Distinción entre sin calificar y cero."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_current_average_across_enrolment_and_academics_domains(self):
+        """
+        Scenario 11: Promedio en curso con notas pendientes (cross-domain)
+        GIVEN un estudiante con dos unidades calificadas y dos sin registrar
+        WHEN consulta su promedio en curso
+        THEN el sistema lo calcula únicamente sobre las unidades calificadas
+        AND indica cuántas unidades están pendientes de registrar
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 4)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=60,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=100,
+        )
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] == 80
+        assert result["pending_units"] == 2
+
+
+class TestFinalSubjectGradeIntegration:
+    """Integration tests for RF-RES-001: Nota final de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_final_grade_across_enrolment_and_academics_domains(self):
+        """
+        Scenario 12: Promedio de las unidades (cross-domain)
+        GIVEN un estudiante con todas las unidades calificadas en una subárea
+        WHEN se calcula su nota final
+        THEN el resultado es el promedio de esas notas
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=50,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=70,
+        )
+
+        result = get_final_subject_grade(enrolment, subject)
+
+        assert result["average"] == 60
+        assert result["pending_units"] == 0

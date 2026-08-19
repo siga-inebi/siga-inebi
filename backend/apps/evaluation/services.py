@@ -7,6 +7,9 @@ RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
 RF-EVC-005: Configuracion global heredable
 RF-CAL-001: Registro de la nota de unidad
+RF-CAL-002: Escala y validacion de la nota
+RF-CAL-003: Distincion entre sin calificar y cero
+RF-RES-001: Nota final de la subarea
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -17,6 +20,7 @@ would leave a window for two concurrent requests to both pass the check.
 
 from datetime import date, datetime
 
+from django.db.models import Avg
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, Subject
@@ -483,3 +487,62 @@ def register_unit_grade(
     )
 
     return grade
+
+
+def get_current_average(enrolment: Enrolment, subject: Subject) -> dict:
+    """
+    Running average of a student's registered grades for a subarea (RF-CAL-003).
+
+    A unit with no registered grade is "sin calificar", not zero: it is
+    excluded from the average and only counted as pending. If nothing has
+    been graded yet, ``average`` is None rather than 0, so callers never
+    have to guess whether a 0 is a real grade or an absence of data.
+
+    Args:
+        enrolment: Ties the query to the student, section and cycle.
+        subject: Subarea to average.
+
+    Returns:
+        dict with ``average`` (None if no unit is graded yet),
+        ``graded_units``, ``pending_units`` and ``total_units`` for the
+        enrolment's academic cycle.
+    """
+    total_units = EvaluationUnit.objects.filter(
+        academic_cycle=enrolment.academic_cycle, is_active=True
+    ).count()
+
+    graded = Grade.objects.filter(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit__academic_cycle=enrolment.academic_cycle,
+        is_active=True,
+    )
+    graded_units = graded.count()
+    average = graded.aggregate(average=Avg("value"))["average"]
+
+    return {
+        "average": average,
+        "graded_units": graded_units,
+        "pending_units": total_units - graded_units,
+        "total_units": total_units,
+    }
+
+
+def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
+    """
+    Final grade of a subarea, as the average of its unit grades (RF-RES-001).
+
+    While the cycle is open, this is the same running average as RF-CAL-003
+    (get_current_average): it derives from whatever grades are registered
+    right now and recalculates on every correction, so it stays correct with
+    no extra bookkeeping. It is exposed under its own name and endpoint
+    because "resultado" is its own bounded concept in the domain map, and
+    later requirements (freezing the result once the cycle closes, the
+    single-rounding-point rule, promotion) will need to diverge from the
+    plain running average without touching RF-CAL-003's own contract.
+
+    Returns:
+        Same shape as get_current_average: ``average`` (None if no unit is
+        graded yet), ``graded_units``, ``pending_units`` and ``total_units``.
+    """
+    return get_current_average(enrolment, subject)

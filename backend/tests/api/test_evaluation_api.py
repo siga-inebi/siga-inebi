@@ -23,14 +23,32 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.academics.models import TeachingAssignment
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
 from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
+
+
+def _grant_grade_write(user, *, section, subject, academic_cycle):
+    """
+    Give ``user`` the grade_write permission and a teaching assignment over
+    ``section``/``subject``, matching RF-CAL-006's docente scope.
+    """
+    permission = PermissionFactory(codename="grade_write")
+    RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    TeachingAssignment.objects.create(
+        academic_cycle=academic_cycle,
+        section=section,
+        subject=subject,
+        teacher=user.person,
+        starts_on=academic_cycle.starts_on,
+    )
 
 
 class TestEvaluationUnitAPI:
@@ -538,6 +556,9 @@ class TestGradeAPI:
         enrolment = self._enrolment(cycle)
         subject = SubjectFactory(institution=institution)
         teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
 
         response = auth_client.post(
             reverse(
@@ -574,6 +595,9 @@ class TestGradeAPI:
         enrolment = self._enrolment(cycle)
         subject = SubjectFactory(institution=institution)
         teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
 
         url = reverse(
             "evaluation-unit-grades",
@@ -616,6 +640,9 @@ class TestGradeAPI:
         enrolment = self._enrolment(cycle)
         subject = SubjectFactory(institution=institution)
         teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
 
         response = auth_client.post(
             reverse(
@@ -692,6 +719,213 @@ class TestGradeAPI:
         )
 
         assert response.status_code == 404
+
+
+class TestGradeAuthorizationAPI:
+    """Tests for RF-CAL-006: Alcance del docente sobre las notas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_reject_grade_write_for_subarea_ajena(self, auth_client, institution):
+        """
+        Scenario 12: Subárea ajena
+        GIVEN un docente sin asignación sobre una subárea
+        WHEN intenta registrar una nota de esa subárea
+        THEN el sistema deniega la operación
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        # auth_client.user has the atomic permission but no TeachingAssignment
+        # over this section/subject: an ajena subárea.
+        permission = PermissionFactory(codename="grade_write")
+        RoleAssignmentFactory(user=auth_client.user, role=RoleFactory(permissions=[permission]))
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 85,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert not Grade.objects.filter(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit
+        ).exists()
+
+    def test_reject_grade_write_without_atomic_permission(self, auth_client, institution):
+        """
+        Test that a teacher with a matching assignment but no grade_write
+        permission at all is still denied: scope alone is not enough.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=enrolment.section,
+            subject=subject,
+            teacher=auth_client.user.person,
+            starts_on=cycle.starts_on,
+        )
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 85,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+
+    def test_grade_write_denial_is_audited(self, auth_client, institution):
+        """
+        Test that a denied grade write is recorded in the audit trail
+        (RF-CAL-006 touches the sensitive identity-access domain).
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        permission = PermissionFactory(codename="grade_write")
+        RoleAssignmentFactory(user=auth_client.user, role=RoleFactory(permissions=[permission]))
+
+        auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 85,
+            },
+            content_type="application/json",
+        )
+
+        from apps.audit.models import AuditEvent
+
+        event = AuditEvent.objects.get(action="evaluation.grade_write_denied")
+        assert event.context["enrolment_id"] == str(enrolment.public_id)
+        assert event.context["subject_id"] == str(subject.public_id)
+
+    def test_accept_grade_write_with_matching_assignment(self, auth_client, institution):
+        """
+        Test that a teacher with a matching TeachingAssignment and the
+        grade_write permission can register the grade.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 85,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201, response.json()
+
+    def test_teacher_grade_list_scoped_to_own_assignment(self, auth_client, institution):
+        """
+        Test that a teacher listing grades for a unit only sees the ones for
+        sections/subjects they are assigned to.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        own_subject = SubjectFactory(institution=institution)
+        other_subject = SubjectFactory(institution=institution)
+        own_enrolment = self._enrolment(cycle)
+        other_enrolment = self._enrolment(cycle)
+        Grade.objects.create(
+            enrolment=own_enrolment, subject=own_subject, evaluation_unit=unit, value=80
+        )
+        Grade.objects.create(
+            enrolment=other_enrolment, subject=other_subject, evaluation_unit=unit, value=90
+        )
+        TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=own_enrolment.section,
+            subject=own_subject,
+            teacher=auth_client.user.person,
+            starts_on=cycle.starts_on,
+        )
+
+        response = auth_client.get(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["subject"] == own_subject.id
 
 
 class TestGradeScaleAPI:
@@ -824,6 +1058,12 @@ class TestGradeScaleAPI:
 
         for value in (0, 100):
             enrolment = self._enrolment(cycle)
+            _grant_grade_write(
+                auth_client.user,
+                section=enrolment.section,
+                subject=subject,
+                academic_cycle=cycle,
+            )
             response = auth_client.post(
                 url,
                 {
@@ -836,3 +1076,271 @@ class TestGradeScaleAPI:
             )
             assert response.status_code == 201, response.json()
             assert response.json()["value"] == value
+
+
+class TestCurrentAverageAPI:
+    """Tests for RF-CAL-003: Distinción entre sin calificar y cero."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                EvaluationUnitFactory(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_current_average_excludes_pending_units_api(self, auth_client, institution):
+        """
+        Scenario 11: Promedio en curso con notas pendientes
+        GET {cycle}/enrolments/{enrolment_id}/subjects/{subject_id}/current-average/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        units = self._units(cycle, 4)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        grades_url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(units[0].public_id),
+            },
+        )
+        auth_client.post(
+            grades_url,
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 80,
+            },
+            content_type="application/json",
+        )
+        grades_url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(units[1].public_id),
+            },
+        )
+        auth_client.post(
+            grades_url,
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 90,
+            },
+            content_type="application/json",
+        )
+
+        response = auth_client.get(
+            reverse(
+                "grade-current-average",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.id,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average"] == 85
+        assert data["graded_units"] == 2
+        assert data["pending_units"] == 2
+        assert data["total_units"] == 4
+
+    def test_current_average_is_none_when_nothing_graded_api(self, auth_client, institution):
+        """
+        Test that the average is null, not zero, when nothing is graded yet.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "grade-current-average",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.id,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average"] is None
+        assert data["pending_units"] == 2
+
+    def test_current_average_enrolment_not_found_returns_404(self, auth_client, institution):
+        """
+        Test endpoint with an enrolment from a different cycle.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        other_cycle = AcademicCycleFactory(
+            institution=institution,
+            year=cycle.year + 1,
+            starts_on=date(cycle.year + 1, 1, 1),
+            ends_on=date(cycle.year + 1, 12, 31),
+            status="draft",
+        )
+        enrolment = self._enrolment(other_cycle)
+        subject = SubjectFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "grade-current-average",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.id,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 404
+
+
+class TestFinalSubjectGradeAPI:
+    """Tests for RF-RES-001: Nota final de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                EvaluationUnitFactory(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_final_grade_is_the_average_of_all_graded_units_api(self, auth_client, institution):
+        """
+        Scenario 12: Promedio de las unidades
+        GET {cycle}/enrolments/{enrolment_id}/subjects/{subject_id}/final-grade/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        grades_url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(units[0].public_id),
+            },
+        )
+        auth_client.post(
+            grades_url,
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 60,
+            },
+            content_type="application/json",
+        )
+        grades_url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(units[1].public_id),
+            },
+        )
+        auth_client.post(
+            grades_url,
+            {
+                "enrolment": enrolment.id,
+                "subject": subject.id,
+                "teacher": teacher.id,
+                "value": 100,
+            },
+            content_type="application/json",
+        )
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.id,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average"] == 80
+        assert data["graded_units"] == 2
+        assert data["pending_units"] == 0
+
+    def test_final_grade_enrolment_not_found_returns_404(self, auth_client, institution):
+        """
+        Test endpoint with an invalid enrolment ID.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        subject = SubjectFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": 999999,
+                    "subject_id": subject.id,
+                },
+            )
+        )
+
+        assert response.status_code == 404

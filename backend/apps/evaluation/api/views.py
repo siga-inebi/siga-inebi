@@ -15,14 +15,17 @@ aparecian en el schema publicado. Cada operacion lo declara con
 ``extend_schema``.
 """
 
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.academics.models import AcademicCycle
+from apps.academics.models import AcademicCycle, Subject
+from apps.audit.services import record_event
 from apps.common.models import DomainError
+from apps.enrolments.models import Enrolment
 from apps.evaluation.api.serializers import (
     CaptureExceptionGrantSerializer,
     CycleEvaluationConfigSerializer,
@@ -34,7 +37,9 @@ from apps.evaluation.api.serializers import (
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_current_average,
     get_effective_unit_count,
+    get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
     register_unit_grade,
@@ -42,6 +47,7 @@ from apps.evaluation.services import (
     set_recovery_window,
     update_global_evaluation_config,
 )
+from apps.identity.scopes import teaching_assignment_queryset
 
 TAGS = ["evaluation: configuration"]
 
@@ -436,6 +442,12 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
     """
     List and register unit grades for an evaluation unit (RF-CAL-001).
 
+    RF-CAL-006: a teacher may only write, or list, grades for a section and
+    subject they are formally assigned to (via TeachingAssignment) in the
+    current cycle. An actor with no teaching assignment at all (e.g. a
+    director acting through an administrative scope grant) is not filtered
+    on read; scope enforcement on read only kicks in for actual teachers.
+
     Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
 
     GET  {base}/grades/
@@ -446,28 +458,40 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
     lookup_field = "public_id"
 
     def check_teacher_permission(self):
-        """
-        Verify the caller may capture grades.
-        TODO: enforce docente scope over the subarea once RF-CAL-006 lands.
-        """
+        """Verify the caller is authenticated; scope is checked separately."""
         return bool(self.request.user and self.request.user.is_authenticated)
 
     def get_queryset(self):
-        """Filter grades by unit and cycle from URL parameters."""
+        """
+        Filter grades by unit and cycle from URL parameters, and further by
+        the requesting teacher's own assignments when they are a teacher
+        (RF-CAL-006).
+        """
         cycle_public_id = self.kwargs.get("cycle_public_id")
         unit_public_id = self.kwargs.get("unit_public_id")
-        return Grade.objects.filter(
+        queryset = Grade.objects.filter(
             evaluation_unit__public_id=unit_public_id,
             evaluation_unit__academic_cycle__public_id=cycle_public_id,
             is_active=True,
         )
+
+        assignments = teaching_assignment_queryset(user=self.request.user)
+        pairs = list(assignments.values_list("section_id", "subject_id"))
+        if pairs:
+            scope = Q(pk__in=[])
+            for section_id, subject_id in pairs:
+                scope |= Q(enrolment__section_id=section_id, subject_id=subject_id)
+            queryset = queryset.filter(scope)
+
+        return queryset
 
     def create(self, request, *args, **kwargs):
         """
         POST .../grades/
 
         Registers (or updates) the consolidated grade for a student, subarea
-        and unit.
+        and unit. Denied, and audited as denied, if the caller has no
+        assignment over the enrolment's section and the subject (RF-CAL-006).
         """
         if not self.check_teacher_permission():
             return Response(
@@ -494,10 +518,35 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        enrolment = serializer.validated_data["enrolment"]
+        subject = serializer.validated_data["subject"]
+
+        if not request.user.has_scoped_permission(
+            "grade_write", scope={"section": enrolment.section, "subject": subject}
+        ):
+            record_event(
+                actor=request.user,
+                action="evaluation.grade_write_denied",
+                resource="Grade",
+                context={
+                    "enrolment_id": str(enrolment.public_id),
+                    "subject_id": str(subject.public_id),
+                    "unit_id": str(unit.public_id),
+                },
+            )
+            return Response(
+                {
+                    "error": (
+                        "Permission denied. No teaching assignment over this section and subject."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
             grade = register_unit_grade(
-                enrolment=serializer.validated_data["enrolment"],
-                subject=serializer.validated_data["subject"],
+                enrolment=enrolment,
+                subject=subject,
                 evaluation_unit=unit,
                 teacher=serializer.validated_data["teacher"],
                 value=serializer.validated_data["value"],
@@ -511,3 +560,94 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
 
         serializer = self.get_serializer(grade)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
+    """
+    Resolve (enrolment, subject) for the current-average and final-grade
+    endpoints, both keyed the same way. Returns (enrolment, subject, None) on
+    success, or (None, None, error_response) on a 404.
+    """
+    try:
+        enrolment = Enrolment.objects.get(
+            pk=enrolment_id,
+            academic_cycle__public_id=cycle_public_id,
+            is_active=True,
+        )
+    except Enrolment.DoesNotExist:
+        return (
+            None,
+            None,
+            Response({"error": "Enrolment not found."}, status=status.HTTP_404_NOT_FOUND),
+        )
+
+    try:
+        subject = Subject.objects.get(pk=subject_id, is_active=True)
+    except Subject.DoesNotExist:
+        return (
+            None,
+            None,
+            Response({"error": "Subject not found."}, status=status.HTTP_404_NOT_FOUND),
+        )
+
+    return enrolment, subject, None
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el promedio en curso de un estudiante en una subarea",
+        description=(
+            "Promedia unicamente las unidades con nota registrada. Una unidad sin "
+            "nota nunca se trata como cero: se cuenta como pendiente."
+        ),
+        tags=TAGS,
+        responses={200: dict},
+    ),
+)
+class CurrentAverageView(APIView):
+    """
+    Running average of a student's grades for a subarea (RF-CAL-003).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/subjects/{subject_id}/current-average/
+    """
+
+    def get(self, request, *args, **kwargs):
+        enrolment, subject, error = _resolve_enrolment_subject(
+            kwargs.get("cycle_public_id"), kwargs.get("enrolment_id"), kwargs.get("subject_id")
+        )
+        if error:
+            return error
+
+        return Response(get_current_average(enrolment, subject))
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar la nota final de un estudiante en una subarea",
+        description=(
+            "Promedio de las notas de unidad de la subarea. Mientras el ciclo esta "
+            "abierto, se recalcula ante cualquier correccion."
+        ),
+        tags=TAGS,
+        responses={200: dict},
+    ),
+)
+class FinalSubjectGradeView(APIView):
+    """
+    Final grade of a student's subarea for the cycle (RF-RES-001).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/subjects/{subject_id}/final-grade/
+    """
+
+    def get(self, request, *args, **kwargs):
+        enrolment, subject, error = _resolve_enrolment_subject(
+            kwargs.get("cycle_public_id"), kwargs.get("enrolment_id"), kwargs.get("subject_id")
+        )
+        if error:
+            return error
+
+        return Response(get_final_subject_grade(enrolment, subject))

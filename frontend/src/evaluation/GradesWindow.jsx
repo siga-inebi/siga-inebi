@@ -4,35 +4,54 @@ import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
+import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import { evaluationService } from "@evaluation/evaluationService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDateTime } from "@shared/utils/format.js";
+import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { CodeCell } from "@ui/table/cells.jsx";
 
-const GRADE_COLUMNS = [
-  {
-    key: "enrolment",
-    label: "Inscripcion",
-    render: (row) => <CodeCell value={row.enrolment} />,
-  },
-  {
-    key: "subject",
-    label: "Subarea",
-    render: (row) => <CodeCell value={row.subject} />,
-  },
-  { key: "value", label: "Nota", align: "right", render: (row) => row.value },
-  {
-    key: "updated_at",
-    label: "Ultima actualizacion",
-    render: (row) => formatDateTime(row.updated_at),
-  },
-];
+import { CurrentAverageWindow } from "./CurrentAverageWindow.jsx";
+
+function buildGradeColumns(onViewAverage) {
+  return [
+    {
+      key: "enrolment",
+      label: "Inscripcion",
+      render: (row) => <CodeCell value={row.enrolment} />,
+    },
+    {
+      key: "subject",
+      label: "Subarea",
+      render: (row) => <CodeCell value={row.subject} />,
+    },
+    { key: "value", label: "Nota", align: "right", render: (row) => row.value },
+    {
+      key: "updated_at",
+      label: "Ultima actualizacion",
+      render: (row) => formatDateTime(row.updated_at),
+    },
+    {
+      key: "acciones",
+      label: "Acciones",
+      align: "right",
+      render: (row) => (
+        <ActionIconButton
+          label="Promedio en curso de esta inscripcion y subarea"
+          onClick={() => onViewAverage(row)}
+        >
+          <QueryStatsOutlinedIcon fontSize="small" />
+        </ActionIconButton>
+      ),
+    },
+  ];
+}
 
 const GRADE_FIELDS = [
   {
@@ -72,12 +91,15 @@ export function GradesWindow({ cycleId, onClose, unit }) {
   });
 
   const [registering, setRegistering] = useState(false);
+  const [averageFor, setAverageFor] = useState(null);
 
   const handleRegister = async (payload) => {
     await evaluationService.registerGrade(cycleId, unit.public_id, payload);
     setRegistering(false);
     list.refresh();
   };
+
+  const columns = buildGradeColumns(setAverageFor);
 
   return (
     <>
@@ -105,7 +127,7 @@ export function GradesWindow({ cycleId, onClose, unit }) {
         <Stack gap={2}>
           {list.error ? <Alert severity="error">{list.error}</Alert> : null}
           <DataTable
-            columns={GRADE_COLUMNS}
+            columns={columns}
             emptyMessage="Esta unidad todavia no tiene notas registradas."
             getRowKey={(row) => row.public_id}
             loading={list.loading}
@@ -126,6 +148,16 @@ export function GradesWindow({ cycleId, onClose, unit }) {
           open
           submitLabel="Registrar nota"
           title="Nueva nota de unidad"
+        />
+      ) : null}
+
+      {averageFor ? (
+        <CurrentAverageWindow
+          cycleId={cycleId}
+          enrolmentId={averageFor.enrolment}
+          key={`${averageFor.enrolment}-${averageFor.subject}`}
+          onClose={() => setAverageFor(null)}
+          subjectId={averageFor.subject}
         />
       ) : null}
     </>
