@@ -25,7 +25,10 @@ export function FormSelect({
   return (
     <TextField
       error={Boolean(error)}
-      helperText={error ?? helperText}
+      // `||` y no `??`: un error vacio ("" es el estado "sin error" que usan
+      // los catalogos) tiene que dejar pasar el texto de ayuda, y `??` solo
+      // descarta null/undefined.
+      helperText={error || helperText}
       select
       {...rest}
     >

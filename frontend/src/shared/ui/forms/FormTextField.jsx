@@ -27,7 +27,9 @@ export function FormTextField({
   return (
     <TextField
       error={Boolean(error)}
-      helperText={error ?? helperText ?? counter}
+      // `||` y no `??`: un error vacio ("" es el estado "sin error" de varias
+      // pantallas) tiene que dejar pasar el texto de ayuda.
+      helperText={error || helperText || counter}
       slotProps={maxLength != null ? { htmlInput: { maxLength } } : undefined}
       value={value}
       {...rest}

@@ -173,6 +173,28 @@ const ALERT = {
   created_at: "2026-08-06T12:00:00Z",
 };
 
+const STUDENT = {
+  id: 1,
+  public_id: "student-1",
+  person: { first_name: "Luis", last_name: "Perez" },
+  student_code: "EST-1",
+};
+
+const LEVEL = {
+  public_id: "level-1",
+  name: "Basico",
+  code: "BAS",
+  sequence: 3,
+};
+
+const GRADE = {
+  public_id: "grade-1",
+  name: "Primero Basico",
+  code: "B1",
+  sequence: 1,
+  level: LEVEL,
+};
+
 const SECTION = {
   public_id: "section-a",
   name: "A",
@@ -332,13 +354,62 @@ describe("pantallas de los modulos con backend previo", () => {
   });
 
   describe("EnrolmentsPage", () => {
+    beforeEach(() => {
+      studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
+      academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
+      academicsServiceMock.listLevels.mockResolvedValue(paged([LEVEL]));
+      academicsServiceMock.listLevelGrades.mockResolvedValue(paged([GRADE]));
+    });
+
+    test("muestra nombres en vez de identificadores", async () => {
+      renderWithRouter(<EnrolmentsPage />);
+
+      expect(await screen.findByText("Luis Perez · EST-1")).toBeInTheDocument();
+      expect(screen.getByText("Primero Basico A")).toBeInTheDocument();
+      expect(screen.getByText("Primero Basico · Basico")).toBeInTheDocument();
+      expect(screen.queryByText("student-1")).not.toBeInTheDocument();
+    });
+
+    test("matricula derivando grado y jornada de la seccion", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByRole("heading", { name: "Matriculas vigentes" });
+
+      await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
+      await user.click(screen.getByRole("combobox", { name: /Estudiante/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+      );
+      await user.click(screen.getByRole("combobox", { name: /Ciclo escolar/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+      );
+      await user.click(screen.getByRole("combobox", { name: /Seccion/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Primero Basico A" })
+      );
+      await user.type(screen.getByLabelText(/Vigente desde/), "2026-02-01");
+      await user.click(screen.getByRole("button", { name: "Matricular" }));
+
+      // Grado y jornada no se piden: son propiedades de la seccion elegida, y
+      // pedirlos aparte solo permitiria contradecirlas.
+      expect(enrolmentsServiceMock.matriculate).toHaveBeenCalledWith({
+        student_id: "student-1",
+        academic_cycle_id: "cycle-2026",
+        section_id: "section-a",
+        grade_id: "grade-1",
+        shift_id: "shift-1",
+        effective_on: "2026-02-01",
+      });
+    });
+
     test("muestra las matriculas vigentes", async () => {
       renderWithRouter(<EnrolmentsPage />);
 
       expect(
         await screen.findByRole("heading", { name: "Matriculas vigentes" })
       ).toBeInTheDocument();
-      expect(screen.getByText("student-1")).toBeInTheDocument();
+      expect(screen.getByText("Luis Perez · EST-1")).toBeInTheDocument();
       expect(screen.getByText("Activa")).toBeInTheDocument();
     });
 
@@ -352,7 +423,7 @@ describe("pantallas de los modulos con backend previo", () => {
       // El endpoint de historial exige student_id, asi que la pantalla lo pide
       // en vez de disparar una peticion que el backend rechazaria con 400.
       expect(
-        screen.getByText(/escribe un ID de estudiante en el filtro/)
+        screen.getByText(/elija uno en el filtro de arriba/)
       ).toBeInTheDocument();
       expect(enrolmentsServiceMock.listHistory).not.toHaveBeenCalled();
     });
@@ -360,7 +431,7 @@ describe("pantallas de los modulos con backend previo", () => {
     test("abre el expediente documental de una matricula", async () => {
       const user = userEvent.setup();
       renderWithRouter(<EnrolmentsPage />);
-      await screen.findByText("student-1");
+      await screen.findByText("Luis Perez · EST-1");
 
       await user.click(
         screen.getAllByRole("button", { name: "Requisitos documentales" })[0]
@@ -384,7 +455,7 @@ describe("pantallas de los modulos con backend previo", () => {
       });
       const user = userEvent.setup();
       renderWithRouter(<EnrolmentsPage />);
-      await screen.findByText("student-1");
+      await screen.findByText("Luis Perez · EST-1");
 
       await user.click(
         screen.getAllByRole("button", { name: "Requisitos documentales" })[0]
