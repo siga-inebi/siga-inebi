@@ -40,6 +40,10 @@ const attendanceServiceMock = vi.hoisted(() => ({
   dayStatus: vi.fn(),
   closeJornada: vi.fn(),
   listAlerts: vi.fn(),
+  listControlPoints: vi.fn(),
+  recordScan: vi.fn(),
+  listPresence: vi.fn(),
+  attendancePercentage: vi.fn(),
 }));
 
 const reportingServiceMock = vi.hoisted(() => ({
@@ -201,6 +205,12 @@ describe("pantallas de los modulos con backend previo", () => {
     attendanceServiceMock.dayStatus
       .mockReset()
       .mockResolvedValue({ status: "presente", entry_event: null });
+    attendanceServiceMock.listControlPoints
+      .mockReset()
+      .mockResolvedValue(paged([]));
+    attendanceServiceMock.listPresence.mockReset().mockResolvedValue(paged([]));
+    attendanceServiceMock.attendancePercentage.mockReset();
+    attendanceServiceMock.recordScan.mockReset();
 
     reportingServiceMock.listAlerts
       .mockReset()
@@ -410,14 +420,17 @@ describe("pantallas de los modulos con backend previo", () => {
       const user = userEvent.setup();
       renderWithRouter(<AttendancePage />);
 
-      expect(
+      // Escopado a la tarjeta: "Porcentaje de asistencia" repite los mismos
+      // campos y boton ("ID de estudiante", "ID de jornada", "Consultar").
+      const card = (
         await screen.findByRole("heading", { name: "Estado del dia" })
-      ).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Consultar/ })).toBeDisabled();
+      ).closest("section");
+      const scoped = within(card);
+      expect(scoped.getByRole("button", { name: /Consultar/ })).toBeDisabled();
 
-      await user.type(screen.getByLabelText(/^ID de estudiante/), "student-1");
-      await user.type(screen.getByLabelText(/^ID de jornada/), "shift-1");
-      expect(screen.getByRole("button", { name: /Consultar/ })).toBeDisabled();
+      await user.type(scoped.getByLabelText(/^ID de estudiante/), "student-1");
+      await user.type(scoped.getByLabelText(/^ID de jornada/), "shift-1");
+      expect(scoped.getByRole("button", { name: /Consultar/ })).toBeDisabled();
       expect(attendanceServiceMock.dayStatus).not.toHaveBeenCalled();
     });
 

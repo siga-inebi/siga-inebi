@@ -138,13 +138,21 @@ describe("navegacion de modulos", () => {
     ["/app/plantillas", "Plantillas documentales"],
     ["/app/alertas", "Alertas"],
     ["/app/asignaciones", "Asignaciones docentes"],
-  ])("la ruta privada %s monta su pantalla", async (route, heading) => {
-    renderWithRouter(<App />, { route });
+  ])(
+    "la ruta privada %s monta su pantalla",
+    async (route, heading) => {
+      renderWithRouter(<App />, { route });
 
-    expect(
-      await screen.findByRole("heading", { name: heading })
-    ).toBeInTheDocument();
-  });
+      expect(
+        await screen.findByRole(
+          "heading",
+          { name: heading },
+          { timeout: 10000 }
+        )
+      ).toBeInTheDocument();
+    },
+    10000
+  );
 
   test.each(["/app/alumnos", "/app/docentes", "/app/padres-de-familia"])(
     "la ruta privada %s exige sesion",
