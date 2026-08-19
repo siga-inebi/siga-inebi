@@ -21,7 +21,12 @@ from rest_framework.response import Response
 
 from apps.academics.models import AcademicCycle, Grade, Section, Shift
 from apps.attendance import services
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, JornadaParameters
+from apps.attendance.models import (
+    AttendanceAlert,
+    AttendanceEvent,
+    ControlPoint,
+    JornadaParameters,
+)
 from apps.audit.services import record_sensitive_read
 from apps.common.models import DomainError
 from apps.identity.scopes import authorized_student_queryset, can_access_student
@@ -35,6 +40,7 @@ from .serializers import (
     AttendancePercentageQuerySerializer,
     AttendancePercentageResultSerializer,
     AttendancePresenceQuerySerializer,
+    ControlPointSerializer,
     DayStatusQuerySerializer,
     DayStatusResultSerializer,
     JornadaClosureRequestSerializer,
@@ -42,6 +48,8 @@ from .serializers import (
     JornadaParametersCreateSerializer,
     JornadaParametersSerializer,
     PresentStudentSerializer,
+    ScanCaptureItemResultSerializer,
+    ScanCaptureRequestSerializer,
 )
 
 CONFIGURE_PERMISSION = "attendance_jornada_configure"
@@ -392,6 +400,119 @@ class AttendancePercentageView(GenericAPIView):
             student=student, shift=shift, as_of_date=payload.get("as_of_date")
         )
         return Response(AttendancePercentageResultSerializer(result).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar puntos de control",
+        description="Catalogo de puntos de control por campus. Alta y edicion por Django admin.",
+        tags=TAGS,
+        responses={200: ControlPointSerializer(many=True)},
+    ),
+)
+class ControlPointListView(GenericAPIView):
+    """Read-only reference catalogue consumed by the scan-capture screen."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ControlPointSerializer
+
+    def get_queryset(self):
+        return ControlPoint.objects.select_related("campus").all()
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(ControlPointSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Registrar movimientos por escaneo",
+        description=(
+            "Captura mediada por operador (RF-ASI-001). Cada elemento porta su "
+            "propio `client_event_id`; reenviar el mismo id es un no-op exitoso "
+            "(RF-ASI-010). Un elemento del mismo tipo/estudiante/jornada dentro de "
+            "la ventana de supresion configurada se rechaza sin crear movimiento "
+            "(RF-ASI-004). Un elemento invalido no aborta el resto del lote."
+        ),
+        tags=TAGS,
+        request=ScanCaptureRequestSerializer,
+        responses={200: ScanCaptureItemResultSerializer(many=True)},
+    ),
+)
+class AttendanceScanView(GenericAPIView):
+    """RF-ASI-002 contract: register movements captured by scanning."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ScanCaptureItemResultSerializer
+
+    def post(self, request):
+        _require_permission(request, "attendance_scan")
+        serializer = ScanCaptureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        batch_id = payload["batch_id"]
+        raw_items = payload["items"]
+        transmission = (
+            AttendanceEvent.Transmission.BATCH
+            if batch_id or len(raw_items) > 1
+            else AttendanceEvent.Transmission.INDIVIDUAL
+        )
+
+        resolved = []
+        results_by_index = {}
+        for index, raw_item in enumerate(raw_items):
+            student_code = raw_item["student_code"]
+            try:
+                student = Student.objects.get(student_code=student_code, is_active=True)
+            except Student.DoesNotExist:
+                results_by_index[index] = services.RejectedScanItem(
+                    client_event_id=raw_item["client_event_id"],
+                    reason=f"Student with code '{student_code}' not found.",
+                )
+                continue
+            try:
+                shift = _resolve(Shift.objects.all(), raw_item["shift_id"], "Shift")
+                control_point = _resolve(
+                    ControlPoint.objects.all(), raw_item["control_point_id"], "Control point"
+                )
+            except DomainError as exc:
+                results_by_index[index] = services.RejectedScanItem(
+                    client_event_id=raw_item["client_event_id"], reason=str(exc)
+                )
+                continue
+            resolved.append(
+                (
+                    index,
+                    {
+                        "student": student,
+                        "shift": shift,
+                        "control_point": control_point,
+                        "movement_type": raw_item["movement_type"],
+                        "captured_at": raw_item["captured_at"],
+                        "client_event_id": raw_item["client_event_id"],
+                        "batch_id": batch_id,
+                        "transmission": transmission,
+                    },
+                )
+            )
+
+        outcomes = services.record_scan_batch(
+            items=[item for _, item in resolved], operator=request.user, actor=request.user
+        )
+        for (index, _), outcome in zip(resolved, outcomes, strict=True):
+            results_by_index[index] = outcome
+
+        data = [
+            {
+                "client_event_id": result.client_event_id,
+                "outcome": result.outcome,
+                "event": getattr(result, "event", None),
+                "duplicate_of": getattr(result, "duplicate_of", None),
+                "reason": getattr(result, "reason", ""),
+            }
+            for result in (results_by_index[i] for i in range(len(raw_items)))
+        ]
+        return Response(ScanCaptureItemResultSerializer(data, many=True).data)
 
 
 def _resolve(queryset, public_id, label):

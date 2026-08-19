@@ -186,6 +186,179 @@ def record_attendance_event(
     return event
 
 
+# --------------------------------------------------------------------------- #
+# RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
+# idempotencia
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class ScanCaptureResult:
+    client_event_id: str
+    outcome: str  # "created" | "duplicate_suppressed" | "already_processed"
+    event: AttendanceEvent
+    duplicate_of: AttendanceEvent | None = None
+
+
+@dataclass
+class RejectedScanItem:
+    client_event_id: str
+    outcome: str = "rejected"
+    reason: str = ""
+
+
+@transaction.atomic
+def record_scan_movement(
+    *,
+    student,
+    shift,
+    control_point,
+    movement_type,
+    captured_at,
+    client_event_id,
+    operator,
+    batch_id="",
+    transmission=AttendanceEvent.Transmission.INDIVIDUAL,
+    actor=None,
+):
+    """
+    Register one scanned movement (RF-ASI-002), enforcing:
+
+    - RF-ASI-001: an operator is mandatory. The view already requires an
+      authenticated, permissioned actor before this is ever called, but a
+      future caller that skips the view (a management command, say) must not
+      be able to bypass this — so it's checked here too, not just there.
+    - RF-ASI-010: idempotency by client-generated ``client_event_id``. A
+      resend of an already-registered id is a no-op that returns the
+      original event, never a duplicate or an error.
+    - RF-ASI-004: duplicate suppression within the jornada's configured
+      window, evaluated on student/shift/date/movement_type alone --
+      independent of operator, device or control point. A suppressed
+      duplicate is recorded as an auditable rejection, not as a movement.
+    """
+    if operator is None:
+        raise DomainError("A scan movement must be recorded by an authenticated operator.")
+
+    _require_active(student, "Student")
+    _require_active(shift, "Shift")
+    _require_active(control_point, "Control point")
+
+    if client_event_id:
+        existing = AttendanceEvent.objects.filter(client_event_id=client_event_id).first()
+        if existing is not None:
+            return ScanCaptureResult(
+                client_event_id=client_event_id, outcome="already_processed", event=existing
+            )
+
+    event_date = timezone.localtime(captured_at).date()
+    academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+    parameters = get_effective_parameters(
+        shift=shift, academic_cycle=academic_cycle, on_date=event_date
+    )
+    suppression_window = timedelta(minutes=parameters.duplicate_suppression_minutes)
+
+    duplicate = (
+        AttendanceEvent.objects.filter(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=movement_type,
+            is_active=True,
+            captured_at__gte=captured_at - suppression_window,
+            captured_at__lte=captured_at + suppression_window,
+        )
+        .order_by("-captured_at")
+        .first()
+    )
+    if duplicate is not None:
+        record_event(
+            actor=operator,
+            action="attendance.event.rejected_duplicate",
+            resource="AttendanceEvent",
+            resource_identifier=str(duplicate.pk),
+            context={
+                "student_id": str(student.public_id),
+                "shift_id": str(shift.public_id),
+                "event_date": str(event_date),
+                "movement_type": movement_type,
+                "existing_captured_at": duplicate.captured_at.isoformat(),
+                "client_event_id": client_event_id,
+            },
+        )
+        return ScanCaptureResult(
+            client_event_id=client_event_id,
+            outcome="duplicate_suppressed",
+            event=duplicate,
+            duplicate_of=duplicate,
+        )
+
+    with unique_violation_as(
+        {
+            "unique_attendance_event_client_event_id": (
+                "This client_event_id was already used for another event."
+            )
+        }
+    ):
+        event = AttendanceEvent.objects.create(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=movement_type,
+            origin=AttendanceEvent.Origin.SCAN,
+            transmission=transmission,
+            captured_at=captured_at,
+            control_point=control_point,
+            operator=operator,
+            client_event_id=client_event_id,
+            batch_id=batch_id,
+        )
+
+    record_event(
+        actor=actor or operator,
+        action="attendance.event.recorded",
+        resource="AttendanceEvent",
+        resource_identifier=str(event.pk),
+        context={
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "event_date": str(event_date),
+            "movement_type": movement_type,
+            "origin": AttendanceEvent.Origin.SCAN,
+            "transmission": transmission,
+            "control_point_id": str(control_point.public_id),
+            "client_event_id": client_event_id,
+            "batch_id": batch_id,
+        },
+    )
+    if event_date < timezone.localdate():
+        recalculate_day(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            reason=RecalculationReason.LATE_EVENT,
+            actor=actor or operator,
+        )
+    return ScanCaptureResult(client_event_id=client_event_id, outcome="created", event=event)
+
+
+def record_scan_batch(*, items, operator, actor=None):
+    """
+    RF-ASI-010's batch form: process each already-resolved item through
+    ``record_scan_movement`` independently, so one rejected item (an
+    inactive student, say) never aborts the rest of the batch. Returns
+    results in the same order as ``items``.
+    """
+    results = []
+    for item in items:
+        try:
+            results.append(record_scan_movement(operator=operator, actor=actor, **item))
+        except DomainError as exc:
+            results.append(
+                RejectedScanItem(client_event_id=item.get("client_event_id", ""), reason=str(exc))
+            )
+    return results
+
+
 def _flag_declared_exit_without_entry(*, event, actor):
     """
     RF-JOR-005: a declared exit for a student with no registered entry is a

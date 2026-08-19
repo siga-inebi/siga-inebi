@@ -5,6 +5,8 @@ RF-JOR-003 — precedencia entre eventos, con matricula real de por medio.
 RF-JOR-004 — cierre de jornada, con matricula real de por medio.
 RF-JOR-005 — deteccion de inconsistencias entre fuentes, con matricula real de por medio.
 RF-JOR-006 — recalculo ante cambios, con matricula real de por medio.
+RF-ASI-001/002/004/010 — captura por escaneo con matricula, punto de control
+y supresion de duplicados reales.
 """
 
 from datetime import datetime, time, timedelta
@@ -21,6 +23,7 @@ from tests.factories.academic import (
     SectionFactory,
     ShiftFactory,
 )
+from tests.factories.attendance import ControlPointFactory
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
@@ -337,3 +340,57 @@ def test_parameter_change_recalculation_respects_vigencia_across_enrolment_and_a
     alert_on_or_after.refresh_from_db()
     assert alert_before.is_active is True
     assert alert_on_or_after.is_active is False
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-001/002/004/010 — captura por escaneo
+# --------------------------------------------------------------------------- #
+
+
+def test_scan_capture_end_to_end_with_real_enrolment_control_point_and_duplicate_suppression():
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+    )
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=cycle.starts_on,
+    )
+
+    first = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 0))),
+        client_event_id="e2e-entry-1",
+        operator=operator,
+    )
+    duplicate_attempt = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 2))),
+        client_event_id="e2e-entry-2",
+        operator=operator,
+    )
+
+    assert first.outcome == "created"
+    assert duplicate_attempt.outcome == "duplicate_suppressed"
+    assert AttendanceEvent.objects.filter(student=student, shift=shift).count() == 1
+
+    status = services.derive_day_status(student=student, shift=shift, event_date=cycle.starts_on)
+    assert status.status == DayStatus.PRESENT
+    assert status.entry_event == first.event
