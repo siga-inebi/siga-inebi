@@ -116,6 +116,25 @@ export function AlumnosPage() {
     setCreatingHealthNote(false);
   };
 
+  const openHealth = async () => {
+    setHealthError("");
+    try {
+      setHealthNotes(await studentsService.listHealthNotes(selected.public_id));
+      setHealthOpen(true);
+    } catch (error) {
+      setHealthError(error.message);
+    }
+  };
+
+  const handleCreateHealthNote = async (values) => {
+    const created = await studentsService.createHealthNote(
+      selected.public_id,
+      values
+    );
+    setHealthNotes((current) => [created, ...current]);
+    setCreatingHealthNote(false);
+  };
+
   const openObservations = async () => {
     setObservationError("");
     try {
