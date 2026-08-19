@@ -16,6 +16,8 @@ from apps.enrolments.api.serializers import (
     MatriculationCreateSerializer,
     MatriculationSerializer,
     ReenrolmentCreateSerializer,
+    SectionOccupancyQuerySerializer,
+    SectionOccupancySerializer,
 )
 from apps.enrolments.models import Enrolment
 from apps.students.models import Student
@@ -82,6 +84,48 @@ class ActiveEnrolmentListView(GenericAPIView):
             student = _resolve(Student.objects.all(), student_id, "Student")
         page = self.paginate_queryset(services.active_enrolments(student=student))
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
+
+
+class SectionOccupancyListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SectionOccupancyQuerySerializer
+
+    @extend_schema(
+        summary="Consultar cupo y ocupación por sección",
+        description=(
+            "Cupo maximo declarado y ocupacion en tiempo real (vacantes disponibles y "
+            "utilizadas) por seccion. Filtra opcionalmente por ciclo, grado o una sola "
+            "seccion. Solo secciones activas salvo `include_inactive=true`."
+        ),
+        parameters=[SectionOccupancyQuerySerializer],
+        responses={200: SectionOccupancySerializer(many=True)},
+        tags=["enrolments"],
+    )
+    def get(self, request):
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = query.validated_data
+
+        academic_cycle_id = payload.get("academic_cycle_id")
+        academic_cycle = (
+            _resolve(AcademicCycle.objects.all(), academic_cycle_id, "Academic cycle")
+            if academic_cycle_id
+            else None
+        )
+        grade_id = payload.get("grade_id")
+        grade = _resolve(Grade.objects.all(), grade_id, "Grade") if grade_id else None
+        section_id = payload.get("section_id")
+        section = _resolve(Section.objects.all(), section_id, "Section") if section_id else None
+
+        page = self.paginate_queryset(
+            services.section_occupancy(
+                academic_cycle=academic_cycle,
+                grade=grade,
+                section=section,
+                include_inactive=payload.get("include_inactive", False),
+            )
+        )
+        return self.get_paginated_response(SectionOccupancySerializer(page, many=True).data)
 
 
 class EnrolmentHistoryListView(GenericAPIView):

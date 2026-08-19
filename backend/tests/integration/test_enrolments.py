@@ -12,6 +12,7 @@ from apps.enrolments.services import (
     enrolment_history,
     matriculate_student,
     reenrol_student,
+    section_occupancy,
     set_document_requirement,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
@@ -214,6 +215,51 @@ def test_matriculation_blocks_full_section_and_preserves_student_status():
     student.refresh_from_db()
     assert student.status == student.StudentStatus.PRE_ENROLLED
     assert student.enrolments.count() == 0
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_section_occupancy_reflects_the_same_capacity_guard_used_at_matriculation():
+    """
+    RF-EST-008 vs RF-MAT-004: the read side (occupancy) and the write side
+    (the capacity guard) must agree, since both read the same section state.
+    """
+    section = SectionFactory(capacity=2)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    occupancy = section_occupancy(section=section).get()
+    assert occupancy.capacity == 2
+    assert occupancy.active_enrolment_count == 1
+    assert occupancy.available_seats == 1
+
+    # Fill the last seat.
+    matriculate_student(
+        student=StudentFactory(status="pre_enrolled"),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+        section=section,
+    )
+
+    full = section_occupancy(section=section).get()
+    assert full.active_enrolment_count == 2
+    assert full.available_seats == 0
+
+    # The write-side guard now agrees: the section is full.
+    with pytest.raises(DomainError, match="Section capacity has been reached"):
+        matriculate_student(
+            student=StudentFactory(status="pre_enrolled"),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
 
 
 @pytest.mark.integration

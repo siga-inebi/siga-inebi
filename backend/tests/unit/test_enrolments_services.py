@@ -11,9 +11,10 @@ from apps.enrolments.services import (
     enrolment_history,
     matriculate_student,
     reenrol_student,
+    section_occupancy,
     set_document_requirement,
 )
-from tests.factories.academic import AcademicCycleFactory, SectionFactory
+from tests.factories.academic import AcademicCycleFactory, GradeFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
@@ -409,3 +410,80 @@ def test_active_enrolments_excludes_historical_and_inactive_records():
     inactive.save(update_fields=["is_active", "updated_at"])
 
     assert list(active_enrolments()) == [active]
+
+
+def test_section_occupancy_reports_capacity_and_used_seats():
+    section = SectionFactory(capacity=2)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    )
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.WITHDRAWN,
+    )
+
+    result = section_occupancy(section=section).get()
+
+    assert result.capacity == 2
+    assert result.active_enrolment_count == 1
+    assert result.available_seats == 1
+
+
+def test_section_occupancy_uncapped_section_has_no_available_seats_limit():
+    section = SectionFactory(capacity=0)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    )
+
+    result = section_occupancy(section=section).get()
+
+    assert result.available_seats is None
+
+
+def test_section_occupancy_full_section_has_zero_available_seats():
+    section = SectionFactory(capacity=1)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    )
+
+    result = section_occupancy(section=section).get()
+
+    assert result.available_seats == 0
+
+
+def test_section_occupancy_filters_by_cycle_and_grade():
+    cycle = AcademicCycleFactory()
+    grade = GradeFactory(institution=cycle.institution)
+    matching = SectionFactory(academic_cycle=cycle, grade=grade)
+    SectionFactory()  # unrelated cycle and grade
+
+    result = list(section_occupancy(academic_cycle=cycle, grade=grade))
+
+    assert result == [matching]
+
+
+def test_section_occupancy_excludes_inactive_sections_unless_requested():
+    active_section = SectionFactory()
+    inactive_section = SectionFactory(is_active=False)
+
+    default_result = list(section_occupancy())
+    assert active_section in default_result
+    assert inactive_section not in default_result
+
+    with_inactive = list(section_occupancy(include_inactive=True))
+    assert inactive_section in with_inactive

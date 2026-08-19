@@ -1,11 +1,42 @@
 from django.db import transaction
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from apps.academics.cycle_policies import require_cycle_academic_writes
+from apps.academics.models import Section
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+
+
+def section_occupancy(*, academic_cycle=None, grade=None, section=None, include_inactive=False):
+    """
+    Declared capacity and real-time occupancy per section (RF-EST-008).
+
+    Annotates ``_active_enrolments`` so ``Section.active_enrolment_count`` and
+    ``Section.available_seats`` read the annotation instead of one query per
+    row (see the property docstrings in ``apps.academics.models.Section``).
+    Filters are all optional; passing none of them lists every section.
+    """
+    queryset = Section.objects.select_related(
+        "offering__grade__level", "offering__shift", "offering__academic_cycle"
+    ).annotate(
+        _active_enrolments=Count(
+            "enrolments", filter=Q(enrolments__status=Enrolment.EnrolmentStatus.ACTIVE)
+        )
+    )
+    if not include_inactive:
+        queryset = queryset.filter(is_active=True)
+    if academic_cycle is not None:
+        queryset = queryset.filter(offering__academic_cycle=academic_cycle)
+    if grade is not None:
+        queryset = queryset.filter(offering__grade=grade)
+    if section is not None:
+        queryset = queryset.filter(pk=section.pk)
+    return queryset.order_by(
+        "offering__grade__level__sequence", "offering__grade__sequence", "name"
+    )
 
 
 def _ensure_section_has_capacity(section):

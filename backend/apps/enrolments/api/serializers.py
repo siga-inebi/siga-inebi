@@ -1,6 +1,41 @@
 from rest_framework import serializers
 
+from apps.academics.models import Section
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+
+
+class SectionOccupancySerializer(serializers.ModelSerializer):
+    """Declared capacity plus real-time occupancy for a section (RF-EST-008)."""
+
+    academic_cycle_id = serializers.UUIDField(
+        source="offering.academic_cycle.public_id", read_only=True
+    )
+    grade_id = serializers.UUIDField(source="offering.grade.public_id", read_only=True)
+    occupied_seats = serializers.IntegerField(source="active_enrolment_count", read_only=True)
+    available_seats = serializers.IntegerField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = Section
+        fields = [
+            "public_id",
+            "name",
+            "capacity",
+            "occupied_seats",
+            "available_seats",
+            "academic_cycle_id",
+            "grade_id",
+        ]
+
+
+class SectionOccupancyQuerySerializer(serializers.Serializer):
+    academic_cycle_id = serializers.UUIDField(required=False, help_text="Filtra por ciclo.")
+    grade_id = serializers.UUIDField(required=False, help_text="Filtra por grado.")
+    section_id = serializers.UUIDField(required=False, help_text="Consulta una sola sección.")
+    include_inactive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Incluye secciones desactivadas. Por defecto solo las activas.",
+    )
 
 
 class EnrolmentDocumentRequirementSerializer(serializers.ModelSerializer):
