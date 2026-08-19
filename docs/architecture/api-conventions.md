@@ -54,12 +54,48 @@
 - La consulta exitosa y el intento autenticado denegado generan eventos de auditoria.
 ## Relaciones estudiante-encargado
 
+- `GET /api/v1/students/guardian-relations/` lista solo relaciones de estudiantes dentro del
+  alcance `student.view_basic`. Cada elemento conserva `guardian` como identificador y agrega
+  `guardian_detail` de solo lectura con los datos necesarios para presentar al encargado.
 - `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por
   el servicio y no se acepta en el payload.
 - `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como
   principal.
 - `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
   Debe incluir `replacement_relation` al terminar la relacion principal.
+
+## Observaciones del estudiante
+
+- `GET /api/v1/students/{public_id}/observations/` exige `student.view_sensitive` y alcance sobre
+  estudiante. Las observaciones viven fuera del resumen general.
+- `POST` sobre misma ruta exige ademas `student.edit_basic`; autor se deriva de sesion y fecha no
+  puede ser futura.
+- `GET` y `DELETE /api/v1/students/observations/{public_id}/` conservan mismos controles. `DELETE`
+  desactiva sin borrar historia.
+- `PD-005` mantiene pendiente qué roles reciben permiso sensible; API no hardcodea roles.
+## Notas de salud del estudiante
+
+- `GET /api/v1/students/{public_id}/health-notes/` exige `student.view_sensitive` y alcance sobre
+  el estudiante; cada consulta genera auditoria de lectura sensible.
+- `POST` sobre la misma ruta exige ademas `student.edit_basic`; registra contenido no vacio, fecha
+  no futura y autor autenticado. El contenido medico nunca se copia a la bitacora.
+- `GET` y `DELETE /api/v1/students/health-notes/{public_id}/` conservan el mismo control. `DELETE`
+  desactiva la nota sin borrar historia.
+## Expediente estudiantil basico
+
+- `POST /api/v1/students/` registra persona y expediente en una transaccion. Requiere
+  `student.edit_basic` con alcance de modulo `students`; permiso sin alcance se deniega.
+- `PATCH /api/v1/students/{id}/` modifica codigo, estado o fotografia mediante servicio de
+  dominio y genera auditoria. Los datos de `Person` mantienen su endpoint propio.
+- Estados publicados: `pre_enrolled`, `active`, `inactive`, `withdrawn` y `graduated`.
+- Semantica del expediente: `pre_enrolled` conserva al estudiante para matricula o rematricula
+  del siguiente ciclo; `active` habilita interacciones ordinarias; `withdrawn` conserva la salida
+  por desercion; `graduated` conserva la salida tras completar el pensum; `inactive` representa
+  una baja administrativa logica. Matricular o rematricular cambia `pre_enrolled` a `active`.
+- `DELETE /api/v1/students/{id}/` desactiva el expediente; no elimina el registro ni su persona.
+- La fotografia se clasifica `Restricted`; modificarla exige `student.edit_basic` y alcance sobre
+  el estudiante. La carga admite hasta 5 MB y se valida por contenido; antes de almacenarla se
+  corrige orientacion, recorta y normaliza con Pillow a JPEG de 295 x 354 pixeles.
 
 ## Ciclos escolares
 

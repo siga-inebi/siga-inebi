@@ -1,10 +1,16 @@
 from django.urls import include, path
 
-from apps.evaluation.api.views import CycleEvaluationConfigView, EvaluationGlobalConfigView
+from apps.evaluation.api.views import (
+    CurrentAverageView,
+    CycleEvaluationConfigView,
+    EvaluationGlobalConfigView,
+    FinalSubjectGradeView,
+)
 
 from .views import (
     AcademicCycleActivateView,
     AcademicCycleCloneView,
+    AcademicCycleCloseView,
     AcademicCycleListCreateView,
     CampusDetailView,
     CampusListCreateView,
@@ -16,6 +22,8 @@ from .views import (
     LevelListCreateView,
     LevelSubjectDetailView,
     LevelSubjectListCreateView,
+    SectionDetailView,
+    SectionListCreateView,
     ShiftDetailView,
     SubjectDetailView,
     SubjectListCreateView,
@@ -37,6 +45,11 @@ urlpatterns = [
         name="academic-cycle-activate",
     ),
     path(
+        "cycles/<uuid:public_id>/close/",
+        AcademicCycleCloseView.as_view(),
+        name="academic-cycle-close",
+    ),
+    path(
         "cycles/<uuid:cycle_public_id>/evaluation-units/",
         include("apps.evaluation.api.urls"),
     ),
@@ -49,6 +62,16 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/evaluation-config/",
         CycleEvaluationConfigView.as_view(),
         name="cycle-evaluation-config",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<int:enrolment_id>/subjects/<int:subject_id>/current-average/",
+        CurrentAverageView.as_view(),
+        name="grade-current-average",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<int:enrolment_id>/subjects/<int:subject_id>/final-grade/",
+        FinalSubjectGradeView.as_view(),
+        name="grade-final-subject-grade",
     ),
     path(
         "cycles/<uuid:public_id>/clone/",
@@ -85,6 +108,8 @@ urlpatterns = [
     ),
     path("subjects/", SubjectListCreateView.as_view(), name="subject-list-create"),
     path("subjects/<uuid:public_id>/", SubjectDetailView.as_view(), name="subject-detail"),
+    path("sections/", SectionListCreateView.as_view(), name="section-list-create"),
+    path("sections/<uuid:public_id>/", SectionDetailView.as_view(), name="section-detail"),
     path(
         "teaching-assignments/",
         TeachingAssignmentListCreateView.as_view(),

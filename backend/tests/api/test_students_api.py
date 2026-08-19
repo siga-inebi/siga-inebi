@@ -1,7 +1,10 @@
+from io import BytesIO
+
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
 from django.urls import reverse
+from PIL import Image
 
 from apps.enrolments.services import create_enrolment
 from apps.people.models import Person
@@ -34,6 +37,11 @@ def grant_student_permission(user, codename="student_view_basic", **scope):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_create_student(logged_in_client):
+    grant_student_permission(
+        logged_in_client.user,
+        codename="student_edit_basic",
+        module_key="students",
+    )
     person_count = Person.objects.count()
     payload = {
         "person": {
@@ -64,6 +72,11 @@ def test_create_student(logged_in_client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_create_student_missing_person_fields_is_rejected(logged_in_client):
+    grant_student_permission(
+        logged_in_client.user,
+        codename="student_edit_basic",
+        module_key="students",
+    )
     payload = {
         "person": {},
         "student_code": "STU-1001",
@@ -168,7 +181,9 @@ def test_upload_student_photo(logged_in_client):
         codename="student_edit_basic",
         student=student,
     )
-    photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
+    image_data = BytesIO()
+    Image.new("RGB", (600, 800), color="blue").save(image_data, format="JPEG")
+    photo = SimpleUploadedFile("photo.jpg", image_data.getvalue(), content_type="image/jpeg")
 
     response = logged_in_client.patch(
         reverse("student-detail", args=[student.pk]),
@@ -181,6 +196,9 @@ def test_upload_student_photo(logged_in_client):
     assert data["photo"]
     student.refresh_from_db()
     assert student.photo.name
+    assert student.photo.size <= 5 * 1024 * 1024
+    with Image.open(student.photo) as stored:
+        assert stored.size == (295, 354)
 
 
 @pytest.mark.api
@@ -208,7 +226,7 @@ def test_retrieve_missing_student_returns_404(logged_in_client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_update_student(logged_in_client):
-    student = StudentFactory(status=Student.StudentStatus.PRE_ENROLLED)
+    student = StudentFactory(status=Student.StudentStatus.ACTIVE)
     grant_student_permission(
         logged_in_client.user,
         codename="student_edit_basic",
@@ -217,13 +235,13 @@ def test_update_student(logged_in_client):
 
     response = logged_in_client.patch(
         reverse("student-detail", args=[student.pk]),
-        {"status": Student.StudentStatus.ACTIVE},
+        {"status": Student.StudentStatus.GRADUATED},
         content_type="application/json",
     )
 
     assert response.status_code == 200
     student.refresh_from_db()
-    assert student.status == Student.StudentStatus.ACTIVE
+    assert student.status == Student.StudentStatus.GRADUATED
 
 
 @pytest.mark.api
@@ -260,6 +278,11 @@ def test_retrieve_student_outside_scope_is_denied(logged_in_client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_create_student_duplicate_student_code_is_rejected(logged_in_client):
+    grant_student_permission(
+        logged_in_client.user,
+        codename="student_edit_basic",
+        module_key="students",
+    )
     existing = StudentFactory(student_code="STU-2000")
     person_count = Person.objects.count()
 
@@ -276,6 +299,25 @@ def test_create_student_duplicate_student_code_is_rejected(logged_in_client):
     assert response.status_code == 400
     detail = response.json()["error"]["detail"]
     assert "student_code" in detail
+    assert Person.objects.count() == person_count
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_create_student_without_permission_is_denied(logged_in_client):
+    person_count = Person.objects.count()
+
+    response = logged_in_client.post(
+        reverse("student-list"),
+        {
+            "person": {"first_name": "Ana", "last_name": "Ramirez"},
+            "student_code": "STU-DENIED",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert Student.objects.filter(student_code="STU-DENIED").exists() is False
     assert Person.objects.count() == person_count
 
 

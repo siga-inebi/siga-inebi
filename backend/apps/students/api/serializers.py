@@ -1,8 +1,20 @@
 from rest_framework import serializers
 
 from apps.people.api.serializers import PersonSerializer
-from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
-from apps.students.services import create_guardian, create_student, create_student_guardian_relation
+from apps.students.models import (
+    EmergencyContact,
+    Guardian,
+    Student,
+    StudentGuardianRelation,
+    StudentHealthNote,
+    StudentObservation,
+)
+from apps.students.services import (
+    create_guardian,
+    create_student,
+    create_student_guardian_relation,
+    update_student,
+)
 
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a parent record
@@ -23,6 +35,7 @@ class StudentSerializer(serializers.ModelSerializer):
         model = Student
         fields = [
             "id",
+            "public_id",
             "person",
             "student_code",
             "status",
@@ -31,7 +44,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "is_active", "created_at", "updated_at"]
+        read_only_fields = ["id", "public_id", "is_active", "created_at", "updated_at"]
 
     def create(self, validated_data):
         person_data = validated_data.pop("person")
@@ -46,7 +59,8 @@ class StudentSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # Nested person edits aren't supported yet — edit via /api/v1/people/<id>/.
         validated_data.pop("person", None)
-        return super().update(instance, validated_data)
+        actor = getattr(self.context.get("request"), "user", None)
+        return update_student(student=instance, actor=actor, **validated_data)
 
 
 class GuardianSerializer(serializers.ModelSerializer):
@@ -75,12 +89,15 @@ class GuardianSerializer(serializers.ModelSerializer):
 
 
 class StudentGuardianRelationSerializer(serializers.ModelSerializer):
+    guardian_detail = GuardianSerializer(source="guardian", read_only=True)
+
     class Meta:
         model = StudentGuardianRelation
         fields = [
             "id",
             "student",
             "guardian",
+            "guardian_detail",
             "relationship_label",
             "is_primary",
             "starts_at",
@@ -143,3 +160,49 @@ class EmergencyContactUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, required=False)
     phone_number = serializers.CharField(max_length=30, required=False)
     relationship_label = serializers.CharField(max_length=100, required=False)
+
+
+class StudentHealthNoteSerializer(serializers.ModelSerializer):
+    student = StudentRefSerializer(read_only=True)
+    author = serializers.CharField(source="author.username", read_only=True)
+
+    class Meta:
+        model = StudentHealthNote
+        fields = [
+            "public_id",
+            "student",
+            "author",
+            "content",
+            "recorded_on",
+            "is_active",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class StudentHealthNoteCreateSerializer(serializers.Serializer):
+    content = serializers.CharField()
+    recorded_on = serializers.DateField(required=False)
+
+
+class StudentObservationSerializer(serializers.ModelSerializer):
+    student = StudentRefSerializer(read_only=True)
+    author = serializers.CharField(source="author.username", read_only=True)
+
+    class Meta:
+        model = StudentObservation
+        fields = [
+            "public_id",
+            "student",
+            "author",
+            "description",
+            "observed_on",
+            "is_active",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class StudentObservationCreateSerializer(serializers.Serializer):
+    description = serializers.CharField()
+    observed_on = serializers.DateField(required=False)

@@ -15,6 +15,10 @@ Scenario 5: Recuperación fuera de fecha
 Scenario 6: Docente que no alcanzó a subir notas
 Scenario 7: Expiración automática
 Scenario 8: Ciclo que se aparta del valor global
+Scenario 9: Registro de una nota por el docente
+Scenario 10: Nota fuera de rango
+Scenario 11: Promedio en curso con notas pendientes
+Scenario 12: Promedio de las unidades
 """
 
 from datetime import date, timedelta
@@ -23,12 +27,16 @@ import pytest
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.evaluation.models import EvaluationUnit
+from apps.enrolments.services import create_enrolment
+from apps.evaluation.models import EvaluationUnit, Grade
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_current_average,
     get_effective_unit_count,
+    get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
     update_global_evaluation_config,
@@ -36,8 +44,10 @@ from apps.evaluation.services import (
     validate_capture_window_open,
     validate_recovery_window_open,
 )
-from tests.factories.academic import AcademicCycleFactory, SubjectFactory
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.people import PersonFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -560,3 +570,445 @@ class TestGlobalEvaluationConfig:
 
         with pytest.raises(DomainError, match="positive integer"):
             set_cycle_unit_count(academic_cycle=cycle, unit_count=0)
+
+
+class TestRegisterUnitGrade:
+    """Tests for RF-CAL-001: Registro de la nota de unidad."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        """
+        A unit whose capture window brackets today explicitly. The factory's
+        default dates are offset by ``number``, a sequence shared across the
+        whole test session, so they drift away from today as more units are
+        created; the window bounds must be set explicitly here.
+        """
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_register_grade_within_capture_window(self):
+        """
+        Scenario 9: Registro de una nota por el docente
+        GIVEN un docente con una subárea a su cargo y la ventana de captura abierta
+        WHEN registra la nota de un estudiante para la unidad en curso
+        THEN el sistema la almacena asociada al estudiante, la subárea, la unidad y el ciclo
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        grade = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=85,
+        )
+
+        assert grade.enrolment == enrolment
+        assert grade.subject == subject
+        assert grade.evaluation_unit == unit
+        assert grade.evaluation_unit.academic_cycle == cycle
+        assert grade.value == 85
+
+    def test_register_grade_again_updates_the_single_consolidated_value(self):
+        """
+        Registering the same (enrolment, subject, unit) again updates the
+        existing grade instead of creating a duplicate row.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        first = register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=70
+        )
+        second = register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=90
+        )
+
+        assert first.pk == second.pk
+        assert second.value == 90
+        assert (
+            Grade.objects.filter(enrolment=enrolment, subject=subject, evaluation_unit=unit).count()
+            == 1
+        )
+
+    def test_reject_grade_when_capture_window_closed(self):
+        """
+        Test that a grade is rejected when the capture window is closed and no
+        exceptional grant covers the teacher and subject.
+        """
+        cycle = AcademicCycleFactory()
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="Grade capture window is closed"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=85,
+            )
+
+    def test_reject_enrolment_and_unit_from_different_cycles(self):
+        """
+        Test that an enrolment and a unit from different academic cycles are
+        rejected.
+        """
+        cycle = AcademicCycleFactory()
+        other_cycle = AcademicCycleFactory()
+        unit = EvaluationUnitFactory(academic_cycle=other_cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="different academic cycles"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=85,
+            )
+
+
+class TestGradeScale:
+    """Tests for RF-CAL-002: Escala y validación de la nota."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_reject_value_above_scale(self):
+        """
+        Scenario 10: Nota fuera de rango
+        GIVEN un docente registrando notas
+        WHEN introduce un valor superior a cien
+        THEN el sistema rechaza el valor indicando el rango admitido
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="between 0 and 100"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=101,
+            )
+
+    def test_reject_negative_value(self):
+        """
+        Test that a negative value is rejected, indicating the admitted range.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="between 0 and 100"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=-1,
+            )
+
+    def test_accept_boundary_values(self):
+        """
+        Test that the scale boundaries (0 and 100) are accepted.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        zero_enrolment = self._enrolment(cycle)
+        zero_grade = register_unit_grade(
+            enrolment=zero_enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=0,
+        )
+        assert zero_grade.value == 0
+
+        hundred_enrolment = self._enrolment(cycle)
+        hundred_grade = register_unit_grade(
+            enrolment=hundred_enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=100,
+        )
+        assert hundred_grade.value == 100
+
+
+class TestGetCurrentAverage:
+    """Tests for RF-CAL-003: Distinción entre sin calificar y cero."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        """
+        ``count`` units in the cycle, all with a capture window open today
+        so any of them can be graded, but with non-overlapping evaluation
+        periods to satisfy the unit's own exclusion constraint.
+        """
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_average_excludes_pending_units(self):
+        """
+        Scenario 11: Promedio en curso con notas pendientes
+        GIVEN un estudiante con dos unidades calificadas y dos sin registrar
+        WHEN consulta su promedio en curso
+        THEN el sistema lo calcula únicamente sobre las unidades calificadas
+        AND indica cuántas unidades están pendientes de registrar
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 4)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=80,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=90,
+        )
+        # units[2] and units[3] stay ungraded: "sin calificar", not zero.
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] == 85
+        assert result["graded_units"] == 2
+        assert result["pending_units"] == 2
+        assert result["total_units"] == 4
+
+    def test_average_is_none_when_nothing_graded(self):
+        """
+        Test that the average is None, not zero, when no unit has been
+        graded yet: an absence of data must never present as a zero.
+        """
+        cycle = AcademicCycleFactory()
+        self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] is None
+        assert result["graded_units"] == 0
+        assert result["pending_units"] == 2
+
+    def test_average_only_counts_the_given_subject(self):
+        """
+        Test that another subarea's grades don't leak into this subject's average.
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        other_subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=70,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=other_subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=40,
+        )
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] == 70
+        assert result["graded_units"] == 1
+
+
+class TestGetFinalSubjectGrade:
+    """Tests for RF-RES-001: Nota final de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_final_grade_is_the_average_of_all_graded_units(self):
+        """
+        Scenario 12: Promedio de las unidades
+        GIVEN un estudiante con todas las unidades calificadas en una subárea
+        WHEN se calcula su nota final
+        THEN el resultado es el promedio de esas notas
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 3)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        for unit, value in zip(units, (60, 75, 90), strict=True):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=value,
+            )
+
+        result = get_final_subject_grade(enrolment, subject)
+
+        assert result["average"] == 75
+        assert result["graded_units"] == 3
+        assert result["pending_units"] == 0
+
+    def test_final_grade_recalculates_on_correction(self):
+        """
+        Test that the final grade, while the cycle is open, recalculates on
+        every correction (comportamiento exigido) rather than freezing after
+        the first computation.
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=60,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=60,
+        )
+        assert get_final_subject_grade(enrolment, subject)["average"] == 60
+
+        # A correction to an already-registered unit changes the final grade.
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=100,
+        )
+
+        assert get_final_subject_grade(enrolment, subject)["average"] == 80

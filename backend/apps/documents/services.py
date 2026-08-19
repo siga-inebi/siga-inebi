@@ -17,7 +17,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Max
 
-from apps.audit.services import record_event
+from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAGS
@@ -239,27 +239,30 @@ def _clean_name(value, *, field="name"):
     return name
 
 
-def _audit(actor, action, instance, **context):
+def _audit(actor, action, instance, *, changes=None, **context):
     record_event(
         actor=actor,
         action=action,
         resource=type(instance).__name__,
         resource_identifier=str(instance.pk),
         context=context,
+        changes=changes,
     )
 
 
 def _changed(instance, actor, action, **candidates):
     """
     Apply the fields whose value was actually supplied, persist only those, and
-    audit what changed. ``None`` means "not supplied", never "set to null".
+    audit what changed -- including before/after values (RF-BIT-002). ``None``
+    means "not supplied", never "set to null".
     """
     fields = [name for name, value in candidates.items() if value is not None]
+    changes = diff_fields(instance, **candidates)  # read before mutating
     for name in fields:
         setattr(instance, name, candidates[name])
 
     instance.save(update_fields=[*fields, "updated_at"])
-    _audit(actor, action, instance, fields=fields)
+    _audit(actor, action, instance, changes=changes, fields=fields)
     return instance
 
 

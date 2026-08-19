@@ -151,6 +151,8 @@ def test_create_student_guardian_relation(logged_in_client):
     data = response.json()
     assert data["student"] == student.pk
     assert data["guardian"] == guardian.pk
+    assert data["guardian_detail"]["id"] == guardian.pk
+    assert data["guardian_detail"]["person"]["first_name"] == guardian.person.first_name
     assert data["relationship_label"] == "Madre"
     assert data["is_primary"] is True
     assert data["ends_at"] is None
@@ -176,6 +178,7 @@ def test_list_student_guardian_relations_is_paginated(logged_in_client):
     assert "results" in data
     assert "count" in data
     assert data["count"] == StudentGuardianRelation.objects.count()
+    assert data["results"][0]["guardian_detail"]["person"]["first_name"]
 
 
 @pytest.mark.api

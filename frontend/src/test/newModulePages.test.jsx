@@ -394,6 +394,18 @@ describe("pantallas de los modulos con backend previo", () => {
   });
 
   describe("AttendancePage", () => {
+    test("abre la vista previa de camara sin registrar movimientos", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<AttendancePage />);
+
+      await user.click(screen.getByRole("button", { name: "Abrir camara" }));
+
+      expect(
+        await screen.findByRole("dialog", { name: "Vista previa de camara" })
+      ).toBeInTheDocument();
+      expect(attendanceServiceMock.createEvent).not.toHaveBeenCalled();
+    });
+
     test("el estado del dia no consulta hasta tener los tres campos", async () => {
       const user = userEvent.setup();
       renderWithRouter(<AttendancePage />);

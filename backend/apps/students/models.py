@@ -5,12 +5,28 @@ from django.utils import timezone
 from apps.common.models import TimeStampedModel
 
 
-class Student(TimeStampedModel):
+class StudentRecordQuerySet(models.QuerySet):
+    def delete(self):
+        raise RuntimeError("Student records cannot be physically deleted.")
+
+
+class HistoricalStudentRecord(TimeStampedModel):
+    objects = StudentRecordQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Student records cannot be physically deleted.")
+
+
+class Student(HistoricalStudentRecord):
     class StudentStatus(models.TextChoices):
         PRE_ENROLLED = "pre_enrolled", "Pre-enrolled"
         ACTIVE = "active", "Active"
         INACTIVE = "inactive", "Inactive"
         WITHDRAWN = "withdrawn", "Withdrawn"
+        GRADUATED = "graduated", "Graduated"
 
     person = models.OneToOneField(
         "people.Person",
@@ -29,7 +45,7 @@ class Student(TimeStampedModel):
         return self.student_code
 
 
-class Guardian(TimeStampedModel):
+class Guardian(HistoricalStudentRecord):
     person = models.OneToOneField(
         "people.Person",
         on_delete=models.PROTECT,
@@ -40,7 +56,7 @@ class Guardian(TimeStampedModel):
         return str(self.person)
 
 
-class StudentGuardianRelation(TimeStampedModel):
+class StudentGuardianRelation(HistoricalStudentRecord):
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name="guardian_relations"
     )
@@ -64,7 +80,7 @@ class StudentGuardianRelation(TimeStampedModel):
         ]
 
 
-class EmergencyContact(TimeStampedModel):
+class EmergencyContact(HistoricalStudentRecord):
     student = models.ForeignKey(
         Student,
         on_delete=models.CASCADE,
@@ -73,3 +89,33 @@ class EmergencyContact(TimeStampedModel):
     name = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=30)
     relationship_label = models.CharField(max_length=100)
+
+
+class StudentHealthNote(HistoricalStudentRecord):
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.PROTECT,
+        related_name="health_notes",
+    )
+    author = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="student_health_notes",
+    )
+    content = models.TextField()
+    recorded_on = models.DateField(default=timezone.localdate)
+
+    class Meta:
+        ordering = ["-recorded_on", "-created_at"]
+
+
+class StudentObservation(HistoricalStudentRecord):
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="observations")
+    author = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="student_observations"
+    )
+    description = models.TextField()
+    observed_on = models.DateField(default=timezone.localdate)
+
+    class Meta:
+        ordering = ["-observed_on", "-created_at"]

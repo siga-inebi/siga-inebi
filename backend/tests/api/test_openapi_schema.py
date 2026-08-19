@@ -20,6 +20,7 @@ READ_ONLY_FIELDS = {"public_id", "created_at", "updated_at"}
 
 # Listados que paginan dentro del handler: drf-spectacular no lo puede inferir.
 PAGINATED_LISTINGS = [
+    "/api/v1/audit/events/",
     "/api/v1/attendance/events/",
     "/api/v1/attendance/alerts/",
     "/api/v1/attendance/jornada-parameters/",

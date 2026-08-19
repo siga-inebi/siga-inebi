@@ -4,10 +4,19 @@ from django.utils import timezone
 from apps.audit.services import record_event
 from apps.common.models import DomainError
 from apps.people.models import Person
-from apps.students.models import EmergencyContact, Guardian, Student, StudentGuardianRelation
+from apps.students.images import normalize_student_photo
+from apps.students.models import (
+    EmergencyContact,
+    Guardian,
+    Student,
+    StudentGuardianRelation,
+    StudentHealthNote,
+    StudentObservation,
+)
 
 
 def create_student(*, person_data, student_code, status=None, actor=None):
+    student_code = _clean_text(student_code, field="student code")
     with transaction.atomic():
         person = Person.objects.create(**person_data)
         student = Student.objects.create(
@@ -22,6 +31,37 @@ def create_student(*, person_data, student_code, status=None, actor=None):
             resource_identifier=str(student.pk),
             context={"student_code": student.student_code},
         )
+    return student
+
+
+def update_student(*, student, actor=None, **changes):
+    """Update basic student data through the domain layer and audit supplied fields."""
+    allowed_fields = {"student_code", "status", "photo"}
+    supplied = {name: value for name, value in changes.items() if name in allowed_fields}
+    if "student_code" in supplied:
+        supplied["student_code"] = _clean_text(supplied["student_code"], field="student code")
+    if "status" in supplied and supplied["status"] not in Student.StudentStatus.values:
+        raise DomainError("Student status is invalid.")
+    if "photo" in supplied:
+        content_type = getattr(supplied["photo"], "content_type", "")
+        if content_type and not content_type.startswith("image/"):
+            raise DomainError("Student photo must be an image.")
+        supplied["photo"] = normalize_student_photo(supplied["photo"])
+    if not supplied:
+        return student
+
+    before = {name: getattr(student, name) for name in supplied if name != "photo"}
+    for name, value in supplied.items():
+        setattr(student, name, value)
+    student.save(update_fields=[*supplied, "updated_at"])
+    after = {name: getattr(student, name) for name in supplied if name != "photo"}
+    record_event(
+        actor=actor,
+        action="students.student.updated",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={"fields": sorted(supplied), "before": before, "after": after},
+    )
     return student
 
 
@@ -57,6 +97,16 @@ def _clean_text(value, *, field):
 def _require_active(instance, label):
     if not instance.is_active:
         raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
+
+
+def student_allows_interaction(student):
+    """Only an active, institutionally current student allows ordinary writes."""
+    return student.is_active and student.status == Student.StudentStatus.ACTIVE
+
+
+def _require_student_interaction(student):
+    if not student_allows_interaction(student):
+        raise DomainError("Only active students allow ordinary record interactions.")
 
 
 def _audit(actor, action, instance, **context):
@@ -139,6 +189,8 @@ def create_student_guardian_relation(
     starts_at = starts_at or timezone.localdate()
     if starts_at > timezone.localdate():
         raise DomainError("A guardian relationship cannot start in the future.")
+
+    _require_student_interaction(student)
 
     relationship_label = _clean_text(relationship_label, field="relationship label")
     student = Student.objects.select_for_update().get(pk=student.pk)
@@ -249,7 +301,7 @@ def create_emergency_contact(*, student, name, phone_number, relationship_label,
     - The student must be active.
     - Name, phone number and relationship label cannot be blank.
     """
-    _require_active(student, "Student")
+    _require_student_interaction(student)
     name = _clean_text(name, field="name")
     phone_number = _clean_text(phone_number, field="phone_number")
     relationship_label = _clean_text(relationship_label, field="relationship_label")
@@ -284,3 +336,55 @@ def update_emergency_contact(
         return emergency_contact
 
     return _changed(emergency_contact, actor, "students.emergency_contact.updated", **candidates)
+
+
+@transaction.atomic
+def create_student_health_note(*, student, content, actor, recorded_on=None):
+    _require_student_interaction(student)
+    content = _clean_text(content, field="content")
+    recorded_on = recorded_on or timezone.localdate()
+    if recorded_on > timezone.localdate():
+        raise DomainError("A health note cannot be recorded in the future.")
+    note = StudentHealthNote.objects.create(
+        student=student, author=actor, content=content, recorded_on=recorded_on
+    )
+    _audit(actor, "students.health_note.created", note, student_id=student.pk)
+    return note
+
+
+def deactivate_student_health_note(*, health_note, actor):
+    health_note.is_active = False
+    health_note.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "students.health_note.deactivated",
+        health_note,
+        student_id=health_note.student_id,
+    )
+    return health_note
+
+
+@transaction.atomic
+def create_student_observation(*, student, description, actor, observed_on=None):
+    _require_student_interaction(student)
+    description = _clean_text(description, field="description")
+    observed_on = observed_on or timezone.localdate()
+    if observed_on > timezone.localdate():
+        raise DomainError("An observation cannot be recorded in the future.")
+    observation = StudentObservation.objects.create(
+        student=student, author=actor, description=description, observed_on=observed_on
+    )
+    _audit(actor, "students.observation.created", observation, student_id=student.pk)
+    return observation
+
+
+def deactivate_student_observation(*, observation, actor):
+    observation.is_active = False
+    observation.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "students.observation.deactivated",
+        observation,
+        student_id=observation.student_id,
+    )
+    return observation

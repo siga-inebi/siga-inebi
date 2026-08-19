@@ -1,6 +1,12 @@
 import pytest
 
-from tests.factories.academic import AcademicCycleFactory, InstitutionFactory, SectionFactory
+from apps.academics.models import TeachingAssignment
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    InstitutionFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -53,3 +59,52 @@ def test_role_scopes_are_union_of_active_grants():
 
     assert user.has_scoped_permission("student_view_basic", scope={"student": first_student})
     assert user.has_scoped_permission("student_view_basic", scope={"student": second_student})
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_teacher_without_assignment_is_denied_grade_write_scope():
+    """
+    RF-CAL-006, Escenario 1: Subárea ajena.
+    GIVEN un docente con el permiso grade_write pero sin asignación docente
+    WHEN se evalúa su alcance sobre una sección y subárea que no le pertenecen
+    THEN el sistema deniega el alcance
+    """
+    permission = PermissionFactory(codename="grade_write")
+    user = UserFactory()
+    RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    subject = SubjectFactory(institution=cycle.institution)
+
+    assert (
+        user.has_scoped_permission("grade_write", scope={"section": section, "subject": subject})
+        is False
+    )
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_teacher_with_matching_assignment_has_grade_write_scope():
+    """
+    Mirror of Escenario 1: a docente WITH a matching teaching assignment over
+    the section and subject is granted scope, unlike the ajena case above.
+    """
+    permission = PermissionFactory(codename="grade_write")
+    user = UserFactory()
+    RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    subject = SubjectFactory(institution=cycle.institution)
+    TeachingAssignment.objects.create(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=user.person,
+        starts_on=cycle.starts_on,
+    )
+
+    assert (
+        user.has_scoped_permission("grade_write", scope={"section": section, "subject": subject})
+        is True
+    )
