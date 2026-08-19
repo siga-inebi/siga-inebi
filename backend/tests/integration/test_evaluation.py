@@ -17,12 +17,16 @@ from django.utils import timezone
 
 from apps.academics.models import AcademicCycle
 from apps.common.models import DomainError
+from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit
 from apps.evaluation.services import (
     create_evaluation_unit,
+    get_current_average,
     get_effective_unit_count,
+    get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
     update_global_evaluation_config,
@@ -30,8 +34,10 @@ from apps.evaluation.services import (
     validate_capture_window_open,
     validate_recovery_window_open,
 )
-from tests.factories.academic import AcademicCycleFactory, SubjectFactory
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.people import PersonFactory
+from tests.factories.students import StudentFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -418,3 +424,277 @@ class TestGlobalEvaluationConfigIntegration:
         assert event.resource_identifier == str(config.pk)
         assert event.context["cycle_id"] == str(cycle.public_id)
         assert event.context["unit_count"] == 2
+
+
+class TestRegisterUnitGradeIntegration:
+    """Integration tests for RF-CAL-001: Registro de la nota de unidad."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        """
+        A unit whose capture window brackets today explicitly. The factory's
+        default dates are offset by ``number``, a sequence shared across the
+        whole test session, so they drift away from today as more units are
+        created; the window bounds must be set explicitly here.
+        """
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_register_grade_across_enrolment_and_academics_domains(self):
+        """
+        Scenario 9: Registro de una nota por el docente (cross-domain)
+        GIVEN un docente con una subárea a su cargo y la ventana de captura abierta
+        WHEN registra la nota de un estudiante para la unidad en curso
+        THEN el sistema la almacena asociada al estudiante, la subárea, la unidad y el ciclo
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        grade = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=85,
+        )
+
+        assert grade.enrolment.student == enrolment.student
+        assert grade.evaluation_unit.academic_cycle == cycle
+
+    def test_register_grade_audit_trail(self):
+        """
+        Test that registering a grade is recorded in the audit trail.
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        grade = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=85,
+        )
+
+        from apps.audit.models import AuditEvent
+
+        event = AuditEvent.objects.get(action="evaluation.grade_registered")
+        assert event.resource_identifier == str(grade.pk)
+        assert event.context["enrolment_id"] == str(enrolment.public_id)
+        assert event.context["subject_id"] == str(subject.public_id)
+        assert event.context["unit_id"] == str(unit.public_id)
+        assert event.context["value"] == 85
+
+
+class TestGradeScaleIntegration:
+    """Integration tests for RF-CAL-002: Escala y validación de la nota."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_reject_value_above_scale_integration(self):
+        """
+        Scenario 10: Nota fuera de rango (cross-domain)
+        GIVEN un docente registrando notas
+        WHEN introduce un valor superior a cien
+        THEN el sistema rechaza el valor indicando el rango admitido
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        with pytest.raises(DomainError, match="between 0 and 100"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=150,
+            )
+
+    def test_database_rejects_out_of_range_value_bypassing_the_service(self):
+        """
+        Test that the DB constraint holds even if a write bypasses the
+        service layer: the range guarantee doesn't depend on a single caller
+        remembering to validate it.
+        """
+        from django.db import IntegrityError
+
+        from apps.evaluation.models import Grade
+
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+
+        with pytest.raises(IntegrityError):
+            Grade.objects.create(
+                enrolment=enrolment, subject=subject, evaluation_unit=unit, value=101
+            )
+
+
+class TestCurrentAverageIntegration:
+    """Integration tests for RF-CAL-003: Distinción entre sin calificar y cero."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_current_average_across_enrolment_and_academics_domains(self):
+        """
+        Scenario 11: Promedio en curso con notas pendientes (cross-domain)
+        GIVEN un estudiante con dos unidades calificadas y dos sin registrar
+        WHEN consulta su promedio en curso
+        THEN el sistema lo calcula únicamente sobre las unidades calificadas
+        AND indica cuántas unidades están pendientes de registrar
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 4)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=60,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=100,
+        )
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] == 80
+        assert result["pending_units"] == 2
+
+
+class TestFinalSubjectGradeIntegration:
+    """Integration tests for RF-RES-001: Nota final de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_final_grade_across_enrolment_and_academics_domains(self):
+        """
+        Scenario 12: Promedio de las unidades (cross-domain)
+        GIVEN un estudiante con todas las unidades calificadas en una subárea
+        WHEN se calcula su nota final
+        THEN el resultado es el promedio de esas notas
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=50,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=70,
+        )
+
+        result = get_final_subject_grade(enrolment, subject)
+
+        assert result["average"] == 60
+        assert result["pending_units"] == 0

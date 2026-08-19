@@ -6,6 +6,10 @@ RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
 RF-EVC-005: Configuracion global heredable
+RF-CAL-001: Registro de la nota de unidad
+RF-CAL-002: Escala y validacion de la nota
+RF-CAL-003: Distincion entre sin calificar y cero
+RF-RES-001: Nota final de la subarea
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -16,17 +20,22 @@ would leave a window for two concurrent requests to both pass the check.
 
 from datetime import date, datetime
 
+from django.db.models import Avg
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, Subject
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
+from apps.enrolments.models import Enrolment
 from apps.evaluation.models import (
+    GRADE_MAX_VALUE,
+    GRADE_MIN_VALUE,
     CaptureExceptionGrant,
     CycleEvaluationConfig,
     EvaluationGlobalConfig,
     EvaluationUnit,
+    Grade,
 )
 from apps.people.models import Person
 
@@ -407,3 +416,133 @@ def create_evaluation_unit(
     )
 
     return unit
+
+
+def register_unit_grade(
+    enrolment: Enrolment,
+    subject: Subject,
+    evaluation_unit: EvaluationUnit,
+    teacher: Person,
+    value: int,
+    actor=None,
+) -> Grade:
+    """
+    Register the consolidated grade a teacher already computed for a student,
+    subarea and unit (RF-CAL-001).
+
+    The capture window must be open, or an active exceptional grant (RF-EVC-004)
+    must cover this teacher and subject for the unit (validate_capture_allowed
+    checks both). Calling this again for the same (enrolment, subject,
+    evaluation_unit) updates the existing grade instead of creating a
+    duplicate: it is the single consolidated value for that combination, not
+    a new entry.
+
+    Args:
+        enrolment: Ties the grade to the student, section and cycle.
+        subject: Subarea the grade belongs to.
+        evaluation_unit: Unit the grade belongs to.
+        teacher: Teacher capturing the grade (checked against the capture
+            window and any exceptional grant).
+        value: Consolidated grade value.
+        actor: User performing the action (for audit trail).
+
+    Returns:
+        Grade: The registered (created or updated) grade.
+
+    Raises:
+        DomainError: If the value is outside the 0-100 scale (RF-CAL-002), if
+            the enrolment and the unit belong to different academic cycles,
+            or if capture is not allowed for this teacher, subject and unit
+            right now.
+    """
+    if not GRADE_MIN_VALUE <= value <= GRADE_MAX_VALUE:
+        raise DomainError(
+            f"Grade value must be between {GRADE_MIN_VALUE} and {GRADE_MAX_VALUE} "
+            f"(received {value})."
+        )
+
+    if evaluation_unit.academic_cycle_id != enrolment.academic_cycle_id:
+        raise DomainError(
+            "The evaluation unit and the enrolment belong to different academic cycles."
+        )
+
+    validate_capture_allowed(evaluation_unit, subject, teacher)
+
+    grade, created = Grade.objects.update_or_create(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit=evaluation_unit,
+        defaults={"value": value},
+    )
+
+    _audit(
+        actor,
+        "evaluation.grade_registered" if created else "evaluation.grade_updated",
+        grade,
+        enrolment_id=str(enrolment.public_id),
+        subject_id=str(subject.public_id),
+        unit_id=str(evaluation_unit.public_id),
+        teacher_id=str(teacher.public_id),
+        value=value,
+    )
+
+    return grade
+
+
+def get_current_average(enrolment: Enrolment, subject: Subject) -> dict:
+    """
+    Running average of a student's registered grades for a subarea (RF-CAL-003).
+
+    A unit with no registered grade is "sin calificar", not zero: it is
+    excluded from the average and only counted as pending. If nothing has
+    been graded yet, ``average`` is None rather than 0, so callers never
+    have to guess whether a 0 is a real grade or an absence of data.
+
+    Args:
+        enrolment: Ties the query to the student, section and cycle.
+        subject: Subarea to average.
+
+    Returns:
+        dict with ``average`` (None if no unit is graded yet),
+        ``graded_units``, ``pending_units`` and ``total_units`` for the
+        enrolment's academic cycle.
+    """
+    total_units = EvaluationUnit.objects.filter(
+        academic_cycle=enrolment.academic_cycle, is_active=True
+    ).count()
+
+    graded = Grade.objects.filter(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit__academic_cycle=enrolment.academic_cycle,
+        is_active=True,
+    )
+    graded_units = graded.count()
+    average = graded.aggregate(average=Avg("value"))["average"]
+
+    return {
+        "average": average,
+        "graded_units": graded_units,
+        "pending_units": total_units - graded_units,
+        "total_units": total_units,
+    }
+
+
+def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
+    """
+    Final grade of a subarea, as the average of its unit grades (RF-RES-001).
+
+    While the cycle is open, this is the same running average as RF-CAL-003
+    (get_current_average): it derives from whatever grades are registered
+    right now and recalculates on every correction, so it stays correct with
+    no extra bookkeeping. It is exposed under its own name and endpoint
+    because "resultado" is its own bounded concept in the domain map, and
+    later requirements (freezing the result once the cycle closes, the
+    single-rounding-point rule, promotion) will need to diverge from the
+    plain running average without touching RF-CAL-003's own contract.
+
+    Returns:
+        Same shape as get_current_average: ``average`` (None if no unit is
+        graded yet), ``graded_units``, ``pending_units`` and ``total_units``.
+    """
+    return get_current_average(enrolment, subject)
