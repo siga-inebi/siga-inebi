@@ -17,6 +17,20 @@ export const studentsService = {
       .then((page) => page.results),
   createObservation: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/observations/`, data),
+  listEmergencyContacts: (studentPublicId) =>
+    apiClient
+      .get(`/students/${studentPublicId}/emergency-contacts/`)
+      .then((page) => page.results),
+  createEmergencyContact: (studentPublicId, data) =>
+    apiClient.post(`/students/${studentPublicId}/emergency-contacts/`, data),
+  createHealthNote: (studentPublicId, data) =>
+    apiClient.post(`/students/${studentPublicId}/health-notes/`, data),
+  listObservations: (studentPublicId) =>
+    apiClient
+      .get(`/students/${studentPublicId}/observations/`)
+      .then((page) => page.results),
+  createObservation: (studentPublicId, data) =>
+    apiClient.post(`/students/${studentPublicId}/observations/`, data),
   listGuardianRelations: () =>
     apiClient.get("/students/guardian-relations/").then((page) => page.results),
   createGuardianRelation: (data) =>

@@ -300,6 +300,8 @@ def test_reenrolment_reuses_student_record_and_audits_source(auth_client):
         _payload(previous_section, student),
         content_type="application/json",
     )
+    student.status = student.StudentStatus.PRE_ENROLLED
+    student.save(update_fields=["status", "updated_at"])
 
     response = auth_client.post(
         reverse("reenrolment-create"),
@@ -310,6 +312,8 @@ def test_reenrolment_reuses_student_record_and_audits_source(auth_client):
     assert response.status_code == 201
     assert response.json()["student_id"] == str(student.public_id)
     assert student.enrolments.count() == 2
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.ACTIVE
     assert AuditEvent.objects.filter(action="enrolments.student.reenrolled").exists()
 
 
@@ -378,7 +382,7 @@ def test_document_requirement_requires_domain_permission(auth_client):
 
 def test_reenrolment_requires_previous_enrolment(auth_client):
     section = SectionFactory(name="A")
-    student = StudentFactory()
+    student = StudentFactory(status="pre_enrolled")
     _grant_enrolment_creation(auth_client.user)
 
     response = auth_client.post(
