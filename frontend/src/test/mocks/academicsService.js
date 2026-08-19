@@ -8,6 +8,7 @@ const LIST_METHODS = [
   "listLevels",
   "listLevelGrades",
   "listSubjects",
+  "listSections",
   "listLevelSubjects",
   "listTeachingAssignmentHistory",
 ];

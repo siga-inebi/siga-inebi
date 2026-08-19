@@ -27,6 +27,12 @@ import { FormTextField } from "@ui/forms/FormTextField.jsx";
  * se muestra deshabilitado y no vacio, porque un select sin opciones se lee
  * como "no hay nada" y esa es otra respuesta.
  *
+ * `fields` tambien puede ser una funcion `(values) => campos` cuando un campo
+ * depende de otro (las secciones de un ciclo, por ejemplo). Ese campo declara
+ * `resets: ["section_id"]` para limpiar lo que quedo colgando al cambiar: una
+ * seccion del ciclo anterior seguiria seleccionada y el backend la rechazaria
+ * recien al guardar.
+ *
  * Los campos se acomodan en dos columnas desde `sm`. Un campo puede pedir el
  * ancho completo con `span: "full"`; los de tipo archivo y los interruptores lo
  * toman siempre, porque partirlos a media reja los deja ilegibles.
@@ -54,13 +60,23 @@ export function EntityFormWindow({
   // ejemplo); el prefijo evita que compartan el id de un campo homonimo.
   const formId = useId();
 
+  // Un campo puede depender de otro, asi que la lista se resuelve contra los
+  // valores actuales en cada render.
+  const resolvedFields = typeof fields === "function" ? fields(values) : fields;
+
   const setValue = (name, value) =>
-    setValues((current) => ({ ...current, [name]: value }));
+    setValues((current) => {
+      const field = resolvedFields.find((candidate) => candidate.name === name);
+      const cleared = Object.fromEntries(
+        (field?.resets ?? []).map((dependent) => [dependent, ""])
+      );
+      return { ...current, ...cleared, [name]: value };
+    });
 
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    const missing = fields.find(
+    const missing = resolvedFields.find(
       (field) =>
         field.required &&
         (field.type === "number"
@@ -76,7 +92,7 @@ export function EntityFormWindow({
     setSubmitting(true);
     setError("");
     try {
-      await onSubmit(normalize(fields, values));
+      await onSubmit(normalize(resolvedFields, values));
     } catch (submitError) {
       setError(submitError.message);
       setSubmitting(false);
@@ -125,7 +141,7 @@ export function EntityFormWindow({
             rowGap: 2.5,
           }}
         >
-          {fields.map((field) => (
+          {resolvedFields.map((field) => (
             <Box
               key={field.name}
               sx={{

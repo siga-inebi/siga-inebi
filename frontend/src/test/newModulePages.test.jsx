@@ -2,6 +2,18 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+const teachersServiceMock = vi.hoisted(() => ({
+  listPage: vi.fn(),
+  list: vi.fn(),
+  get: vi.fn(),
+  create: vi.fn(),
+  update: vi.fn(),
+}));
+
+const studentsServiceMock = vi.hoisted(() => ({
+  listPage: vi.fn(),
+}));
+
 const cyclesServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
   get: vi.fn(),
@@ -79,6 +91,16 @@ vi.mock("@reporting/reportingService.js", async () => {
   return { ...actual, reportingService: reportingServiceMock };
 });
 
+vi.mock("@teachers/teachersService.js", async () => {
+  const actual = await vi.importActual("@teachers/teachersService.js");
+  return { ...actual, teachersService: teachersServiceMock };
+});
+
+vi.mock("@students/studentsService.js", async () => {
+  const actual = await vi.importActual("@students/studentsService.js");
+  return { ...actual, studentsService: studentsServiceMock };
+});
+
 vi.mock("@academics/academicsService.js", async () => {
   const { academicsServiceMock } = await import("./mocks/academicsService.js");
   return { academicsService: academicsServiceMock, PAGE_SIZE: 25 };
@@ -151,6 +173,28 @@ const ALERT = {
   created_at: "2026-08-06T12:00:00Z",
 };
 
+const SECTION = {
+  public_id: "section-a",
+  name: "A",
+  academic_cycle_id: "cycle-2026",
+  grade: { public_id: "grade-1", name: "Primero Basico", code: "B1", sequence: 1 },
+  shift: { public_id: "shift-1", name: "Matutina", code: "MOR" },
+};
+
+const SUBJECT = {
+  public_id: "subject-mat",
+  name: "Matematica",
+  code: "MAT",
+  is_active: true,
+};
+
+const TEACHER = {
+  id: 1,
+  public_id: "teacher-1",
+  person: { first_name: "Ana", last_name: "Lopez" },
+  employee_code: "EMP-1",
+};
+
 const ASSIGNMENT = {
   public_id: "asg-1",
   academic_cycle_id: "cycle-2026",
@@ -164,6 +208,9 @@ const ASSIGNMENT = {
 describe("pantallas de los modulos con backend previo", () => {
   beforeEach(() => {
     resetAcademicsServiceMock();
+
+    teachersServiceMock.listPage.mockReset().mockResolvedValue(paged([TEACHER]));
+    studentsServiceMock.listPage.mockReset().mockResolvedValue(paged([]));
 
     cyclesServiceMock.list
       .mockReset()
@@ -484,11 +531,90 @@ describe("pantallas de los modulos con backend previo", () => {
   });
 
   describe("TeachingAssignmentsPage", () => {
+    beforeEach(() => {
+      academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
+      academicsServiceMock.listSubjects.mockResolvedValue(paged([SUBJECT]));
+    });
+
     test("lista el historial y distingue la vigencia", async () => {
       renderWithRouter(<TeachingAssignmentsPage />);
 
-      expect(await screen.findByText("teacher-1")).toBeInTheDocument();
+      expect(await screen.findByText("Ana Lopez · EMP-1")).toBeInTheDocument();
       expect(screen.getByText("Vigente")).toBeInTheDocument();
+    });
+
+    test("muestra nombres en vez de identificadores en el historial", async () => {
+      renderWithRouter(<TeachingAssignmentsPage />);
+
+      expect(await screen.findByText("Primero Basico A")).toBeInTheDocument();
+      expect(screen.getByText("Matematica (MAT)")).toBeInTheDocument();
+      expect(screen.getByText("Ciclo 2026 · Activo")).toBeInTheDocument();
+      expect(screen.queryByText("section-a")).not.toBeInTheDocument();
+      expect(screen.queryByText("subject-mat")).not.toBeInTheDocument();
+    });
+
+    test("la seccion solo se puede elegir despues del ciclo", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<TeachingAssignmentsPage />);
+      await screen.findByText("Vigente");
+
+      await user.click(screen.getByRole("button", { name: "Nueva asignacion" }));
+
+      // Sin ciclo elegido el catalogo de secciones no aplica: ofrecer las de
+      // otro ciclo terminaria en un rechazo del backend al guardar.
+      expect(screen.getByRole("combobox", { name: /Seccion/ })).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      );
+
+      await user.click(screen.getByRole("combobox", { name: /Ciclo escolar/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+      );
+
+      await user.click(screen.getByRole("combobox", { name: /Seccion/ }));
+      expect(
+        await screen.findByRole("option", { name: "Primero Basico A" })
+      ).toBeInTheDocument();
+    });
+
+    test("crea la asignacion enviando los identificadores del catalogo", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<TeachingAssignmentsPage />);
+      await screen.findByText("Vigente");
+
+      await user.click(screen.getByRole("button", { name: "Nueva asignacion" }));
+      await user.click(screen.getByRole("combobox", { name: /Ciclo escolar/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+      );
+      await user.click(screen.getByRole("combobox", { name: /Seccion/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Primero Basico A" })
+      );
+      await user.click(screen.getByRole("combobox", { name: /Curso/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Matematica (MAT)" })
+      );
+      await user.click(screen.getByRole("combobox", { name: /Docente/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Ana Lopez · EMP-1" })
+      );
+      await user.type(
+        screen.getByLabelText(/Vigente desde/),
+        "2026-03-02"
+      );
+      await user.click(screen.getByRole("button", { name: "Crear asignacion" }));
+
+      expect(
+        academicsServiceMock.createTeachingAssignment
+      ).toHaveBeenCalledWith({
+        academic_cycle_id: "cycle-2026",
+        section_id: "section-a",
+        subject_id: "subject-mat",
+        teacher_id: "teacher-1",
+        starts_on: "2026-03-02",
+      });
     });
 
     test("solo ofrece reasignar las asignaciones vigentes", async () => {

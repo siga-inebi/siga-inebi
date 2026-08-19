@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 
 import { academicsService } from "@academics/academicsService.js";
 import { CYCLE_STATUS_LABEL, cyclesService } from "@cycles/cyclesService.js";
@@ -170,43 +170,52 @@ export function useGradeCatalog(reloadToken) {
 }
 
 /**
- * Secciones, opcionalmente acotadas a un ciclo.
+ * Secciones de todos los ciclos.
  *
- * El filtro es local porque el listado de secciones no acepta parametro de
- * ciclo; da igual, el catalogo completo es pequeno. Ofrecer secciones de otro
- * ciclo seria peor que no ofrecer ninguna: el backend las rechazaria despues de
- * que la persona ya lleno el formulario.
+ * Cada opcion conserva el ciclo, el grado y la jornada de su seccion: con eso
+ * la pantalla puede acotar el desplegable al ciclo elegido y derivar grado y
+ * jornada sin una segunda peticion ni un campo mas que llenar.
  */
-export function useSectionCatalog({ cycleId, reloadToken } = {}) {
+export function useSectionCatalog(reloadToken) {
   const catalog = useCatalogOptions(loadSections, reloadToken);
 
   const options = useMemo(() => {
-    const scoped = cycleId
-      ? catalog.options.filter((option) => option.cycleId === cycleId)
-      : catalog.options;
-
     // La jornada entra en la etiqueta solo cuando hay secciones homonimas en
     // jornadas distintas; si no, es ruido en cada linea del desplegable.
-    const duplicated = new Set();
     const seen = new Set();
-    for (const option of scoped) {
+    const duplicated = new Set();
+    for (const option of catalog.options) {
       if (seen.has(option.label)) {
         duplicated.add(option.label);
       }
       seen.add(option.label);
     }
 
-    return scoped.map((option) =>
+    return catalog.options.map((option) =>
       duplicated.has(option.label) && option.shiftName
         ? { ...option, label: `${option.label} · ${option.shiftName}` }
         : option
     );
-  }, [catalog.options, cycleId]);
+  }, [catalog.options]);
 
-  const findById = useCallback(
-    (publicId) => options.find((option) => option.value === publicId),
-    [options]
-  );
+  return { ...catalog, options };
+}
 
-  return { ...catalog, options, findById };
+/**
+ * Secciones de un ciclo.
+ *
+ * Sin ciclo elegido se devuelve la lista vacia a proposito: ofrecer secciones
+ * de cualquier ciclo llevaria a una combinacion que el backend rechaza recien
+ * al guardar, cuando el formulario ya esta lleno.
+ */
+export function sectionsForCycle(options, cycleId) {
+  if (!cycleId) {
+    return [];
+  }
+  return options.filter((option) => option.cycleId === cycleId);
+}
+
+/** Indice `value -> label` para pintar un id como el nombre que representa. */
+export function labelIndex(options) {
+  return new Map(options.map((option) => [option.value, option.label]));
 }
