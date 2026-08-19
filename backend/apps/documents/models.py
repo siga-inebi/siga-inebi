@@ -46,9 +46,11 @@ class DocumentRecord(TimeStampedModel):
 
     def save(self, *args, **kwargs):
         if self.pk and ("student_id" in self.__dict__ or "enrolment_id" in self.__dict__):
-            original = DocumentRecord.objects.filter(pk=self.pk).values_list(
-                "student_id", "enrolment_id"
-            ).first()
+            original = (
+                DocumentRecord.objects.filter(pk=self.pk)
+                .values_list("student_id", "enrolment_id")
+                .first()
+            )
             if original is not None:
                 previous_student_id, previous_enrolment_id = original
                 current_student_id = self.student_id

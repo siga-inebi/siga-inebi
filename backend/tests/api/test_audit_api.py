@@ -15,6 +15,7 @@ from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
     RoleFactory,
+    ScopeGrantFactory,
     UserFactory,
 )
 from tests.factories.students import StudentFactory
@@ -25,6 +26,15 @@ pytestmark = [pytest.mark.api, pytest.mark.django_db]
 def _grant_audit_permission(user):
     permission = PermissionFactory(codename="audit_read")
     RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+
+
+def _grant_sensitive_student_read(user, student):
+    permission = PermissionFactory(codename="student_view_sensitive")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[permission]),
+    )
+    ScopeGrantFactory(assignment=assignment, student=student)
 
 
 def test_creating_a_resource_via_the_api_is_audited(auth_client, institution):
@@ -112,6 +122,7 @@ def test_exporting_audit_events_via_the_api_generates_a_file_and_is_itself_audit
 def test_reading_a_students_family_contacts_via_the_api_is_audited(auth_client):
     """RF-BIT-003: consulting one identified student's family contact data is a sensitive read."""
     student = StudentFactory()
+    _grant_sensitive_student_read(auth_client.user, student)
 
     response = auth_client.get(
         reverse("student-emergency-contact-list-create", args=[student.public_id])
