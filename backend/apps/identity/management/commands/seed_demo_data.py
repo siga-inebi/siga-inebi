@@ -1,6 +1,6 @@
 import os
 import secrets
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 
 from django.conf import settings
@@ -21,9 +21,15 @@ from apps.academics.models import (
     Section,
     Shift,
     Subject,
+    TeachingAssignment,
 )
+from apps.attendance.models import JornadaParameters
+from apps.enrolments.models import Enrolment
+from apps.evaluation.models import EvaluationUnit
 from apps.identity.models import Role, RoleAssignment, ScopeGrant
 from apps.people.models import Person
+from apps.students.models import Guardian, Student, StudentGuardianRelation
+from apps.teachers.models import Teacher
 
 PERMISSIONS = [
     ("auth_login", "Can log in"),
@@ -55,6 +61,51 @@ ROLES = {
     ],
     "director": ["auth_login", "auth_logout", "student_view_basic", "document_read", "audit_read"],
 }
+
+# Catalogos del demo. Son listas fijas y no nombres aleatorios: un seeder que
+# cambia de datos en cada corrida vuelve irreproducible cualquier captura de
+# pantalla, cualquier reporte de error y cualquier prueba manual.
+
+SUBJECTS = [
+    ("MAT", "Matematica"),
+    ("COM", "Comunicacion y Lenguaje"),
+    ("SCI", "Ciencias Naturales"),
+    ("SOC", "Ciencias Sociales"),
+    ("ING", "Idioma Extranjero"),
+    ("EFI", "Educacion Fisica"),
+    ("FCI", "Formacion Ciudadana"),
+    ("PRO", "Productividad y Desarrollo"),
+]
+
+TEACHER_NAMES = [
+    ("Allende Baudilio", "Bautista Godinez", "Matematica"),
+    ("Marta Elena", "Xicara Tzunun", "Comunicacion y Lenguaje"),
+    ("Julio Cesar", "Chavez Morales", "Ciencias Naturales"),
+    ("Ana Lucia", "Ixcot Perez", "Ciencias Sociales"),
+    ("Byron Estuardo", "Sarat Lopez", "Idioma Extranjero"),
+    ("Silvia Maribel", "Coyoy Ajanel", "Educacion Fisica"),
+    ("Otto Rene", "Tzoc Batz", "Formacion Ciudadana"),
+    ("Claudia Veronica", "Alvarado Ruiz", "Productividad"),
+    ("Mario Antonio", "Cifuentes Sam", "Matematica"),
+    ("Delfina", "Yac Tambriz", "Comunicacion y Lenguaje"),
+    ("Hector Manuel", "Rodas Barrios", "Ciencias Naturales"),
+    ("Lucrecia", "Menchu Argueta", "Ciencias Sociales"),
+]
+
+STUDENT_FIRST_NAMES = [
+    "Ana", "Luis", "Sofia", "Diego", "Camila", "Andres", "Valeria", "Jose",
+    "Fernanda", "Carlos", "Maria", "Pablo", "Daniela", "Miguel", "Gabriela",
+    "Rodrigo", "Isabel", "Javier", "Alejandra", "Emilio",
+]
+
+STUDENT_LAST_NAMES = [
+    "Perez Lopez", "Garcia Tzul", "Morales Xiloj", "Ramirez Chan",
+    "Hernandez Cua", "Lopez Batz", "Gonzalez Say", "Vasquez Tuy",
+    "Sanchez Ixcoy", "Diaz Puac", "Torres Mejia", "Flores Us",
+    "Rivera Chach", "Gomez Tzunun", "Castillo Yax",
+]
+
+GUARDIAN_RELATIONSHIPS = ["Madre", "Padre", "Abuela", "Tio"]
 
 DEMO_ENV_KEYS = (
     "DEMO_ADMIN_USERNAME",
@@ -177,19 +228,10 @@ class Command(BaseCommand):
         subjects = [
             Subject.objects.get_or_create(
                 institution=institution,
-                code="MAT",
-                defaults={"name": "Matematica"},
-            )[0],
-            Subject.objects.get_or_create(
-                institution=institution,
-                code="COM",
-                defaults={"name": "Comunicacion y Lenguaje"},
-            )[0],
-            Subject.objects.get_or_create(
-                institution=institution,
-                code="SCI",
-                defaults={"name": "Ciencias Naturales"},
-            )[0],
+                code=code,
+                defaults={"name": name},
+            )[0]
+            for code, name in SUBJECTS
         ]
 
         for subject in subjects:
@@ -199,24 +241,41 @@ class Command(BaseCommand):
                 defaults={"is_required": True, "weekly_hours": 5},
             )
 
+        # Secciones en las dos jornadas. La vespertina no es adorno: sin ella no
+        # se puede probar que un selector de secciones distinga "Primero Basico A"
+        # matutina de la vespertina, que es justo donde una interfaz se equivoca.
+        sections = []
         for grade in grades:
-            offering, _ = GradeOffering.objects.get_or_create(
-                academic_cycle=cycle,
-                shift=shifts[0],
-                grade=grade,
-            )
-            for section_name in ["A", "B"]:
-                Section.objects.get_or_create(
-                    offering=offering,
-                    name=section_name,
-                    defaults={"capacity": 35},
+            for shift in shifts:
+                offering, _ = GradeOffering.objects.get_or_create(
+                    academic_cycle=cycle,
+                    shift=shift,
+                    grade=grade,
                 )
+                section_names = ["A", "B"] if shift.code == "MOR" else ["A"]
+                for section_name in section_names:
+                    section, _ = Section.objects.get_or_create(
+                        offering=offering,
+                        name=section_name,
+                        defaults={"capacity": 35},
+                    )
+                    sections.append(section)
             for subject in subjects:
                 CurriculumPlan.objects.get_or_create(
                     academic_cycle=cycle,
                     grade=grade,
                     subject=subject,
                 )
+
+        teachers = self.seed_teachers()
+        students = self.seed_students()
+        self.seed_guardians(students)
+        self.seed_enrolments(cycle=cycle, sections=sections, students=students)
+        self.seed_teaching_assignments(
+            cycle=cycle, sections=sections, subjects=subjects, teachers=teachers
+        )
+        self.seed_evaluation_units(cycle)
+        self.seed_jornada_parameters(cycle=cycle, shifts=shifts)
 
         role_content_type = ContentType.objects.get_for_model(Role)
         permission_map = {}
@@ -297,3 +356,217 @@ class Command(BaseCommand):
             )
 
         self.stdout.write(self.style.SUCCESS("Demo data seed complete."))
+
+    # ----------------------------------------------------------------- #
+    # Poblacion del demo
+    #
+    # Todo se crea con get_or_create sobre una clave estable (codigo de
+    # empleado, codigo de estudiante, numero de unidad): correr el seeder dos
+    # veces no debe duplicar nada, porque `make seed` se corre a mano y sin
+    # llevar la cuenta de cuantas veces.
+    # ----------------------------------------------------------------- #
+
+    def seed_teachers(self):
+        teachers = []
+        for index, (first_name, last_name, specialty) in enumerate(TEACHER_NAMES, start=1):
+            employee_code = f"DOC-{index:03d}"
+            teacher = Teacher.objects.filter(employee_code=employee_code).first()
+            if teacher is None:
+                person = Person.objects.create(
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=f"docente{index:03d}@inebi.edu.gt",
+                    phone_number=f"5{index:07d}",
+                )
+                teacher = Teacher.objects.create(
+                    person=person,
+                    employee_code=employee_code,
+                    specialty=specialty,
+                    position=Teacher.Position.DOCENTE_TITULADO,
+                    appointment_date=date(2026, 1, 15),
+                )
+            teachers.append(teacher)
+
+        self.stdout.write(f"Docentes: {len(teachers)}")
+        return teachers
+
+    def seed_students(self):
+        students = []
+        total = len(STUDENT_FIRST_NAMES) * 5
+
+        for index in range(total):
+            student_code = f"EST-2026-{index + 1:04d}"
+            student = Student.objects.filter(student_code=student_code).first()
+            if student is None:
+                first_name = STUDENT_FIRST_NAMES[index % len(STUDENT_FIRST_NAMES)]
+                last_name = STUDENT_LAST_NAMES[index % len(STUDENT_LAST_NAMES)]
+                person = Person.objects.create(
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=f"estudiante{index + 1:04d}@inebi.edu.gt",
+                    phone_number=f"4{index + 1:07d}",
+                )
+                student = Student.objects.create(
+                    person=person,
+                    student_code=student_code,
+                    status=Student.StudentStatus.ACTIVE,
+                )
+            students.append(student)
+
+        self.stdout.write(f"Estudiantes: {len(students)}")
+        return students
+
+    def seed_guardians(self, students):
+        """Un encargado cada tres estudiantes, para tener casos con y sin vinculo."""
+        created = 0
+        for index, student in enumerate(students):
+            if index % 3 != 0:
+                continue
+            if StudentGuardianRelation.objects.filter(student=student).exists():
+                continue
+
+            person = Person.objects.create(
+                first_name=STUDENT_FIRST_NAMES[(index + 7) % len(STUDENT_FIRST_NAMES)],
+                last_name=student.person.last_name,
+                email=f"encargado{index + 1:04d}@inebi.edu.gt",
+                phone_number=f"3{index + 1:07d}",
+            )
+            guardian = Guardian.objects.create(person=person)
+            StudentGuardianRelation.objects.create(
+                student=student,
+                guardian=guardian,
+                relationship_label=GUARDIAN_RELATIONSHIPS[index % len(GUARDIAN_RELATIONSHIPS)],
+                is_primary=True,
+                starts_at=date(2026, 1, 15),
+            )
+            created += 1
+
+        self.stdout.write(f"Encargados: {created}")
+
+    def seed_enrolments(self, *, cycle, sections, students):
+        """
+        Reparte los estudiantes entre las secciones sin pasar del cupo.
+
+        No usa el servicio de matriculacion a proposito: ese valida cupo y
+        jornada consultando la base por cada alta, y aqui interesa dejar el
+        estado final, no simular el tramite.
+        """
+        created = 0
+        capacity_left = {
+            section.pk: section.capacity - section.enrolments.filter(status="active").count()
+            for section in sections
+        }
+
+        pending = [
+            student
+            for student in students
+            if not Enrolment.objects.filter(
+                student=student, academic_cycle=cycle, status="active"
+            ).exists()
+        ]
+
+        for student in pending:
+            section = next(
+                (section for section in sections if capacity_left[section.pk] > 0),
+                None,
+            )
+            if section is None:
+                break
+
+            Enrolment.objects.create(
+                student=student,
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+                effective_on=cycle.starts_on,
+            )
+            capacity_left[section.pk] -= 1
+            created += 1
+
+        self.stdout.write(f"Matriculas: {created}")
+
+    def seed_teaching_assignments(self, *, cycle, sections, subjects, teachers):
+        """
+        Un docente por seccion y curso, repartidos en rueda.
+
+        Deja a proposito la ultima seccion SIN asignaciones: es el caso que la
+        pantalla de asignacion por lotes existe para resolver, y sin un hueco
+        real no hay como probarla.
+        """
+        created = 0
+        assignable = sections[:-1] if len(sections) > 1 else sections
+
+        for section_index, section in enumerate(assignable):
+            for subject_index, subject in enumerate(subjects):
+                if TeachingAssignment.objects.filter(
+                    academic_cycle=cycle,
+                    section=section,
+                    subject=subject,
+                    ends_on__isnull=True,
+                ).exists():
+                    continue
+
+                teacher = teachers[
+                    (section_index * len(subjects) + subject_index) % len(teachers)
+                ]
+                TeachingAssignment.objects.create(
+                    academic_cycle=cycle,
+                    section=section,
+                    subject=subject,
+                    teacher=teacher.person,
+                    starts_on=cycle.starts_on,
+                )
+                created += 1
+
+        self.stdout.write(f"Asignaciones docentes: {created}")
+
+    def seed_evaluation_units(self, cycle):
+        units = [
+            (1, "Primera unidad", date(2026, 1, 15), date(2026, 3, 31)),
+            (2, "Segunda unidad", date(2026, 4, 1), date(2026, 6, 15)),
+            (3, "Tercera unidad", date(2026, 6, 16), date(2026, 8, 31)),
+            (4, "Cuarta unidad", date(2026, 9, 1), date(2026, 10, 30)),
+        ]
+
+        for number, name, starts_on, ends_on in units:
+            EvaluationUnit.objects.get_or_create(
+                academic_cycle=cycle,
+                number=number,
+                defaults={
+                    "name": name,
+                    "starts_on": starts_on,
+                    "ends_on": ends_on,
+                    # La ventana de captura se abre con la unidad y cierra dos
+                    # semanas despues: asi la unidad en curso admite notas y las
+                    # anteriores no, que es el estado normal de un ciclo vivo.
+                    "capture_starts_on": starts_on,
+                    "capture_ends_on": ends_on,
+                    "status": EvaluationUnit.UnitStatus.OPEN,
+                },
+            )
+
+        self.stdout.write(f"Unidades de evaluacion: {len(units)}")
+
+    def seed_jornada_parameters(self, *, cycle, shifts):
+        schedules = {
+            "MOR": (time(7, 30), time(12, 30)),
+            "VES": (time(13, 0), time(18, 0)),
+        }
+
+        for shift in shifts:
+            entry_limit, closing = schedules.get(shift.code, (time(7, 30), time(12, 30)))
+            JornadaParameters.objects.get_or_create(
+                shift=shift,
+                academic_cycle=cycle,
+                effective_from=cycle.starts_on,
+                defaults={
+                    "entry_limit_time": entry_limit,
+                    "tolerance_minutes": 10,
+                    "closing_time": closing,
+                    "duplicate_suppression_minutes": 5,
+                    "school_days": ["mon", "tue", "wed", "thu", "fri"],
+                },
+            )
+
+        self.stdout.write(f"Parametros de jornada: {len(shifts)}")
+
