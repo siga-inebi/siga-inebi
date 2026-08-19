@@ -195,6 +195,20 @@ const GRADE = {
   level: LEVEL,
 };
 
+const CAMPUS = {
+  public_id: "campus-1",
+  name: "Sede Central",
+  code: "CENTRAL",
+  is_main: true,
+};
+
+const SHIFT = {
+  public_id: "shift-1",
+  name: "Matutina",
+  code: "MOR",
+  campus: CAMPUS,
+};
+
 const SECTION = {
   public_id: "section-a",
   name: "A",
@@ -536,6 +550,9 @@ describe("pantallas de los modulos con backend previo", () => {
 
     test("el estado del dia no consulta hasta tener los tres campos", async () => {
       const user = userEvent.setup();
+      studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
+      academicsServiceMock.listCampuses.mockResolvedValue(paged([CAMPUS]));
+      academicsServiceMock.listCampusShifts.mockResolvedValue(paged([SHIFT]));
       renderWithRouter(<AttendancePage />);
 
       // Escopado a la tarjeta: "Porcentaje de asistencia" repite los mismos
@@ -546,10 +563,64 @@ describe("pantallas de los modulos con backend previo", () => {
       const scoped = within(card);
       expect(scoped.getByRole("button", { name: /Consultar/ })).toBeDisabled();
 
-      await user.type(scoped.getByLabelText(/^ID de estudiante/), "student-1");
-      await user.type(scoped.getByLabelText(/^ID de jornada/), "shift-1");
+      await user.click(scoped.getByRole("combobox", { name: /Estudiante/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+      );
+      await user.click(scoped.getByRole("combobox", { name: /Jornada/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Matutina · Sede Central" })
+      );
+
+      // Falta la fecha: el endpoint exige los tres, y consultar con dos
+      // devolveria un 400 en vez de un resultado.
       expect(scoped.getByRole("button", { name: /Consultar/ })).toBeDisabled();
       expect(attendanceServiceMock.dayStatus).not.toHaveBeenCalled();
+    });
+
+    test("el movimiento se registra eligiendo estudiante y jornada", async () => {
+      const user = userEvent.setup();
+      studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
+      academicsServiceMock.listCampuses.mockResolvedValue(paged([CAMPUS]));
+      academicsServiceMock.listCampusShifts.mockResolvedValue(paged([SHIFT]));
+      renderWithRouter(<AttendancePage />);
+      await screen.findByRole("heading", { name: "Movimientos" });
+
+      await user.click(
+        screen.getByRole("button", { name: "Registrar movimiento" })
+      );
+      const form = await screen.findByRole("dialog", {
+        name: "Nuevo movimiento de asistencia",
+      });
+
+      await user.click(
+        within(form).getByRole("combobox", { name: /Estudiante/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+      );
+      await user.click(within(form).getByRole("combobox", { name: /Jornada/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Matutina · Sede Central" })
+      );
+      await user.type(
+        within(form).getByLabelText(/Fecha del movimiento/),
+        "2026-03-02"
+      );
+      await user.type(
+        within(form).getByLabelText(/Momento de captura/),
+        "2026-03-02"
+      );
+      await user.click(
+        within(form).getByRole("button", { name: "Registrar movimiento" })
+      );
+
+      expect(attendanceServiceMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          student_id: "student-1",
+          shift_id: "shift-1",
+        })
+      );
     });
 
     test("muestra el registro de movimientos y sus alertas", async () => {

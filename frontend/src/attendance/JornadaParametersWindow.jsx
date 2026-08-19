@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -7,6 +7,11 @@ import AddIcon from "@mui/icons-material/Add";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import { attendanceService } from "@attendance/attendanceService.js";
+import {
+  labelIndex,
+  useCycleCatalog,
+  useShiftCatalog,
+} from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate } from "@shared/utils/format.js";
@@ -14,13 +19,19 @@ import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
-import { CodeCell } from "@ui/table/cells.jsx";
+import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
-const PARAMETER_COLUMNS = [
+const parameterColumns = (shiftNames) => [
   {
     key: "shift_id",
     label: "Jornada",
-    render: (row) => <CodeCell value={row.shift_id} />,
+    render: (row) =>
+      shiftNames.get(row.shift_id) ??
+      (row.shift_id ? (
+        <CodeCell value={row.shift_id} />
+      ) : (
+        <MutedCell>—</MutedCell>
+      )),
   },
   {
     key: "entry_limit_time",
@@ -57,15 +68,34 @@ const PARAMETER_COLUMNS = [
   },
 ];
 
-const PARAMETER_FIELDS = [
-  { name: "shift_id", label: "ID de jornada", required: true },
-  { name: "academic_cycle_id", label: "ID de ciclo escolar", required: true },
+const parameterFields = ({ cycles, shifts }) => [
   {
+    name: "shift_id",
+    label: "Jornada",
+    type: "select",
+    options: shifts.options,
+    loading: shifts.loading,
+    optionsError: shifts.error,
+    emptyHint: "No hay jornadas registradas.",
+    required: true,
+  },
+  {
+    name: "academic_cycle_id",
+    label: "Ciclo escolar",
+    type: "select",
+    options: cycles.options,
+    loading: cycles.loading,
+    optionsError: cycles.error,
+    emptyHint: "No hay ciclos escolares registrados.",
+    required: true,
+  },
+  {
+    // Campo de hora nativo en vez de texto con formato dictado: el navegador ya
+    // sabe validar una hora, y "HH:MM" como instruccion es un error esperando.
     name: "entry_limit_time",
     label: "Hora limite de entrada",
+    type: "time",
     required: true,
-    placeholder: "HH:MM",
-    help: "Formato de 24 horas, por ejemplo 07:30.",
   },
   {
     name: "tolerance_minutes",
@@ -77,8 +107,8 @@ const PARAMETER_FIELDS = [
   {
     name: "closing_time",
     label: "Hora de cierre",
+    type: "time",
     required: true,
-    placeholder: "HH:MM",
   },
   {
     name: "duplicate_suppression_minutes",
@@ -105,6 +135,10 @@ const PARAMETER_FIELDS = [
  * tabla muestra tambien los reemplazados en vez de esconderlos.
  */
 export function JornadaParametersWindow({ onClose }) {
+  const cycles = useCycleCatalog();
+  const shifts = useShiftCatalog();
+  const shiftNames = useMemo(() => labelIndex(shifts.options), [shifts.options]);
+
   const loadParameters = useCallback(
     (params) => attendanceService.listJornadaParameters(params),
     []
@@ -148,7 +182,7 @@ export function JornadaParametersWindow({ onClose }) {
         <Stack gap={2}>
           {list.error ? <Alert severity="error">{list.error}</Alert> : null}
           <DataTable
-            columns={PARAMETER_COLUMNS}
+            columns={parameterColumns(shiftNames)}
             emptyMessage="Todavia no hay parametros de jornada registrados."
             getRowKey={(row) => row.public_id}
             loading={list.loading}
@@ -161,7 +195,7 @@ export function JornadaParametersWindow({ onClose }) {
       {creating ? (
         <EntityFormWindow
           description="Estos valores definen desde cuando una entrada cuenta como tardanza y cuando se cierra la jornada."
-          fields={PARAMETER_FIELDS}
+          fields={parameterFields({ cycles, shifts })}
           initialValues={{
             shift_id: "",
             academic_cycle_id: "",

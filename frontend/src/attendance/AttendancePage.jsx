@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -21,6 +21,12 @@ import {
   TRANSMISSION_LABEL,
 } from "@attendance/attendanceService.js";
 import { PAGE_SIZE } from "@academics/academicsService.js";
+import {
+  labelIndex,
+  useSectionCatalog,
+  useShiftCatalog,
+  useStudentCatalog,
+} from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate, formatDateTime } from "@shared/utils/format.js";
@@ -37,16 +43,27 @@ import { DayStatusProbe } from "./DayStatusProbe.jsx";
 import { JornadaParametersWindow } from "./JornadaParametersWindow.jsx";
 import { ScanCaptureWindow } from "./ScanCaptureWindow.jsx";
 
-const EVENT_COLUMNS = [
+/**
+ * Nombre del catalogo, con el identificador crudo como respaldo.
+ *
+ * Un evento de asistencia puede apuntar a un estudiante dado de baja o a una
+ * jornada que ya no figura en el catalogo; la celda vacia se leeria como un
+ * error del sistema, y el identificador al menos es rastreable.
+ */
+function nameCell(index, id) {
+  return index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>);
+}
+
+const eventColumns = (names) => [
   {
     key: "student_id",
     label: "Estudiante",
-    render: (row) => <CodeCell value={row.student_id} />,
+    render: (row) => nameCell(names.students, row.student_id),
   },
   {
     key: "shift_id",
     label: "Jornada",
-    render: (row) => <CodeCell value={row.shift_id} />,
+    render: (row) => nameCell(names.shifts, row.shift_id),
   },
   {
     key: "event_date",
@@ -100,7 +117,7 @@ const EVENT_COLUMNS = [
   },
 ];
 
-const ALERT_COLUMNS = [
+const alertColumns = (names) => [
   {
     key: "alert_type",
     label: "Alerta",
@@ -114,7 +131,7 @@ const ALERT_COLUMNS = [
   {
     key: "student_id",
     label: "Estudiante",
-    render: (row) => <CodeCell value={row.student_id} />,
+    render: (row) => nameCell(names.students, row.student_id),
   },
   {
     key: "event_date",
@@ -126,7 +143,7 @@ const ALERT_COLUMNS = [
     label: "Seccion",
     render: (row) =>
       row.section_id ? (
-        <CodeCell value={row.section_id} />
+        nameCell(names.sections, row.section_id)
       ) : (
         <MutedCell>Sin seccion</MutedCell>
       ),
@@ -138,9 +155,27 @@ const ALERT_COLUMNS = [
   },
 ];
 
-const EVENT_FIELDS = [
-  { name: "student_id", label: "ID de estudiante", required: true },
-  { name: "shift_id", label: "ID de jornada", required: true },
+const eventFields = ({ shifts, students }) => [
+  {
+    name: "student_id",
+    label: "Estudiante",
+    type: "select",
+    options: students.options,
+    loading: students.loading,
+    optionsError: students.error,
+    emptyHint: "No hay estudiantes registrados.",
+    required: true,
+  },
+  {
+    name: "shift_id",
+    label: "Jornada",
+    type: "select",
+    options: shifts.options,
+    loading: shifts.loading,
+    optionsError: shifts.error,
+    emptyHint: "No hay jornadas registradas.",
+    required: true,
+  },
   {
     name: "event_date",
     label: "Fecha del movimiento",
@@ -186,6 +221,19 @@ const EVENT_FIELDS = [
  * eso sea visible en vez de parecer que un movimiento desaparecio.
  */
 export function AttendancePage() {
+  const students = useStudentCatalog();
+  const shifts = useShiftCatalog();
+  const sections = useSectionCatalog();
+
+  const names = useMemo(
+    () => ({
+      students: labelIndex(students.options),
+      shifts: labelIndex(shifts.options),
+      sections: labelIndex(sections.options),
+    }),
+    [students.options, shifts.options, sections.options]
+  );
+
   const loadEvents = useCallback(
     (params) => attendanceService.listEvents(params),
     []
@@ -288,7 +336,7 @@ export function AttendancePage() {
         ) : null}
         <SectionTableArea>
           <DataTable
-            columns={ALERT_COLUMNS}
+            columns={alertColumns(names)}
             emptyMessage="Sin alertas de asistencia registradas."
             getRowKey={(row) => row.public_id}
             loading={alerts.loading}
@@ -310,7 +358,7 @@ export function AttendancePage() {
         ) : null}
         <SectionTableArea>
           <DataTable
-            columns={EVENT_COLUMNS}
+            columns={eventColumns(names)}
             emptyMessage="Todavia no hay movimientos registrados."
             fillHeight
             getRowKey={(row) => row.public_id}
@@ -323,7 +371,7 @@ export function AttendancePage() {
 
       <EntityFormWindow
         description="Un movimiento manual queda marcado con origen distinto al de lectura, para poder auditarlo despues."
-        fields={EVENT_FIELDS}
+        fields={eventFields({ shifts, students })}
         initialValues={{
           student_id: "",
           shift_id: "",
