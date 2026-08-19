@@ -3,6 +3,18 @@ import { withQuery } from "@shared/api/query.js";
 
 const ROOT = "/academics";
 
+/** Estados de una unidad de evaluacion, tal como los expone el backend. */
+export const UNIT_STATUS_LABEL = {
+  open: "Abierta",
+  closed: "Cerrada",
+};
+
+/** Estado de dominio -> variante semantica de chip. */
+export const UNIT_STATUS_VARIANT = {
+  open: "success",
+  closed: "neutral",
+};
+
 export const evaluationService = {
   /** Configuracion global de evaluacion: el default de toda la institucion. */
   getGlobalConfig: () => apiClient.get(`${ROOT}/evaluation-config/`),

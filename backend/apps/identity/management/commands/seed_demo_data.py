@@ -31,35 +31,51 @@ from apps.people.models import Person
 from apps.students.models import Guardian, Student, StudentGuardianRelation
 from apps.teachers.models import Teacher
 
+# Un permiso por cada operacion que alguna vista exige. La lista se quedaba
+# corta en asistencia, alertas y documentos, y el resultado era un demo donde
+# modulos enteros respondian 403 sin que nada explicara por que: el
+# administrador no puede ser el rol que no alcanza a administrar.
 PERMISSIONS = [
     ("auth_login", "Can log in"),
     ("auth_logout", "Can log out"),
     ("account_create", "Can create accounts"),
     ("account_activate", "Can issue account activation challenges"),
+    ("account_disable", "Can disable accounts"),
     ("role_assign", "Can assign roles"),
     ("scope_assign", "Can assign scopes"),
     ("student_view_basic", "Can view student basic data"),
+    ("student_edit_basic", "Can edit student basic data"),
     ("student_view_sensitive", "Can view sensitive student data"),
     ("enrollment_create", "Can create enrollments"),
+    ("enrollment_update", "Can update enrollments"),
+    ("attendance_jornada_configure", "Can configure jornada parameters"),
+    ("attendance_record_manual", "Can record attendance manually"),
+    ("attendance_scan", "Can record attendance by scan"),
+    ("attendance_declared_close", "Can close a jornada with declared attendance"),
+    ("grade_write", "Can register grades"),
+    ("reporting_alert_view", "Can view attendance alerts"),
+    ("reporting_alert_acknowledge", "Can acknowledge attendance alerts"),
+    ("reporting_alert_evaluate", "Can re-evaluate attendance alerts"),
+    ("reporting_absence_threshold_configure", "Can configure absence thresholds"),
     ("document_read", "Can read documents"),
+    ("document_issue", "Can issue official documents"),
     ("audit_read", "Can read audit events"),
 ]
 
+# El administrador del sistema recibe TODO lo publicado; el director, lo que
+# necesita para consultar y atender, sin configurar ni emitir.
 ROLES = {
-    "system-administrator": [
+    "system-administrator": [codename for codename, _label in PERMISSIONS],
+    "director": [
         "auth_login",
         "auth_logout",
-        "account_create",
-        "account_activate",
-        "role_assign",
-        "scope_assign",
         "student_view_basic",
         "student_view_sensitive",
-        "enrollment_create",
+        "reporting_alert_view",
+        "reporting_alert_acknowledge",
         "document_read",
         "audit_read",
     ],
-    "director": ["auth_login", "auth_logout", "student_view_basic", "document_read", "audit_read"],
 }
 
 # Catalogos del demo. Son listas fijas y no nombres aleatorios: un seeder que
