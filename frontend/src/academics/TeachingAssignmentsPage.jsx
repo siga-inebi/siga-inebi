@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
+import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
 import SwapHorizOutlinedIcon from "@mui/icons-material/SwapHorizOutlined";
 
 import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
@@ -25,6 +26,8 @@ import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
+import { BulkAssignmentWindow } from "./BulkAssignmentWindow.jsx";
+
 /**
  * Asignaciones docentes por seccion y curso.
  *
@@ -44,6 +47,7 @@ import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
 export function TeachingAssignmentsPage() {
   const [cycleFilter, setCycleFilter] = useState("");
   const [creating, setCreating] = useState(false);
+  const [bulkAssigning, setBulkAssigning] = useState(false);
   const [reassigning, setReassigning] = useState(null);
   const [actionError, setActionError] = useState("");
 
@@ -237,13 +241,22 @@ export function TeachingAssignmentsPage() {
     <>
       <PageHeader
         action={
-          <Button
-            onClick={() => setCreating(true)}
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nueva asignacion
-          </Button>
+          <Stack direction="row" flexWrap="wrap" gap={1}>
+            <Button
+              onClick={() => setBulkAssigning(true)}
+              startIcon={<PlaylistAddCheckOutlinedIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Asignar por lotes
+            </Button>
+            <Button
+              onClick={() => setCreating(true)}
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nueva asignacion
+            </Button>
+          </Stack>
         }
         breadcrumb="Estructura academica"
         subtitle="Historial de asignaciones docentes por seccion y curso. Reasignar cierra la asignacion vigente y abre una nueva; nada se sobrescribe."
@@ -314,6 +327,13 @@ export function TeachingAssignmentsPage() {
         submitLabel="Crear asignacion"
         title="Nueva asignacion docente"
       />
+
+      {bulkAssigning ? (
+        <BulkAssignmentWindow
+          onClose={() => setBulkAssigning(false)}
+          onCreated={list.refresh}
+        />
+      ) : null}
 
       {reassigning ? (
         <EntityFormWindow

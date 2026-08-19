@@ -720,6 +720,69 @@ describe("pantallas de los modulos con backend previo", () => {
       ).toBeInTheDocument();
     });
 
+    test("asigna varios cursos de una seccion en un solo paso", async () => {
+      const user = userEvent.setup();
+      academicsServiceMock.listSubjects.mockResolvedValue(
+        paged([SUBJECT, { ...SUBJECT, public_id: "subject-com", name: "Comunicacion", code: "COM" }])
+      );
+      // El historial ya cubre Matematica en esa seccion, asi que el lote solo
+      // debe ofrecer (y crear) el curso que sigue sin docente.
+      academicsServiceMock.listTeachingAssignmentHistory.mockResolvedValue(
+        paged([ASSIGNMENT])
+      );
+      renderWithRouter(<TeachingAssignmentsPage />);
+      await screen.findByText("Vigente");
+
+      await user.click(screen.getByRole("button", { name: "Asignar por lotes" }));
+      const window = await screen.findByRole("dialog", {
+        name: "Asignacion docente por lotes",
+      });
+
+      await user.click(
+        within(window).getByRole("combobox", { name: /Ciclo escolar/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+      );
+      await user.click(within(window).getByRole("combobox", { name: /Seccion/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Primero Basico A" })
+      );
+      await user.type(
+        within(window).getByLabelText(/Vigente desde/),
+        "2026-03-02"
+      );
+
+      expect(
+        await within(window).findByText("Matematica (MAT)")
+      ).toBeInTheDocument();
+      expect(within(window).getByText("Ana Lopez · EMP-1")).toBeInTheDocument();
+
+      // Solo Comunicacion queda pendiente, asi que hay un unico selector de
+      // docente en la tabla: el atajo "aplicar a todos" no aparece con uno solo.
+      await user.click(within(window).getByRole("combobox", { name: "Docente" }));
+      await user.click(
+        await screen.findByRole("option", { name: "Ana Lopez · EMP-1" })
+      );
+
+      await user.click(
+        within(window).getByRole("button", { name: /Asignar 1 curso/ })
+      );
+
+      expect(
+        academicsServiceMock.createTeachingAssignment
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        academicsServiceMock.createTeachingAssignment
+      ).toHaveBeenCalledWith({
+        academic_cycle_id: "cycle-2026",
+        section_id: "section-a",
+        subject_id: "subject-com",
+        teacher_id: "teacher-1",
+        starts_on: "2026-03-02",
+      });
+    });
+
     test("crea la asignacion enviando los identificadores del catalogo", async () => {
       const user = userEvent.setup();
       renderWithRouter(<TeachingAssignmentsPage />);
