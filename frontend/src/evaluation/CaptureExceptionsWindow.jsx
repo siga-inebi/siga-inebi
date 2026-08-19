@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -7,24 +7,35 @@ import AddIcon from "@mui/icons-material/Add";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import { evaluationService } from "@evaluation/evaluationService.js";
+import {
+  asTeacherPersonOptions,
+  labelIndex,
+  useSubjectCatalog,
+  useTeacherCatalog,
+} from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDateTime } from "@shared/utils/format.js";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
-import { CodeCell } from "@ui/table/cells.jsx";
+import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
-const EXCEPTION_COLUMNS = [
+/** Nombre del catalogo, con el identificador crudo como respaldo. */
+function nameCell(index, id) {
+  return index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>);
+}
+
+const exceptionColumns = (names) => [
   {
     key: "subject",
     label: "Curso",
-    render: (row) => <CodeCell value={row.subject} />,
+    render: (row) => nameCell(names.subjects, row.subject),
   },
   {
     key: "teacher",
     label: "Docente",
-    render: (row) => <CodeCell value={row.teacher} />,
+    render: (row) => nameCell(names.teachers, row.teacher),
   },
   { key: "reason", label: "Motivo", render: (row) => row.reason },
   {
@@ -39,9 +50,27 @@ const EXCEPTION_COLUMNS = [
   },
 ];
 
-const EXCEPTION_FIELDS = [
-  { name: "subject", label: "ID de curso", required: true },
-  { name: "teacher", label: "ID de docente", required: true },
+const exceptionFields = ({ subjects, teacherPeople, teachers }) => [
+  {
+    name: "subject",
+    label: "Curso",
+    type: "select",
+    options: subjects.options,
+    loading: subjects.loading,
+    optionsError: subjects.error,
+    emptyHint: "No hay cursos registrados.",
+    required: true,
+  },
+  {
+    name: "teacher",
+    label: "Docente",
+    type: "select",
+    options: teacherPeople,
+    loading: teachers.loading,
+    optionsError: teachers.error,
+    emptyHint: "No hay docentes registrados.",
+    required: true,
+  },
   {
     name: "reason",
     label: "Motivo de la excepcion",
@@ -66,6 +95,21 @@ const EXCEPTION_FIELDS = [
  * evidencia de por que se autorizo.
  */
 export function CaptureExceptionsWindow({ cycleId, onClose, unit }) {
+  const subjects = useSubjectCatalog();
+  const teachers = useTeacherCatalog();
+
+  const teacherPeople = useMemo(
+    () => asTeacherPersonOptions(teachers.options),
+    [teachers.options]
+  );
+  const names = useMemo(
+    () => ({
+      subjects: labelIndex(subjects.options),
+      teachers: labelIndex(teacherPeople),
+    }),
+    [subjects.options, teacherPeople]
+  );
+
   const loadExceptions = useCallback(
     (params) =>
       evaluationService.listCaptureExceptions(cycleId, unit.public_id, params),
@@ -114,7 +158,7 @@ export function CaptureExceptionsWindow({ cycleId, onClose, unit }) {
         <Stack gap={2}>
           {list.error ? <Alert severity="error">{list.error}</Alert> : null}
           <DataTable
-            columns={EXCEPTION_COLUMNS}
+            columns={exceptionColumns(names)}
             emptyMessage="Esta unidad no tiene permisos excepcionales otorgados."
             getRowKey={(row) => row.public_id}
             loading={list.loading}
@@ -127,7 +171,7 @@ export function CaptureExceptionsWindow({ cycleId, onClose, unit }) {
       {granting ? (
         <EntityFormWindow
           description="El motivo y el vencimiento son obligatorios: la excepcion es auditable y temporal."
-          fields={EXCEPTION_FIELDS}
+          fields={exceptionFields({ subjects, teacherPeople, teachers })}
           initialValues={{
             subject: "",
             teacher: "",

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import { academicsService } from "@academics/academicsService.js";
 import { CYCLE_STATUS_LABEL, cyclesService } from "@cycles/cyclesService.js";
+import { enrolmentsService } from "@enrolments/enrolmentsService.js";
 import { studentsService } from "@students/studentsService.js";
 import { teachersService } from "@teachers/teachersService.js";
 
@@ -61,6 +62,10 @@ async function loadTeachers() {
       label: [personName(teacher.person), teacher.employee_code]
         .filter(Boolean)
         .join(" · "),
+      // Evaluacion identifica al docente por su PERSONA, no por su perfil
+      // docente: es la persona la que firma una nota, y el perfil puede
+      // cambiar de codigo o cerrarse sin que eso reescriba lo ya calificado.
+      personId: teacher.person?.public_id,
     }))
   );
 }
@@ -213,6 +218,53 @@ export function sectionsForCycle(options, cycleId) {
     return [];
   }
   return options.filter((option) => option.cycleId === cycleId);
+}
+
+/**
+ * Docentes identificados por su persona.
+ *
+ * Solo el modulo de evaluacion los necesita asi; el resto del sistema apunta al
+ * perfil docente, y mezclar los dos identificadores en un mismo catalogo seria
+ * pedir que alguien mande el que no es.
+ */
+export function asTeacherPersonOptions(options) {
+  return options
+    .filter((option) => option.personId)
+    .map((option) => ({ value: option.personId, label: option.label }));
+}
+
+/**
+ * Matriculas vigentes, etiquetadas por estudiante y seccion.
+ *
+ * Una nota se registra contra una matricula, que es lo que ata al estudiante
+ * con su seccion y su ciclo. Nadie la conoce por su identificador, asi que la
+ * etiqueta se arma leyendo tambien estudiantes y secciones.
+ */
+async function loadEnrolments() {
+  const [enrolments, students, sections] = await Promise.all([
+    collectAllPages(enrolmentsService.listActive),
+    loadStudents(),
+    loadSections(),
+  ]);
+
+  const studentNames = new Map(students.map((s) => [s.value, s.label]));
+  const sectionNames = new Map(sections.map((s) => [s.value, s.label]));
+
+  return byLabel(
+    enrolments.map((enrolment) => ({
+      value: enrolment.public_id,
+      label: [
+        studentNames.get(enrolment.student_id) ?? "Estudiante sin nombre",
+        sectionNames.get(enrolment.section_id),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    }))
+  );
+}
+
+export function useEnrolmentCatalog(reloadToken) {
+  return useCatalogOptions(loadEnrolments, reloadToken);
 }
 
 /** Indice `value -> label` para pintar un id como el nombre que representa. */

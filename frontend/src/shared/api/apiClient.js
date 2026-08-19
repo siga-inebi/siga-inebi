@@ -27,8 +27,13 @@ async function parseResponse(response) {
   const data = isJson ? await response.json() : null;
 
   if (!response.ok) {
+    // El backend responde de tres formas segun la capa que rechaza: la de
+    // dominio manda `{error: {detail}}`, las vistas de permisos mandan
+    // `{error: "texto"}` y DRF manda los errores por campo (`{campo: [...]}`).
+    // Sin la segunda y la tercera, un 403 explicado o un campo invalido se leian
+    // como "Solicitud no completada.", que no le dice a nadie que corregir.
     const detail =
-      data?.error?.detail || data?.detail || "Solicitud no completada.";
+      data?.error?.detail ?? data?.error ?? data?.detail ?? data;
     const message = getErrorMessage(detail);
     const error = new Error(message);
     error.status = response.status;

@@ -4,10 +4,14 @@ import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
-import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
 import { evaluationService } from "@evaluation/evaluationService.js";
+import {
+  useEnrolmentCatalog,
+  useSubjectCatalog,
+} from "@shared/catalogs/academicCatalogs.js";
+import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 
@@ -21,6 +25,9 @@ import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
  * curso (RF-CAL-003), del que esta consulta reutiliza el mismo cálculo.
  */
 export function FinalGradeWindow({ cycleId, onClose }) {
+  const enrolments = useEnrolmentCatalog();
+  const subjects = useSubjectCatalog();
+
   const [enrolmentId, setEnrolmentId] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [data, setData] = useState(null);
@@ -64,18 +71,34 @@ export function FinalGradeWindow({ cycleId, onClose }) {
       width={WINDOW_WIDTH.compact}
     >
       <Stack component="form" gap={2} onSubmit={handleQuery}>
-        <TextField
-          label="ID de inscripcion"
+        <FormSelect
+          error={enrolments.error}
+          fullWidth
+          helperText={
+            !enrolments.loading && enrolments.options.length === 0
+              ? "No hay matriculas vigentes."
+              : undefined
+          }
+          label="Estudiante"
+          loading={enrolments.loading}
           onChange={(event) => setEnrolmentId(event.target.value)}
-          size="small"
-          type="number"
+          options={enrolments.options}
+          placeholder="Seleccione una matricula"
           value={enrolmentId}
         />
-        <TextField
-          label="ID de subarea"
+        <FormSelect
+          error={subjects.error}
+          fullWidth
+          helperText={
+            !subjects.loading && subjects.options.length === 0
+              ? "No hay cursos registrados."
+              : undefined
+          }
+          label="Subarea"
+          loading={subjects.loading}
           onChange={(event) => setSubjectId(event.target.value)}
-          size="small"
-          type="number"
+          options={subjects.options}
+          placeholder="Seleccione una subarea"
           value={subjectId}
         />
         <Button
