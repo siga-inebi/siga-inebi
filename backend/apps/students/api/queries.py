@@ -63,7 +63,7 @@ def health_notes(student, request):
 
 def health_note_or_404(public_id):
     return _get(
-        StudentHealthNote.objects.select_related("student", "author"),
+        StudentHealthNote.objects.select_related("student", "author").all(),
         public_id,
         "Student health note",
     )

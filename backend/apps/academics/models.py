@@ -354,7 +354,12 @@ class CurriculumPlan(TimeStampedModel):
     is_required = models.BooleanField(default=True)
 
     class Meta:
-        unique_together = [("academic_cycle", "grade", "subject")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["academic_cycle", "grade", "subject"],
+                name="unique_curriculum_plan_per_cycle_grade_subject",
+            ),
+        ]
 
 
 class TeachingAssignment(TimeStampedModel):

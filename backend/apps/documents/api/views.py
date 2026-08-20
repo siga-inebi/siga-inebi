@@ -30,6 +30,7 @@ from apps.documents.api import queries
 from .serializers import (
     DocumentTemplateCreateSerializer,
     DocumentTemplateSerializer,
+    DocumentTemplateTypeSerializer,
     DocumentTemplateUpdateSerializer,
     DocumentTemplateVersionSerializer,
     FieldTagSerializer,
@@ -184,6 +185,26 @@ class FieldTagListView(GenericAPIView):
             for code, label, sensitive in catalogue
         ]
         page = self.paginate_queryset(tags)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar tipos de documento",
+        description="Catalogo fijo de tipos de documento soportados por la institucion.",
+        tags=CATALOGUE,
+        responses={200: DocumentTemplateTypeSerializer(many=True)},
+    ),
+)
+class DocumentTypeListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentTemplateTypeSerializer
+
+    def get(self, request):
+        catalogue = services.list_document_types()
+        types = [{"code": code, "label": label} for code, label in catalogue]
+        page = self.paginate_queryset(types)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 

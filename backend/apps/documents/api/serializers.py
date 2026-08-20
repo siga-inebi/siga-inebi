@@ -54,6 +54,11 @@ class FieldTagSerializer(serializers.Serializer):
     sensitive = serializers.BooleanField()
 
 
+class DocumentTemplateTypeSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    label = serializers.CharField()
+
+
 class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = DocumentTemplateVersion

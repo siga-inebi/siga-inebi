@@ -277,6 +277,17 @@ def test_list_field_tags_returns_the_fixed_catalogue(auth_client):
     assert all(item["sensitive"] is False for item in _items(response))
 
 
+def test_list_document_types_returns_the_fixed_catalogue(auth_client):
+    response = auth_client.get(reverse("document-type-list"))
+
+    assert response.status_code == 200
+    assert response.json()["results"] == [
+        {"code": "certificate", "label": "Certificado"},
+        {"code": "report", "label": "Reporte"},
+        {"code": "other", "label": "Otro"},
+    ]
+
+
 def _grant_document_issue(user):
     permission = PermissionFactory(codename="document_issue")
     return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))

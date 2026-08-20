@@ -9,8 +9,11 @@ from apps.academics.services import (
     clone_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_curriculum_plan,
     create_section,
+    deactivate_curriculum_plan,
     deactivate_section,
+    update_curriculum_plan,
     update_section,
 )
 from apps.common.models import DomainError
@@ -357,3 +360,110 @@ def test_deactivate_section_rejects_when_it_has_active_enrolments():
 
     with pytest.raises(DomainError, match="active enrolments"):
         deactivate_section(section=section)
+
+
+def test_create_curriculum_plan_assigns_subject_to_grade():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=cycle.institution)
+    subject = SubjectFactory(institution=cycle.institution)
+
+    plan = create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
+
+    assert plan.academic_cycle_id == cycle.pk
+    assert plan.grade_id == grade.pk
+    assert plan.subject_id == subject.pk
+    assert plan.is_required is True
+
+
+def test_create_curriculum_plan_rejects_duplicate_subject_for_grade_and_cycle():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=cycle.institution)
+    subject = SubjectFactory(institution=cycle.institution)
+    create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
+
+    with pytest.raises(DomainError, match="already part of the curriculum plan"):
+        create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
+
+
+def test_create_curriculum_plan_rejects_when_cycle_is_closed():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    grade = GradeFactory(institution=cycle.institution)
+    subject = SubjectFactory(institution=cycle.institution)
+
+    with pytest.raises(DomainError, match="do not accept academic changes"):
+        create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
+
+
+def test_create_curriculum_plan_rejects_when_cycle_is_active():
+    """RF-EST-011: the study plan is structure, only changes while the cycle is in planning."""
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=cycle.institution)
+    subject = SubjectFactory(institution=cycle.institution)
+
+    with pytest.raises(DomainError, match="in planning"):
+        create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
+
+
+def test_create_curriculum_plan_rejects_grade_from_other_institution():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory()  # different institution
+    subject = SubjectFactory(institution=cycle.institution)
+
+    with pytest.raises(DomainError, match="must belong to the academic cycle institution"):
+        create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
+
+
+def test_update_curriculum_plan_changes_is_required():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    plan = create_curriculum_plan(
+        academic_cycle=cycle,
+        grade=GradeFactory(institution=cycle.institution),
+        subject=SubjectFactory(institution=cycle.institution),
+    )
+
+    updated = update_curriculum_plan(plan=plan, is_required=False)
+
+    assert updated.is_required is False
+
+
+def test_update_curriculum_plan_rejects_when_cycle_is_active():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    plan = create_curriculum_plan(
+        academic_cycle=cycle,
+        grade=GradeFactory(institution=cycle.institution),
+        subject=SubjectFactory(institution=cycle.institution),
+    )
+    cycle.status = AcademicCycle.CycleStatus.ACTIVE
+    cycle.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(DomainError, match="in planning"):
+        update_curriculum_plan(plan=plan, is_required=False)
+
+
+def test_deactivate_curriculum_plan_soft_deletes_and_is_idempotent():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    plan = create_curriculum_plan(
+        academic_cycle=cycle,
+        grade=GradeFactory(institution=cycle.institution),
+        subject=SubjectFactory(institution=cycle.institution),
+    )
+
+    deactivated = deactivate_curriculum_plan(plan=plan)
+    assert deactivated.is_active is False
+
+    again = deactivate_curriculum_plan(plan=deactivated)
+    assert again.is_active is False
+
+
+def test_deactivate_curriculum_plan_rejects_when_cycle_is_active():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    plan = create_curriculum_plan(
+        academic_cycle=cycle,
+        grade=GradeFactory(institution=cycle.institution),
+        subject=SubjectFactory(institution=cycle.institution),
+    )
+    cycle.status = AcademicCycle.CycleStatus.ACTIVE
+    cycle.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(DomainError, match="in planning"):
+        deactivate_curriculum_plan(plan=plan)
