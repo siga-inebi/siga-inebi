@@ -268,18 +268,31 @@ def test_matriculate_student_requires_domain_permission(auth_client):
     assert response.status_code == 403
 
 
-def test_matriculate_student_rejects_active_student(auth_client):
+def test_matriculate_student_rejects_a_second_active_enrolment(auth_client):
+    """
+    El rechazo pasa a ser por duplicado, no por el estado del expediente.
+
+    Antes bastaba con que el estudiante no estuviera "preinscrito"; ahora lo que
+    se rechaza es tener dos matriculas activas a la vez.
+    """
     section = SectionFactory()
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
     _grant_enrolment_creation(auth_client.user)
 
     response = auth_client.post(
         reverse("matriculation-create"),
-        _matriculation_payload(section, StudentFactory()),
+        _matriculation_payload(section, student),
         content_type="application/json",
     )
 
     assert response.status_code == 400
-    assert "Only pre-enrolled students" in response.json()["error"]["detail"]
+    assert "already has an active enrolment" in response.json()["error"]["detail"]
 
 
 def test_matriculate_student_rejects_full_section(auth_client):

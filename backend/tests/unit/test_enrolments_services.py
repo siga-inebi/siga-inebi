@@ -163,12 +163,92 @@ def test_matriculate_student_activates_pre_enrolled_student_and_links_shift():
     assert student.status == student.StudentStatus.ACTIVE
 
 
-def test_matriculate_student_rejects_student_that_is_not_pre_enrolled():
+def test_matriculate_student_accepts_a_student_without_an_open_enrolment():
+    """
+    Ya no hace falta devolver el expediente a "preinscrito".
+
+    Exigirlo obligaba a un paso previo por cada estudiante activo del ciclo
+    anterior, y no protegia de nada: lo que se debe evitar es la matricula
+    duplicada, y eso lo cubren los constraints.
+    """
     section = SectionFactory()
 
-    with pytest.raises(DomainError, match="Only pre-enrolled students"):
+    enrolment = matriculate_student(
+        student=StudentFactory(status="active"),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+        section=section,
+    )
+
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_matriculate_student_rejects_a_second_active_enrolment():
+    """Una sola matricula activa por estudiante, aunque el ciclo sea otro."""
+    first_section = SectionFactory()
+    other_cycle = AcademicCycleFactory(
+        institution=first_section.academic_cycle.institution,
+        year=2027,
+        name="Ciclo 2027",
+        starts_on=date(2027, 1, 15),
+        ends_on=date(2027, 10, 29),
+        status="draft",
+    )
+    second_section = SectionFactory(
+        academic_cycle=other_cycle,
+        grade=first_section.grade,
+        shift=first_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        section=first_section,
+    )
+
+    with pytest.raises(DomainError, match="already has an active enrolment"):
         matriculate_student(
-            student=StudentFactory(),
+            student=student,
+            academic_cycle=other_cycle,
+            grade=second_section.grade,
+            shift=second_section.shift,
+            section=second_section,
+        )
+
+
+def test_matriculate_student_rejects_repeating_the_same_section():
+    """Repetir es cursar de nuevo en OTRO ciclo, con otra seccion."""
+    section = SectionFactory()
+    student = StudentFactory()
+    first = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    first.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    first.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(DomainError, match="already enrolled in this section"):
+        matriculate_student(
+            student=student,
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+
+def test_matriculate_student_rejects_an_archived_student():
+    """La baja del expediente no es una regla de duplicados; sigue vigente."""
+    section = SectionFactory()
+
+    with pytest.raises(DomainError, match="Inactive students"):
+        matriculate_student(
+            student=StudentFactory(is_active=False),
             academic_cycle=section.academic_cycle,
             grade=section.grade,
             shift=section.shift,
@@ -270,17 +350,50 @@ def test_reenrol_student_requires_previous_enrolment():
         )
 
 
-def test_reenrol_student_rejects_active_student():
-    section = SectionFactory(name="A")
+def test_reenrol_student_closes_the_previous_active_enrolment():
+    """
+    Reinscribir cierra el ciclo anterior en la misma transaccion.
 
-    with pytest.raises(DomainError, match="Only pre-enrolled students"):
-        reenrol_student(
-            student=StudentFactory(status="active"),
-            academic_cycle=section.academic_cycle,
-            grade=section.grade,
-            shift=section.shift,
-            section=section,
-        )
+    Es lo que hace usable la regla de "una sola activa": sin esto habria que
+    pasar antes por una pantalla de cierre para cada estudiante que sigue.
+    """
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        year=2027,
+        name="Ciclo 2027",
+        starts_on=date(2027, 1, 15),
+        ends_on=date(2027, 10, 29),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory(status="active")
+    previous = create_enrolment(
+        student=student,
+        academic_cycle=previous_section.academic_cycle,
+        grade=previous_section.grade,
+        section=previous_section,
+        effective_on=date(2026, 1, 15),
+    )
+
+    enrolment = reenrol_student(
+        student=student,
+        academic_cycle=target_cycle,
+        grade=target_section.grade,
+        shift=target_section.shift,
+        section=target_section,
+        effective_on=date(2027, 1, 15),
+    )
+
+    previous.refresh_from_db()
+    assert previous.status == Enrolment.EnrolmentStatus.COMPLETED
+    assert previous.ends_on == date(2027, 1, 15)
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
 
 
 def test_set_document_requirement_records_and_updates_delivery_status():

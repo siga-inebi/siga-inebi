@@ -9,6 +9,18 @@ from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 
+# Las dos unicas formas en que una matricula es un duplicado (ver los
+# constraints del modelo). El mensaje se lee en la pantalla de matricula, asi que
+# dice que hacer, no que constraint fallo.
+DUPLICATE_ENROLMENT_MESSAGES = {
+    "unique_active_enrolment_per_student": (
+        "Student already has an active enrolment. Close it before enrolling again."
+    ),
+    "unique_enrolment_per_student_section": (
+        "Student was already enrolled in this section. Repeating means another cycle."
+    ),
+}
+
 
 def section_occupancy(*, academic_cycle=None, grade=None, section=None, include_inactive=False):
     """
@@ -94,13 +106,7 @@ def create_enrolment(
         raise DomainError("Enrolment end date cannot precede its effective date.")
     _ensure_section_has_capacity(section)
 
-    with unique_violation_as(
-        {
-            "unique_active_enrolment_per_student_cycle": (
-                "Student already has an active enrolment in this academic cycle."
-            )
-        }
-    ):
+    with unique_violation_as(DUPLICATE_ENROLMENT_MESSAGES):
         enrolment = Enrolment.objects.create(
             student=student,
             academic_cycle=academic_cycle,
@@ -123,9 +129,18 @@ def create_enrolment(
 def matriculate_student(
     *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
 ):
-    """Create the first active enrolment for a pre-enrolled student."""
-    if student.status != student.StudentStatus.PRE_ENROLLED:
-        raise DomainError("Only pre-enrolled students can be matriculated.")
+    """
+    Enrol a student into a section of a cycle.
+
+    No exige que el expediente este en "preinscrito". Lo exigia, y eso obligaba
+    a devolver a preinscrito a cada estudiante activo antes de matricularlo en el
+    ciclo siguiente: un paso que no protege nada, porque lo que hay que evitar es
+    la matricula DUPLICADA, y de eso se encargan los constraints del modelo (una
+    sola activa por estudiante, y nunca dos veces la misma seccion).
+
+    El expediente dado de baja si se rechaza: no es una regla de duplicados sino
+    de existencia, y matricular a alguien archivado lo reviviria a medias.
+    """
     if not student.is_active:
         raise DomainError("Inactive students cannot be matriculated.")
     if section.shift.id != shift.pk:
@@ -157,13 +172,57 @@ def matriculate_student(
     return enrolment
 
 
+def _close_open_enrolments(*, student, academic_cycle, effective_on, actor=None):
+    """
+    Cierra como completadas las matriculas activas de otros ciclos.
+
+    Es lo que hace posible reinscribir sin pasar antes por una pantalla de
+    cierre: el ciclo anterior termino, la matricula que quedo abierta es un
+    pendiente administrativo, no una decision.
+    """
+    open_ones = list(
+        Enrolment.objects.filter(student=student, status=Enrolment.EnrolmentStatus.ACTIVE).exclude(
+            academic_cycle=academic_cycle
+        )
+    )
+    for enrolment in open_ones:
+        enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
+        # La vigencia no puede terminar antes de empezar: una matricula del ciclo
+        # pasado registrada con fecha posterior cerraria con un rango invalido.
+        enrolment.ends_on = max(effective_on, enrolment.effective_on)
+        enrolment.save(update_fields=["status", "ends_on", "updated_at"])
+        record_event(
+            actor=actor,
+            action="enrolments.enrolment.completed_on_reenrolment",
+            resource="Enrolment",
+            resource_identifier=str(enrolment.pk),
+            context={
+                "student_id": student.pk,
+                "next_academic_cycle_id": academic_cycle.pk,
+                "ends_on": enrolment.ends_on.isoformat(),
+            },
+        )
+    return open_ones
+
+
 @transaction.atomic
 def reenrol_student(
     *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
 ):
-    """Create a new-cycle enrolment using the student's existing record."""
-    if student.status != student.StudentStatus.PRE_ENROLLED or not student.is_active:
-        raise DomainError("Only pre-enrolled students can be reenrolled.")
+    """
+    Create a new-cycle enrolment using the student's existing record.
+
+    Lo que distingue reinscribir de matricular es el historial: sin matricula
+    previa no hay nada que continuar, y eso si se sigue exigiendo. El estado del
+    expediente ya no, por lo mismo que en ``matriculate_student``.
+
+    La matricula anterior que siguiera activa se CIERRA aqui, en la misma
+    transaccion: un estudiante cursa en un lugar a la vez, y dejar la del ciclo
+    pasado abierta era lo que hacia que el expediente dijera dos cosas. Se cierra
+    como completada, con la fecha en que arranca la nueva.
+    """
+    if not student.is_active:
+        raise DomainError("Inactive students cannot be reenrolled.")
 
     previous = (
         Enrolment.objects.filter(student=student)
@@ -176,6 +235,13 @@ def reenrol_student(
         raise DomainError("Student has no previous enrolment to inherit.")
     if section.shift.id != shift.pk:
         raise DomainError("Section must belong to the selected shift.")
+
+    _close_open_enrolments(
+        student=student,
+        academic_cycle=academic_cycle,
+        effective_on=effective_on or timezone.localdate(),
+        actor=actor,
+    )
 
     enrolment = create_enrolment(
         student=student,
@@ -201,6 +267,7 @@ def reenrol_student(
     return enrolment
 
 
+@transaction.atomic
 def change_section(*, enrolment, new_section, actor=None, effective_on=None):
     require_cycle_academic_writes(
         cycle=enrolment.academic_cycle,
@@ -217,14 +284,18 @@ def change_section(*, enrolment, new_section, actor=None, effective_on=None):
     enrolment.ends_on = effective_on
     enrolment.save(update_fields=["status", "ends_on", "updated_at"])
 
-    replacement = Enrolment.objects.create(
-        student=enrolment.student,
-        academic_cycle=enrolment.academic_cycle,
-        grade=enrolment.grade,
-        section=new_section,
-        effective_on=effective_on,
-        status=Enrolment.EnrolmentStatus.ACTIVE,
-    )
+    # Mismo mapeo de duplicados que el alta: mover a una seccion en la que el
+    # estudiante ya estuvo choca con el constraint, y sin traducirlo saldria como
+    # un 500 en vez del rechazo que la pantalla sabe explicar.
+    with unique_violation_as(DUPLICATE_ENROLMENT_MESSAGES):
+        replacement = Enrolment.objects.create(
+            student=enrolment.student,
+            academic_cycle=enrolment.academic_cycle,
+            grade=enrolment.grade,
+            section=new_section,
+            effective_on=effective_on,
+            status=Enrolment.EnrolmentStatus.ACTIVE,
+        )
     record_event(
         actor=actor,
         action="enrolments.enrolment.section_changed",
