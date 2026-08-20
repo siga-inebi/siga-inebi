@@ -162,7 +162,7 @@ class EmergencyContactUpdateSerializer(serializers.Serializer):
     relationship_label = serializers.CharField(max_length=100, required=False)
 
 
-class StudentObservationSerializer(serializers.ModelSerializer):
+class StudentHealthNoteSerializer(serializers.ModelSerializer):
     student = StudentRefSerializer(read_only=True)
     author = serializers.CharField(source="author.username", read_only=True)
 

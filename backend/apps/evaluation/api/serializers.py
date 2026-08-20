@@ -6,6 +6,8 @@ Contracts for POST/PATCH operations. Validation happens here before calling serv
 
 from rest_framework import serializers
 
+from apps.academics.models import Subject
+from apps.enrolments.models import Enrolment
 from apps.evaluation.models import (
     GRADE_MAX_VALUE,
     GRADE_MIN_VALUE,
@@ -15,8 +17,6 @@ from apps.evaluation.models import (
     EvaluationUnit,
     Grade,
 )
-from apps.academics.models import Subject
-from apps.enrolments.models import Enrolment
 from apps.people.models import Person
 
 

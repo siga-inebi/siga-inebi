@@ -6,6 +6,21 @@ from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
 
+# Vida de un enlace de descarga (RF-DOC-005).
+DOWNLOAD_TOKEN_LIFETIME = timedelta(minutes=5)
+
+
+def default_download_expiry():
+    """
+    Vencimiento por defecto de un token de descarga.
+
+    Es una funcion con nombre y no una lambda porque Django tiene que
+    SERIALIZARLA en la migracion: una lambda no se puede serializar, asi que
+    ``makemigrations --check`` detectaba un cambio pendiente en cada corrida y la
+    compuerta de CI quedaba roja sin que nada hubiera cambiado.
+    """
+    return timezone.now() + DOWNLOAD_TOKEN_LIFETIME
+
 
 class DocumentRecord(TimeStampedModel):
     """Persisted metadata for stored documents without allowing hard deletes.
@@ -179,7 +194,7 @@ class DocumentDownloadToken(TimeStampedModel):
         blank=True,
     )
     token_hash = models.CharField(max_length=128, unique=True)
-    expires_at = models.DateTimeField(default=lambda: timezone.now() + timedelta(minutes=5))
+    expires_at = models.DateTimeField(default=default_download_expiry)
     used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 
