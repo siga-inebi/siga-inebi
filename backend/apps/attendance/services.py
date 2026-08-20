@@ -1170,6 +1170,20 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
 # --------------------------------------------------------------------------- #
 
 
+def _is_enrolled(student):
+    """
+    Whether ``student`` currently holds an active enrolment.
+
+    A predicate rather than a guard because the three callers owe the user
+    different messages: the credential paths must not name the bearer
+    (RF-CRE-006 forbids revealing a student on rejection), while the
+    student-code path may echo back the code the caller already supplied.
+    Sharing the rule and not the wording keeps one definition of "enrolled"
+    without leaking through the one door that has to stay shut.
+    """
+    return active_enrolments(student=student).exists()
+
+
 @transaction.atomic
 def issue_credential(
     *,
@@ -1193,7 +1207,7 @@ def issue_credential(
     usable pass with no jornada behind it.
     """
     _require_active(student, "el estudiante")
-    if not active_enrolments(student=student).exists():
+    if not _is_enrolled(student):
         raise DomainError(
             f"El estudiante '{student}' no tiene inscripcion activa, asi que no se le puede "
             "emitir credencial."
@@ -1286,15 +1300,25 @@ def resolve_scan_subject(*, credential_identifier="", student_code=""):
     why it exists.
 
     Both paths raise ``DomainError``, so the batch loop has one failure shape to
-    handle instead of one per lookup. Note the asymmetry: the enrolment check
-    lives in ``resolve_credential`` because RF-CRE-006 declares it for the
-    identifier, so the ``student_code`` fallback does NOT carry it. Extending
-    the guard to that path changes behaviour this requirement does not describe
-    and belongs to its own cut.
+    handle instead of one per lookup, and both carry the enrolment rule. They
+    did not always: the check used to live only in ``resolve_credential``, where
+    RF-CRE-006 declares it, so the same operation was accepted or refused
+    depending on how the operator happened to identify the person. Somebody
+    withdrawn from the establishment does not register attendance, and by which
+    door the scan came in is not a fact about their enrolment.
+
+    The manual and declared origins that go through ``record_attendance_event``
+    stay outside this rule on purpose: an authorised operator recording a
+    movement by hand for a just-withdrawn student can be a legitimate
+    correction of history, and forbidding that is a business decision no
+    requirement has taken.
     """
     if credential_identifier:
         return resolve_credential(opaque_identifier=credential_identifier).student
     try:
-        return Student.objects.get(student_code=student_code, is_active=True)
+        student = Student.objects.get(student_code=student_code, is_active=True)
     except Student.DoesNotExist as exc:
         raise DomainError(f"No existe estudiante con codigo '{student_code}'.") from exc
+    if not _is_enrolled(student):
+        raise DomainError(f"El estudiante con codigo '{student_code}' no tiene inscripcion activa.")
+    return student

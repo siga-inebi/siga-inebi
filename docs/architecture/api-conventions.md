@@ -220,6 +220,11 @@
 - La captura por escaneo (`POST /api/v1/attendance/scan/`) acepta `credential_identifier` o
   `student_code` en cada elemento, exactamente uno. El primero es la via real; el segundo se
   conserva como alternativa manual. El rechazo de un elemento no aborta el resto del lote.
+- Las dos vias exigen inscripcion activa: quien esta retirado del establecimiento no registra
+  asistencia, y por cual de las dos puertas entro el escaneo no es un dato de su matricula. Los
+  origenes `manual` y `declared` quedan fuera de esa regla a proposito: un operador autorizado
+  registrando a mano un movimiento de un estudiante recien retirado puede ser correccion legitima
+  de historia.
 
 ## Idioma de los mensajes
 
