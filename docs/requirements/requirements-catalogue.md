@@ -52,17 +52,17 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ARC-004 | Versiones del documento | Deberia | document-management | Not implemented | #81 | TBD | Modelo versionado |
 | RF-ARC-005 | Consumo de almacenamiento consultable | Deberia | file-storage | Not implemented | #82 | TBD | Para monitoreo |
 | RF-ARC-006 | Retencion de adjuntos de justificacion | Deberia | document-management | Not implemented | #83 | TBD | Depende politica legal |
-| RF-ARC-007 | Los documentos no se eliminan | Debe | document-management | Not implemented | #84 | TBD | Preferir estados |
-| RF-DOC-001 | Vinculacion del documento | Debe | document-management | Not implemented | #146 | TBD | Expediente y procesos |
-| RF-DOC-002 | Catalogo de tipos de documento | Debe | document-management | Not implemented | #147 | TBD | Configurable |
-| RF-DOC-003 | Los requisitos documentales se declaran en la matricula | Debe | enrollment-lifecycle | Not implemented | #148 | TBD | Cruza matricula y documentos |
-| RF-DOC-004 | Acceso segun el alcance | Debe | identity-access | Not implemented | #149 | TBD | Lectura restringida |
-| RF-DOC-005 | Descarga controlada | Debe | document-management | Not implemented | #150 | TBD | Enlaces breves |
-| RF-DOC-006 | Auditoria de lectura | Debe | audit-compliance | Not implemented | #151 | TBD | Sensible |
+| RF-ARC-007 | Los documentos no se eliminan | Debe | document-management | Implemented | #84 | backend/apps/documents/models.py; backend/apps/enrolments/models.py; backend/tests/unit/test_documents_services.py | Preferir estados |
+| RF-DOC-001 | Vinculacion del documento | Debe | document-management | Implemented | #146 | backend/apps/documents/models.py; backend/apps/documents/services.py | Expediente y procesos |
+| RF-DOC-002 | Catalogo de tipos de documento | Debe | document-management | Implemented | #147 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Configurable |
+| RF-DOC-003 | Los requisitos documentales se declaran en la matricula | Debe | enrollment-lifecycle | Implemented | #148 | backend/apps/enrolments/models.py; backend/apps/enrolments/services.py; backend/tests/unit/test_enrolments_services.py | Cruza matricula y documentos |
+| RF-DOC-004 | Acceso segun el alcance | Debe | identity-access | Implemented | #149 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Lectura restringida |
+| RF-DOC-005 | Descarga controlada | Debe | document-management | Implemented | #150 | backend/apps/documents/models.py; backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Enlaces breves |
+| RF-DOC-006 | Auditoria de lectura | Debe | audit-compliance | Implemented | #151 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Sensible |
 | RF-DOC-007 | Digitalizacion desde escaner | Deberia | document-management | Not implemented | #152 | TBD | Posterior |
-| RF-DOC-008 | Los documentos generados no se archivan | Debe | document-generation | Not implemented | #153 | TBD | Regla de separacion |
-| RF-DOC-009 | Consulta del expediente documental | Debe | document-management | Not implemented | #154 | TBD | Nucleo administrativo |
-| RF-DOC-010 | Conservacion del vinculo | Debe | document-management | Not implemented | #155 | TBD | Historia persistente |
+| RF-DOC-008 | Los documentos generados no se archivan | Debe | document-generation | Implemented | #153 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Regla de separacion |
+| RF-DOC-009 | Consulta del expediente documental | Debe | document-management | Implemented | #154 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Consolidacion del expediente del estudiante, matrículas y requisitos con historial documental |
+| RF-DOC-010 | Conservacion del vinculo | Debe | document-management | Implemented | #155 | backend/apps/documents/models.py; backend/tests/unit/test_documents_services.py | Historial inmutable y bloqueo de cambios de enlace tras la creacion |
 | RF-CIC-001 | Registro del ciclo escolar | Debe | school-cycle | Implemented | #126 | backend/tests/unit/test_academics_services.py; backend/tests/api/test_academics_api.py; backend/tests/integration/test_academics.py | Registro en preparacion, fechas validas y no solapadas por institucion |
 | RF-CIC-002 | Estados del ciclo | Debe | school-cycle | In progress | #127 | backend/tests/unit/test_academics_services.py; backend/tests/unit/test_enrolments_services.py; backend/tests/unit/test_teaching_assignment_services.py; backend/tests/api/test_teaching_assignments_api.py; backend/tests/integration/test_academics.py; backend/tests/integration/test_cycle_state_guardrails.py | Estados explicitos, un solo ciclo activo y bloqueo de matriculas y asignaciones docentes en ciclos cerrados; visibilidad por portal y cobertura de futuros dominios consumidores pendientes |
 | RF-CIC-003 | Apertura del ciclo | Debe | school-cycle | Not implemented | #128 | TBD | Operacion sensible |
@@ -111,9 +111,9 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-RES-007 | Congelamiento al cierre del ciclo | Debe | school-cycle | Not implemented | #261 | TBD | Cruza cierre y resultados |
 | RF-RES-008 | Boleta de calificaciones | Debe | document-generation | Not implemented | #262 | TBD | Nucleo documental |
 | RF-RES-009 | Trazabilidad del resultado | Deberia | audit-compliance | Not implemented | #263 | TBD | Posterior pero importante |
-| RF-EMI-001 | Emision individual | Debe | document-generation | Not implemented | #156 | TBD | Nucleo emision |
-| RF-EMI-002 | Fecha y hora de generacion en el documento | Debe | document-generation | Not implemented | #157 | TBD | Metadato obligatorio |
-| RF-EMI-003 | Folio correlativo de documentos oficiales | Debe | document-generation | Not implemented | #158 | TBD | Control institucional |
+| RF-EMI-001 | Emision individual | Debe | document-generation | Implemented | #156 | backend/tests/unit/test_documents_services.py | Nucleo emision |
+| RF-EMI-002 | Fecha y hora de generacion en el documento | Debe | document-generation | Implemented | #157 | backend/tests/unit/test_documents_services.py | Metadato obligatorio |
+| RF-EMI-003 | Folio correlativo de documentos oficiales | Debe | document-generation | Implemented | #158 | backend/tests/unit/test_documents_services.py; backend/apps/documents/migrations/0005_officialfolio.py | Control institucional |
 | RF-EMI-004 | Restricciones de emision | Deberia | document-generation | Not implemented | #159 | TBD | Regla posterior detallada |
 | RF-EMI-005 | Boletas de un ciclo cerrado | Debe | document-generation | Not implemented | #160 | TBD | Cruza cierre |
 | RF-EMI-006 | Emision por lote | Debe | document-generation | Not implemented | #161 | TBD | Requiere worker simple |
@@ -126,7 +126,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PLA-004 | Encabezado institucional obligatorio | Debe | document-generation | Implemented | #251 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Regla documental; encabezado derivado (no almacenado) de Institution, logo_url pendiente del dominio file-storage |
 | RF-PLA-005 | Versiones de la plantilla | Podria | document-generation | Implemented | #252 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Historial inmutable via DocumentTemplateVersion; snapshot automatico en creacion y en cada update con cambios |
 | RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | Not implemented | #253 | TBD | UX posterior |
-| RF-PLA-007 | Plantilla activa por tipo | Debe | document-generation | Not implemented | #254 | TBD | Regla central |
+| RF-PLA-007 | Plantilla activa por tipo | Debe | document-generation | Implemented | #254 | backend/apps/documents/models.py; backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Regla central |
 | RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Not implemented | #99 | TBD | Fase posterior |
 | RF-AUL-002 | Aula habitual de la seccion | Deberia | institutional-structure | Not implemented | #100 | TBD | Fase posterior |
 | RF-AUL-003 | Sesiones sin aula asignada | Deberia | institutional-structure | Not implemented | #101 | TBD | Fase posterior |

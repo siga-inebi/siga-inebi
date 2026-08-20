@@ -4,6 +4,7 @@ from .views import (
     DocumentTemplateDetailView,
     DocumentTemplateListCreateView,
     DocumentTemplateVersionListView,
+    DocumentTypeListView,
     FieldTagListView,
     OfficialDocumentEligibilityView,
 )
@@ -23,6 +24,7 @@ urlpatterns = [
         name="document-template-version-list",
     ),
     path("field-tags/", FieldTagListView.as_view(), name="document-field-tag-list"),
+    path("types/", DocumentTypeListView.as_view(), name="document-type-list"),
     path(
         "official-issuance/eligibility/",
         OfficialDocumentEligibilityView.as_view(),
