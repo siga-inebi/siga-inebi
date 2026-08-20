@@ -43,6 +43,11 @@ async function loadCycles() {
     .map((cycle) => ({
       value: cycle.public_id,
       label: `${cycle.name} · ${CYCLE_STATUS_LABEL[cycle.status] ?? cycle.status}`,
+      // Se conservan para poder proponer la vigencia de lo que se cree dentro
+      // del ciclo sin una segunda peticion.
+      name: cycle.name,
+      year: cycle.year,
+      startsOn: cycle.starts_on,
     }));
 }
 
@@ -143,8 +148,10 @@ async function loadSections() {
   return sections.map((section) => ({
     value: section.public_id,
     label: [section.grade?.name, section.name].filter(Boolean).join(" "),
-    // Se conservan para poder filtrar por ciclo y para derivar grado y jornada
-    // sin una segunda peticion.
+    // Se conservan para poder filtrar por ciclo, derivar grado y jornada sin una
+    // segunda peticion, y emparejar la misma seccion entre dos ciclos: el
+    // identificador cambia al clonar, pero grado + jornada + nombre no.
+    name: section.name,
     cycleId: section.academic_cycle_id,
     gradeId: section.grade?.public_id,
     shiftId: section.shift?.public_id,
@@ -190,17 +197,23 @@ export function useSectionCatalog(reloadToken) {
   const options = useMemo(() => {
     // La jornada entra en la etiqueta solo cuando hay secciones homonimas en
     // jornadas distintas; si no, es ruido en cada linea del desplegable.
+    //
+    // La comparacion es DENTRO de cada ciclo. Mirando todos los ciclos a la vez,
+    // "Primero Basico A" de 2026 y el de 2027 se contaban como homonimos, asi
+    // que en cuanto se clonaba la estructura al ciclo siguiente TODA seccion
+    // arrastraba el sufijo: el ruido que la regla existe para evitar.
     const seen = new Set();
     const duplicated = new Set();
     for (const option of catalog.options) {
-      if (seen.has(option.label)) {
-        duplicated.add(option.label);
+      const key = `${option.cycleId}|${option.label}`;
+      if (seen.has(key)) {
+        duplicated.add(key);
       }
-      seen.add(option.label);
+      seen.add(key);
     }
 
     return catalog.options.map((option) =>
-      duplicated.has(option.label) && option.shiftName
+      duplicated.has(`${option.cycleId}|${option.label}`) && option.shiftName
         ? { ...option, label: `${option.label} · ${option.shiftName}` }
         : option
     );

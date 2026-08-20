@@ -13,7 +13,6 @@ import {
   cyclesService,
 } from "@cycles/cyclesService.js";
 import { PAGE_SIZE } from "@academics/academicsService.js";
-import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate } from "@shared/utils/format.js";
@@ -24,6 +23,7 @@ import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 
 import { CycleDetailWindow } from "./CycleDetailWindow.jsx";
+import { CycleFormWindow } from "./CycleFormWindow.jsx";
 
 const CYCLE_COLUMNS = [
   { key: "year", label: "Ano", align: "right", render: (row) => row.year },
@@ -51,40 +51,9 @@ const CYCLE_COLUMNS = [
   },
 ];
 
-const CYCLE_FIELDS = [
-  { name: "year", label: "Ano", type: "number", min: 2000, required: true },
-  {
-    name: "name",
-    label: "Nombre del ciclo",
-    required: true,
-    placeholder: "Ejemplo: Ciclo 2027",
-  },
-  { name: "starts_on", label: "Inicio", type: "date", required: true },
-  { name: "ends_on", label: "Cierre", type: "date", required: true },
-  { name: "description", label: "Descripcion (opcional)", span: "full" },
-];
-
-const CLONE_FIELDS = [
-  ...CYCLE_FIELDS,
-  {
-    name: "include_teaching_assignments",
-    label: "Copiar tambien las asignaciones docentes",
-    type: "checkbox",
-    help: "Apagado por defecto: arrastrar asignaciones reasignaria personal que quizas ya no esta en el establecimiento.",
-  },
-];
-
-/** Valores iniciales de un ciclo nuevo, derivados del que se esta clonando. */
-function nextCycleDraft(source) {
-  const year = (source?.year ?? new Date().getFullYear()) + 1;
-  return {
-    year,
-    name: `Ciclo ${year}`,
-    starts_on: "",
-    ends_on: "",
-    description: "",
-    include_teaching_assignments: false,
-  };
+/** Anio propuesto: el siguiente al del ciclo de referencia, o al corriente. */
+function nextYear(source) {
+  return (source?.year ?? new Date().getFullYear()) + 1;
 }
 
 /**
@@ -108,9 +77,7 @@ export function CyclesPage() {
   const [actionError, setActionError] = useState("");
 
   const handleCreate = async (payload) => {
-    // El interruptor de asignaciones solo existe al clonar; el alta no lo acepta.
-    const { include_teaching_assignments: _ignored, ...cycle } = payload;
-    await cyclesService.create(cycle);
+    await cyclesService.create(payload);
     setCreating(false);
     list.refresh();
   };
@@ -190,29 +157,27 @@ export function CyclesPage() {
         title="Ciclos registrados"
       />
 
-      <EntityFormWindow
-        description="El ciclo nace en borrador. Se vuelve vigente cuando se activa."
-        fields={CYCLE_FIELDS}
-        initialValues={nextCycleDraft()}
-        key={creating ? "cycle-create-open" : "cycle-create-closed"}
-        onCancel={() => setCreating(false)}
-        onSubmit={handleCreate}
-        open={creating}
-        submitLabel="Crear ciclo"
-        title="Nuevo ciclo escolar"
-      />
+      {creating ? (
+        <CycleFormWindow
+          description="Elija el ano: el nombre y la vigencia salen del calendario escolar. El ciclo nace en borrador y se vuelve vigente cuando se activa."
+          initialYear={nextYear()}
+          onCancel={() => setCreating(false)}
+          onSubmit={handleCreate}
+          submitLabel="Crear ciclo"
+          title="Nuevo ciclo escolar"
+        />
+      ) : null}
 
       {cloning ? (
-        <EntityFormWindow
-          description={`Se copiara la estructura academica de "${cloning.name}" (oferta de grados, secciones y plan de estudios) al ciclo nuevo.`}
-          fields={CLONE_FIELDS}
-          initialValues={nextCycleDraft(cloning)}
+        <CycleFormWindow
+          description={`Se copiara la estructura academica de "${cloning.name}" (oferta de grados, secciones y plan de estudios) al ciclo nuevo. Las asignaciones docentes solo si lo pide: arrastrarlas reasignaria personal que quizas ya no esta en el establecimiento.`}
+          initialYear={nextYear(cloning)}
           key={`clone-${cloning.public_id}`}
           onCancel={() => setCloning(null)}
           onSubmit={handleClone}
-          open
           submitLabel="Clonar estructura"
           title={`Clonar ${cloning.name}`}
+          withAssignmentsToggle
         />
       ) : null}
 

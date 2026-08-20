@@ -20,6 +20,7 @@ const cyclesServiceMock = vi.hoisted(() => ({
   create: vi.fn(),
   activate: vi.fn(),
   clone: vi.fn(),
+  defaults: vi.fn(),
 }));
 
 const enrolmentsServiceMock = vi.hoisted(() => ({
@@ -112,6 +113,7 @@ import { CyclesPage } from "@cycles/CyclesPage.jsx";
 import { EnrolmentsPage } from "@enrolments/EnrolmentsPage.jsx";
 import { TeachingAssignmentsPage } from "@academics/TeachingAssignmentsPage.jsx";
 import { TemplatesPage } from "@documents/TemplatesPage.jsx";
+import { todayInputValue } from "@shared/utils/format.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import {
   academicsServiceMock,
@@ -222,6 +224,13 @@ const SECTION = {
   shift: { public_id: "shift-1", name: "Matutina", code: "MOR" },
 };
 
+/** La misma seccion, tal como queda tras clonar la estructura al ciclo nuevo. */
+const NEXT_CYCLE_SECTION = {
+  ...SECTION,
+  public_id: "section-a-2027",
+  academic_cycle_id: "cycle-2027",
+};
+
 const SUBJECT = {
   public_id: "subject-mat",
   name: "Matematica",
@@ -265,6 +274,17 @@ describe("pantallas de los modulos con backend previo", () => {
       teaching_assignments: [],
     });
     cyclesServiceMock.activate.mockReset().mockResolvedValue(CYCLE);
+    cyclesServiceMock.create.mockReset().mockResolvedValue(DRAFT_CYCLE);
+    // El backend es el unico dueno de la regla del calendario; el formulario la
+    // consulta por anio.
+    cyclesServiceMock.defaults.mockReset().mockImplementation((year) =>
+      Promise.resolve({
+        year: Number(year),
+        name: `Ciclo ${year}`,
+        starts_on: `${year}-01-15`,
+        ends_on: `${year}-10-29`,
+      })
+    );
 
     enrolmentsServiceMock.listActive
       .mockReset()
@@ -350,6 +370,86 @@ describe("pantallas de los modulos con backend previo", () => {
 
       await user.click(screen.getByRole("button", { name: "Si, activar" }));
       expect(cyclesServiceMock.activate).toHaveBeenCalledWith("cycle-2027");
+    });
+
+    test("el ciclo se define por su ano: nombre y vigencia se derivan", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<CyclesPage />);
+      await screen.findByText("Ciclo 2026");
+
+      await user.click(screen.getByRole("button", { name: "Nuevo ciclo" }));
+
+      // Un solo dato a elegir; los otros tres llegan calculados.
+      expect(await screen.findByDisplayValue("Ciclo 2027")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("2027-01-15")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("2027-10-29")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Crear ciclo" }));
+
+      expect(cyclesServiceMock.create).toHaveBeenCalledWith({
+        year: 2027,
+        name: "Ciclo 2027",
+        starts_on: "2027-01-15",
+        ends_on: "2027-10-29",
+        description: "",
+      });
+    });
+
+    test("cambiar el ano recalcula nombre y vigencia", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<CyclesPage />);
+      await screen.findByText("Ciclo 2026");
+
+      await user.click(screen.getByRole("button", { name: "Nuevo ciclo" }));
+      await screen.findByDisplayValue("Ciclo 2027");
+
+      await user.click(screen.getByLabelText(/^Ano del ciclo/));
+      await user.click(await screen.findByRole("option", { name: "2029" }));
+
+      // El ano es lo que determina las fechas: dejar una de 2027 debajo de un
+      // ciclo 2029 seria peor que perder una edicion manual.
+      expect(await screen.findByDisplayValue("Ciclo 2029")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("2029-01-15")).toBeInTheDocument();
+    });
+
+    test("el ano se elige de una lista, no se teclea", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<CyclesPage />);
+      await screen.findByText("Ciclo 2026");
+
+      await user.click(screen.getByRole("button", { name: "Nuevo ciclo" }));
+
+      // Un rango chico y conocido: "2072" no se distingue de "2027" al leerlo
+      // de reojo, y un ano equivocado corre en silencio todo lo que cuelga del
+      // ciclo.
+      expect(
+        await screen.findByRole("combobox", { name: /Ano del ciclo/ })
+      ).toBeInTheDocument();
+    });
+
+    test("clonar ofrece copiar las asignaciones docentes", async () => {
+      const user = userEvent.setup();
+      cyclesServiceMock.clone.mockResolvedValue(DRAFT_CYCLE);
+      renderWithRouter(<CyclesPage />);
+      await screen.findByText("Ciclo 2026");
+
+      await user.click(
+        screen.getAllByRole("button", {
+          name: "Clonar estructura a un ciclo nuevo",
+        })[0]
+      );
+      await screen.findByDisplayValue("Ciclo 2027");
+      await user.click(
+        screen.getByLabelText(/Copiar tambien las asignaciones docentes/)
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Clonar estructura" })
+      );
+
+      expect(cyclesServiceMock.clone).toHaveBeenCalledWith(
+        "cycle-2026",
+        expect.objectContaining({ include_teaching_assignments: true })
+      );
     });
 
     test("el detalle historico es de solo lectura", async () => {
@@ -615,7 +715,7 @@ describe("pantallas de los modulos con backend previo", () => {
       expect(attendanceServiceMock.createEvent).not.toHaveBeenCalled();
     });
 
-    test("el estado del dia no consulta hasta tener los tres campos", async () => {
+    test("el estado del dia arranca en hoy y solo pide estudiante y jornada", async () => {
       const user = userEvent.setup();
       studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
       academicsServiceMock.listCampuses.mockResolvedValue(paged([CAMPUS]));
@@ -623,11 +723,14 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<AttendancePage />);
 
       // Escopado a la tarjeta: "Porcentaje de asistencia" repite los mismos
-      // campos y boton ("ID de estudiante", "ID de jornada", "Consultar").
+      // campos y boton ("Estudiante", "Jornada", "Consultar").
       const card = (
         await screen.findByRole("heading", { name: "Estado del dia" })
       ).closest("section");
       const scoped = within(card);
+
+      // La fecha ya viene puesta en hoy, que es lo que se consulta casi siempre.
+      expect(scoped.getByLabelText(/^Fecha/)).toHaveValue(todayInputValue());
       expect(scoped.getByRole("button", { name: /Consultar/ })).toBeDisabled();
 
       await user.click(scoped.getByRole("combobox", { name: /Estudiante/ }));
@@ -639,10 +742,56 @@ describe("pantallas de los modulos con backend previo", () => {
         await screen.findByRole("option", { name: "Matutina · Sede Central" })
       );
 
-      // Falta la fecha: el endpoint exige los tres, y consultar con dos
-      // devolveria un 400 en vez de un resultado.
+      expect(scoped.getByRole("button", { name: /Consultar/ })).toBeEnabled();
+      expect(attendanceServiceMock.dayStatus).not.toHaveBeenCalled();
+    });
+
+    test("el estado del dia no consulta sin fecha", async () => {
+      const user = userEvent.setup();
+      studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
+      academicsServiceMock.listCampuses.mockResolvedValue(paged([CAMPUS]));
+      academicsServiceMock.listCampusShifts.mockResolvedValue(paged([SHIFT]));
+      renderWithRouter(<AttendancePage />);
+
+      const card = (
+        await screen.findByRole("heading", { name: "Estado del dia" })
+      ).closest("section");
+      const scoped = within(card);
+
+      await user.click(scoped.getByRole("combobox", { name: /Estudiante/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+      );
+      await user.click(scoped.getByRole("combobox", { name: /Jornada/ }));
+      await user.click(
+        await screen.findByRole("option", { name: "Matutina · Sede Central" })
+      );
+      await user.clear(scoped.getByLabelText(/^Fecha/));
+
+      // El endpoint exige los tres: consultar con dos devolveria un 400 en vez
+      // de un resultado.
       expect(scoped.getByRole("button", { name: /Consultar/ })).toBeDisabled();
       expect(attendanceServiceMock.dayStatus).not.toHaveBeenCalled();
+    });
+
+    test('el boton "Hoy" repone la fecha del dia', async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<AttendancePage />);
+
+      const card = (
+        await screen.findByRole("heading", { name: "Estado del dia" })
+      ).closest("section");
+      const scoped = within(card);
+      const dateInput = scoped.getByLabelText(/^Fecha/);
+
+      await user.clear(dateInput);
+      expect(dateInput).toHaveValue("");
+
+      await user.click(
+        scoped.getByRole("button", { name: "Usar la fecha de hoy" })
+      );
+
+      expect(dateInput).toHaveValue(todayInputValue());
     });
 
     test("el movimiento se registra eligiendo estudiante y jornada", async () => {
@@ -670,14 +819,8 @@ describe("pantallas de los modulos con backend previo", () => {
       await user.click(
         await screen.findByRole("option", { name: "Matutina · Sede Central" })
       );
-      await user.type(
-        within(form).getByLabelText(/Fecha del movimiento/),
-        "2026-03-02"
-      );
-      await user.type(
-        within(form).getByLabelText(/Momento de captura/),
-        "2026-03-02"
-      );
+      // Las dos fechas llegan en hoy: un movimiento se registra el dia que
+      // ocurre, y tipearlas dos veces era el paso mas repetido del formulario.
       await user.click(
         within(form).getByRole("button", { name: "Registrar movimiento" })
       );
@@ -686,6 +829,8 @@ describe("pantallas de los modulos con backend previo", () => {
         expect.objectContaining({
           student_id: "student-1",
           shift_id: "shift-1",
+          event_date: todayInputValue(),
+          captured_at: todayInputValue(),
         })
       );
     });
@@ -864,6 +1009,121 @@ describe("pantallas de los modulos con backend previo", () => {
         teacher_id: "teacher-1",
         starts_on: "2026-03-02",
       });
+    });
+
+    test("clonar trae el ciclo anterior resuelto y espera confirmacion", async () => {
+      const user = userEvent.setup();
+      // Misma seccion en los dos ciclos: identificador distinto, pero el mismo
+      // grado, jornada y nombre, que es como se reconoce entre ciclos.
+      academicsServiceMock.listSections.mockResolvedValue(
+        paged([SECTION, NEXT_CYCLE_SECTION])
+      );
+      // El ciclo nuevo no tiene nada asignado; el listado sin filtro y el ciclo
+      // origen si.
+      academicsServiceMock.listTeachingAssignmentHistory.mockImplementation(
+        ({ academic_cycle_id: cycleId }) =>
+          Promise.resolve(
+            cycleId === "cycle-2027" ? paged([]) : paged([ASSIGNMENT])
+          )
+      );
+      renderWithRouter(<TeachingAssignmentsPage />);
+      await screen.findByText("Vigente");
+
+      await user.click(
+        screen.getByRole("button", { name: "Clonar en ciclo nuevo" })
+      );
+      const window = await screen.findByRole("dialog", {
+        name: "Clonar asignaciones en un ciclo nuevo",
+      });
+
+      await user.click(
+        within(window).getByRole("combobox", { name: /Copiar desde/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+      );
+      await user.click(
+        within(window).getByRole("combobox", { name: /Copiar hacia/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2027 · Borrador" })
+      );
+
+      // La asignacion del ano pasado llega resuelta: seccion, curso y docente.
+      expect(
+        await within(window).findByText("Primero Basico A")
+      ).toBeInTheDocument();
+      expect(within(window).getByText("Matematica (MAT)")).toBeInTheDocument();
+      // Dos veces: la columna del ciclo anterior y el selector ya prellenado con
+      // ese mismo docente, que es lo que se va a crear si nadie lo cambia.
+      expect(within(window).getAllByText("Ana Lopez · EMP-1")).toHaveLength(2);
+
+      // Nada se guardo hasta aca: clonar propone, la persona confirma.
+      expect(
+        academicsServiceMock.createTeachingAssignment
+      ).not.toHaveBeenCalled();
+
+      await user.click(
+        within(window).getByRole("button", { name: /Clonar 1 asignacion/ })
+      );
+
+      expect(
+        academicsServiceMock.createTeachingAssignment
+      ).toHaveBeenCalledWith({
+        academic_cycle_id: "cycle-2027",
+        // La seccion del ciclo NUEVO, no la del origen.
+        section_id: "section-a-2027",
+        subject_id: "subject-mat",
+        teacher_id: "teacher-1",
+        // Propuesta: el inicio del ciclo destino.
+        starts_on: "2026-01-15",
+      });
+    });
+
+    test("clonar avisa cuando el ciclo nuevo no tiene la seccion", async () => {
+      const user = userEvent.setup();
+      // Solo existe la seccion del ciclo origen: la estructura del ciclo nuevo
+      // todavia no se clono.
+      academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
+      // El ciclo nuevo no tiene nada asignado; el listado sin filtro y el ciclo
+      // origen si.
+      academicsServiceMock.listTeachingAssignmentHistory.mockImplementation(
+        ({ academic_cycle_id: cycleId }) =>
+          Promise.resolve(
+            cycleId === "cycle-2027" ? paged([]) : paged([ASSIGNMENT])
+          )
+      );
+      renderWithRouter(<TeachingAssignmentsPage />);
+      await screen.findByText("Vigente");
+
+      await user.click(
+        screen.getByRole("button", { name: "Clonar en ciclo nuevo" })
+      );
+      const window = await screen.findByRole("dialog", {
+        name: "Clonar asignaciones en un ciclo nuevo",
+      });
+      await user.click(
+        within(window).getByRole("combobox", { name: /Copiar desde/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+      );
+      await user.click(
+        within(window).getByRole("combobox", { name: /Copiar hacia/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2027 · Borrador" })
+      );
+
+      // Decirlo aca evita que alguien busque el problema en el docente o en el
+      // curso, cuando lo que falta es la estructura del ciclo.
+      // El aviso arriba y la celda de la fila dicen lo mismo.
+      expect(
+        await within(window).findAllByText(/sin seccion equivalente/i)
+      ).not.toHaveLength(0);
+      expect(
+        within(window).getByRole("button", { name: /Clonar 0 asignaciones/ })
+      ).toBeDisabled();
     });
 
     test("crea la asignacion enviando los identificadores del catalogo", async () => {

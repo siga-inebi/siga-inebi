@@ -15,11 +15,11 @@ import {
   useShiftCatalog,
   useStudentCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
-import { formatDateTime } from "@shared/utils/format.js";
+import { formatDateTime, todayInputValue } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
+import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
-import { FormTextField } from "@ui/forms/FormTextField.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { DetailField } from "@ui/layout/DetailWindow.jsx";
 
@@ -41,6 +41,7 @@ const DAY_STATUS_VARIANT = {
  *
  * Estudiante y jornada se eligen de su catalogo: son identificadores internos,
  * y quien consulta el estado del dia conoce el nombre de la persona, no su UUID.
+ * La fecha arranca en hoy, que es lo que se consulta el 99% de las veces.
  */
 export function DayStatusProbe() {
   const students = useStudentCatalog();
@@ -48,7 +49,10 @@ export function DayStatusProbe() {
 
   const [studentId, setStudentId] = useState("");
   const [shiftId, setShiftId] = useState("");
-  const [eventDate, setEventDate] = useState("");
+  // Arranca en hoy: el estado del dia que alguien consulta es, casi siempre, el
+  // de hoy. Empezar vacio obligaba a llenar la fecha en cada consulta para
+  // preguntar lo mismo.
+  const [eventDate, setEventDate] = useState(todayInputValue);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -116,11 +120,9 @@ export function DayStatusProbe() {
               placeholder="Seleccione una jornada"
               value={shiftId}
             />
-            <FormTextField
+            <DateField
               label="Fecha"
               onChange={(event) => setEventDate(event.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
-              type="date"
               value={eventDate}
             />
           </Stack>

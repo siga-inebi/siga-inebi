@@ -28,6 +28,16 @@ export const cyclesService = {
   create: (payload) => apiClient.post(`${ROOT}/`, payload),
 
   /**
+   * Nombre y vigencia que tomaria el ciclo de ese anio, sin crearlo.
+   *
+   * La regla del calendario guatemalteco vive en el backend
+   * (`apps/academics/school_calendar.py`) y se consulta en vez de duplicarse
+   * aca: dos copias de la misma regla en dos lenguajes es como se llega a que
+   * el formulario muestre una fecha y el servidor guarde otra.
+   */
+  defaults: (year) => apiClient.get(withQuery(`${ROOT}/defaults/`, { year })),
+
+  /**
    * Detalle historico: trae la estructura completa congelada del ciclo
    * (ofertas de grado, plan de estudios, asignaciones y matriculas).
    */

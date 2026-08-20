@@ -29,7 +29,11 @@ import {
 } from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
-import { formatDate, formatDateTime } from "@shared/utils/format.js";
+import {
+  formatDate,
+  formatDateTime,
+  todayInputValue,
+} from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
@@ -374,13 +378,16 @@ export function AttendancePage() {
       <EntityFormWindow
         description="Un movimiento manual queda marcado con origen distinto al de lectura, para poder auditarlo despues."
         fields={eventFields({ shifts, students })}
+        // Las dos fechas arrancan en hoy: un movimiento se registra el dia que
+        // ocurre, y las dos se pueden corregir con el mismo campo si se esta
+        // cargando algo atrasado.
         initialValues={{
           student_id: "",
           shift_id: "",
-          event_date: "",
+          event_date: todayInputValue(),
           movement_type: "entry",
           origin: "manual",
-          captured_at: "",
+          captured_at: todayInputValue(),
         }}
         key={creating ? "event-create-open" : "event-create-closed"}
         onCancel={() => setCreating(false)}

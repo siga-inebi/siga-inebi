@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
+import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
 import SwapHorizOutlinedIcon from "@mui/icons-material/SwapHorizOutlined";
 
@@ -27,6 +28,7 @@ import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
 import { BulkAssignmentWindow } from "./BulkAssignmentWindow.jsx";
+import { CloneAssignmentsWindow } from "./CloneAssignmentsWindow.jsx";
 
 /**
  * Asignaciones docentes por seccion y curso.
@@ -43,11 +45,15 @@ import { BulkAssignmentWindow } from "./BulkAssignmentWindow.jsx";
  * listar como al crear. La pantalla los traduce en ambas direcciones contra los
  * catalogos: se eligen nombres, se muestran nombres, y el UUID no aparece nunca
  * a la vista de quien usa el sistema.
+ *
+ * Tres formas de dar de alta, por cuanto se repite lo que se captura: una a una,
+ * una seccion completa por lotes, o el ciclo anterior entero para confirmar.
  */
 export function TeachingAssignmentsPage() {
   const [cycleFilter, setCycleFilter] = useState("");
   const [creating, setCreating] = useState(false);
   const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [cloning, setCloning] = useState(false);
   const [reassigning, setReassigning] = useState(null);
   const [actionError, setActionError] = useState("");
 
@@ -243,6 +249,13 @@ export function TeachingAssignmentsPage() {
         action={
           <Stack direction="row" flexWrap="wrap" gap={1}>
             <Button
+              onClick={() => setCloning(true)}
+              startIcon={<ContentCopyOutlinedIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Clonar en ciclo nuevo
+            </Button>
+            <Button
               onClick={() => setBulkAssigning(true)}
               startIcon={<PlaylistAddCheckOutlinedIcon fontSize="small" />}
               variant="outlined"
@@ -331,6 +344,13 @@ export function TeachingAssignmentsPage() {
       {bulkAssigning ? (
         <BulkAssignmentWindow
           onClose={() => setBulkAssigning(false)}
+          onCreated={list.refresh}
+        />
+      ) : null}
+
+      {cloning ? (
+        <CloneAssignmentsWindow
+          onClose={() => setCloning(false)}
           onCreated={list.refresh}
         />
       ) : null}
