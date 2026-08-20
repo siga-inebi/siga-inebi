@@ -10,6 +10,15 @@ export const studentsService = {
   // "25 de 25" y el resto de los estudiantes no existia para quien buscaba.
   list: () => collectAllPages(studentsService.listPage),
   get: (id) => apiClient.get(`/students/${id}/`),
+  /**
+   * Siguiente codigo de estudiante libre, para prellenar el alta.
+   *
+   * Es el MISMO que asignaria el backend si el campo llegara vacio; no reserva
+   * nada, asi que dos formularios abiertos a la vez ven el mismo valor y el
+   * segundo que guarde recibe el siguiente.
+   */
+  nextCode: () =>
+    apiClient.get("/students/next-code/").then((body) => body.student_code),
   listHealthNotes: (studentPublicId) =>
     apiClient
       .get(`/students/${studentPublicId}/health-notes/`)

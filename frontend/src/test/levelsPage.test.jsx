@@ -46,24 +46,75 @@ describe("pantalla de niveles", () => {
     });
   });
 
-  test("crea un nivel enviando la secuencia como numero", async () => {
+  test("crea un nivel con el codigo que sugiere el backend", async () => {
+    const user = userEvent.setup();
+    academicsServiceMock.nextLevelCode.mockResolvedValue("NIV-02");
+    renderWithRouter(<LevelsPage />);
+    await screen.findByText("Basico");
+
+    await user.click(screen.getByRole("button", { name: "Nuevo nivel" }));
+    // El codigo llega puesto: se pide al abrir, no mientras el formulario esta
+    // abierto, para que no cambie debajo de quien escribe.
+    expect(await screen.findByDisplayValue("NIV-02")).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/^Nombre/), "Diversificado");
+    await user.click(screen.getByRole("button", { name: "Crear nivel" }));
+
+    await waitFor(() =>
+      expect(academicsServiceMock.createLevel).toHaveBeenCalledWith({
+        name: "Diversificado",
+        code: "NIV-02",
+      })
+    );
+  });
+
+  test("el nivel se ubica por posicion, no por numero de secuencia", async () => {
     const user = userEvent.setup();
     renderWithRouter(<LevelsPage />);
     await screen.findByText("Basico");
 
     await user.click(screen.getByRole("button", { name: "Nuevo nivel" }));
     await user.type(screen.getByLabelText(/^Nombre/), "Diversificado");
-    await user.type(screen.getByLabelText(/^Codigo/), "DIV");
-    await user.clear(screen.getByLabelText(/^Secuencia/));
-    await user.type(screen.getByLabelText(/^Secuencia/), "4");
+    await user.click(screen.getByRole("combobox", { name: /Posicion/ }));
+    await user.click(
+      await screen.findByRole("option", { name: "Despues de Basico" })
+    );
+    await user.click(screen.getByRole("button", { name: "Crear nivel" }));
+
+    await waitFor(() =>
+      expect(academicsServiceMock.createLevel).toHaveBeenCalledWith(
+        expect.objectContaining({ insert_after: "level-basico" })
+      )
+    );
+  });
+
+  test('"al inicio" viaja como null, y "al final" no viaja', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<LevelsPage />);
+    await screen.findByText("Basico");
+
+    // Al final es el valor por omision: la clave NO se manda, porque ausente es
+    // lo que el backend lee como "al final". Mandar null lo pondria primero.
+    await user.click(screen.getByRole("button", { name: "Nuevo nivel" }));
+    await user.type(screen.getByLabelText(/^Nombre/), "Diversificado");
     await user.click(screen.getByRole("button", { name: "Crear nivel" }));
 
     await waitFor(() =>
       expect(academicsServiceMock.createLevel).toHaveBeenCalledWith({
         name: "Diversificado",
-        code: "DIV",
-        sequence: 4,
+        code: "",
       })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Nuevo nivel" }));
+    await user.type(screen.getByLabelText(/^Nombre/), "Preprimaria");
+    await user.click(screen.getByRole("combobox", { name: /Posicion/ }));
+    await user.click(await screen.findByRole("option", { name: "Al inicio" }));
+    await user.click(screen.getByRole("button", { name: "Crear nivel" }));
+
+    await waitFor(() =>
+      expect(academicsServiceMock.createLevel).toHaveBeenCalledWith(
+        expect.objectContaining({ insert_after: null })
+      )
     );
   });
 
@@ -94,23 +145,25 @@ describe("pantalla de niveles", () => {
     expect(screen.getByText("Matematica")).toBeInTheDocument();
   });
 
-  test("crea un grado dentro del nivel abierto", async () => {
+  test("crea un grado con el codigo derivado de su nivel", async () => {
     const user = userEvent.setup();
+    academicsServiceMock.nextGradeCode.mockResolvedValue("BAS2");
     renderWithRouter(<LevelsPage />);
     await openLevel(user);
 
     await user.click(screen.getByRole("button", { name: "Nuevo grado" }));
+    expect(await screen.findByDisplayValue("BAS2")).toBeInTheDocument();
     await user.type(screen.getByLabelText(/^Nombre/), "Segundo Basico");
-    await user.type(screen.getByLabelText(/^Codigo/), "BAS2");
-    await user.clear(screen.getByLabelText(/^Secuencia/));
-    await user.type(screen.getByLabelText(/^Secuencia/), "2");
     await user.click(screen.getByRole("button", { name: "Crear grado" }));
 
     await waitFor(() =>
       expect(academicsServiceMock.createGrade).toHaveBeenCalledWith(
         "level-basico",
-        { name: "Segundo Basico", code: "BAS2", sequence: 2 }
+        { name: "Segundo Basico", code: "BAS2" }
       )
+    );
+    expect(academicsServiceMock.nextGradeCode).toHaveBeenCalledWith(
+      "level-basico"
     );
   });
 

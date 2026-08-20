@@ -1,6 +1,12 @@
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 
+import {
+  MENU_MAX_HEIGHT,
+  SEARCHABLE_FROM,
+  SearchableSelect,
+} from "@ui/forms/SearchableSelect.jsx";
+
 /**
  * Select compacto para la barra de filtros de un listado.
  *
@@ -10,6 +16,13 @@ import TextField from "@mui/material/TextField";
  * Los filtros que se alimentan de un catalogo del backend pasan `loading` y una
  * opcion vacia (`emptyLabel`, tipicamente "Todos"): sin la opcion vacia el
  * filtro no se puede quitar una vez elegido.
+ *
+ * A partir de `SEARCHABLE_FROM` opciones se vuelve buscable, igual que
+ * `FormSelect`. Filtrar por estudiante es el caso que lo pedia a gritos: el
+ * historial de matricula se consulta por persona, y encontrarla entre cientos
+ * bajando con la rueda del raton no es buscar. Ahi la opcion vacia deja de ser
+ * una fila del menu y pasa a ser la "x" de limpiar, que es como se quita un
+ * filtro en un buscador.
  *
  * @param {object} props
  * @param {string} props.label
@@ -29,6 +42,20 @@ export function FilterSelect({
   options,
   value,
 }) {
+  if (!loading && options.length >= SEARCHABLE_FROM) {
+    return (
+      <SearchableSelect
+        clearText={emptyLabel}
+        label={label}
+        onChange={(event) => onChange(event.target.value)}
+        options={options}
+        placeholder={emptyLabel}
+        sx={{ minWidth }}
+        value={value}
+      />
+    );
+  }
+
   return (
     <TextField
       disabled={loading && options.length === 0}
@@ -36,7 +63,14 @@ export function FilterSelect({
       label={label}
       onChange={(event) => onChange(event.target.value)}
       select
-      slotProps={{ inputLabel: { shrink: true } }}
+      slotProps={{
+        inputLabel: { shrink: true },
+        select: {
+          MenuProps: {
+            slotProps: { paper: { sx: { maxHeight: MENU_MAX_HEIGHT } } },
+          },
+        },
+      }}
       sx={{ minWidth }}
       value={value}
     >

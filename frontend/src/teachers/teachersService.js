@@ -9,6 +9,9 @@ export const teachersService = {
   // necesita la lista completa, no la primera pagina.
   list: () => collectAllPages(teachersService.listPage),
   get: (id) => apiClient.get(`/teachers/${id}/`),
+  /** Siguiente codigo de empleado libre. Ver `studentsService.nextCode`. */
+  nextCode: () =>
+    apiClient.get("/teachers/next-code/").then((body) => body.employee_code),
   create: async ({ photo, ...data }) => {
     const created = await apiClient.post("/teachers/", data);
     if (!photo) {

@@ -12,6 +12,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFileOutlined";
 
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
+import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
 
@@ -220,6 +221,21 @@ function EntityField({ disabled, field, onChange, value }) {
         disabled={disabled}
         field={field}
         onChange={onChange}
+        value={value}
+      />
+    );
+  }
+
+  if (field.type === "date") {
+    return (
+      <DateField
+        disabled={disabled}
+        fullWidth
+        helperText={field.help}
+        label={field.label}
+        name={field.name}
+        onChange={(event) => onChange(field.name, event.target.value)}
+        required={field.required}
         value={value}
       />
     );
