@@ -3,10 +3,23 @@ name: ${COMPOSE_PROJECT_NAME:-siga_inebi}
 services:
   db:
     image: postgres:16-alpine
+    # RNF-LOC-001: el reloj del cluster queda fijado en la zona del
+    # establecimiento. Django fija su propia sesion en UTC, asi que esto no
+    # cambia como se almacena: cambia lo que lee cualquier cosa que entre por
+    # fuera de Django, que es donde un servidor en UTC enganaria. `psql`,
+    # `pg_dump` y las lineas del log pasan a hablar en hora local.
+    command:
+      - postgres
+      - -c
+      - timezone=${TIME_ZONE:-America/Guatemala}
+      - -c
+      - log_timezone=${TIME_ZONE:-America/Guatemala}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-siga_inebi}
       POSTGRES_USER: ${POSTGRES_USER:-siga_inebi}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-siga_inebi_dev_password}
+      TZ: ${TIME_ZONE:-America/Guatemala}
+      PGTZ: ${TIME_ZONE:-America/Guatemala}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-siga_inebi} -d ${POSTGRES_DB:-siga_inebi}"]
       interval: 10s
@@ -31,6 +44,8 @@ services:
       DATABASE_HOST: db
       DATABASE_PORT: 5432
       BACKEND_PORT: ${BACKEND_PORT:-8000}
+      TIME_ZONE: ${TIME_ZONE:-America/Guatemala}
+      TZ: ${TIME_ZONE:-America/Guatemala}
     depends_on:
       db:
         condition: service_healthy

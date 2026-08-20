@@ -19,7 +19,6 @@ services:
       CSRF_TRUSTED_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173}
       SESSION_COOKIE_SECURE: "false"
       CSRF_COOKIE_SECURE: "false"
-      TIME_ZONE: America/Guatemala
       SEED_DEMO_DATA_ON_START: "true"
 
   frontend:
