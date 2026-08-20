@@ -114,6 +114,49 @@ def test_active_enrolment_list_requires_authentication(client):
     assert response.status_code in (401, 403)
 
 
+def test_section_occupancy_api_reports_capacity_and_seats(auth_client):
+    section = SectionFactory(capacity=2)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    response = auth_client.get(
+        reverse("section-occupancy-list"),
+        {"academic_cycle_id": str(section.academic_cycle.public_id)},
+    )
+
+    assert response.status_code == 200
+    body = response.json()["results"]
+    assert len(body) == 1
+    assert body[0]["public_id"] == str(section.public_id)
+    assert body[0]["capacity"] == 2
+    assert body[0]["occupied_seats"] == 1
+    assert body[0]["available_seats"] == 1
+
+
+def test_section_occupancy_api_filters_by_section(auth_client):
+    section = SectionFactory()
+    SectionFactory()  # a different section, should not show up
+
+    response = auth_client.get(
+        reverse("section-occupancy-list"), {"section_id": str(section.public_id)}
+    )
+
+    assert response.status_code == 200
+    body = response.json()["results"]
+    assert len(body) == 1
+    assert body[0]["public_id"] == str(section.public_id)
+
+
+def test_section_occupancy_api_requires_authentication(client):
+    response = client.get(reverse("section-occupancy-list"))
+
+    assert response.status_code in (401, 403)
+
+
 def test_enrolment_history_returns_all_student_records(auth_client):
     student = StudentFactory()
     section = SectionFactory()
