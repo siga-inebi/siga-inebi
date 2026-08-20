@@ -11,9 +11,11 @@ from .views import (
     AcademicCycleActivateView,
     AcademicCycleCloneView,
     AcademicCycleCloseView,
+    AcademicCycleDefaultsView,
     AcademicCycleListCreateView,
     CampusDetailView,
     CampusListCreateView,
+    CampusNextCodeView,
     CampusShiftListCreateView,
     CurriculumPlanDetailView,
     CurriculumPlanListCreateView,
@@ -21,7 +23,9 @@ from .views import (
     HistoricalAcademicCycleDetailView,
     LevelDetailView,
     LevelGradeListCreateView,
+    LevelGradeNextCodeView,
     LevelListCreateView,
+    LevelNextCodeView,
     LevelSubjectDetailView,
     LevelSubjectListCreateView,
     SectionDetailView,
@@ -36,6 +40,13 @@ from .views import (
 
 urlpatterns = [
     path("cycles/", AcademicCycleListCreateView.as_view(), name="academic-cycle-list-create"),
+    # Antes de "cycles/<uuid:public_id>/": el convertidor uuid no captura texto,
+    # pero el orden lo deja explicito para quien lea las rutas.
+    path(
+        "cycles/defaults/",
+        AcademicCycleDefaultsView.as_view(),
+        name="academic-cycle-defaults",
+    ),
     path(
         "cycles/<uuid:public_id>/",
         HistoricalAcademicCycleDetailView.as_view(),
@@ -82,6 +93,7 @@ urlpatterns = [
     ),
     # institutional structure: sedes y jornadas
     path("campuses/", CampusListCreateView.as_view(), name="campus-list-create"),
+    path("campuses/next-code/", CampusNextCodeView.as_view(), name="campus-next-code"),
     path("campuses/<uuid:public_id>/", CampusDetailView.as_view(), name="campus-detail"),
     path(
         "campuses/<uuid:public_id>/shifts/",
@@ -91,11 +103,17 @@ urlpatterns = [
     path("shifts/<uuid:public_id>/", ShiftDetailView.as_view(), name="shift-detail"),
     # academic structure: niveles, grados y cursos
     path("levels/", LevelListCreateView.as_view(), name="level-list-create"),
+    path("levels/next-code/", LevelNextCodeView.as_view(), name="level-next-code"),
     path("levels/<uuid:public_id>/", LevelDetailView.as_view(), name="level-detail"),
     path(
         "levels/<uuid:public_id>/grades/",
         LevelGradeListCreateView.as_view(),
         name="level-grade-list-create",
+    ),
+    path(
+        "levels/<uuid:public_id>/grades/next-code/",
+        LevelGradeNextCodeView.as_view(),
+        name="level-grade-next-code",
     ),
     path("grades/<uuid:public_id>/", GradeDetailView.as_view(), name="grade-detail"),
     path(

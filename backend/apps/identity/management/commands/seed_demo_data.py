@@ -23,6 +23,7 @@ from apps.academics.models import (
     Subject,
     TeachingAssignment,
 )
+from apps.academics.services import ensure_national_levels
 from apps.attendance.models import JornadaParameters
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
@@ -109,16 +110,44 @@ TEACHER_NAMES = [
 ]
 
 STUDENT_FIRST_NAMES = [
-    "Ana", "Luis", "Sofia", "Diego", "Camila", "Andres", "Valeria", "Jose",
-    "Fernanda", "Carlos", "Maria", "Pablo", "Daniela", "Miguel", "Gabriela",
-    "Rodrigo", "Isabel", "Javier", "Alejandra", "Emilio",
+    "Ana",
+    "Luis",
+    "Sofia",
+    "Diego",
+    "Camila",
+    "Andres",
+    "Valeria",
+    "Jose",
+    "Fernanda",
+    "Carlos",
+    "Maria",
+    "Pablo",
+    "Daniela",
+    "Miguel",
+    "Gabriela",
+    "Rodrigo",
+    "Isabel",
+    "Javier",
+    "Alejandra",
+    "Emilio",
 ]
 
 STUDENT_LAST_NAMES = [
-    "Perez Lopez", "Garcia Tzul", "Morales Xiloj", "Ramirez Chan",
-    "Hernandez Cua", "Lopez Batz", "Gonzalez Say", "Vasquez Tuy",
-    "Sanchez Ixcoy", "Diaz Puac", "Torres Mejia", "Flores Us",
-    "Rivera Chach", "Gomez Tzunun", "Castillo Yax",
+    "Perez Lopez",
+    "Garcia Tzul",
+    "Morales Xiloj",
+    "Ramirez Chan",
+    "Hernandez Cua",
+    "Lopez Batz",
+    "Gonzalez Say",
+    "Vasquez Tuy",
+    "Sanchez Ixcoy",
+    "Diaz Puac",
+    "Torres Mejia",
+    "Flores Us",
+    "Rivera Chach",
+    "Gomez Tzunun",
+    "Castillo Yax",
 ]
 
 GUARDIAN_RELATIONSHIPS = ["Madre", "Padre", "Abuela", "Tio"]
@@ -212,11 +241,11 @@ class Command(BaseCommand):
                 defaults={"name": "Vespertina"},
             )[0],
         ]
-        level, _ = Level.objects.get_or_create(
-            institution=institution,
-            code="BAS",
-            defaults={"name": "Basico", "sequence": 3},
-        )
+        # Los cuatro niveles del sistema nacional existen desde el arranque; la
+        # demo trabaja sobre Basico, pero un catalogo que solo tiene un nivel no
+        # se parece a un establecimiento real.
+        ensure_national_levels(institution=institution)
+        level = Level.objects.get(institution=institution, code="BAS")
         grades = []
         for code, name, sequence in (
             ("B1", "Primero Basico", 1),
@@ -480,7 +509,9 @@ class Command(BaseCommand):
         estado final, no simular el tramite.
         """
         created = 0
-        students = students[:-UNENROLLED_STUDENTS] if len(students) > UNENROLLED_STUDENTS else students
+        students = (
+            students[:-UNENROLLED_STUDENTS] if len(students) > UNENROLLED_STUDENTS else students
+        )
         capacity_left = {
             section.pk: section.capacity - section.enrolments.filter(status="active").count()
             for section in sections
@@ -535,9 +566,7 @@ class Command(BaseCommand):
                 ).exists():
                     continue
 
-                teacher = teachers[
-                    (section_index * len(subjects) + subject_index) % len(teachers)
-                ]
+                teacher = teachers[(section_index * len(subjects) + subject_index) % len(teachers)]
                 TeachingAssignment.objects.create(
                     academic_cycle=cycle,
                     section=section,
@@ -598,4 +627,3 @@ class Command(BaseCommand):
             )
 
         self.stdout.write(f"Parametros de jornada: {len(shifts)}")
-

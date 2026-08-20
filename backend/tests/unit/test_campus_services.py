@@ -62,9 +62,30 @@ def test_create_campus_rejects_duplicate_code_even_when_existing_is_inactive():
         create_campus(institution=institution, name="Central II", code="CENTRAL")
 
 
-def test_create_campus_rejects_blank_code():
-    with pytest.raises(DomainError, match="code"):
-        create_campus(institution=InstitutionFactory(), name="Sede", code="   ")
+def test_create_campus_generates_the_next_code_when_none_is_supplied():
+    """Sin codigo se genera el siguiente de la serie, no se rechaza el alta."""
+    institution = InstitutionFactory()
+
+    first = create_campus(institution=institution, name="Sede Central")
+    second = create_campus(institution=institution, name="Sede Norte", code="   ")
+
+    assert first.code == "SED-01"
+    assert second.code == "SED-02"
+
+
+def test_generated_campus_code_ignores_codes_outside_the_series():
+    """Un codigo escrito a mano no mueve el contador ni rompe la lectura."""
+    institution = InstitutionFactory()
+    CampusFactory(institution=institution, code="CENTRAL")
+
+    assert create_campus(institution=institution, name="Sede Norte").code == "SED-01"
+
+
+def test_generated_campus_code_continues_after_the_highest_in_the_series():
+    institution = InstitutionFactory()
+    CampusFactory(institution=institution, code="SED-07")
+
+    assert create_campus(institution=institution, name="Sede Sur").code == "SED-08"
 
 
 def test_create_campus_rejects_blank_name():

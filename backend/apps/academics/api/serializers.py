@@ -30,9 +30,40 @@ class AcademicCycleSerializer(serializers.ModelSerializer):
 
 
 class AcademicCycleCreateSerializer(serializers.Serializer):
+    """
+    El anio es lo unico obligatorio.
+
+    Nombre y vigencia se derivan de el (``apps.academics.school_calendar``), y
+    pedirlos por separado solo abre la puerta a un "Ciclo 2026" cuyo anio dice
+    2027. Se siguen aceptando porque un acuerdo ministerial puede mover el
+    calendario.
+    """
+
     year = serializers.IntegerField(min_value=1900, max_value=9999)
-    name = serializers.CharField(max_length=100)
+    name = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        help_text='Opcional. Por omision, "Ciclo <anio>".',
+    )
     description = serializers.CharField(required=False, allow_blank=True)
+    starts_on = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Opcional. Por omision, el 15 de enero corrido al siguiente dia habil.",
+    )
+    ends_on = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Opcional. Por omision, el 31 de octubre corrido al dia habil anterior.",
+    )
+
+
+class AcademicCycleDefaultsSerializer(serializers.Serializer):
+    """Valores que tomaria un ciclo del anio consultado, sin crearlo."""
+
+    year = serializers.IntegerField()
+    name = serializers.CharField()
     starts_on = serializers.DateField()
     ends_on = serializers.DateField()
 
@@ -103,7 +134,12 @@ class CampusCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150, help_text="Nombre visible de la sede.")
     code = serializers.CharField(
         max_length=30,
-        help_text="Codigo corto, unico por institucion. Se normaliza a mayusculas.",
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Codigo corto, unico por institucion. Se normaliza a mayusculas. "
+            'Opcional: vacio genera el siguiente de la serie ("SED-01").'
+        ),
     )
     address = serializers.CharField(max_length=255, required=False, allow_blank=True)
     is_main = serializers.BooleanField(
@@ -168,17 +204,42 @@ class LevelSerializer(serializers.ModelSerializer):
         ]
 
 
+INSERT_AFTER_HELP = (
+    "Posicion: identificador del hermano al que debe seguir. `null` lo pone "
+    "primero; omitirlo lo pone al final. Los hermanos se renumeran solos."
+)
+
+
 class LevelCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, help_text="Ej. Preprimaria, Primaria, Basico.")
-    code = serializers.CharField(max_length=30, help_text="Codigo unico por institucion.")
+    code = serializers.CharField(
+        max_length=30,
+        required=False,
+        allow_blank=True,
+        help_text='Codigo unico por institucion. Opcional: vacio genera "NIV-01".',
+    )
     sequence = serializers.IntegerField(
-        min_value=1, help_text="Orden pedagogico del nivel. Unico por institucion."
+        min_value=1,
+        required=False,
+        help_text="Orden pedagogico explicito. Manda sobre `insert_after`.",
+    )
+    insert_after = serializers.UUIDField(
+        required=False, allow_null=True, help_text=INSERT_AFTER_HELP
     )
 
 
 class LevelUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, required=False)
     sequence = serializers.IntegerField(min_value=1, required=False)
+    insert_after = serializers.UUIDField(
+        required=False, allow_null=True, help_text=INSERT_AFTER_HELP
+    )
+
+
+class SuggestedCodeSerializer(serializers.Serializer):
+    """Siguiente codigo libre de una serie, para prellenar un formulario."""
+
+    code = serializers.CharField()
 
 
 # --------------------------------------------------------------------------- #
@@ -196,13 +257,30 @@ class GradeSerializer(serializers.ModelSerializer):
 
 class GradeCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, help_text="Ej. Primero Primaria.")
-    code = serializers.CharField(max_length=30, help_text="Codigo unico por institucion.")
-    sequence = serializers.IntegerField(min_value=1, help_text="Orden del grado dentro del nivel.")
+    code = serializers.CharField(
+        max_length=30,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            'Codigo unico por institucion. Opcional: vacio lo deriva del codigo del nivel ("BAS1").'
+        ),
+    )
+    sequence = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="Orden explicito dentro del nivel. Manda sobre `insert_after`.",
+    )
+    insert_after = serializers.UUIDField(
+        required=False, allow_null=True, help_text=INSERT_AFTER_HELP
+    )
 
 
 class GradeUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, required=False)
     sequence = serializers.IntegerField(min_value=1, required=False)
+    insert_after = serializers.UUIDField(
+        required=False, allow_null=True, help_text=INSERT_AFTER_HELP
+    )
 
 
 # --------------------------------------------------------------------------- #

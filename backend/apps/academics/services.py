@@ -19,8 +19,10 @@ would leave a window for two concurrent requests to both pass the check.
 from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import F, Max
 from django.utils import timezone
 
+from apps.academics import school_calendar
 from apps.academics.cycle_policies import (
     require_cycle_academic_writes,
     require_cycle_planning_writes,
@@ -39,6 +41,11 @@ from apps.academics.models import (
     TeachingAssignment,
 )
 from apps.audit.services import record_event
+from apps.common.codes import (
+    create_with_generated_code,
+    next_sequential_code,
+    next_suffixed_code,
+)
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.teachers.models import Teacher
@@ -74,6 +81,78 @@ def _has_open_cycle_usage(offering_queryset):
     ).exists()
 
 
+# --------------------------------------------------------------------------- #
+# pedagogical order ("secuencia")
+#
+# ``sequence`` is the pedagogical order of levels inside the institution and of
+# grades inside a level. It used to be typed as a raw number, which is the wrong
+# question: nobody knows "which number is Basico", they know "Basico goes after
+# Primaria". Worse, inserting one in the middle meant renumbering every level
+# below it by hand, one form at a time, against a unique constraint that rejects
+# the intermediate states.
+#
+# So the API asks for a POSITION (``insert_after``) and the order is recomputed
+# here. ``sequence`` stays accepted for the callers that already send a number.
+# --------------------------------------------------------------------------- #
+
+# "No position supplied": append at the end. Distinct from ``None``, which is a
+# real position — the first one.
+APPEND = object()
+
+
+def _next_sequence(queryset):
+    return (queryset.aggregate(top=Max("sequence"))["top"] or 0) + 1
+
+
+def _apply_order(queryset, ordered):
+    """
+    Write 1..n over ``ordered``, which must hold every row of ``queryset``.
+
+    The whole block is parked above every sequence in use before being laid back
+    down: PostgreSQL validates a unique index row by row inside one statement,
+    so renumbering in place collides with the rows that have not moved yet.
+    """
+    parked = _next_sequence(queryset)
+    queryset.update(sequence=F("sequence") + parked)
+    for position, row in enumerate(ordered, start=1):
+        queryset.filter(pk=row.pk).update(sequence=position)
+        row.sequence = position
+
+
+def _ordered_with(queryset, instance, insert_after):
+    """Rows of ``queryset`` in their final order, with ``instance`` moved into place."""
+    rows = [row for row in queryset.order_by("sequence", "pk") if row.pk != instance.pk]
+    if insert_after is None:
+        index = 0
+    else:
+        found = next(
+            (position for position, row in enumerate(rows) if row.pk == insert_after.pk),
+            None,
+        )
+        if found is None:
+            # Un hermano de otro nivel (o de otra institucion) dejaria el orden
+            # a medio escribir: se rechaza antes de tocar una sola fila.
+            raise DomainError("The reference item does not belong to the same group.")
+        index = found + 1
+    rows.insert(index, instance)
+    return rows
+
+
+def _place_in_order(*, queryset, instance, insert_after):
+    """
+    Move ``instance`` right after ``insert_after`` (or first, when it is ``None``).
+
+    Renumbers the siblings so the visible order has no holes: an "Orden" column
+    reading 1, 2, 4 looks like a bug even when the order is right.
+    """
+    if insert_after is APPEND:
+        return instance
+    if insert_after is not None and insert_after.pk == instance.pk:
+        raise DomainError("An item cannot be inserted after itself.")
+    _apply_order(queryset, _ordered_with(queryset, instance, insert_after))
+    return instance
+
+
 def _audit(actor, action, instance, **context):
     record_event(
         actor=actor,
@@ -101,11 +180,37 @@ def _cycle_conflicts(*, year, name):
     }
 
 
+def academic_cycle_defaults(year):
+    """
+    Name and validity dates a cycle of ``year`` gets when nobody supplies them.
+
+    Published as-is by the API so the form can show what it is about to send
+    instead of a blank field with a rule hidden in the backend.
+    """
+    starts_on, ends_on = school_calendar.cycle_dates(year)
+    return {
+        "year": year,
+        "name": school_calendar.cycle_name(year),
+        "starts_on": starts_on,
+        "ends_on": ends_on,
+    }
+
+
 def create_academic_cycle(
-    *, institution, year, name, starts_on, ends_on, description="", actor=None
+    *, institution, year, name=None, starts_on=None, ends_on=None, description="", actor=None
 ):
-    """Register a non-overlapping cycle in preparation (RF-CIC-001)."""
-    name = _clean_name(name)
+    """
+    Register a non-overlapping cycle in preparation (RF-CIC-001).
+
+    ``name``, ``starts_on`` and ``ends_on`` are optional: the year alone
+    determines all three (see ``apps.academics.school_calendar``). They stay
+    accepted because a ministerial agreement can move the calendar, and the
+    name of a cycle is institutional text, not a computed value.
+    """
+    defaults = academic_cycle_defaults(year)
+    name = _clean_name(name if (name or "").strip() else defaults["name"])
+    starts_on = starts_on or defaults["starts_on"]
+    ends_on = ends_on or defaults["ends_on"]
     description = (description or "").strip()
     if starts_on > ends_on:
         raise DomainError("Academic cycle end date cannot be before its start date.")
@@ -167,9 +272,9 @@ def clone_academic_cycle(
     *,
     source_cycle,
     year,
-    name,
-    starts_on,
-    ends_on,
+    name=None,
+    starts_on=None,
+    ends_on=None,
     description="",
     include_teaching_assignments=False,
     actor=None,
@@ -358,33 +463,70 @@ def _campus_conflicts(code):
     }
 
 
+# Serie del codigo de sede: "SED-01".
+CAMPUS_CODE_PREFIX = "SED"
+CAMPUS_CODE_WIDTH = 2
+CAMPUS_CODE_CONSTRAINT = "unique_campus_code_per_institution"
+
+
+def next_campus_code(*, institution):
+    """Siguiente codigo libre de sede para la institucion."""
+    return next_sequential_code(
+        queryset=Campus.objects.filter(institution=institution),
+        field="code",
+        prefix=CAMPUS_CODE_PREFIX,
+        width=CAMPUS_CODE_WIDTH,
+    )
+
+
 @transaction.atomic
-def create_campus(*, institution, name, code, address="", is_main=False, actor=None):
+def create_campus(*, institution, name, code=None, address="", is_main=False, actor=None):
     """
     Register a campus.
 
     Rules:
-    - Code is normalised to upper case and unique per institution, including
-      inactive campuses so history stays readable (ADR-0006).
+    - Code is optional: without one, the next of the institution series is
+      generated. Supplied codes are normalised to upper case and unique per
+      institution, including inactive campuses so history stays readable
+      (ADR-0006).
     - At most one main campus per institution; promoting a new one demotes the
       previous main campus.
     """
     name = _clean_name(name)
-    code = _clean_code(code)
+    supplied = (code or "").strip()
+    address = (address or "").strip()
 
     if is_main:
         Campus.objects.filter(institution=institution, is_main=True).update(is_main=False)
 
-    with unique_violation_as(_campus_conflicts(code)):
-        campus = Campus.objects.create(
+    def build(value):
+        return Campus.objects.create(
             institution=institution,
             name=name,
-            code=code,
-            address=(address or "").strip(),
+            code=value,
+            address=address,
             is_main=is_main,
         )
 
-    _audit(actor, "academics.campus.created", campus, code=code, is_main=is_main)
+    if supplied:
+        code = _clean_code(supplied)
+        with unique_violation_as(_campus_conflicts(code)):
+            campus = build(code)
+    else:
+        campus = create_with_generated_code(
+            build=build,
+            generate=lambda: next_campus_code(institution=institution),
+            constraint=CAMPUS_CODE_CONSTRAINT,
+        )
+
+    _audit(
+        actor,
+        "academics.campus.created",
+        campus,
+        code=campus.code,
+        is_main=is_main,
+        generated=not supplied,
+    )
     return campus
 
 
@@ -512,38 +654,143 @@ def _require_positive_sequence(sequence, label):
         raise DomainError(f"{label} sequence must be a positive integer.")
 
 
-def create_level(*, institution, name, code, sequence, actor=None):
+# Estructura nacional: los cuatro niveles del sistema educativo guatemalteco.
+#
+# No son una decision institucional, son el marco contra el que todo
+# establecimiento reporta. Se pre-crean (migracion academics 0006 para las
+# instituciones existentes, ``ensure_national_levels`` para las nuevas) y el que
+# no se imparte se desactiva.
+NATIONAL_LEVELS = [
+    ("PRE", "Preprimaria", 1),
+    ("PRI", "Primaria", 2),
+    ("BAS", "Basico", 3),
+    ("DIV", "Diversificado", 4),
+]
+
+
+def ensure_national_levels(*, institution, actor=None):
+    """
+    Create the national levels this institution is missing. Idempotent.
+
+    Matched by code, never by name: a level renamed to "Ciclo Basico" is still
+    "BAS", and recreating it would leave two.
+    """
+    created = []
+    for code, name, preferred in NATIONAL_LEVELS:
+        levels = Level.objects.filter(institution=institution)
+        if levels.filter(code=code).exists():
+            continue
+        taken = set(levels.values_list("sequence", flat=True))
+        sequence = preferred if preferred not in taken else max(taken) + 1
+        level = Level.objects.create(
+            institution=institution, name=name, code=code, sequence=sequence
+        )
+        _audit(actor, "academics.level.created", level, code=code, sequence=sequence, national=True)
+        created.append(level)
+    return created
+
+
+# Serie del codigo de nivel: "NIV-01".
+LEVEL_CODE_PREFIX = "NIV"
+LEVEL_CODE_WIDTH = 2
+LEVEL_CODE_CONSTRAINT = "unique_level_code_per_institution"
+
+
+def next_level_code(*, institution):
+    """Siguiente codigo libre de nivel para la institucion."""
+    return next_sequential_code(
+        queryset=Level.objects.filter(institution=institution),
+        field="code",
+        prefix=LEVEL_CODE_PREFIX,
+        width=LEVEL_CODE_WIDTH,
+    )
+
+
+def _institution_levels(institution):
+    """Todos los niveles, activos e inactivos: la secuencia es unica sobre todos."""
+    return Level.objects.filter(institution=institution)
+
+
+@transaction.atomic
+def create_level(*, institution, name, code=None, sequence=None, insert_after=APPEND, actor=None):
     """
     Register an educational level.
 
     Rules:
-    - Code unique per institution.
-    - Sequence is a positive integer, unique per institution, because it defines
-      the pedagogical order used everywhere else.
+    - Code is optional; without one the next of the institution series is used.
+    - Position: ``insert_after`` is the level this one must follow, ``None`` puts
+      it first, and omitting it appends at the end. The siblings are renumbered
+      so the pedagogical order stays contiguous.
+    - ``sequence`` is still accepted as an explicit number, and wins over the
+      position, because the API contract already had it.
     """
     name = _clean_name(name)
-    code = _clean_code(code)
-    if sequence is None:
-        raise DomainError("Level sequence must be a positive integer.")
-    _require_positive_sequence(sequence, "Level")
+    supplied = (code or "").strip()
+    siblings = _institution_levels(institution)
 
-    with unique_violation_as(_level_conflicts(code, sequence)):
-        level = Level.objects.create(
-            institution=institution, name=name, code=code, sequence=sequence
+    _require_positive_sequence(sequence, "Level")
+    # Un numero explicito manda sobre la posicion: es el contrato anterior de la
+    # API y renumerar despues lo pisaria sin avisar.
+    explicit_sequence = sequence is not None
+    if not explicit_sequence:
+        sequence = _next_sequence(siblings)
+
+    def build(value):
+        return Level.objects.create(
+            institution=institution, name=name, code=value, sequence=sequence
         )
 
-    _audit(actor, "academics.level.created", level, code=code, sequence=sequence)
+    if supplied:
+        code = _clean_code(supplied)
+        with unique_violation_as(_level_conflicts(code, sequence)):
+            level = build(code)
+    else:
+        level = create_with_generated_code(
+            build=build,
+            generate=lambda: next_level_code(institution=institution),
+            constraint=LEVEL_CODE_CONSTRAINT,
+        )
+
+    if not explicit_sequence:
+        _place_in_order(
+            queryset=_institution_levels(institution),
+            instance=level,
+            insert_after=insert_after,
+        )
+
+    _audit(
+        actor,
+        "academics.level.created",
+        level,
+        code=level.code,
+        sequence=level.sequence,
+        generated=not supplied,
+    )
     return level
 
 
-def update_level(*, level, name=None, sequence=None, actor=None):
-    """Rename a level or move it in the pedagogical order. The code is immutable."""
+@transaction.atomic
+def update_level(*, level, name=None, sequence=None, insert_after=APPEND, actor=None):
+    """
+    Rename a level or move it in the pedagogical order. The code is immutable.
+
+    ``insert_after`` moves it relative to a sibling and renumbers the rest;
+    ``sequence`` still sets the raw number for the callers that send one.
+    """
     if name is not None:
         name = _clean_name(name)
     _require_positive_sequence(sequence, "Level")
 
     with unique_violation_as(_level_conflicts(level.code, sequence)):
-        return _changed(level, actor, "academics.level.updated", name=name, sequence=sequence)
+        _changed(level, actor, "academics.level.updated", name=name, sequence=sequence)
+
+    if sequence is None:
+        _place_in_order(
+            queryset=_institution_levels(level.institution),
+            instance=level,
+            insert_after=insert_after,
+        )
+    return level
 
 
 @transaction.atomic
@@ -581,41 +828,100 @@ def _grade_conflicts(code, sequence):
     }
 
 
-def create_grade(*, level, name, code, sequence, actor=None):
+GRADE_CODE_CONSTRAINT = "unique_grade_code_per_institution"
+
+
+def next_grade_code(*, level):
+    """
+    Siguiente codigo libre de grado, colgado del codigo de su nivel: BAS1, BAS2.
+
+    Se deriva del nivel y no de una serie propia porque el codigo de un grado se
+    lee para saber DE QUE nivel es; "GRA-07" no dice nada. Dos niveles no pueden
+    compartir codigo, asi que la serie derivada tampoco choca entre niveles.
+    """
+    return next_suffixed_code(
+        queryset=Grade.objects.filter(institution=level.institution),
+        field="code",
+        prefix=level.code,
+    )
+
+
+def _level_grades(level):
+    """Todos los grados del nivel: la secuencia es unica sobre activos e inactivos."""
+    return Grade.objects.filter(level=level)
+
+
+@transaction.atomic
+def create_grade(*, level, name, code=None, sequence=None, insert_after=APPEND, actor=None):
     """
     Register a grade inside a level (RF-EST-001).
 
     Rules:
     - Level must be active.
-    - Code unique institution-wide, so "G1" never means two different grades.
-    - Sequence positive and unique inside the level.
+    - Code is optional; without one it is derived from the level code ("BAS1").
+      Supplied or derived, it is unique institution-wide, so "G1" never means two
+      different grades.
+    - Position: ``insert_after`` places it after a sibling, ``None`` first, and
+      omitting it appends. ``sequence`` still accepts a raw number and wins.
 
-    Both rules are database constraints. The institution-wide one is possible
-    because ``Grade`` carries a derived ``institution`` column; see the model
-    docstring and migration 0004.
+    Uniqueness is a database constraint in both cases. The institution-wide one
+    is possible because ``Grade`` carries a derived ``institution`` column; see
+    the model docstring and migration 0004.
     """
     _require_active(level, "Level")
     name = _clean_name(name)
-    code = _clean_code(code)
-    if sequence is None:
-        raise DomainError("Grade sequence must be a positive integer.")
+    supplied = (code or "").strip()
+    siblings = _level_grades(level)
+
     _require_positive_sequence(sequence, "Grade")
+    explicit_sequence = sequence is not None
+    if not explicit_sequence:
+        sequence = _next_sequence(siblings)
 
-    with unique_violation_as(_grade_conflicts(code, sequence)):
-        grade = Grade.objects.create(level=level, name=name, code=code, sequence=sequence)
+    def build(value):
+        return Grade.objects.create(level=level, name=name, code=value, sequence=sequence)
 
-    _audit(actor, "academics.grade.created", grade, level_id=level.pk, code=code)
+    if supplied:
+        code = _clean_code(supplied)
+        with unique_violation_as(_grade_conflicts(code, sequence)):
+            grade = build(code)
+    else:
+        grade = create_with_generated_code(
+            build=build,
+            generate=lambda: next_grade_code(level=level),
+            constraint=GRADE_CODE_CONSTRAINT,
+        )
+
+    if not explicit_sequence:
+        _place_in_order(queryset=_level_grades(level), instance=grade, insert_after=insert_after)
+
+    _audit(
+        actor,
+        "academics.grade.created",
+        grade,
+        level_id=level.pk,
+        code=grade.code,
+        sequence=grade.sequence,
+        generated=not supplied,
+    )
     return grade
 
 
-def update_grade(*, grade, name=None, sequence=None, actor=None):
+@transaction.atomic
+def update_grade(*, grade, name=None, sequence=None, insert_after=APPEND, actor=None):
     """Rename a grade or reorder it inside its level. The code is immutable."""
     if name is not None:
         name = _clean_name(name)
     _require_positive_sequence(sequence, "Grade")
 
     with unique_violation_as(_grade_conflicts(grade.code, sequence)):
-        return _changed(grade, actor, "academics.grade.updated", name=name, sequence=sequence)
+        _changed(grade, actor, "academics.grade.updated", name=name, sequence=sequence)
+
+    if sequence is None:
+        _place_in_order(
+            queryset=_level_grades(grade.level), instance=grade, insert_after=insert_after
+        )
+    return grade
 
 
 def deactivate_grade(*, grade, actor=None):
