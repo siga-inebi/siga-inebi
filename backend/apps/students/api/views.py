@@ -20,6 +20,7 @@ from apps.students.api.serializers import (
     StudentObservationCreateSerializer,
     StudentObservationSerializer,
     StudentSerializer,
+    SuggestedStudentCodeSerializer,
 )
 from apps.students.models import Guardian, Student, StudentGuardianRelation
 from apps.students.services import (
@@ -28,6 +29,27 @@ from apps.students.services import (
     deactivate_student,
     end_student_guardian_relation,
 )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Sugerir codigo de estudiante",
+        description=(
+            "Siguiente codigo libre de la serie del anio, sin crear nada. El alta lo "
+            "genera igual si el campo llega vacio; esto solo permite MOSTRARLO antes "
+            "de guardar."
+        ),
+        tags=["students"],
+        responses={200: SuggestedStudentCodeSerializer},
+    )
+)
+class StudentNextCodeView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SuggestedStudentCodeSerializer
+
+    def get(self, request):
+        code = services.next_student_code()
+        return Response(SuggestedStudentCodeSerializer({"student_code": code}).data)
 
 
 class StudentListCreateView(generics.ListCreateAPIView):
