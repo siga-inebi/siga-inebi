@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -13,14 +14,20 @@ from apps.documents.services import (
     create_document_template,
     deactivate_document_record,
     deactivate_document_template,
+    ensure_document_access,
     ensure_official_document_issuance_allowed,
     ensure_official_document_issuance_permission,
     evaluate_official_document_issuance,
+    get_active_document_template,
+    issue_document_download_token,
+    issue_official_document_folio,
+    list_document_types,
     list_field_tags,
     normalize_document_filename,
     record_document_read_audit,
     student_document_dossier,
     update_document_template,
+    validate_document_download_token,
     validate_document_upload,
 )
 from apps.enrolments.models import EnrolmentDocumentRequirement
@@ -31,6 +38,7 @@ from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
     RoleFactory,
+    ScopeGrantFactory,
     UserFactory,
 )
 from tests.factories.students import StudentFactory
@@ -528,6 +536,92 @@ def test_document_read_audit_logs_denial_for_unauthorized_users():
     assert AuditEvent.objects.filter(action="documents.document.read_denied").exists()
 
 
+def test_list_document_types_returns_the_fixed_catalogue():
+    assert list_document_types() == (
+        ("certificate", "Certificado"),
+        ("report", "Reporte"),
+        ("other", "Otro"),
+    )
+
+
+def test_get_active_document_template_requires_a_single_active_template_per_kind():
+    institution = InstitutionFactory()
+    certificate = create_document_template(
+        institution=institution,
+        name="Certificado",
+        code="CERT",
+        kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+    )
+    create_document_template(
+        institution=institution,
+        name="Certificado viejo",
+        code="CERT-OLD",
+        kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+        is_active=False,
+    )
+
+    assert get_active_document_template(institution=institution, kind="certificate") == certificate
+
+    with pytest.raises(DomainError, match="active.*document template|already exists.*document type|document type.*active"):
+        create_document_template(
+            institution=institution,
+            name="Segundo certificado",
+            code="CERT-2",
+            kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+        )
+
+    certificate.is_active = False
+    certificate.save(update_fields=["is_active", "updated_at"])
+    second = create_document_template(
+        institution=institution,
+        name="Segundo certificado",
+        code="CERT-2",
+        kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+    )
+
+    assert get_active_document_template(institution=institution, kind="certificate") == second
+
+    second.is_active = False
+    second.save(update_fields=["is_active", "updated_at"])
+
+
+def test_document_access_requires_permission_and_scope():
+    student = StudentFactory()
+    actor = UserFactory()
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
+
+    with pytest.raises(PermissionDenied, match="scope|read documents"):
+        ensure_document_access(actor=actor, student=student)
+
+    ScopeGrantFactory(assignment=assignment, student=student)
+
+    assert ensure_document_access(actor=actor, student=student) is True
+
+
+def test_document_download_tokens_are_issued_and_validated():
+    actor = UserFactory()
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
+    student = StudentFactory()
+    ScopeGrantFactory(assignment=assignment, student=student)
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="birth-certificate.pdf",
+        storage_key="local/birth-certificate.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    token = issue_document_download_token(actor=actor, document=document)
+
+    assert token.token
+    assert validate_document_download_token(document=document, token=token.token) is True
+    with pytest.raises(DomainError, match="valid|token"):
+        validate_document_download_token(document=document, token="invalid-token")
+
+
 def test_generated_documents_are_compiled_in_memory_and_never_persisted():
     template = DocumentTemplateFactory()
 
@@ -547,11 +641,46 @@ def test_generated_documents_refuse_persistence_to_storage():
     template = DocumentTemplateFactory()
 
     with pytest.raises(DomainError, match="persist|storage"):
-        compile_generated_document(
-            template=template,
-            payload={"student_name": "Ana López"},
-            persist=True,
-        )
+        compile_generated_document(template=template, payload={"student_name": "Ana López"}, persist=True)
+
+
+def test_generated_documents_include_the_issuance_timestamp_and_folio_when_available():
+    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+    issued_at = "2026-08-18T12:30:45-03:00"
+    folio = "DOC-2026-0001"
+
+    generated = compile_generated_document(
+        template=template,
+        payload={
+            "student_name": "Ana López",
+            "document_type": "Certificado",
+            "issued_at": issued_at,
+            "folio": folio,
+        },
+    )
+
+    assert generated.issued_at == issued_at
+    assert generated.folio == folio
+    assert folio.encode() in generated.content
+    assert b"2026-08-18" in generated.content
+
+
+def test_issue_official_document_folio_increments_by_institution():
+    institution = InstitutionFactory(short_name="INEBI")
+
+    first = issue_official_document_folio(
+        institution=institution,
+        issued_at=datetime(2026, 8, 18, 12, 30, 45, tzinfo=timezone.utc),
+    )
+    second = issue_official_document_folio(
+        institution=institution,
+        issued_at=datetime(2026, 8, 18, 13, 0, tzinfo=timezone.utc),
+    )
+
+    assert first.startswith("INEBI-2026-")
+    assert second.startswith("INEBI-2026-")
+    assert first.endswith("0001")
+    assert second.endswith("0002")
 
 
 def test_student_document_dossier_includes_document_records_for_the_student():
