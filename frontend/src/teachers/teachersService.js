@@ -1,10 +1,17 @@
 import { apiClient } from "@shared/api/apiClient.js";
+import { collectAllPages } from "@shared/api/pages.js";
+import { withQuery } from "@shared/api/query.js";
 
 export const teachersService = {
-  // TODO(teachers-pagination): only returns page 1 (PAGE_SIZE=25 backend-side);
-  // DocentesPage's own client-side pagination assumes it has the full list.
-  list: () => apiClient.get("/teachers/").then((page) => page.results),
+  /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
+  listPage: (params) => apiClient.get(withQuery("/teachers/", params)),
+  // Ver studentsService.list: la pantalla pagina del lado del cliente y
+  // necesita la lista completa, no la primera pagina.
+  list: () => collectAllPages(teachersService.listPage),
   get: (id) => apiClient.get(`/teachers/${id}/`),
+  /** Siguiente codigo de empleado libre. Ver `studentsService.nextCode`. */
+  nextCode: () =>
+    apiClient.get("/teachers/next-code/").then((body) => body.employee_code),
   create: async ({ photo, ...data }) => {
     const created = await apiClient.post("/teachers/", data);
     if (!photo) {

@@ -11,6 +11,7 @@ import {
   SCAN_OUTCOME_LABEL,
   SCAN_OUTCOME_VARIANT,
 } from "@attendance/attendanceService.js";
+import { useShiftCatalog } from "@shared/catalogs/academicCatalogs.js";
 import { formatDateTime } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
@@ -30,6 +31,10 @@ const MOVEMENT_OPTIONS = [
  * escribir o inyectar el codigo del estudiante: el flujo queda listo para
  * conectar un lector de verdad sin rediseñarse.
  *
+ * La jornada se elige del catalogo. Se pedia como "ID de jornada", que es un
+ * UUID de la base de datos: en un punto de control, con la fila esperando, no
+ * hay forma de conseguirlo.
+ *
  * `clientEventId` se genera una sola vez por intento y se REUTILIZA si el
  * envio falla por red: eso es lo que hace que un reintento sea idempotente
  * (RF-ASI-010) en vez de crear un movimiento duplicado. Solo se genera un id
@@ -37,6 +42,8 @@ const MOVEMENT_OPTIONS = [
  * procesado) — ahi empieza un intento distinto.
  */
 export function ScanCaptureWindow({ onClose, onRecorded }) {
+  const shifts = useShiftCatalog();
+
   const [studentCode, setStudentCode] = useState("");
   const [movementType, setMovementType] = useState("entry");
   const [shiftId, setShiftId] = useState("");
@@ -70,7 +77,7 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
 
   const canSubmit =
     studentCode.trim() !== "" &&
-    shiftId.trim() !== "" &&
+    shiftId !== "" &&
     controlPointId !== "" &&
     !submitting;
 
@@ -86,7 +93,7 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
           {
             client_event_id: clientEventId,
             student_code: studentCode.trim(),
-            shift_id: shiftId.trim(),
+            shift_id: shiftId,
             control_point_id: controlPointId,
             movement_type: movementType,
             captured_at: new Date().toISOString(),
@@ -153,10 +160,18 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
           required
           value={controlPointId}
         />
-        <FormTextField
-          helperText="Provisional: mas adelante se resuelve por el punto de control."
-          label="ID de jornada"
+        <FormSelect
+          error={shifts.error}
+          helperText={
+            !shifts.loading && shifts.options.length === 0
+              ? "No hay jornadas registradas."
+              : "Provisional: mas adelante se resuelve por el punto de control."
+          }
+          label="Jornada"
+          loading={shifts.loading}
           onChange={(event) => setShiftId(event.target.value)}
+          options={shifts.options}
+          placeholder="Seleccione una jornada"
           required
           value={shiftId}
         />

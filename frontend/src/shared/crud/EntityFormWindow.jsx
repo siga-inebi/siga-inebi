@@ -12,6 +12,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFileOutlined";
 
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
+import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
 
@@ -21,6 +22,17 @@ import { FormTextField } from "@ui/forms/FormTextField.jsx";
  * Conserva el contrato declarativo de campos que ya usaban las pantallas
  * (`{ name, label, type, help, required, options, min, placeholder, span }`),
  * asi que migrar una pantalla no obliga a reescribir su definicion de campos.
+ *
+ * Los campos `select` aceptan ademas `loading`, `optionsError` y `emptyHint`
+ * para los catalogos que se traen del backend: mientras cargan el desplegable
+ * se muestra deshabilitado y no vacio, porque un select sin opciones se lee
+ * como "no hay nada" y esa es otra respuesta.
+ *
+ * `fields` tambien puede ser una funcion `(values) => campos` cuando un campo
+ * depende de otro (las secciones de un ciclo, por ejemplo). Ese campo declara
+ * `resets: ["section_id"]` para limpiar lo que quedo colgando al cambiar: una
+ * seccion del ciclo anterior seguiria seleccionada y el backend la rechazaria
+ * recien al guardar.
  *
  * Los campos se acomodan en dos columnas desde `sm`. Un campo puede pedir el
  * ancho completo con `span: "full"`; los de tipo archivo y los interruptores lo
@@ -49,13 +61,23 @@ export function EntityFormWindow({
   // ejemplo); el prefijo evita que compartan el id de un campo homonimo.
   const formId = useId();
 
+  // Un campo puede depender de otro, asi que la lista se resuelve contra los
+  // valores actuales en cada render.
+  const resolvedFields = typeof fields === "function" ? fields(values) : fields;
+
   const setValue = (name, value) =>
-    setValues((current) => ({ ...current, [name]: value }));
+    setValues((current) => {
+      const field = resolvedFields.find((candidate) => candidate.name === name);
+      const cleared = Object.fromEntries(
+        (field?.resets ?? []).map((dependent) => [dependent, ""])
+      );
+      return { ...current, ...cleared, [name]: value };
+    });
 
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    const missing = fields.find(
+    const missing = resolvedFields.find(
       (field) =>
         field.required &&
         (field.type === "number"
@@ -71,7 +93,7 @@ export function EntityFormWindow({
     setSubmitting(true);
     setError("");
     try {
-      await onSubmit(normalize(fields, values));
+      await onSubmit(normalize(resolvedFields, values));
     } catch (submitError) {
       setError(submitError.message);
       setSubmitting(false);
@@ -120,7 +142,7 @@ export function EntityFormWindow({
             rowGap: 2.5,
           }}
         >
-          {fields.map((field) => (
+          {resolvedFields.map((field) => (
             <Box
               key={field.name}
               sx={{
@@ -166,19 +188,27 @@ function EntityField({ disabled, field, onChange, value }) {
   }
 
   if (field.type === "select") {
+    const options = normalizeOptions(field.options);
+    // Un catalogo vacio no es un error del formulario, es un dato que falta en
+    // otra pantalla; decirlo ahi mismo evita que la persona busque el problema
+    // en lo que acaba de escribir.
+    const empty = !field.loading && options.length === 0;
+
     return (
       <FormSelect
-        disabled={disabled}
+        disabled={disabled || field.loading || empty}
+        error={field.optionsError}
         fullWidth
-        helperText={field.help}
+        helperText={empty ? (field.emptyHint ?? field.help) : field.help}
         label={field.label}
+        loading={field.loading}
         name={field.name}
         onChange={(event) => onChange(field.name, event.target.value)}
         // Se aceptan opciones como texto plano ("Matutina") o como par
         // {value,label}: las pantallas de listado usan lo primero y los
         // catalogos lo segundo, y no vale la pena forzar una sola forma.
-        options={normalizeOptions(field.options)}
-        placeholder="Seleccione una opcion"
+        options={options}
+        placeholder={field.placeholder ?? "Seleccione una opcion"}
         required={field.required}
         value={value ?? ""}
       />
@@ -191,6 +221,21 @@ function EntityField({ disabled, field, onChange, value }) {
         disabled={disabled}
         field={field}
         onChange={onChange}
+        value={value}
+      />
+    );
+  }
+
+  if (field.type === "date") {
+    return (
+      <DateField
+        disabled={disabled}
+        fullWidth
+        helperText={field.help}
+        label={field.label}
+        name={field.name}
+        onChange={(event) => onChange(field.name, event.target.value)}
+        required={field.required}
         value={value}
       />
     );

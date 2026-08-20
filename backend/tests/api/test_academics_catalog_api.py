@@ -76,15 +76,35 @@ def test_create_campus_rejects_duplicate_code_with_400(auth_client, institution)
     assert "already" in str(_detail(response))
 
 
-def test_create_campus_rejects_missing_code_with_field_error(auth_client, institution):
+def test_create_campus_without_code_generates_one(auth_client, institution):
+    """El codigo dejo de ser obligatorio: el backend emite el siguiente."""
     response = auth_client.post(
         reverse("campus-list-create"),
         {"name": "Sede sin codigo"},
         content_type="application/json",
     )
 
-    assert response.status_code == 400
-    assert "code" in _detail(response)
+    assert response.status_code == 201
+    assert response.json()["code"] == "SED-01"
+
+
+def test_campus_next_code_endpoint_offers_what_the_creation_would_use(auth_client, institution):
+    """
+    La sugerencia y el alta salen de la misma funcion.
+
+    Si no coincidieran, el formulario mostraria un codigo y guardaria otro, que
+    es peor que no mostrar nada.
+    """
+    suggested = auth_client.get(reverse("campus-next-code")).json()["code"]
+
+    created = auth_client.post(
+        reverse("campus-list-create"),
+        {"name": "Sede Norte"},
+        content_type="application/json",
+    )
+
+    assert created.status_code == 201
+    assert created.json()["code"] == suggested
 
 
 def test_list_campuses_only_returns_current_institution(auth_client, institution):

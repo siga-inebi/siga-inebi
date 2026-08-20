@@ -8,8 +8,15 @@ import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import UnfoldMoreOutlinedIcon from "@mui/icons-material/UnfoldMoreOutlined";
 
 import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
+import {
+  AT_END,
+  currentPosition,
+  positionField,
+  positionPayload,
+} from "@academics/orderPosition.js";
 import { useSubjectOptions } from "@academics/useSubjectOptions.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
@@ -54,33 +61,28 @@ const LEVEL_COLUMNS = [
   },
 ];
 
-const SEQUENCE_FIELD = {
-  name: "sequence",
-  label: "Secuencia",
-  type: "number",
-  min: 1,
+const NAME_FIELD = {
+  name: "name",
+  label: "Nombre",
   required: true,
+  placeholder: "Ejemplo: Basico",
 };
 
-const CREATE_LEVEL_FIELDS = [
-  {
-    name: "name",
-    label: "Nombre",
-    required: true,
-    placeholder: "Ejemplo: Basico",
-  },
-  {
-    name: "code",
-    label: "Codigo",
-    required: true,
-    placeholder: "Ejemplo: BAS",
-  },
-  SEQUENCE_FIELD,
+const CODE_FIELD = {
+  name: "code",
+  label: "Codigo",
+  help: "Se genera solo. Cambielo si el nivel ya se conoce por otro codigo.",
+};
+
+const createLevelFields = (levels) => [
+  NAME_FIELD,
+  CODE_FIELD,
+  positionField(levels),
 ];
 
-const EDIT_LEVEL_FIELDS = [
+const editLevelFields = (levels, level) => [
   { name: "name", label: "Nombre", required: true },
-  SEQUENCE_FIELD,
+  positionField(levels, level.public_id),
 ];
 
 export function LevelsPage() {
@@ -97,14 +99,20 @@ export function LevelsPage() {
   const selected =
     list.items.find((level) => level.public_id === selectedId) || null;
 
-  const handleCreate = async (payload) => {
-    await academicsService.createLevel(payload);
+  const handleCreate = async ({ insert_after: position, ...payload }) => {
+    await academicsService.createLevel({
+      ...payload,
+      ...positionPayload(position),
+    });
     setEditing(null);
     list.refresh();
   };
 
-  const handleUpdate = async (payload) => {
-    await academicsService.updateLevel(editing.level.public_id, payload);
+  const handleUpdate = async ({ insert_after: position, ...payload }) => {
+    await academicsService.updateLevel(editing.level.public_id, {
+      ...payload,
+      ...positionPayload(position),
+    });
     setEditing(null);
     list.refresh();
   };
@@ -132,7 +140,16 @@ export function LevelsPage() {
       <ListSection
         action={
           <Button
-            onClick={() => setEditing({ mode: "create" })}
+            onClick={async () =>
+              setEditing({
+                mode: "create",
+                values: {
+                  name: "",
+                  code: await suggestedOrBlank(academicsService.nextLevelCode),
+                  insert_after: AT_END,
+                },
+              })
+            }
             size="small"
             startIcon={<AddIcon fontSize="small" />}
             variant="contained"
@@ -199,29 +216,26 @@ export function LevelsPage() {
         />
       ) : null}
 
-      <EntityFormWindow
-        description="La secuencia define el orden pedagogico y es unica por institucion."
-        fields={CREATE_LEVEL_FIELDS}
-        initialValues={{ name: "", code: "", sequence: 1 }}
-        key={
-          editing?.mode === "create"
-            ? "level-create-open"
-            : "level-create-closed"
-        }
-        onCancel={() => setEditing(null)}
-        onSubmit={handleCreate}
-        open={editing?.mode === "create"}
-        submitLabel="Crear nivel"
-        title="Nuevo nivel"
-      />
+      {editing?.mode === "create" ? (
+        <EntityFormWindow
+          description="La posicion define el orden pedagogico; los demas niveles se renumeran solos."
+          fields={createLevelFields(list.items)}
+          initialValues={editing.values}
+          onCancel={() => setEditing(null)}
+          onSubmit={handleCreate}
+          open
+          submitLabel="Crear nivel"
+          title="Nuevo nivel"
+        />
+      ) : null}
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow
           description={`El codigo ${editing.level.code} es inmutable.`}
-          fields={EDIT_LEVEL_FIELDS}
+          fields={editLevelFields(list.items, editing.level)}
           initialValues={{
             name: editing.level.name,
-            sequence: editing.level.sequence,
+            insert_after: currentPosition(list.items, editing.level.public_id),
           }}
           key={editing.level.public_id}
           onCancel={() => setEditing(null)}
@@ -255,7 +269,7 @@ const GRADE_COLUMNS = [
   },
 ];
 
-const CREATE_GRADE_FIELDS = [
+const createGradeFields = (grades) => [
   {
     name: "name",
     label: "Nombre",
@@ -265,15 +279,14 @@ const CREATE_GRADE_FIELDS = [
   {
     name: "code",
     label: "Codigo",
-    required: true,
-    placeholder: "Ejemplo: BAS1",
+    help: "Se deriva del codigo del nivel. Cambielo solo si hace falta.",
   },
-  SEQUENCE_FIELD,
+  positionField(grades),
 ];
 
-const EDIT_GRADE_FIELDS = [
+const editGradeFields = (grades, grade) => [
   { name: "name", label: "Nombre", required: true },
-  SEQUENCE_FIELD,
+  positionField(grades, grade.public_id),
 ];
 
 function LevelGradesSection({ level, onChanged }) {
@@ -292,13 +305,19 @@ function LevelGradesSection({ level, onChanged }) {
     onChanged();
   };
 
-  const handleCreate = async (payload) => {
-    await academicsService.createGrade(level.public_id, payload);
+  const handleCreate = async ({ insert_after: position, ...payload }) => {
+    await academicsService.createGrade(level.public_id, {
+      ...payload,
+      ...positionPayload(position),
+    });
     afterChange();
   };
 
-  const handleUpdate = async (payload) => {
-    await academicsService.updateGrade(editing.grade.public_id, payload);
+  const handleUpdate = async ({ insert_after: position, ...payload }) => {
+    await academicsService.updateGrade(editing.grade.public_id, {
+      ...payload,
+      ...positionPayload(position),
+    });
     afterChange();
   };
 
@@ -318,7 +337,18 @@ function LevelGradesSection({ level, onChanged }) {
       <ListSection
         action={
           <Button
-            onClick={() => setEditing({ mode: "create" })}
+            onClick={async () =>
+              setEditing({
+                mode: "create",
+                values: {
+                  name: "",
+                  code: await suggestedOrBlank(() =>
+                    academicsService.nextGradeCode(level.public_id)
+                  ),
+                  insert_after: AT_END,
+                },
+              })
+            }
             size="small"
             startIcon={<AddIcon fontSize="small" />}
             variant="contained"
@@ -354,29 +384,26 @@ function LevelGradesSection({ level, onChanged }) {
         title="Grados del nivel"
       />
 
-      <EntityFormWindow
-        description="El codigo del grado es unico en toda la institucion."
-        fields={CREATE_GRADE_FIELDS}
-        initialValues={{ name: "", code: "", sequence: 1 }}
-        key={
-          editing?.mode === "create"
-            ? "grade-create-open"
-            : "grade-create-closed"
-        }
-        onCancel={() => setEditing(null)}
-        onSubmit={handleCreate}
-        open={editing?.mode === "create"}
-        submitLabel="Crear grado"
-        title={`Nuevo grado en ${level.name}`}
-      />
+      {editing?.mode === "create" ? (
+        <EntityFormWindow
+          description="El codigo del grado es unico en toda la institucion y se deriva del nivel."
+          fields={createGradeFields(list.items)}
+          initialValues={editing.values}
+          onCancel={() => setEditing(null)}
+          onSubmit={handleCreate}
+          open
+          submitLabel="Crear grado"
+          title={`Nuevo grado en ${level.name}`}
+        />
+      ) : null}
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow
           description="Solo cambian el nombre y el orden; el codigo es inmutable."
-          fields={EDIT_GRADE_FIELDS}
+          fields={editGradeFields(list.items, editing.grade)}
           initialValues={{
             name: editing.grade.name,
-            sequence: editing.grade.sequence,
+            insert_after: currentPosition(list.items, editing.grade.public_id),
           }}
           key={editing.grade.public_id}
           onCancel={() => setEditing(null)}

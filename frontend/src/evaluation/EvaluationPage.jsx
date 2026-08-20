@@ -13,7 +13,11 @@ import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import { cyclesService } from "@cycles/cyclesService.js";
-import { evaluationService } from "@evaluation/evaluationService.js";
+import {
+  evaluationService,
+  UNIT_STATUS_LABEL,
+  UNIT_STATUS_VARIANT,
+} from "@evaluation/evaluationService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate } from "@shared/utils/format.js";
@@ -56,7 +60,12 @@ const UNIT_COLUMNS = [
     key: "status",
     label: "Estado",
     render: (row) =>
-      row.status ? <StatusChip label={row.status} variant="primary" /> : null,
+      row.status ? (
+        <StatusChip
+          label={UNIT_STATUS_LABEL[row.status] ?? row.status}
+          variant={UNIT_STATUS_VARIANT[row.status] ?? "primary"}
+        />
+      ) : null,
   },
 ];
 

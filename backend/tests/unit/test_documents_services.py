@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -562,7 +562,10 @@ def test_get_active_document_template_requires_a_single_active_template_per_kind
 
     assert get_active_document_template(institution=institution, kind="certificate") == certificate
 
-    with pytest.raises(DomainError, match="active.*document template|already exists.*document type|document type.*active"):
+    with pytest.raises(
+        DomainError,
+        match="active.*document template|already exists.*document type|document type.*active",
+    ):
         create_document_template(
             institution=institution,
             name="Segundo certificado",
@@ -641,7 +644,9 @@ def test_generated_documents_refuse_persistence_to_storage():
     template = DocumentTemplateFactory()
 
     with pytest.raises(DomainError, match="persist|storage"):
-        compile_generated_document(template=template, payload={"student_name": "Ana López"}, persist=True)
+        compile_generated_document(
+            template=template, payload={"student_name": "Ana López"}, persist=True
+        )
 
 
 def test_generated_documents_include_the_issuance_timestamp_and_folio_when_available():
@@ -670,11 +675,11 @@ def test_issue_official_document_folio_increments_by_institution():
 
     first = issue_official_document_folio(
         institution=institution,
-        issued_at=datetime(2026, 8, 18, 12, 30, 45, tzinfo=timezone.utc),
+        issued_at=datetime(2026, 8, 18, 12, 30, 45, tzinfo=UTC),
     )
     second = issue_official_document_folio(
         institution=institution,
-        issued_at=datetime(2026, 8, 18, 13, 0, tzinfo=timezone.utc),
+        issued_at=datetime(2026, 8, 18, 13, 0, tzinfo=UTC),
     )
 
     assert first.startswith("INEBI-2026-")
@@ -725,6 +730,10 @@ def test_student_document_dossier_lists_all_enrolments_and_requirements():
         grade=first_section.grade,
         section=first_section,
     )
+    # Cerrada antes de abrir la siguiente: un estudiante tiene una sola matricula
+    # activa, y el expediente es justamente lo que junta la cerrada con la nueva.
+    first_enrolment.status = first_enrolment.EnrolmentStatus.COMPLETED
+    first_enrolment.save(update_fields=["status", "updated_at"])
     second_enrolment = create_enrolment(
         student=student,
         academic_cycle=second_section.academic_cycle,

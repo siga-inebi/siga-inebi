@@ -363,8 +363,8 @@ class TestCaptureExceptionGrantAPI:
                 },
             ),
             {
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "reason": "No alcanzó a subir notas por falla eléctrica.",
                 "expires_at": expires_at.isoformat(),
             },
@@ -396,8 +396,8 @@ class TestCaptureExceptionGrantAPI:
                 },
             ),
             {
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "reason": "   ",
                 "expires_at": (timezone.now() + timedelta(days=1)).isoformat(),
             },
@@ -425,8 +425,8 @@ class TestCaptureExceptionGrantAPI:
                 },
             ),
             {
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "reason": "Motivo válido.",
                 "expires_at": (timezone.now() + timedelta(days=1)).isoformat(),
             },
@@ -569,9 +569,9 @@ class TestGradeAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 85,
             },
             content_type="application/json",
@@ -580,7 +580,7 @@ class TestGradeAPI:
         assert response.status_code == 201, response.json()
         data = response.json()
         assert data["value"] == 85
-        assert data["subject"] == subject.id
+        assert data["subject"] == str(subject.public_id)
         assert Grade.objects.filter(
             enrolment=enrolment, subject=subject, evaluation_unit=unit
         ).exists()
@@ -607,9 +607,9 @@ class TestGradeAPI:
             },
         )
         payload = {
-            "enrolment": enrolment.id,
-            "subject": subject.id,
-            "teacher": teacher.id,
+            "enrolment": enrolment.public_id,
+            "subject": subject.public_id,
+            "teacher": teacher.public_id,
             "value": 70,
         }
         first = auth_client.post(url, payload, content_type="application/json")
@@ -653,9 +653,9 @@ class TestGradeAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 85,
             },
             content_type="application/json",
@@ -710,9 +710,9 @@ class TestGradeAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 85,
             },
             content_type="application/json",
@@ -768,9 +768,9 @@ class TestGradeAuthorizationAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 85,
             },
             content_type="application/json",
@@ -808,9 +808,9 @@ class TestGradeAuthorizationAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 85,
             },
             content_type="application/json",
@@ -840,9 +840,9 @@ class TestGradeAuthorizationAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 85,
             },
             content_type="application/json",
@@ -877,9 +877,9 @@ class TestGradeAuthorizationAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 85,
             },
             content_type="application/json",
@@ -925,7 +925,7 @@ class TestGradeAuthorizationAPI:
         assert response.status_code == 200
         results = response.json()["results"]
         assert len(results) == 1
-        assert results[0]["subject"] == own_subject.id
+        assert results[0]["subject"] == str(own_subject.public_id)
 
 
 class TestGradeScaleAPI:
@@ -971,9 +971,9 @@ class TestGradeScaleAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 101,
             },
             content_type="application/json",
@@ -1001,9 +1001,9 @@ class TestGradeScaleAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": -1,
             },
             content_type="application/json",
@@ -1030,9 +1030,9 @@ class TestGradeScaleAPI:
                 },
             ),
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": "not-a-number",
             },
             content_type="application/json",
@@ -1067,9 +1067,9 @@ class TestGradeScaleAPI:
             response = auth_client.post(
                 url,
                 {
-                    "enrolment": enrolment.id,
-                    "subject": subject.id,
-                    "teacher": teacher.id,
+                    "enrolment": enrolment.public_id,
+                    "subject": subject.public_id,
+                    "teacher": teacher.public_id,
                     "value": value,
                 },
                 content_type="application/json",
@@ -1132,9 +1132,9 @@ class TestCurrentAverageAPI:
         auth_client.post(
             grades_url,
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 80,
             },
             content_type="application/json",
@@ -1149,9 +1149,9 @@ class TestCurrentAverageAPI:
         auth_client.post(
             grades_url,
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 90,
             },
             content_type="application/json",
@@ -1162,8 +1162,8 @@ class TestCurrentAverageAPI:
                 "grade-current-average",
                 kwargs={
                     "cycle_public_id": str(cycle.public_id),
-                    "enrolment_id": enrolment.id,
-                    "subject_id": subject.id,
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
                 },
             )
         )
@@ -1189,8 +1189,8 @@ class TestCurrentAverageAPI:
                 "grade-current-average",
                 kwargs={
                     "cycle_public_id": str(cycle.public_id),
-                    "enrolment_id": enrolment.id,
-                    "subject_id": subject.id,
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
                 },
             )
         )
@@ -1220,8 +1220,8 @@ class TestCurrentAverageAPI:
                 "grade-current-average",
                 kwargs={
                     "cycle_public_id": str(cycle.public_id),
-                    "enrolment_id": enrolment.id,
-                    "subject_id": subject.id,
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
                 },
             )
         )
@@ -1283,9 +1283,9 @@ class TestFinalSubjectGradeAPI:
         auth_client.post(
             grades_url,
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 60,
             },
             content_type="application/json",
@@ -1300,9 +1300,9 @@ class TestFinalSubjectGradeAPI:
         auth_client.post(
             grades_url,
             {
-                "enrolment": enrolment.id,
-                "subject": subject.id,
-                "teacher": teacher.id,
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
                 "value": 100,
             },
             content_type="application/json",
@@ -1313,8 +1313,8 @@ class TestFinalSubjectGradeAPI:
                 "grade-final-subject-grade",
                 kwargs={
                     "cycle_public_id": str(cycle.public_id),
-                    "enrolment_id": enrolment.id,
-                    "subject_id": subject.id,
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
                 },
             )
         )
@@ -1337,8 +1337,8 @@ class TestFinalSubjectGradeAPI:
                 "grade-final-subject-grade",
                 kwargs={
                     "cycle_public_id": str(cycle.public_id),
-                    "enrolment_id": 999999,
-                    "subject_id": subject.id,
+                    "enrolment_id": "00000000-0000-0000-0000-000000000000",
+                    "subject_id": subject.public_id,
                 },
             )
         )

@@ -21,12 +21,56 @@ const attendanceServiceMock = vi.hoisted(() => ({
   attendancePercentage: vi.fn(),
 }));
 
+const studentsServiceMock = vi.hoisted(() => ({ listPage: vi.fn() }));
+
 vi.mock("@attendance/attendanceService.js", async () => {
   const actual = await vi.importActual("@attendance/attendanceService.js");
   return { ...actual, attendanceService: attendanceServiceMock };
 });
 
+// Los selectores de jornada, grado, seccion y estudiante leen los catalogos, y
+// sin doble irian a la red: en jsdom eso queda como un catalogo vacio y ninguna
+// opcion que elegir.
+vi.mock("@students/studentsService.js", async () => {
+  const actual = await vi.importActual("@students/studentsService.js");
+  return { ...actual, studentsService: studentsServiceMock };
+});
+
+vi.mock("@academics/academicsService.js", async () => {
+  const { academicsServiceMock } = await import("./mocks/academicsService.js");
+  return { academicsService: academicsServiceMock, PAGE_SIZE: 25 };
+});
+
+import {
+  academicsServiceMock,
+  resetAcademicsServiceMock,
+} from "./mocks/academicsService.js";
+
 const paged = (results) => ({ count: results.length, results });
+
+const CAMPUS = { public_id: "campus-1", name: "Sede Central" };
+
+const SHIFT = {
+  public_id: "shift-1",
+  name: "Matutina",
+  code: "MAT",
+  campus: CAMPUS,
+};
+
+const STUDENT = {
+  public_id: "student-1",
+  student_code: "EST-1",
+  person: { first_name: "Luis", last_name: "Perez" },
+};
+
+const SECTION = {
+  public_id: "section-1",
+  name: "A",
+  capacity: 30,
+  academic_cycle_id: "cycle-1",
+  grade: { public_id: "grade-1", name: "Primero Basico" },
+  shift: { public_id: SHIFT.public_id, name: "Matutina" },
+};
 
 const CONTROL_POINT = {
   public_id: "cp-1",
@@ -43,6 +87,12 @@ beforeEach(() => {
   attendanceServiceMock.listControlPoints.mockResolvedValue(
     paged([CONTROL_POINT])
   );
+
+  resetAcademicsServiceMock();
+  academicsServiceMock.listCampuses.mockResolvedValue(paged([CAMPUS]));
+  academicsServiceMock.listCampusShifts.mockResolvedValue(paged([SHIFT]));
+  academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
+  studentsServiceMock.listPage.mockReset().mockResolvedValue(paged([STUDENT]));
 });
 
 async function openScanWindow(user) {
@@ -71,8 +121,8 @@ describe("AttendancePage — captura por escaneo", () => {
       within(dialog).getByLabelText(/^Codigo de estudiante/),
       "EST-001"
     );
-    await selectOption(user, /^Punto de control/, /Porton principal/);
-    await user.type(within(dialog).getByLabelText(/^ID de jornada/), "shift-1");
+    await selectOption(user, /^Punto de control/, /Porton principal/, dialog);
+    await selectOption(user, /^Jornada/, /Matutina/, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Registrar" }));
 
     await waitFor(() =>
@@ -113,8 +163,8 @@ describe("AttendancePage — captura por escaneo", () => {
       within(dialog).getByLabelText(/^Codigo de estudiante/),
       "EST-002"
     );
-    await selectOption(user, /^Punto de control/, /Porton principal/);
-    await user.type(within(dialog).getByLabelText(/^ID de jornada/), "shift-1");
+    await selectOption(user, /^Punto de control/, /Porton principal/, dialog);
+    await selectOption(user, /^Jornada/, /Matutina/, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Registrar" }));
 
     expect(
@@ -143,8 +193,8 @@ describe("AttendancePage — captura por escaneo", () => {
       within(dialog).getByLabelText(/^Codigo de estudiante/),
       "EST-003"
     );
-    await selectOption(user, /^Punto de control/, /Porton principal/);
-    await user.type(within(dialog).getByLabelText(/^ID de jornada/), "shift-1");
+    await selectOption(user, /^Punto de control/, /Porton principal/, dialog);
+    await selectOption(user, /^Jornada/, /Matutina/, dialog);
 
     const submitButton = within(dialog).getByRole("button", {
       name: "Registrar",
@@ -183,7 +233,7 @@ describe("AttendancePage — presencia en tiempo real", () => {
 
     expect(
       within(dialog).getByText(
-        "Ingresa al menos la jornada para consultar quien esta presente."
+        "Elija la jornada para consultar quien esta presente."
       )
     ).toBeInTheDocument();
     expect(attendanceServiceMock.listPresence).not.toHaveBeenCalled();
@@ -208,7 +258,7 @@ describe("AttendancePage — presencia en tiempo real", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "Presencia en tiempo real",
     });
-    await user.type(within(dialog).getByLabelText(/^ID de jornada/), "shift-1");
+    await selectOption(user, /^Jornada/, /Matutina/, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Buscar" }));
 
     await waitFor(() =>
@@ -216,7 +266,11 @@ describe("AttendancePage — presencia en tiempo real", () => {
         expect.objectContaining({ shift_id: "shift-1" })
       )
     );
-    expect(await within(dialog).findByText("student-1")).toBeInTheDocument();
+    // Nombres, no UUIDs: la tabla mostraba "student-1" y "section-1".
+    expect(
+      await within(dialog).findByText("Luis Perez · EST-1")
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("Primero Basico A")).toBeInTheDocument();
   }, 10000);
 });
 
@@ -236,8 +290,14 @@ describe("AttendancePage — porcentaje de asistencia", () => {
       .closest("section");
     const scoped = within(card);
 
-    await user.type(scoped.getByLabelText(/^ID de estudiante/), "student-1");
-    await user.type(scoped.getByLabelText(/^ID de jornada/), "shift-1");
+    await user.click(scoped.getByLabelText(/^Estudiante/));
+    await user.click(
+      await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+    );
+    await user.click(scoped.getByLabelText(/^Jornada/));
+    await user.click(
+      await screen.findByRole("option", { name: "Matutina · Sede Central" })
+    );
     await user.click(scoped.getByRole("button", { name: /Consultar/ }));
 
     expect(await scoped.findByText("90%")).toBeInTheDocument();

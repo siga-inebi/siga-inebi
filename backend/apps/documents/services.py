@@ -520,6 +520,18 @@ def issue_official_document_folio(*, institution, document_type="", issued_at=No
     return folio.folio_code
 
 
+def _pdf_text(value, *, limit):
+    """
+    Escape a string for a PDF literal.
+
+    ``(``, ``)`` and ``\\`` end or shift the literal, so a name with a
+    parenthesis in it would produce a file no reader can open. Truncation
+    happens after escaping so it cannot cut an escape sequence in half.
+    """
+    escaped = str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return escaped.encode("utf-8")[:limit]
+
+
 def compile_generated_document(*, template, payload=None, persist=False, actor=None):
     """Compile a document in memory and never store generated PDFs on disk.
 
@@ -540,15 +552,28 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
     metadata_line = f"Emitido: {issued_at}"
     if folio:
         metadata_line = f"{metadata_line} | Folio: {folio}"
+    # El pie de emision se DIBUJA: se construia y se descartaba, asi que el folio
+    # no aparecia en el documento que alguien firma o archiva — el numero que
+    # hace rastreable una certificacion vivia solo en la bitacora.
+    stream = (
+        b"BT /F1 12 Tf 30 120 Td ("
+        + _pdf_text(title, limit=80)
+        + b") Tj ET\n"
+        + b"BT /F1 9 Tf 30 90 Td ("
+        + _pdf_text(metadata_line, limit=120)
+        + b") Tj ET\n"
+    )
     rendered = (
         b"%PDF-1.4\n"
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
         b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
         b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] "
         b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
-        b"4 0 obj\n<< /Length 77 >>\nstream\nBT /F1 12 Tf 30 90 Td ("
-        + title.encode("utf-8")[:80]
-        + b") Tj ET\nendstream\nendobj\n"
+        b"4 0 obj\n<< /Length "
+        + str(len(stream)).encode("ascii")
+        + b" >>\nstream\n"
+        + stream
+        + b"endstream\nendobj\n"
         b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
         b"xref\n0 6\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n"
         b"0000000125 00000 n\n0000000267 00000 n\n0000000780 00000 n\ntrailer\n"

@@ -69,6 +69,19 @@ export function formatDateTime(value) {
   return date ? dateTimeFormatter.format(date) : EMPTY_VALUE;
 }
 
+/**
+ * Hoy, en el formato `YYYY-MM-DD` que espera un `<input type="date">`.
+ *
+ * Se arma con las partes LOCALES de la fecha y no con `toISOString()`: ese
+ * convierte a UTC, asi que en Guatemala (UTC-6) cualquier momento despues de las
+ * 18:00 devolveria el dia siguiente. "Hoy" tiene que ser hoy aca.
+ */
+export function todayInputValue(now = new Date()) {
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
 /** Devuelve el texto tal cual, o el marcador de ausencia si esta vacio. */
 export function orEmpty(value) {
   if (value == null) return EMPTY_VALUE;

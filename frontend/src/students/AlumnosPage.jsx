@@ -14,6 +14,7 @@ import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import { guardiansService } from "@guardians/guardiansService.js";
 import { studentsService } from "@students/studentsService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { useLocalList } from "@shared/crud/useLocalList.js";
 import { downloadCsv } from "@shared/utils/csv.js";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
@@ -32,7 +33,11 @@ const STUDENT_FIELDS = [
   { name: "last_name", label: "Apellidos", required: true },
   { name: "email", label: "Correo (opcional)", type: "email" },
   { name: "phone_number", label: "Telefono (opcional)", type: "tel" },
-  { name: "student_code", label: "Codigo de estudiante", required: true },
+  {
+    name: "student_code",
+    label: "Codigo de estudiante",
+    help: "Se genera solo. Cambielo si el expediente ya trae uno asignado.",
+  },
   {
     name: "photo",
     label: "Foto tamaño cédula (295 × 354 px, máximo 5 MB)",
@@ -41,6 +46,20 @@ const STUDENT_FIELDS = [
   },
 ];
 
+/** Estados de expediente del estudiante, tal como los expone el backend. */
+const STATUS_LABEL = {
+  pre_enrolled: "Preinscrito",
+  active: "Activo",
+  inactive: "Inactivo",
+  withdrawn: "Retirado",
+  graduated: "Graduado",
+};
+
+const STATUS_OPTIONS = Object.entries(STATUS_LABEL).map(([value, label]) => ({
+  value,
+  label,
+}));
+
 const STUDENT_EDIT_FIELDS = [
   ...STUDENT_FIELDS,
   {
@@ -48,13 +67,7 @@ const STUDENT_EDIT_FIELDS = [
     label: "Estado",
     type: "select",
     required: true,
-    options: [
-      { value: "pre_enrolled", label: "Preinscrito" },
-      { value: "active", label: "Activo" },
-      { value: "inactive", label: "Inactivo" },
-      { value: "withdrawn", label: "Retirado" },
-      { value: "graduated", label: "Graduado" },
-    ],
+    options: STATUS_OPTIONS,
   },
 ];
 
@@ -81,7 +94,10 @@ export function AlumnosPage() {
 
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null);
-  const [creating, setCreating] = useState(false);
+  // Guarda los valores iniciales, no un booleano: el codigo sugerido se pide al
+  // abrir para que ya este puesto al montar el formulario. Un campo que cambia
+  // solo, despues, debajo de quien escribe, es peor que uno vacio.
+  const [creating, setCreating] = useState(null);
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [healthOpen, setHealthOpen] = useState(false);
   const [healthNotes, setHealthNotes] = useState([]);
@@ -203,7 +219,10 @@ export function AlumnosPage() {
       [
         { label: "Nombre", value: fullName },
         { label: "Codigo", value: (item) => item.student_code },
-        { label: "Estado", value: (item) => item.status },
+        {
+          label: "Estado",
+          value: (item) => STATUS_LABEL[item.status] ?? item.status,
+        },
       ],
       list.filtered
     );
@@ -222,7 +241,7 @@ export function AlumnosPage() {
       photo: values.photo,
     });
     list.addItem(created);
-    setCreating(false);
+    setCreating(null);
   };
 
   const handleUpdate = async (values) => {
@@ -271,7 +290,7 @@ export function AlumnosPage() {
       label: "Estado",
       render: (student) => (
         <StatusChip
-          label={student.status}
+          label={STATUS_LABEL[student.status] ?? student.status}
           variant={STATUS_VARIANT[student.status] ?? "neutral"}
         />
       ),
@@ -294,7 +313,12 @@ export function AlumnosPage() {
       <PageHeader
         action={
           <Button
-            onClick={() => setCreating(true)}
+            onClick={async () =>
+              setCreating({
+                ...EMPTY_STUDENT,
+                student_code: await suggestedOrBlank(studentsService.nextCode),
+              })
+            }
             startIcon={<AddIcon fontSize="small" />}
             variant="contained"
           >
@@ -384,7 +408,7 @@ export function AlumnosPage() {
                   label: "Estado",
                   value: (
                     <StatusChip
-                      label={selected.status}
+                      label={STATUS_LABEL[selected.status] ?? selected.status}
                       variant={STATUS_VARIANT[selected.status] ?? "neutral"}
                     />
                   ),
@@ -634,16 +658,18 @@ export function AlumnosPage() {
         src={viewingPhoto ?? ""}
       />
 
-      <EntityFormWindow
-        fields={STUDENT_FIELDS}
-        initialValues={EMPTY_STUDENT}
-        key={creating ? "create-open" : "create-closed"}
-        onCancel={() => setCreating(false)}
-        onSubmit={handleCreate}
-        open={creating}
-        submitLabel="Crear estudiante"
-        title="Nuevo estudiante"
-      />
+      {creating ? (
+        <EntityFormWindow
+          description="El codigo se emite solo; el resto es lo que hay que capturar."
+          fields={STUDENT_FIELDS}
+          initialValues={creating}
+          onCancel={() => setCreating(null)}
+          onSubmit={handleCreate}
+          open
+          submitLabel="Crear estudiante"
+          title="Nuevo estudiante"
+        />
+      ) : null}
 
       {editing ? (
         <EntityFormWindow
@@ -673,9 +699,14 @@ export function AlumnosPage() {
             label: "Encargado",
             type: "select",
             required: true,
+            // El correo entra en la etiqueta porque dos encargados pueden
+            // llamarse igual, y en un desplegable de nombres repetidos no hay
+            // forma de saber cual se esta eligiendo.
             options: availableGuardians.map((guardian) => ({
               value: guardian.id,
-              label: fullName(guardian),
+              label: [fullName(guardian), guardian.person?.email]
+                .filter(Boolean)
+                .join(" · "),
             })),
           },
           {

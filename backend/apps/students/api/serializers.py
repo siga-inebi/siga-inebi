@@ -28,6 +28,12 @@ class StudentRefSerializer(serializers.ModelSerializer):
         fields = ["public_id", "student_code"]
 
 
+class SuggestedStudentCodeSerializer(serializers.Serializer):
+    """Siguiente codigo de estudiante libre, para prellenar el formulario."""
+
+    student_code = serializers.CharField()
+
+
 class StudentSerializer(serializers.ModelSerializer):
     person = PersonSerializer()
 
@@ -45,13 +51,19 @@ class StudentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "public_id", "is_active", "created_at", "updated_at"]
+        extra_kwargs = {
+            # Opcional al crear: el servicio genera el siguiente de la serie del
+            # anio ("EST-2026-0043"). Se sigue aceptando uno explicito porque un
+            # traslado llega con el codigo ya impreso en sus papeles.
+            "student_code": {"required": False, "allow_blank": True},
+        }
 
     def create(self, validated_data):
         person_data = validated_data.pop("person")
         actor = getattr(self.context.get("request"), "user", None)
         return create_student(
             person_data=person_data,
-            student_code=validated_data["student_code"],
+            student_code=validated_data.get("student_code"),
             status=validated_data.get("status"),
             actor=actor,
         )
@@ -162,7 +174,7 @@ class EmergencyContactUpdateSerializer(serializers.Serializer):
     relationship_label = serializers.CharField(max_length=100, required=False)
 
 
-class StudentObservationSerializer(serializers.ModelSerializer):
+class StudentHealthNoteSerializer(serializers.ModelSerializer):
     student = StudentRefSerializer(read_only=True)
     author = serializers.CharField(source="author.username", read_only=True)
 

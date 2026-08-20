@@ -12,6 +12,7 @@ import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
 import { teachersService } from "@teachers/teachersService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { useLocalList } from "@shared/crud/useLocalList.js";
 import { downloadCsv } from "@shared/utils/csv.js";
 import { formatDate } from "@shared/utils/format.js";
@@ -45,7 +46,11 @@ const TEACHER_FIELDS = [
     label: "Fecha de nombramiento (opcional)",
     type: "date",
   },
-  { name: "employee_code", label: "Codigo de empleado", required: true },
+  {
+    name: "employee_code",
+    label: "Codigo de empleado",
+    help: "Se genera solo. Cambielo si ya figura en contratos o planilla.",
+  },
   { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
 ];
 
@@ -82,7 +87,9 @@ export function DocentesPage() {
 
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null);
-  const [creating, setCreating] = useState(false);
+  // Valores iniciales, no un booleano: ver el comentario homonimo en
+  // AlumnosPage. El codigo sugerido se pide al abrir.
+  const [creating, setCreating] = useState(null);
   const [viewingPhoto, setViewingPhoto] = useState(null);
 
   const handleExport = () => {
@@ -116,7 +123,7 @@ export function DocentesPage() {
   const handleCreate = async (values) => {
     const created = await teachersService.create(buildPayload(values));
     list.addItem(created);
-    setCreating(false);
+    setCreating(null);
   };
 
   const handleUpdate = async (values) => {
@@ -180,7 +187,12 @@ export function DocentesPage() {
       <PageHeader
         action={
           <Button
-            onClick={() => setCreating(true)}
+            onClick={async () =>
+              setCreating({
+                ...EMPTY_TEACHER,
+                employee_code: await suggestedOrBlank(teachersService.nextCode),
+              })
+            }
             startIcon={<AddIcon fontSize="small" />}
             variant="contained"
           >
@@ -329,16 +341,18 @@ export function DocentesPage() {
         src={viewingPhoto ?? ""}
       />
 
-      <EntityFormWindow
-        fields={TEACHER_FIELDS}
-        initialValues={EMPTY_TEACHER}
-        key={creating ? "create-open" : "create-closed"}
-        onCancel={() => setCreating(false)}
-        onSubmit={handleCreate}
-        open={creating}
-        submitLabel="Crear registro"
-        title="Nuevo docente o administrativo"
-      />
+      {creating ? (
+        <EntityFormWindow
+          description="El codigo de empleado se emite solo; el resto es lo que hay que capturar."
+          fields={TEACHER_FIELDS}
+          initialValues={creating}
+          onCancel={() => setCreating(null)}
+          onSubmit={handleCreate}
+          open
+          submitLabel="Crear registro"
+          title="Nuevo docente o administrativo"
+        />
+      ) : null}
 
       {editing ? (
         <EntityFormWindow

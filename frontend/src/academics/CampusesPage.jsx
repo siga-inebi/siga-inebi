@@ -8,6 +8,7 @@ import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 
 import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
@@ -62,8 +63,7 @@ const CREATE_CAMPUS_FIELDS = [
   {
     name: "code",
     label: "Codigo",
-    required: true,
-    placeholder: "Ejemplo: CENTRAL",
+    help: "Se genera solo. Cambielo si la sede ya se conoce por otro codigo.",
   },
   { name: "address", label: "Direccion (opcional)" },
   {
@@ -131,7 +131,17 @@ export function CampusesPage() {
       <ListSection
         action={
           <Button
-            onClick={() => setEditing({ mode: "create" })}
+            onClick={async () =>
+              setEditing({
+                mode: "create",
+                values: {
+                  name: "",
+                  code: await suggestedOrBlank(academicsService.nextCampusCode),
+                  address: "",
+                  is_main: false,
+                },
+              })
+            }
             size="small"
             startIcon={<AddIcon fontSize="small" />}
             variant="contained"
@@ -190,17 +200,18 @@ export function CampusesPage() {
         />
       ) : null}
 
-      <EntityFormWindow
-        description="El codigo se normaliza a mayusculas y no se puede cambiar despues."
-        fields={CREATE_CAMPUS_FIELDS}
-        initialValues={{ name: "", code: "", address: "", is_main: false }}
-        key={editing?.mode === "create" ? "create-open" : "create-closed"}
-        onCancel={() => setEditing(null)}
-        onSubmit={handleCreate}
-        open={editing?.mode === "create"}
-        submitLabel="Crear sede"
-        title="Nueva sede"
-      />
+      {editing?.mode === "create" ? (
+        <EntityFormWindow
+          description="El codigo se emite solo y no se puede cambiar despues de crear la sede."
+          fields={CREATE_CAMPUS_FIELDS}
+          initialValues={editing.values}
+          onCancel={() => setEditing(null)}
+          onSubmit={handleCreate}
+          open
+          submitLabel="Crear sede"
+          title="Nueva sede"
+        />
+      ) : null}
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow

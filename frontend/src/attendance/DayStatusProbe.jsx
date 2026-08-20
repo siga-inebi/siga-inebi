@@ -11,10 +11,15 @@ import {
   attendanceService,
   MOVEMENT_LABEL,
 } from "@attendance/attendanceService.js";
-import { formatDateTime } from "@shared/utils/format.js";
+import {
+  useShiftCatalog,
+  useStudentCatalog,
+} from "@shared/catalogs/academicCatalogs.js";
+import { formatDateTime, todayInputValue } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
-import { FormTextField } from "@ui/forms/FormTextField.jsx";
+import { DateField } from "@ui/forms/DateField.jsx";
+import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { DetailField } from "@ui/layout/DetailWindow.jsx";
 
@@ -33,20 +38,27 @@ const DAY_STATUS_VARIANT = {
  * identificadores: no existe un "listar el estado de todos". Mostrar una tabla
  * vacia esperando datos que nunca van a llegar seria enganoso, asi que la
  * pantalla pide explicitamente los tres valores y recien entonces consulta.
+ *
+ * Estudiante y jornada se eligen de su catalogo: son identificadores internos,
+ * y quien consulta el estado del dia conoce el nombre de la persona, no su UUID.
+ * La fecha arranca en hoy, que es lo que se consulta el 99% de las veces.
  */
 export function DayStatusProbe() {
+  const students = useStudentCatalog();
+  const shifts = useShiftCatalog();
+
   const [studentId, setStudentId] = useState("");
   const [shiftId, setShiftId] = useState("");
-  const [eventDate, setEventDate] = useState("");
+  // Arranca en hoy: el estado del dia que alguien consulta es, casi siempre, el
+  // de hoy. Empezar vacio obligaba a llenar la fecha en cada consulta para
+  // preguntar lo mismo.
+  const [eventDate, setEventDate] = useState(todayInputValue);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const canSubmit =
-    studentId.trim() !== "" &&
-    shiftId.trim() !== "" &&
-    eventDate !== "" &&
-    !loading;
+    studentId !== "" && shiftId !== "" && eventDate !== "" && !loading;
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -57,8 +69,8 @@ export function DayStatusProbe() {
     setResult(null);
     try {
       const data = await attendanceService.dayStatus({
-        student_id: studentId.trim(),
-        shift_id: shiftId.trim(),
+        student_id: studentId,
+        shift_id: shiftId,
         event_date: eventDate,
       });
       setResult(data);
@@ -77,22 +89,40 @@ export function DayStatusProbe() {
     >
       <Box component="form" onSubmit={handleSubmit} sx={{ px: 3, py: 2.5 }}>
         <Stack gap={2}>
-          <FormTextField
-            label="ID de estudiante"
+          <FormSelect
+            error={students.error}
+            fullWidth
+            helperText={
+              !students.loading && students.options.length === 0
+                ? "No hay estudiantes registrados."
+                : undefined
+            }
+            label="Estudiante"
+            loading={students.loading}
             onChange={(event) => setStudentId(event.target.value)}
+            options={students.options}
+            placeholder="Seleccione un estudiante"
             value={studentId}
           />
           <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
-            <FormTextField
-              label="ID de jornada"
+            <FormSelect
+              error={shifts.error}
+              fullWidth
+              helperText={
+                !shifts.loading && shifts.options.length === 0
+                  ? "No hay jornadas registradas."
+                  : undefined
+              }
+              label="Jornada"
+              loading={shifts.loading}
               onChange={(event) => setShiftId(event.target.value)}
+              options={shifts.options}
+              placeholder="Seleccione una jornada"
               value={shiftId}
             />
-            <FormTextField
+            <DateField
               label="Fecha"
               onChange={(event) => setEventDate(event.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
-              type="date"
               value={eventDate}
             />
           </Stack>
@@ -154,7 +184,7 @@ export function DayStatusProbe() {
               />
             </Box>
           ) : !error && !loading ? (
-            <EmptyState message="Completa los tres campos para consultar el estado del dia." />
+            <EmptyState message="Elija estudiante, jornada y fecha para consultar el estado del dia." />
           ) : null}
         </Stack>
       </Box>

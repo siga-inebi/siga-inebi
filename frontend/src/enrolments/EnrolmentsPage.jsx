@@ -1,12 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
-import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
 import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
@@ -15,46 +15,33 @@ import {
   ENROLMENT_STATUS_VARIANT,
   enrolmentsService,
 } from "@enrolments/enrolmentsService.js";
+import {
+  labelIndex,
+  sectionsForCycle,
+  useCycleCatalog,
+  useGradeCatalog,
+  useSectionCatalog,
+  useStudentCatalog,
+} from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate } from "@shared/utils/format.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
-import { SearchField } from "@ui/filters/SearchField.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
+import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
-import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
+import { MutedCell, NameCell } from "@ui/table/cells.jsx";
 
+import { BulkEnrolmentWindow } from "./BulkEnrolmentWindow.jsx";
 import { EnrolmentDocumentsWindow } from "./EnrolmentDocumentsWindow.jsx";
-
-/** Campos de matriculacion y de reinscripcion: el backend pide los mismos. */
-const ENROLMENT_FIELDS = [
-  {
-    name: "student_id",
-    label: "ID de estudiante",
-    required: true,
-    span: "full",
-  },
-  { name: "academic_cycle_id", label: "ID de ciclo escolar", required: true },
-  { name: "grade_id", label: "ID de grado", required: true },
-  { name: "shift_id", label: "ID de jornada", required: true },
-  { name: "section_id", label: "ID de seccion", required: true },
-  {
-    name: "effective_on",
-    label: "Vigente desde",
-    type: "date",
-    required: true,
-  },
-];
 
 const EMPTY_ENROLMENT = {
   student_id: "",
   academic_cycle_id: "",
-  grade_id: "",
-  shift_id: "",
   section_id: "",
   effective_on: "",
 };
@@ -62,27 +49,163 @@ const EMPTY_ENROLMENT = {
 const ACTIVE_TAB = "active";
 const HISTORY_TAB = "history";
 
-function enrolmentColumns({ onOpenDocuments }) {
-  return [
+/**
+ * Matricula: matriculas vigentes e historial por estudiante.
+ *
+ * Las dos pestanas no son el mismo listado filtrado. "Vigentes" responde
+ * `/active/` y admite consultar sin estudiante; "Historial" responde
+ * `/history/`, que EXIGE `student_id` porque devuelve tambien las matriculas
+ * inactivas de esa persona (RF-MAT-008). Por eso la pestana de historial pide el
+ * estudiante antes de consultar en vez de mostrar una tabla vacia.
+ *
+ * El backend pide cinco identificadores para matricular (estudiante, ciclo,
+ * grado, jornada y seccion), pero solo tres son decisiones reales: la seccion YA
+ * pertenece a un grado y a una jornada. El formulario pide seccion y deriva los
+ * otros dos de ella. Pedirlos por separado no le daba libertad a nadie, solo la
+ * posibilidad de contradecirse y recibir un rechazo al guardar.
+ */
+export function EnrolmentsPage() {
+  const [tab, setTab] = useState(ACTIVE_TAB);
+  const [studentFilter, setStudentFilter] = useState("");
+  const [creating, setCreating] = useState(null);
+  const [bulkEnrolling, setBulkEnrolling] = useState(false);
+  const [documentsFor, setDocumentsFor] = useState(null);
+
+  const students = useStudentCatalog();
+  const cycles = useCycleCatalog();
+  const sections = useSectionCatalog();
+  const grades = useGradeCatalog();
+
+  const loadActive = useCallback(
+    (params) =>
+      enrolmentsService.listActive({
+        ...params,
+        student_id: studentFilter || undefined,
+      }),
+    [studentFilter]
+  );
+
+  const loadHistory = useCallback(
+    (params) =>
+      enrolmentsService.listHistory({ ...params, student_id: studentFilter }),
+    [studentFilter]
+  );
+
+  const activeList = usePaginatedList(loadActive, {
+    canIncludeInactive: false,
+    pageSize: PAGE_SIZE,
+  });
+
+  const historyReady = studentFilter !== "";
+  const historyList = usePaginatedList(
+    historyReady ? loadHistory : EMPTY_LOADER,
+    {
+      canIncludeInactive: false,
+      pageSize: PAGE_SIZE,
+    }
+  );
+
+  const names = useMemo(
+    () => ({
+      students: labelIndex(students.options),
+      cycles: labelIndex(cycles.options),
+      sections: labelIndex(sections.options),
+      grades: labelIndex(grades.options),
+    }),
+    [students.options, cycles.options, sections.options, grades.options]
+  );
+
+  const enrolmentFields = useCallback(
+    (values) => [
+      {
+        name: "student_id",
+        label: "Estudiante",
+        type: "select",
+        options: students.options,
+        loading: students.loading,
+        optionsError: students.error,
+        emptyHint: "No hay estudiantes registrados.",
+        required: true,
+        span: "full",
+      },
+      {
+        name: "academic_cycle_id",
+        label: "Ciclo escolar",
+        type: "select",
+        options: cycles.options,
+        loading: cycles.loading,
+        optionsError: cycles.error,
+        emptyHint: "No hay ciclos escolares registrados.",
+        required: true,
+        resets: ["section_id"],
+      },
+      {
+        name: "section_id",
+        label: "Seccion",
+        type: "select",
+        options: sectionsForCycle(sections.options, values.academic_cycle_id),
+        loading: sections.loading,
+        optionsError: sections.error,
+        emptyHint: values.academic_cycle_id
+          ? "Ese ciclo no tiene secciones registradas."
+          : "Elija primero el ciclo escolar.",
+        help: "El grado y la jornada se toman de la seccion.",
+        required: true,
+      },
+      {
+        name: "effective_on",
+        label: "Vigente desde",
+        type: "date",
+        required: true,
+        span: "full",
+      },
+    ],
+    [students, cycles, sections]
+  );
+
+  const handleSubmit = async (values) => {
+    const section = sections.options.find(
+      (option) => option.value === values.section_id
+    );
+
+    const payload = {
+      ...values,
+      grade_id: section?.gradeId,
+      shift_id: section?.shiftId,
+    };
+
+    if (creating === "reenrol") {
+      await enrolmentsService.reenrol(payload);
+    } else {
+      await enrolmentsService.matriculate(payload);
+    }
+    setCreating(null);
+    activeList.refresh();
+    if (historyReady) historyList.refresh();
+  };
+
+  const columns = [
     {
       key: "student_id",
       label: "Estudiante",
-      render: (row) => <CodeCell value={row.student_id} />,
+      render: (row) => <NameCell id={row.student_id} index={names.students} />,
     },
     {
       key: "academic_cycle_id",
       label: "Ciclo",
-      render: (row) => <CodeCell value={row.academic_cycle_id} />,
+      render: (row) => (
+        <NameCell id={row.academic_cycle_id} index={names.cycles} />
+      ),
     },
     {
       key: "grade_id",
       label: "Grado",
-      render: (row) => <CodeCell value={row.grade_id} />,
+      render: (row) => <NameCell id={row.grade_id} index={names.grades} />,
     },
     {
       key: "section_id",
       label: "Seccion",
-      render: (row) => <CodeCell value={row.section_id} />,
+      render: (row) => <NameCell id={row.section_id} index={names.sections} />,
     },
     {
       key: "effective_on",
@@ -117,7 +240,7 @@ function enrolmentColumns({ onOpenDocuments }) {
         <Stack direction="row" gap={0.5} justifyContent="flex-end">
           <ActionIconButton
             label="Requisitos documentales"
-            onClick={() => onOpenDocuments(row)}
+            onClick={() => setDocumentsFor(row)}
           >
             <DescriptionOutlinedIcon fontSize="small" />
           </ActionIconButton>
@@ -125,73 +248,19 @@ function enrolmentColumns({ onOpenDocuments }) {
       ),
     },
   ];
-}
-
-/**
- * Matricula: matriculas vigentes e historial por estudiante.
- *
- * Las dos pestanas no son el mismo listado filtrado. "Vigentes" responde
- * `/active/` y admite consultar sin estudiante; "Historial" responde
- * `/history/`, que EXIGE `student_id` porque devuelve tambien las matriculas
- * inactivas de esa persona (RF-MAT-008). Por eso la pestana de historial pide el
- * identificador antes de consultar en vez de mostrar una tabla vacia.
- */
-export function EnrolmentsPage() {
-  const [tab, setTab] = useState(ACTIVE_TAB);
-  const [studentFilter, setStudentFilter] = useState("");
-  const [creating, setCreating] = useState(null);
-  const [documentsFor, setDocumentsFor] = useState(null);
-
-  const loadActive = useCallback(
-    (params) =>
-      enrolmentsService.listActive({
-        ...params,
-        student_id: studentFilter.trim() || undefined,
-      }),
-    [studentFilter]
-  );
-
-  const loadHistory = useCallback(
-    (params) =>
-      enrolmentsService.listHistory({
-        ...params,
-        student_id: studentFilter.trim(),
-      }),
-    [studentFilter]
-  );
-
-  const activeList = usePaginatedList(loadActive, {
-    canIncludeInactive: false,
-    pageSize: PAGE_SIZE,
-  });
-
-  const historyReady = studentFilter.trim() !== "";
-  const historyList = usePaginatedList(
-    historyReady ? loadHistory : EMPTY_LOADER,
-    {
-      canIncludeInactive: false,
-      pageSize: PAGE_SIZE,
-    }
-  );
-
-  const columns = enrolmentColumns({ onOpenDocuments: setDocumentsFor });
-
-  const handleSubmit = async (payload) => {
-    if (creating === "reenrol") {
-      await enrolmentsService.reenrol(payload);
-    } else {
-      await enrolmentsService.matriculate(payload);
-    }
-    setCreating(null);
-    activeList.refresh();
-    if (historyReady) historyList.refresh();
-  };
 
   return (
     <>
       <PageHeader
         action={
-          <Stack direction="row" gap={1}>
+          <Stack direction="row" flexWrap="wrap" gap={1}>
+            <Button
+              onClick={() => setBulkEnrolling(true)}
+              startIcon={<PlaylistAddCheckOutlinedIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Matricular por lotes
+            </Button>
             <Button
               onClick={() => setCreating("reenrol")}
               startIcon={<ReplayOutlinedIcon fontSize="small" />}
@@ -226,9 +295,16 @@ export function EnrolmentsPage() {
         <FilterBar
           onClear={studentFilter ? () => setStudentFilter("") : undefined}
         >
-          <SearchField
+          <FilterSelect
+            emptyLabel="Todos los estudiantes"
+            label="Estudiante"
+            loading={students.loading}
+            // La etiqueta es "Nombre Apellido · EST-2026-0027": mas angosto que
+            // esto la parte en dos lineas y el codigo, que es lo que
+            // desambigua a dos homonimos, queda cortado abajo.
+            minWidth={360}
             onChange={setStudentFilter}
-            placeholder="Filtrar por ID de estudiante…"
+            options={students.options}
             value={studentFilter}
           />
         </FilterBar>
@@ -261,7 +337,7 @@ export function EnrolmentsPage() {
           />
         ) : (
           <SectionCard title="Historial de matricula">
-            <EmptyState message="El historial se consulta por estudiante: escribe un ID de estudiante en el filtro para verlo." />
+            <EmptyState message="El historial se consulta por estudiante: elija uno en el filtro de arriba para verlo." />
           </SectionCard>
         )}
       </SectionCard>
@@ -273,7 +349,7 @@ export function EnrolmentsPage() {
               ? "Reinscripcion de un estudiante con matricula previa. El backend valida que exista historial y que el ciclo destino este abierto."
               : "Matriculacion nueva. El backend valida cupo de la seccion, jornada y requisitos del ciclo."
           }
-          fields={ENROLMENT_FIELDS}
+          fields={enrolmentFields}
           initialValues={EMPTY_ENROLMENT}
           key={creating}
           onCancel={() => setCreating(null)}
@@ -285,6 +361,16 @@ export function EnrolmentsPage() {
               ? "Reinscribir estudiante"
               : "Nueva matricula"
           }
+        />
+      ) : null}
+
+      {bulkEnrolling ? (
+        <BulkEnrolmentWindow
+          onClose={() => setBulkEnrolling(false)}
+          onCreated={() => {
+            activeList.refresh();
+            if (historyReady) historyList.refresh();
+          }}
         />
       ) : null}
 

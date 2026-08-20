@@ -67,6 +67,33 @@ describe("apiClient", () => {
     expect(options.body).toBeUndefined();
   });
 
+  test("surfaces a permission rejection sent as plain text", async () => {
+    // Las vistas de permisos responden `{error: "texto"}`, no `{error:{detail}}`.
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ error: "Solo los docentes registran notas." }),
+    });
+
+    await expect(apiClient.post("/grades/", {})).rejects.toThrow(
+      "Solo los docentes registran notas."
+    );
+  });
+
+  test("surfaces the first field error reported by the serializer", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ value: ["La nota debe estar entre 0 y 100."] }),
+    });
+
+    await expect(apiClient.post("/grades/", {})).rejects.toThrow(
+      "La nota debe estar entre 0 y 100."
+    );
+  });
+
   test("surfaces domain errors raised by a delete", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,

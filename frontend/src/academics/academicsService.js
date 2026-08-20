@@ -24,6 +24,9 @@ export const academicsService = {
     apiClient.get(withQuery(`${ROOT}/campuses/`, params)),
   getCampus: (campusId) => apiClient.get(`${ROOT}/campuses/${campusId}/`),
   createCampus: (payload) => apiClient.post(`${ROOT}/campuses/`, payload),
+  /** Siguiente codigo de sede libre. Ver `studentsService.nextCode`. */
+  nextCampusCode: () =>
+    apiClient.get(`${ROOT}/campuses/next-code/`).then((body) => body.code),
   updateCampus: (campusId, payload) =>
     apiClient.patch(`${ROOT}/campuses/${campusId}/`, payload),
   deactivateCampus: (campusId) =>
@@ -43,6 +46,9 @@ export const academicsService = {
   listLevels: (params) => apiClient.get(withQuery(`${ROOT}/levels/`, params)),
   getLevel: (levelId) => apiClient.get(`${ROOT}/levels/${levelId}/`),
   createLevel: (payload) => apiClient.post(`${ROOT}/levels/`, payload),
+  /** Siguiente codigo de nivel libre. */
+  nextLevelCode: () =>
+    apiClient.get(`${ROOT}/levels/next-code/`).then((body) => body.code),
   updateLevel: (levelId, payload) =>
     apiClient.patch(`${ROOT}/levels/${levelId}/`, payload),
   deactivateLevel: (levelId) => apiClient.del(`${ROOT}/levels/${levelId}/`),
@@ -50,6 +56,11 @@ export const academicsService = {
   // grados: siempre se crean dentro de un nivel
   listLevelGrades: (levelId, params) =>
     apiClient.get(withQuery(`${ROOT}/levels/${levelId}/grades/`, params)),
+  /** Siguiente codigo de grado, derivado del codigo de su nivel ("BAS1"). */
+  nextGradeCode: (levelId) =>
+    apiClient
+      .get(`${ROOT}/levels/${levelId}/grades/next-code/`)
+      .then((body) => body.code),
   createGrade: (levelId, payload) =>
     apiClient.post(`${ROOT}/levels/${levelId}/grades/`, payload),
   getGrade: (gradeId) => apiClient.get(`${ROOT}/grades/${gradeId}/`),
@@ -79,6 +90,11 @@ export const academicsService = {
     ),
   unlinkSubjectFromLevel: (levelId, subjectId) =>
     apiClient.del(`${ROOT}/levels/${levelId}/subjects/${subjectId}/`),
+
+  // secciones: el listado global es plano y trae grado y jornada anidados, que
+  // es justo lo que necesita un selector para etiquetarse sin pedir mas datos.
+  listSections: (params) =>
+    apiClient.get(withQuery(`${ROOT}/sections/`, params)),
 
   // asignaciones docentes
   //

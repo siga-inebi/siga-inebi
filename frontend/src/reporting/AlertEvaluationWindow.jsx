@@ -7,6 +7,8 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 
 import { reportingService } from "@reporting/reportingService.js";
+import { useShiftCatalog } from "@shared/catalogs/academicCatalogs.js";
+import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { DetailField } from "@ui/layout/DetailWindow.jsx";
@@ -21,13 +23,15 @@ import { DetailField } from "@ui/layout/DetailWindow.jsx";
  * dice si el recalculo hizo algo.
  */
 export function AlertEvaluationWindow({ onClose, onEvaluated }) {
+  const shifts = useShiftCatalog();
+
   const [shiftId, setShiftId] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const canSubmit = shiftId.trim() !== "" && eventDate !== "" && !submitting;
+  const canSubmit = shiftId !== "" && eventDate !== "" && !submitting;
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -75,10 +79,20 @@ export function AlertEvaluationWindow({ onClose, onEvaluated }) {
     >
       <Box component="form" id="alert-evaluation-form" onSubmit={handleSubmit}>
         <Stack gap={2}>
-          <FormTextField
+          <FormSelect
             disabled={submitting}
-            label="ID de jornada"
+            error={shifts.error}
+            fullWidth
+            helperText={
+              !shifts.loading && shifts.options.length === 0
+                ? "No hay jornadas registradas."
+                : undefined
+            }
+            label="Jornada"
+            loading={shifts.loading}
             onChange={(event) => setShiftId(event.target.value)}
+            options={shifts.options}
+            placeholder="Seleccione una jornada"
             value={shiftId}
           />
           <FormTextField

@@ -2,6 +2,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.audit.services import record_event
+from apps.common.codes import create_with_generated_code, next_sequential_code
+from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
 from apps.people.models import Person
 from apps.students.images import normalize_student_photo
@@ -14,22 +16,61 @@ from apps.students.models import (
     StudentObservation,
 )
 
+# Serie del codigo de estudiante: "EST-2026-0043".
+#
+# El anio sale de la fecha, no del ciclo escolar vigente: este modulo no conoce
+# la estructura institucional a proposito (ver el bloque de helpers), y el anio
+# calendario es la unica parte del codigo que alguien lee de un carnet.
+STUDENT_CODE_PREFIX = "EST"
+STUDENT_CODE_WIDTH = 4
+STUDENT_CODE_CONSTRAINT = "students_student_student_code_key"
 
-def create_student(*, person_data, student_code, status=None, actor=None):
-    student_code = _clean_text(student_code, field="student code")
-    with transaction.atomic():
+
+def next_student_code(*, year=None):
+    """Siguiente codigo libre de la serie del anio."""
+    year = year or timezone.localdate().year
+    return next_sequential_code(
+        queryset=Student.objects.all(),
+        field="student_code",
+        prefix=f"{STUDENT_CODE_PREFIX}-{year}",
+        width=STUDENT_CODE_WIDTH,
+    )
+
+
+def create_student(*, person_data, student_code=None, status=None, actor=None):
+    """
+    Register a student.
+
+    ``student_code`` es opcional: sin el se genera el siguiente de la serie del
+    anio. Se sigue aceptando uno explicito porque un expediente que llega con
+    codigo ya asignado (traslado, codigo del ministerio) no se puede renumerar
+    sin romper la trazabilidad de lo que ya se imprimio.
+    """
+    supplied = (student_code or "").strip()
+    status = status or Student.StudentStatus.PRE_ENROLLED
+
+    def build(code):
         person = Person.objects.create(**person_data)
-        student = Student.objects.create(
-            person=person,
-            student_code=student_code,
-            status=status or Student.StudentStatus.PRE_ENROLLED,
-        )
+        return Student.objects.create(person=person, student_code=code, status=status)
+
+    with transaction.atomic():
+        if supplied:
+            with unique_violation_as(
+                {STUDENT_CODE_CONSTRAINT: (f"Student code '{supplied}' is already registered.")}
+            ):
+                student = build(supplied)
+        else:
+            student = create_with_generated_code(
+                build=build,
+                generate=next_student_code,
+                constraint=STUDENT_CODE_CONSTRAINT,
+            )
         record_event(
             actor=actor,
             action="students.student.created",
             resource="Student",
             resource_identifier=str(student.pk),
-            context={"student_code": student.student_code},
+            context={"student_code": student.student_code, "generated": not supplied},
         )
     return student
 

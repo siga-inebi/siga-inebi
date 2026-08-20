@@ -41,6 +41,13 @@ class Student(HistoricalStudentRecord):
     )
     photo = models.FileField(upload_to="student_photos/", blank=True)
 
+    class Meta:
+        # Orden explicito: sin el, paginar es un sorteo. PostgreSQL no garantiza
+        # el mismo orden entre dos consultas con LIMIT/OFFSET sobre un queryset
+        # sin ordenar, asi que recorrer las paginas devolvia filas repetidas y
+        # omitia otras (DRF lo avisa con UnorderedObjectListWarning).
+        ordering = ["student_code"]
+
     def __str__(self):
         return self.student_code
 
@@ -51,6 +58,13 @@ class Guardian(HistoricalStudentRecord):
         on_delete=models.PROTECT,
         related_name="guardian_profile",
     )
+
+    class Meta:
+        # Orden explicito: sin el, paginar es un sorteo. PostgreSQL no garantiza
+        # el mismo orden entre dos consultas con LIMIT/OFFSET sobre un queryset
+        # sin ordenar, asi que recorrer las paginas devolvia filas repetidas y
+        # omitia otras (DRF lo avisa con UnorderedObjectListWarning).
+        ordering = ["person__last_name", "person__first_name", "id"]
 
     def __str__(self):
         return str(self.person)
@@ -71,6 +85,11 @@ class StudentGuardianRelation(HistoricalStudentRecord):
     ends_at = models.DateField(null=True, blank=True)
 
     class Meta:
+        # Orden explicito: sin el, paginar es un sorteo. PostgreSQL no garantiza
+        # el mismo orden entre dos consultas con LIMIT/OFFSET sobre un queryset
+        # sin ordenar, asi que recorrer las paginas devolvia filas repetidas y
+        # omitia otras (DRF lo avisa con UnorderedObjectListWarning).
+        ordering = ["-is_primary", "-starts_at", "id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["student"],

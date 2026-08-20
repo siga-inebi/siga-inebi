@@ -13,12 +13,14 @@ from apps.students.api.views import (
     StudentHealthNoteDetailView,
     StudentHealthNoteListCreateView,
     StudentListCreateView,
+    StudentNextCodeView,
     StudentObservationDetailView,
     StudentObservationListCreateView,
 )
 
 urlpatterns = [
     path("", StudentListCreateView.as_view(), name="student-list"),
+    path("next-code/", StudentNextCodeView.as_view(), name="student-next-code"),
     path("<int:pk>/", StudentDetailView.as_view(), name="student-detail"),
     path("guardians/", GuardianListCreateView.as_view(), name="guardian-list"),
     path("guardians/<int:pk>/", GuardianDetailView.as_view(), name="guardian-detail"),

@@ -8,6 +8,7 @@ const LIST_METHODS = [
   "listLevels",
   "listLevelGrades",
   "listSubjects",
+  "listSections",
   "listLevelSubjects",
   "listTeachingAssignmentHistory",
 ];
@@ -46,10 +47,22 @@ const DETAIL_METHODS = [
   "getSubject",
 ];
 
+/**
+ * Sugerencias de codigo. Devuelven texto, no una pagina.
+ *
+ * Por defecto resuelven a vacio: la pantalla debe abrir el formulario igual si
+ * la sugerencia no llega, porque el backend genera el codigo de todos modos.
+ */
+const SUGGESTION_METHODS = ["nextCampusCode", "nextLevelCode", "nextGradeCode"];
+
 export const academicsServiceMock = Object.fromEntries(
-  [...LIST_METHODS, ...WRITE_METHODS, ...DELETE_METHODS, ...DETAIL_METHODS].map(
-    (name) => [name, vi.fn()]
-  )
+  [
+    ...LIST_METHODS,
+    ...WRITE_METHODS,
+    ...DELETE_METHODS,
+    ...DETAIL_METHODS,
+    ...SUGGESTION_METHODS,
+  ].map((name) => [name, vi.fn()])
 );
 
 /**
@@ -69,5 +82,8 @@ export function resetAcademicsServiceMock() {
   }
   for (const name of DETAIL_METHODS) {
     academicsServiceMock[name].mockResolvedValue({});
+  }
+  for (const name of SUGGESTION_METHODS) {
+    academicsServiceMock[name].mockResolvedValue("");
   }
 }

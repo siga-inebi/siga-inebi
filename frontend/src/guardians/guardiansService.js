@@ -1,10 +1,14 @@
 import { apiClient } from "@shared/api/apiClient.js";
+import { collectAllPages } from "@shared/api/pages.js";
+import { withQuery } from "@shared/api/query.js";
 
 export const guardiansService = {
-  // TODO(guardians-pagination): only returns page 1 (PAGE_SIZE=25 backend-side);
-  // GuardiansPage's own client-side pagination assumes it has the full list.
-  list: () =>
-    apiClient.get("/students/guardians/").then((page) => page.results),
+  /** Pagina cruda del listado, con su `count` total. */
+  listPage: (params) =>
+    apiClient.get(withQuery("/students/guardians/", params)),
+  // Ver studentsService.list: la pantalla pagina del lado del cliente y
+  // necesita la lista completa, no la primera pagina.
+  list: () => collectAllPages(guardiansService.listPage),
   get: (id) => apiClient.get(`/students/guardians/${id}/`),
   create: (data) => apiClient.post("/students/guardians/", data),
   // GuardianSerializer intentionally rejects nested `person` writes on update

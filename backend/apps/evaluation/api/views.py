@@ -570,7 +570,7 @@ def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
     """
     try:
         enrolment = Enrolment.objects.get(
-            pk=enrolment_id,
+            public_id=enrolment_id,
             academic_cycle__public_id=cycle_public_id,
             is_active=True,
         )
@@ -582,7 +582,7 @@ def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
         )
 
     try:
-        subject = Subject.objects.get(pk=subject_id, is_active=True)
+        subject = Subject.objects.get(public_id=subject_id, is_active=True)
     except Subject.DoesNotExist:
         return (
             None,

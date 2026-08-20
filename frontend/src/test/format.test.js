@@ -8,6 +8,7 @@ import {
   formatFullName,
   formatPercent,
   orEmpty,
+  todayInputValue,
 } from "@shared/utils/format.js";
 
 describe("format", () => {
@@ -97,6 +98,22 @@ describe("format", () => {
     test("devuelve el marcador de ausencia sin persona", () => {
       expect(formatFullName(null)).toBe(EMPTY_VALUE);
       expect(formatFullName({})).toBe(EMPTY_VALUE);
+    });
+  });
+
+  describe("todayInputValue", () => {
+    test("usa la fecha LOCAL, no la UTC", () => {
+      // 19:30 en Guatemala (UTC-6) ya es el dia siguiente en UTC. Con
+      // `toISOString()` el boton "Hoy" habria puesto manana durante toda la
+      // tarde, que es justo el horario en que se cierra la jornada.
+      const lateEvening = new Date(2026, 7, 19, 19, 30);
+
+      expect(todayInputValue(lateEvening)).toBe("2026-08-19");
+    });
+
+    test("rellena mes y dia a dos digitos", () => {
+      // `<input type="date">` solo acepta YYYY-MM-DD; "2026-1-5" lo deja vacio.
+      expect(todayInputValue(new Date(2026, 0, 5))).toBe("2026-01-05");
     });
   });
 });

@@ -38,6 +38,28 @@ export function MutedCell({ children }) {
   );
 }
 
+/**
+ * Nombre del catalogo, con el identificador crudo como respaldo.
+ *
+ * Casi todo listado del sistema recibe UUIDs del backend y los pinta como el
+ * nombre que la persona reconoce, contra un indice `value -> label`
+ * (`labelIndex` de `@shared/catalogs`). El respaldo importa: un catalogo que
+ * todavia carga, o un registro dado de baja que ya no figura en el, dejaria la
+ * celda VACIA — y una fila sin datos se lee como un error del sistema, no como
+ * "esto ya no existe". El identificador al menos es rastreable.
+ *
+ * Estaba reimplementada, identica, en seis pantallas.
+ *
+ * @param {object} props
+ * @param {Map<string,string>} props.index Indice de etiquetas del catalogo.
+ * @param {string} props.id               Identificador que viene del backend.
+ */
+export function NameCell({ index, id }) {
+  const label = index.get(id);
+  if (label) return label;
+  return id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>;
+}
+
 /** Estado activo/desactivado de un registro de catalogo. */
 export function ActiveCell({
   active,

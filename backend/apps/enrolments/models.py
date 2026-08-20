@@ -38,10 +38,22 @@ class Enrolment(TimeStampedModel):
 
     class Meta:
         constraints = [
+            # Una sola matricula activa por estudiante, en TODO el sistema y no
+            # por ciclo: un estudiante esta cursando en un lugar a la vez. La
+            # version por ciclo dejaba pasar un 2026 y un 2027 activos al mismo
+            # tiempo, que es un expediente que dice dos cosas distintas sobre
+            # donde esta la persona hoy. Reinscribir cierra el anterior.
             models.UniqueConstraint(
-                fields=["student", "academic_cycle"],
+                fields=["student"],
                 condition=Q(status="active"),
-                name="unique_active_enrolment_per_student_cycle",
+                name="unique_active_enrolment_per_student",
+            ),
+            # La misma seccion no se repite: repetir grado es volver a cursarlo
+            # en OTRO ciclo, con otra seccion. Dos filas del mismo estudiante en
+            # la misma seccion son un duplicado de captura, no un dato.
+            models.UniqueConstraint(
+                fields=["student", "section"],
+                name="unique_enrolment_per_student_section",
             ),
             models.CheckConstraint(
                 check=Q(ends_on__isnull=True) | Q(effective_on__lte=models.F("ends_on")),
