@@ -33,6 +33,9 @@ from .serializers import (
     CampusCreateSerializer,
     CampusSerializer,
     CampusUpdateSerializer,
+    CurriculumPlanCreateSerializer,
+    CurriculumPlanSerializer,
+    CurriculumPlanUpdateSerializer,
     GradeCreateSerializer,
     GradeSerializer,
     GradeUpdateSerializer,
@@ -768,6 +771,100 @@ class SectionDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDe
 
     def deactivate(self, request, section):
         services.deactivate_section(section=section, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
+# curriculum plans ("plan de estudios")
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar plan de estudios",
+        description=(
+            "Asignaciones de curso a grado por ciclo. Filtra opcionalmente por ciclo "
+            "(`academic_cycle_id`) y grado (`grade_id`). Solo activas salvo "
+            "`include_inactive=true`."
+        ),
+        tags=CATALOGUE,
+        parameters=[
+            INCLUDE_INACTIVE,
+            OpenApiParameter("academic_cycle_id", str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("grade_id", str, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: CurriculumPlanSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Agregar curso al plan de estudios",
+        description="Asigna un curso a un grado dentro de un ciclo escolar.",
+        tags=CATALOGUE,
+        request=CurriculumPlanCreateSerializer,
+        responses={201: CurriculumPlanSerializer},
+    ),
+)
+class CurriculumPlanListCreateView(CatalogueListCreateView):
+    list_serializer = CurriculumPlanSerializer
+    create_serializer = CurriculumPlanCreateSerializer
+
+    def list_queryset(self, request):
+        return queries.curriculum_plans(self.institution, request)
+
+    def create(self, request, payload):
+        academic_cycle = _resolve(
+            AcademicCycle.objects.filter(institution=self.institution),
+            payload["academic_cycle_id"],
+            "Academic cycle",
+        )
+        grade = _resolve(
+            Grade.objects.filter(level__institution=self.institution),
+            payload["grade_id"],
+            "Grade",
+        )
+        subject = _resolve_subject(payload["subject_id"])
+        plan = services.create_curriculum_plan(
+            academic_cycle=academic_cycle,
+            grade=grade,
+            subject=subject,
+            is_required=payload.get("is_required", True),
+            actor=request.user,
+        )
+        return queries.curriculum_plan_or_404(self.institution, plan.public_id)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar entrada del plan de estudios",
+        tags=CATALOGUE,
+        responses={200: CurriculumPlanSerializer},
+    ),
+    patch=extend_schema(
+        summary="Actualizar entrada del plan de estudios",
+        tags=CATALOGUE,
+        request=CurriculumPlanUpdateSerializer,
+        responses={200: CurriculumPlanSerializer},
+    ),
+    delete=extend_schema(
+        summary="Quitar curso del plan de estudios",
+        description=(
+            "Desactiva la entrada en lugar de eliminarla. Se rechaza si el ciclo ya no "
+            "esta en planificacion."
+        ),
+        tags=CATALOGUE,
+        responses={204: None},
+    ),
+)
+class CurriculumPlanDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = CurriculumPlanSerializer
+    update_serializer = CurriculumPlanUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.curriculum_plan_or_404(self.institution, public_id)
+
+    def update(self, request, plan, payload):
+        services.update_curriculum_plan(plan=plan, actor=request.user, **payload)
+
+    def deactivate(self, request, plan):
+        services.deactivate_curriculum_plan(plan=plan, actor=request.user)
 
 
 # --------------------------------------------------------------------------- #

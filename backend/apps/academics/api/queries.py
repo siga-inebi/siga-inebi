@@ -156,6 +156,31 @@ def section_or_404(institution, public_id):
     return _get(queryset, public_id, "Section")
 
 
+_CURRICULUM_PLAN_RELATED = ("academic_cycle", "grade__level", "subject")
+
+
+def curriculum_plans(institution, request):
+    queryset = CurriculumPlan.objects.filter(
+        academic_cycle__institution=institution
+    ).select_related(*_CURRICULUM_PLAN_RELATED)
+    queryset = _filter_active(queryset, request)
+
+    academic_cycle_id = request.query_params.get("academic_cycle_id")
+    if academic_cycle_id:
+        queryset = queryset.filter(academic_cycle__public_id=academic_cycle_id)
+    grade_id = request.query_params.get("grade_id")
+    if grade_id:
+        queryset = queryset.filter(grade__public_id=grade_id)
+    return queryset
+
+
+def curriculum_plan_or_404(institution, public_id):
+    queryset = CurriculumPlan.objects.filter(
+        academic_cycle__institution=institution
+    ).select_related(*_CURRICULUM_PLAN_RELATED)
+    return _get(queryset, public_id, "Curriculum plan")
+
+
 def teaching_assignment_history(institution, *, teacher=None, academic_cycle=None):
     queryset = TeachingAssignment.objects.filter(
         academic_cycle__institution=institution

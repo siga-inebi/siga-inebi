@@ -8,6 +8,7 @@ from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_curriculum_plan,
     create_section,
     create_teaching_assignment,
 )
@@ -150,6 +151,37 @@ def test_created_sections_satisfy_cycle_activation_structure_check():
     assert GradeOffering.objects.filter(academic_cycle=cycle, grade=grade, shift=shift).count() == 1
     assert AuditEvent.objects.filter(action="academics.grade_offering.created").count() == 1
     assert AuditEvent.objects.filter(action="academics.section.created").count() == 1
+
+
+def test_created_curriculum_plan_satisfies_activation_and_freezes_once_active():
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2031,
+        name="Ciclo 2031",
+        starts_on=date(2031, 1, 1),
+        ends_on=date(2031, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution)
+    plan = create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject, actor=actor)
+
+    activated = activate_academic_cycle(cycle=cycle, actor=actor)
+
+    assert activated.status == AcademicCycle.CycleStatus.ACTIVE
+    assert cycle.curriculum_plans.filter(pk=plan.pk).exists()
+    assert AuditEvent.objects.filter(action="academics.curriculum_plan.created").count() == 1
+    with pytest.raises(DomainError, match="in planning"):
+        create_curriculum_plan(
+            academic_cycle=activated,
+            grade=grade,
+            subject=SubjectFactory(institution=institution),
+            actor=actor,
+        )
 
 
 def test_active_cycle_blocks_structure_but_still_allows_operational_writes():

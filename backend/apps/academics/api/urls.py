@@ -15,6 +15,8 @@ from .views import (
     CampusDetailView,
     CampusListCreateView,
     CampusShiftListCreateView,
+    CurriculumPlanDetailView,
+    CurriculumPlanListCreateView,
     GradeDetailView,
     HistoricalAcademicCycleDetailView,
     LevelDetailView,
@@ -110,6 +112,16 @@ urlpatterns = [
     path("subjects/<uuid:public_id>/", SubjectDetailView.as_view(), name="subject-detail"),
     path("sections/", SectionListCreateView.as_view(), name="section-list-create"),
     path("sections/<uuid:public_id>/", SectionDetailView.as_view(), name="section-detail"),
+    path(
+        "curriculum-plans/",
+        CurriculumPlanListCreateView.as_view(),
+        name="curriculum-plan-list-create",
+    ),
+    path(
+        "curriculum-plans/<uuid:public_id>/",
+        CurriculumPlanDetailView.as_view(),
+        name="curriculum-plan-detail",
+    ),
     path(
         "teaching-assignments/",
         TeachingAssignmentListCreateView.as_view(),
