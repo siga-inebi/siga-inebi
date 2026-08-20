@@ -10,6 +10,9 @@ const studentsServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  // Ver el doble homonimo en DocentesPage.test.jsx: el alta pide el codigo
+  // sugerido al abrir, y sin esto la prueba corre por el camino de error.
+  nextCode: vi.fn(),
   listHealthNotes: vi.fn(),
   createHealthNote: vi.fn(),
   listObservations: vi.fn(),
@@ -197,6 +200,7 @@ describe("AlumnosPage", () => {
 
   test("submits the create form against the mock service", async () => {
     studentsServiceMock.list.mockResolvedValue(SAMPLE);
+    studentsServiceMock.nextCode.mockResolvedValue("EST-2026-0101");
     studentsServiceMock.create.mockResolvedValue({
       id: 3,
       person: {
@@ -220,10 +224,12 @@ describe("AlumnosPage", () => {
     await user.type(screen.getByLabelText(/^Apellidos/), "Alumna");
     await user.type(screen.getByLabelText(/^Correo/), "nueva@example.test");
     await user.type(screen.getByLabelText(/^Telefono/), "555-0199");
-    await user.type(
-      screen.getByLabelText(/^Codigo de estudiante/),
-      "EST-2026-099"
-    );
+    const codeField = screen.getByLabelText(/^Codigo de estudiante/);
+    // Llega prellenado con la sugerencia del backend, y se puede sobreescribir:
+    // un traslado trae su codigo ya impreso en los papeles.
+    expect(codeField).toHaveValue("EST-2026-0101");
+    await user.clear(codeField);
+    await user.type(codeField, "EST-2026-099");
     await user.click(screen.getByRole("button", { name: /Crear estudiante/ }));
 
     await waitFor(() =>
@@ -242,7 +248,8 @@ describe("AlumnosPage", () => {
       })
     );
     expect(await screen.findByText("Nueva Alumna")).toBeInTheDocument();
-  });
+    // Ver el presupuesto homonimo en DocentesPage.test.jsx.
+  }, 15000);
 
   test("previews a newly selected photo in the create form", async () => {
     studentsServiceMock.list.mockResolvedValue(SAMPLE);

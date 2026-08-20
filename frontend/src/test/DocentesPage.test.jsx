@@ -11,6 +11,10 @@ const teachersServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  // El alta pide el codigo sugerido al abrir el formulario. Sin el doble, la
+  // pantalla caia en el catch de `suggestedOrBlank` y la prueba pasaba por el
+  // camino de error en vez del real.
+  nextCode: vi.fn(),
 }));
 
 vi.mock("@teachers/teachersService.js", () => ({
@@ -185,6 +189,7 @@ describe("DocentesPage", () => {
 
   test("submits the create form against the mock service", async () => {
     teachersServiceMock.list.mockResolvedValue(SAMPLE);
+    teachersServiceMock.nextCode.mockResolvedValue("DOC-013");
     teachersServiceMock.create.mockResolvedValue({
       id: 3,
       person: {
@@ -210,7 +215,11 @@ describe("DocentesPage", () => {
     await user.type(screen.getByLabelText(/^Apellidos/), "Docente");
     await user.type(screen.getByLabelText(/^Especialidad/), "Fisica");
     await selectOption(user, /^Puesto/, "Docente Interino");
-    await user.type(screen.getByLabelText(/^Codigo de empleado/i), "EMP-0300");
+    const codeField = screen.getByLabelText(/^Codigo de empleado/i);
+    // Llega prellenado con la sugerencia del backend, y se puede sobreescribir.
+    expect(codeField).toHaveValue("DOC-013");
+    await user.clear(codeField);
+    await user.type(codeField, "EMP-0300");
     await user.click(screen.getByRole("button", { name: /Crear registro/ }));
 
     await waitFor(() =>
@@ -230,7 +239,10 @@ describe("DocentesPage", () => {
       })
     );
     expect(await screen.findByText("Nueva Docente")).toBeInTheDocument();
-  });
+    // 15s y no los 5 por omision: son mas de treinta pulsaciones a traves de
+    // `userEvent`, y con la instrumentacion de cobertura del CI no caben en el
+    // presupuesto normal. Misma convencion que AttendancePage.test.jsx.
+  }, 15000);
 
   test("previews a newly selected photo in the create form", async () => {
     teachersServiceMock.list.mockResolvedValue(SAMPLE);
