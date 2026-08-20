@@ -8,6 +8,10 @@ this same module instead of putting their rules in views or serializers.
 RF-JOR-004 (daily closure) reads the enrolment-lifecycle domain to know who
 is actively enrolled in a jornada; attendance-governance already depends on
 it (see ``docs/architecture/domain-map.md``).
+
+RF-CRE-001 (credential issuance with an opaque identifier) lives at the bottom
+of this module: the credential is what a scan resolves, so it belongs to the
+same attendance-capture domain rather than to a module of its own.
 """
 
 from dataclasses import dataclass
@@ -24,11 +28,15 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     RecalculationReason,
+    StudentCredential,
 )
 from apps.audit.services import record_event
+from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
 from apps.common.models import DomainError
+from apps.common.opaque import generate_opaque_identifier
 from apps.enrolments.models import Enrolment
+from apps.enrolments.services import active_enrolments
 
 ORIGIN_PRECEDENCE = {
     AttendanceEvent.Origin.SCAN: 0,
@@ -1151,3 +1159,70 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
         late_days=late_days,
         percentage=percentage,
     )
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-001 — emision de credencial con identificador opaco
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def issue_credential(
+    *,
+    student,
+    actor=None,
+    issued_at=None,
+    generate_identifier=generate_opaque_identifier,
+):
+    """
+    Issue a credential for ``student`` and return it.
+
+    ``generate_identifier`` is injected rather than called through a module
+    global so a test can pin the token it asserts on, and so a future policy
+    change (different length, different alphabet) does not have to reach into
+    this function. Collisions are resolved by the unique constraint and a
+    retry, never by reading before writing: two concurrent issuances would both
+    pass a pre-check and the loser would surface as a 500.
+
+    Only an actively enrolled student gets one: a credential is what opens a
+    movement, and issuing one to somebody who is not enrolled would create a
+    usable pass with no jornada behind it.
+    """
+    _require_active(student, "Student")
+    if not active_enrolments(student=student).exists():
+        raise DomainError(
+            f"Student '{student}' has no active enrolment, so no credential can be issued."
+        )
+    issued_at = issued_at or timezone.now()
+
+    def build(identifier):
+        return StudentCredential.objects.create(
+            student=student,
+            opaque_identifier=identifier,
+            status=StudentCredential.Status.ACTIVE,
+            issued_at=issued_at,
+        )
+
+    with unique_violation_as(
+        {"unique_active_student_credential": "Student already has an active credential."}
+    ):
+        credential = create_with_generated_code(
+            build=build,
+            generate=generate_identifier,
+            constraint="unique_credential_opaque_identifier",
+        )
+
+    # The identifier itself is deliberately absent from the audit context: the
+    # trail records that a credential was issued and to whom, not the token,
+    # which is the one secret the QR carries.
+    record_event(
+        actor=actor,
+        action="attendance.credential.issued",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "issued_at": issued_at.isoformat(),
+        },
+    )
+    return credential

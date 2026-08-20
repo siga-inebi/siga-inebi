@@ -9,6 +9,7 @@ RF-JOR-008 — contrato del endpoint de presencia en tiempo real.
 RF-JOR-009 — contrato del endpoint de porcentaje de asistencia del ciclo.
 RF-ASI-001/002/004/010 — contrato del endpoint de captura por escaneo y del
 catalogo de puntos de control.
+RF-CRE-001 — contrato del endpoint de emision de credencial.
 """
 
 from datetime import datetime, time, timedelta
@@ -19,7 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceAlert, AttendanceEvent
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, StudentCredential
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
 from tests.factories.attendance import (
@@ -821,3 +822,92 @@ def test_control_points_list_returns_catalogue(auth_client):
     assert response.status_code == 200
     codes = {item["code"] for item in response.json()["results"]}
     assert control_point.code in codes
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-001 — contrato del endpoint de emision de credencial
+# --------------------------------------------------------------------------- #
+
+CREDENTIAL_ISSUE_PERMISSION = "attendance_credential_issue"
+
+
+def _enrol(student, cycle=None):
+    cycle = cycle or AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    return section
+
+
+def test_issue_credential_requires_permission_and_student_scope(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+
+    response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": str(student.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert not StudentCredential.objects.filter(student=student).exists()
+
+
+def test_issue_credential_returns_the_opaque_identifier(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": str(student.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["student_id"] == str(student.public_id)
+    assert body["status"] == StudentCredential.Status.ACTIVE
+    assert body["opaque_identifier"]
+    assert student.student_code not in body["opaque_identifier"]
+
+
+def test_issue_credential_for_a_student_without_active_enrolment_is_a_bad_request(auth_client):
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": str(student.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert not StudentCredential.objects.filter(student=student).exists()
+
+
+def test_issue_credential_with_unknown_student_is_a_bad_request(auth_client):
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": "00000000-0000-0000-0000-000000000000"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+
+
+def test_issue_credential_requires_authentication(client):
+    response = client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": "00000000-0000-0000-0000-000000000000"},
+        content_type="application/json",
+    )
+
+    assert response.status_code in (401, 403)

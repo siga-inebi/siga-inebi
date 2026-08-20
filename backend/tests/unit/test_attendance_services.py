@@ -9,6 +9,7 @@ RF-JOR-008 — consulta de presencia en tiempo real.
 RF-JOR-009 — porcentaje de asistencia del ciclo.
 RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
 idempotencia.
+RF-CRE-001 — emision de credencial con identificador opaco.
 
 All in isolation from the API layer.
 """
@@ -25,6 +26,7 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     RecalculationReason,
+    StudentCredential,
 )
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
@@ -42,6 +44,7 @@ from tests.factories.attendance import (
     JornadaParametersFactory,
 )
 from tests.factories.identity import UserFactory
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
@@ -1684,3 +1687,126 @@ def test_record_scan_batch_resend_of_confirmed_batch_is_a_no_op_success():
         "already_processed",
     ]
     assert AttendanceEvent.objects.count() == 2
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-001 — emision de credencial con identificador opaco
+# --------------------------------------------------------------------------- #
+
+
+def test_issuing_a_credential_for_an_enrolled_student_creates_an_active_one():
+    """
+    Escenario 1 (RF-CRE-001): GIVEN un estudiante con inscripcion activa y sin
+    credencial vigente, WHEN un usuario autorizado emite su credencial, THEN el
+    sistema genera un identificador opaco unico y lo asocia al estudiante, AND
+    la credencial queda en estado vigente.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    actor = UserFactory()
+
+    credential = services.issue_credential(student=student, actor=actor)
+
+    assert credential.student == student
+    assert credential.status == StudentCredential.Status.ACTIVE
+    assert credential.opaque_identifier
+    assert (
+        StudentCredential.objects.filter(
+            student=student, status=StudentCredential.Status.ACTIVE
+        ).count()
+        == 1
+    )
+    assert AuditEvent.objects.filter(action="attendance.credential.issued").exists()
+
+
+def test_the_opaque_identifier_does_not_encode_any_personal_data():
+    """
+    Escenario 2 (RF-CRE-001): GIVEN una credencial emitida, WHEN se inspecciona
+    el contenido codificado en el codigo QR, THEN contiene solo el identificador
+    opaco, AND no permite deducir el codigo estudiantil ni ningun dato personal
+    del portador.
+
+    Two students sharing every personal attribute are issued credentials in the
+    same breath: if anything about the bearer leaked into the token, identical
+    bearers would produce related tokens.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    twins = []
+    for student_code in ("EST-2026-0001", "EST-2026-0002"):
+        person = PersonFactory(first_name="Ana", last_name="Ramirez")
+        student = StudentFactory(person=person, student_code=student_code)
+        create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.offering.grade,
+            section=section,
+        )
+        twins.append(services.issue_credential(student=student))
+
+    first, second = twins
+    assert first.opaque_identifier != second.opaque_identifier
+    for credential in twins:
+        payload = credential.opaque_identifier
+        student = credential.student
+        person = student.person
+        for secret in (
+            student.student_code,
+            student.student_code.lower(),
+            person.first_name,
+            person.last_name,
+            person.email,
+            person.phone_number,
+            str(student.public_id),
+        ):
+            assert secret not in payload
+        # Length is the observable proof of randomness: 32 random bytes render
+        # as 43 url-safe characters, far more than any derivation would need.
+        assert len(payload) >= 40
+
+
+def test_a_student_without_an_active_enrolment_gets_no_credential():
+    student = StudentFactory()
+
+    with pytest.raises(DomainError, match="no active enrolment"):
+        services.issue_credential(student=student)
+
+    assert not StudentCredential.objects.filter(student=student).exists()
+
+
+def test_a_second_credential_is_refused_while_one_is_still_active():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    services.issue_credential(student=student)
+
+    with pytest.raises(DomainError, match="already has an active credential"):
+        services.issue_credential(student=student)
+
+    assert StudentCredential.objects.filter(student=student).count() == 1
+
+
+def test_a_colliding_identifier_is_regenerated_instead_of_failing():
+    """
+    The generator is injected, so a collision can be provoked deterministically:
+    the first candidate is already taken and the service must retry rather than
+    surface the integrity error.
+    """
+    cycle = AcademicCycleFactory()
+    first_student, _section, _shift = _enrolled_student(cycle)
+    taken = services.issue_credential(student=first_student).opaque_identifier
+
+    second_section = SectionFactory(academic_cycle=cycle)
+    second_student = StudentFactory()
+    create_enrolment(
+        student=second_student,
+        academic_cycle=cycle,
+        grade=second_section.offering.grade,
+        section=second_section,
+    )
+    candidates = iter([taken, "a-free-identifier"])
+
+    credential = services.issue_credential(
+        student=second_student, generate_identifier=lambda: next(candidates)
+    )
+
+    assert credential.opaque_identifier == "a-free-identifier"

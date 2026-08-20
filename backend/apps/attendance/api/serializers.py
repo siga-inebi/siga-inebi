@@ -6,6 +6,7 @@ from apps.attendance.models import (
     ControlPoint,
     DayStatus,
     JornadaParameters,
+    StudentCredential,
 )
 
 
@@ -222,3 +223,32 @@ class ScanCaptureItemResultSerializer(serializers.Serializer):
     event = AttendanceEventSerializer(allow_null=True)
     duplicate_of = AttendanceEventSerializer(allow_null=True)
     reason = serializers.CharField(allow_blank=True)
+
+
+class StudentCredentialSerializer(serializers.ModelSerializer):
+    """
+    RF-CRE-001 issuance response.
+
+    ``opaque_identifier`` is what the QR encodes and the only reason this
+    payload exists: the caller needs the token to print the credential. It is
+    returned by the issuance response alone — no listing exposes it, because a
+    page of tokens is a page of usable passes.
+    """
+
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+
+    class Meta:
+        model = StudentCredential
+        fields = [
+            "public_id",
+            "student_id",
+            "opaque_identifier",
+            "status",
+            "issued_at",
+            "is_active",
+            "created_at",
+        ]
+
+
+class StudentCredentialIssueSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")

@@ -185,3 +185,19 @@
 - Crear una asignacion requiere el objeto `scope` con al menos una dimension soportada:
   institucion, ciclo, grado, seccion, curso, asignacion docente, estudiante o modulo.
 - Una invocacion directa sin permiso o scope devuelve HTTP 403 y genera auditoria.
+
+## Credencial estudiantil
+
+- `POST /api/v1/attendance/credentials/` emite la credencial de un estudiante y devuelve el
+  identificador opaco que codifica el codigo QR. Requiere sesion, el permiso atomico
+  `attendance.credential.issue` y alcance sobre el estudiante.
+- El codigo QR codifica unicamente ese identificador. Se genera aleatoriamente con `secrets` y no
+  se deriva del codigo estudiantil, del numero de identificacion ni de ningun otro dato personal,
+  de modo que un lector externo obtiene una cadena sin significado.
+- La respuesta de emision es la unica que expone `opaque_identifier`. Ningun listado lo publica:
+  una pagina de tokens vigentes es una pagina de pases utilizables.
+- Solo un estudiante con inscripcion activa recibe credencial, y solo puede tener una vigente a
+  la vez. Un segundo intento devuelve HTTP 400 sin crear nada.
+- La emision genera auditoria con el estudiante y la fecha, nunca con el identificador.
+- Las credenciales no se borran ni se reescriben: la revocacion y la reposicion conservan las
+  anteriores como historia del expediente.

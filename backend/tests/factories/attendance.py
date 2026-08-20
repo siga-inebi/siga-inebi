@@ -8,6 +8,7 @@ from apps.attendance.models import (
     AttendanceEvent,
     ControlPoint,
     JornadaParameters,
+    StudentCredential,
 )
 from tests.factories.academic import AcademicCycleFactory, CampusFactory, ShiftFactory
 from tests.factories.students import StudentFactory
@@ -62,3 +63,13 @@ class AttendanceAlertFactory(factory.django.DjangoModelFactory):
     event_date = factory.LazyFunction(timezone.localdate)
     target_roles = factory.LazyFunction(list)
     context = factory.LazyFunction(dict)
+
+
+class StudentCredentialFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = StudentCredential
+
+    student = factory.SubFactory(StudentFactory)
+    opaque_identifier = factory.Sequence(lambda n: f"opaque-token-{n}")
+    status = StudentCredential.Status.ACTIVE
+    issued_at = factory.LazyFunction(timezone.now)
