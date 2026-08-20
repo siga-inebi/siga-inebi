@@ -68,7 +68,7 @@ def test_create_enrolment_rejects_grade_not_owned_by_section():
     section = SectionFactory()
     foreign_grade = SectionFactory().grade
 
-    with pytest.raises(DomainError, match="Section must belong to the grade"):
+    with pytest.raises(DomainError, match="seccion debe pertenecer al grado"):
         create_enrolment(
             student=StudentFactory(),
             academic_cycle=section.academic_cycle,
@@ -81,7 +81,7 @@ def test_create_enrolment_rejects_closed_cycle():
     cycle = AcademicCycleFactory(status="closed")
     section = SectionFactory(academic_cycle=cycle)
 
-    with pytest.raises(DomainError, match="Closed academic cycles"):
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
         create_enrolment(
             student=StudentFactory(),
             academic_cycle=cycle,
@@ -99,7 +99,7 @@ def test_create_enrolment_rejects_full_section():
         section=section,
     )
 
-    with pytest.raises(DomainError, match="Section capacity has been reached"):
+    with pytest.raises(DomainError, match="alcanzo su cupo"):
         create_enrolment(
             student=StudentFactory(),
             academic_cycle=section.academic_cycle,
@@ -139,7 +139,7 @@ def test_closed_cycle_rejects_section_change():
     cycle.status = cycle.CycleStatus.CLOSED
     cycle.save(update_fields=["status", "updated_at"])
 
-    with pytest.raises(DomainError, match="Closed academic cycles"):
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
         change_section(enrolment=enrolment, new_section=SectionFactory(academic_cycle=cycle))
 
 
@@ -209,7 +209,7 @@ def test_matriculate_student_rejects_a_second_active_enrolment():
         section=first_section,
     )
 
-    with pytest.raises(DomainError, match="already has an active enrolment"):
+    with pytest.raises(DomainError, match="ya tiene una inscripcion activa"):
         matriculate_student(
             student=student,
             academic_cycle=other_cycle,
@@ -232,7 +232,7 @@ def test_matriculate_student_rejects_repeating_the_same_section():
     first.status = Enrolment.EnrolmentStatus.WITHDRAWN
     first.save(update_fields=["status", "updated_at"])
 
-    with pytest.raises(DomainError, match="already enrolled in this section"):
+    with pytest.raises(DomainError, match="ya estuvo inscrito en esa seccion"):
         matriculate_student(
             student=student,
             academic_cycle=section.academic_cycle,
@@ -246,7 +246,7 @@ def test_matriculate_student_rejects_an_archived_student():
     """La baja del expediente no es una regla de duplicados; sigue vigente."""
     section = SectionFactory()
 
-    with pytest.raises(DomainError, match="Inactive students"):
+    with pytest.raises(DomainError, match="estudiante inactivo"):
         matriculate_student(
             student=StudentFactory(is_active=False),
             academic_cycle=section.academic_cycle,
@@ -260,7 +260,7 @@ def test_matriculate_student_rejects_shift_not_assigned_to_section():
     section = SectionFactory()
     wrong_shift = SectionFactory().shift
 
-    with pytest.raises(DomainError, match="selected shift"):
+    with pytest.raises(DomainError, match="jornada seleccionada"):
         matriculate_student(
             student=StudentFactory(status="pre_enrolled"),
             academic_cycle=section.academic_cycle,
@@ -291,7 +291,7 @@ def test_change_section_rejects_full_target_section_without_closing_current_enro
         section=target_section,
     )
 
-    with pytest.raises(DomainError, match="Section capacity has been reached"):
+    with pytest.raises(DomainError, match="alcanzo su cupo"):
         change_section(enrolment=current_enrolment, new_section=target_section)
 
     current_enrolment.refresh_from_db()
@@ -340,7 +340,7 @@ def test_reenrol_student_reuses_student_record_and_previous_enrolment():
 def test_reenrol_student_requires_previous_enrolment():
     section = SectionFactory(name="A")
 
-    with pytest.raises(DomainError, match="no previous enrolment"):
+    with pytest.raises(DomainError, match="no tiene matricula previa"):
         reenrol_student(
             student=StudentFactory(status="pre_enrolled"),
             academic_cycle=section.academic_cycle,
@@ -430,7 +430,7 @@ def test_set_document_requirement_rejects_blank_code():
         section=section,
     )
 
-    with pytest.raises(DomainError, match="Document code cannot be empty"):
+    with pytest.raises(DomainError, match="codigo del documento no puede estar vacio"):
         set_document_requirement(enrolment=enrolment, code="  ", name="Birth certificate")
 
 
@@ -471,7 +471,7 @@ def test_set_document_requirement_rejects_closed_cycle():
     cycle.status = "closed"
     cycle.save(update_fields=["status"])
 
-    with pytest.raises(DomainError, match="Closed academic cycles"):
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
         set_document_requirement(enrolment=enrolment, code="id-card", name="Identity card")
 
 

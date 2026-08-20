@@ -66,7 +66,7 @@ class StudentListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         user = self.request.user
         if not user.has_scoped_permission("student_edit_basic", scope={"module_key": "students"}):
-            raise PermissionDenied("Actor lacks the required permission or scope.")
+            raise PermissionDenied("El actor no tiene el permiso requerido o el alcance necesario.")
         serializer.save()
 
 
@@ -120,7 +120,9 @@ class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
         if not self.request.user.has_scoped_permission(
             "student_edit_basic", scope={"student": student}
         ):
-            raise PermissionDenied("Actor lacks the required permission or student scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         serializer.save()
 
 
@@ -289,7 +291,10 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
             request.user.has_scoped_permission(codename, scope={"student": student})
             for codename in required
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso sobre datos sensibles del estudiante o le "
+                "falta el alcance."
+            )
         return student
 
     def list_queryset(self, request, public_id):
@@ -323,7 +328,10 @@ class EmergencyContactDetailView(
             self.request.user.has_scoped_permission(codename, scope={"student": contact.student})
             for codename in required
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso sobre datos sensibles del estudiante o le "
+                "falta el alcance."
+            )
         if self.request.method == "GET":
             record_sensitive_read(
                 actor=self.request.user,
@@ -358,7 +366,10 @@ class StudentHealthNoteListCreateView(StudentRecordListCreateView):
             request.user.has_scoped_permission(codename, scope={"student": student})
             for codename in required
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso sobre datos sensibles del estudiante o le "
+                "falta el alcance."
+            )
         return student
 
     def list_queryset(self, request, public_id):
@@ -384,7 +395,10 @@ class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordD
         if not self.request.user.has_scoped_permission(
             "student_view_sensitive", scope={"student": note.student}
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso sobre datos sensibles del estudiante o le "
+                "falta el alcance."
+            )
         services._audit(
             self.request.user,
             "students.health_note.detail_read",
@@ -397,7 +411,9 @@ class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordD
         if not request.user.has_scoped_permission(
             "student_edit_basic", scope={"student": health_note.student}
         ):
-            raise PermissionDenied("Actor lacks student edit permission or scope.")
+            raise PermissionDenied(
+                "El actor no tiene permiso para editar al estudiante o le falta el alcance."
+            )
         services.deactivate_student_health_note(health_note=health_note, actor=request.user)
 
 
@@ -414,7 +430,10 @@ class StudentObservationListCreateView(StudentRecordListCreateView):
             request.user.has_scoped_permission(codename, scope={"student": student})
             for codename in required
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso sobre datos sensibles del estudiante o le "
+                "falta el alcance."
+            )
         return student
 
     def list_queryset(self, request, public_id):
@@ -440,7 +459,10 @@ class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecord
         if not self.request.user.has_scoped_permission(
             "student_view_sensitive", scope={"student": observation.student}
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso sobre datos sensibles del estudiante o le "
+                "falta el alcance."
+            )
         services._audit(
             self.request.user,
             "students.observation.detail_read",
@@ -453,5 +475,7 @@ class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecord
         if not request.user.has_scoped_permission(
             "student_edit_basic", scope={"student": observation.student}
         ):
-            raise PermissionDenied("Actor lacks student edit permission or scope.")
+            raise PermissionDenied(
+                "El actor no tiene permiso para editar al estudiante o le falta el alcance."
+            )
         services.deactivate_student_observation(observation=observation, actor=request.user)

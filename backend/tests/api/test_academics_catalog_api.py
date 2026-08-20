@@ -177,7 +177,7 @@ def test_delete_campus_in_use_returns_400(auth_client, institution):
     response = auth_client.delete(reverse("campus-detail", args=[campus.public_id]))
 
     assert response.status_code == 400
-    assert "active cycle" in str(_detail(response))
+    assert "ciclo activo" in str(_detail(response))
 
 
 # --------------------------------------------------------------------------- #
@@ -252,7 +252,7 @@ def test_deactivate_shift_in_use_returns_400(auth_client, institution):
     response = auth_client.delete(reverse("shift-detail", args=[shift.public_id]))
 
     assert response.status_code == 400
-    assert "active cycle" in str(_detail(response))
+    assert "ciclo activo" in str(_detail(response))
 
 
 # --------------------------------------------------------------------------- #
@@ -282,7 +282,7 @@ def test_create_level_rejects_duplicate_sequence(auth_client, institution):
     )
 
     assert response.status_code == 400
-    assert "sequence" in str(_detail(response))
+    assert "secuencia" in str(_detail(response))
 
 
 def test_create_level_rejects_non_positive_sequence_at_serializer(auth_client, institution):
@@ -344,7 +344,7 @@ def test_level_patch_with_taken_sequence_returns_400(auth_client, institution):
     )
 
     assert response.status_code == 400
-    assert "sequence" in str(_detail(response))
+    assert "secuencia" in str(_detail(response))
 
 
 # --------------------------------------------------------------------------- #
@@ -502,7 +502,7 @@ def test_link_subject_from_another_institution_returns_400(auth_client, institut
     )
 
     assert response.status_code == 400
-    assert "institution" in str(_detail(response))
+    assert "misma institucion" in str(_detail(response))
 
 
 def test_link_unknown_subject_returns_400(auth_client, institution):
@@ -559,4 +559,4 @@ def test_unlink_unlinked_subject_returns_400(auth_client, institution):
     )
 
     assert response.status_code == 400
-    assert "not linked" in str(_detail(response))
+    assert "no esta vinculado" in str(_detail(response))

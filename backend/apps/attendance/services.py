@@ -49,7 +49,7 @@ ORIGIN_PRECEDENCE = {
 
 def _require_active(instance, label):
     if not instance.is_active:
-        raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
+        raise DomainError(f"No se puede usar {label} '{instance}': su registro esta inactivo.")
 
 
 @transaction.atomic
@@ -72,15 +72,15 @@ def set_jornada_parameters(
     supersedes them for dates on or after it (RF-JOR-001, and RF-JOR-006
     later).
     """
-    _require_active(shift, "Shift")
-    _require_active(academic_cycle, "Academic cycle")
+    _require_active(shift, "la jornada")
+    _require_active(academic_cycle, "el ciclo escolar")
     if academic_cycle.institution_id != shift.institution.pk:
-        raise DomainError("Shift and academic cycle must belong to the same institution.")
+        raise DomainError("La jornada y el ciclo escolar deben pertenecer a la misma institucion.")
 
     with unique_violation_as(
         {
             "unique_jornada_parameters_effective_from": (
-                "Jornada parameters already exist for this shift, cycle, and effective date."
+                "Ya existen parametros para esa jornada, ciclo y fecha de vigencia."
             )
         }
     ):
@@ -125,7 +125,9 @@ def get_effective_parameters(*, shift, academic_cycle, on_date):
         .first()
     )
     if parameters is None:
-        raise DomainError(f"No jornada parameters are configured for shift '{shift}' on {on_date}.")
+        raise DomainError(
+            f"La jornada '{shift}' no tiene parametros configurados para el {on_date}."
+        )
     return parameters
 
 
@@ -137,7 +139,7 @@ def resolve_academic_cycle_for(*, shift, event_date):
         ends_on__gte=event_date,
     ).first()
     if academic_cycle is None:
-        raise DomainError(f"No academic cycle covers {event_date} for shift '{shift}'.")
+        raise DomainError(f"Ningun ciclo escolar cubre el {event_date} para la jornada '{shift}'.")
     return academic_cycle
 
 
@@ -158,8 +160,8 @@ def record_attendance_event(
     conflicting events for the same student/shift/date/movement all coexist,
     and RF-JOR-003's precedence rule decides which one is used later.
     """
-    _require_active(student, "Student")
-    _require_active(shift, "Shift")
+    _require_active(student, "el estudiante")
+    _require_active(shift, "la jornada")
 
     event = AttendanceEvent.objects.create(
         student=student,
@@ -247,11 +249,11 @@ def record_scan_movement(
       duplicate is recorded as an auditable rejection, not as a movement.
     """
     if operator is None:
-        raise DomainError("A scan movement must be recorded by an authenticated operator.")
+        raise DomainError("Un movimiento por escaneo debe registrarlo un operador autenticado.")
 
-    _require_active(student, "Student")
-    _require_active(shift, "Shift")
-    _require_active(control_point, "Control point")
+    _require_active(student, "el estudiante")
+    _require_active(shift, "la jornada")
+    _require_active(control_point, "el punto de control")
 
     if client_event_id:
         existing = AttendanceEvent.objects.filter(client_event_id=client_event_id).first()
@@ -305,7 +307,7 @@ def record_scan_movement(
     with unique_violation_as(
         {
             "unique_attendance_event_client_event_id": (
-                "This client_event_id was already used for another event."
+                "Ese client_event_id ya se uso para otro movimiento."
             )
         }
     ):
@@ -578,7 +580,7 @@ def derive_day_statuses(*, students, shift, event_dates, as_of=None):
         )
         if parameters is None:
             raise DomainError(
-                f"No jornada parameters are configured for shift '{shift}' on {event_date}."
+                f"La jornada '{shift}' no tiene parametros configurados para el {event_date}."
             )
         parameters_by_date[event_date] = parameters
 
@@ -676,7 +678,7 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
     cierre"). The latter raises an alert for the control point staff and the
     section's coordinator. Never mutates or removes the events it reads.
     """
-    _require_active(shift, "Shift")
+    _require_active(shift, "la jornada")
     academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
     parameters = get_effective_parameters(
         shift=shift, academic_cycle=academic_cycle, on_date=event_date
@@ -1096,8 +1098,8 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
     )
     if enrolment is None:
         raise DomainError(
-            f"Student '{student}' has no active enrolment for shift '{shift}' in the "
-            f"cycle covering {as_of_date}."
+            f"El estudiante '{student}' no tiene inscripcion activa en la jornada "
+            f"'{shift}' para el ciclo que cubre el {as_of_date}."
         )
 
     start_date = max(academic_cycle.starts_on, enrolment.effective_on)
@@ -1190,10 +1192,11 @@ def issue_credential(
     movement, and issuing one to somebody who is not enrolled would create a
     usable pass with no jornada behind it.
     """
-    _require_active(student, "Student")
+    _require_active(student, "el estudiante")
     if not active_enrolments(student=student).exists():
         raise DomainError(
-            f"Student '{student}' has no active enrolment, so no credential can be issued."
+            f"El estudiante '{student}' no tiene inscripcion activa, asi que no se le puede "
+            "emitir credencial."
         )
     issued_at = issued_at or timezone.now()
 
@@ -1206,7 +1209,7 @@ def issue_credential(
         )
 
     with unique_violation_as(
-        {"unique_active_student_credential": "Student already has an active credential."}
+        {"unique_active_student_credential": "El estudiante ya tiene una credencial vigente."}
     ):
         credential = create_with_generated_code(
             build=build,
@@ -1261,13 +1264,13 @@ def resolve_credential(*, opaque_identifier):
         .first()
     )
     if credential is None:
-        raise DomainError("Credential is not recognised.")
+        raise DomainError("La credencial no es reconocida.")
     if credential.status != StudentCredential.Status.ACTIVE or not credential.is_active:
-        raise DomainError("Credential has been revoked.")
+        raise DomainError("La credencial fue revocada.")
 
     enrolment = active_enrolments(student=credential.student).first()
     if enrolment is None:
-        raise DomainError("The credential bearer has no active enrolment.")
+        raise DomainError("El portador de la credencial no tiene inscripcion activa.")
     return CredentialResolution(
         credential=credential, student=credential.student, enrolment=enrolment
     )
@@ -1294,4 +1297,4 @@ def resolve_scan_subject(*, credential_identifier="", student_code=""):
     try:
         return Student.objects.get(student_code=student_code, is_active=True)
     except Student.DoesNotExist as exc:
-        raise DomainError(f"Student with code '{student_code}' not found.") from exc
+        raise DomainError(f"No existe estudiante con codigo '{student_code}'.") from exc

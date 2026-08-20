@@ -62,7 +62,7 @@ STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise PermissionDenied("Actor lacks the required permission.")
+        raise PermissionDenied("El actor no tiene el permiso requerido.")
 
 
 # Provisional: one atomic permission per event origin. A separate
@@ -113,9 +113,9 @@ class JornadaParametersListCreateView(GenericAPIView):
         serializer = JornadaParametersCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "Shift")
+        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "la jornada")
         academic_cycle = _resolve(
-            AcademicCycle.objects.all(), payload.pop("academic_cycle_id"), "Academic cycle"
+            AcademicCycle.objects.all(), payload.pop("academic_cycle_id"), "el ciclo escolar"
         )
         parameters = services.set_jornada_parameters(
             shift=shift, academic_cycle=academic_cycle, actor=request.user, **payload
@@ -167,9 +167,9 @@ class AttendanceEventListCreateView(GenericAPIView):
         payload = serializer.validated_data
         codename = ORIGIN_PERMISSIONS[payload["origin"]]
         if not request.user.has_atomic_permission(codename):
-            raise PermissionDenied("Actor lacks the required permission.")
-        student = _resolve(Student.objects.all(), payload.pop("student_id"), "Student")
-        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "Shift")
+            raise PermissionDenied("El actor no tiene el permiso requerido.")
+        student = _resolve(Student.objects.all(), payload.pop("student_id"), "el estudiante")
+        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "la jornada")
         event = services.record_attendance_event(
             student=student, shift=shift, actor=request.user, **payload
         )
@@ -199,12 +199,14 @@ class AttendanceEventResolutionView(GenericAPIView):
         query = AttendanceEventResolutionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         payload = query.validated_data
-        student = _resolve(Student.objects.all(), payload["student_id"], "Student")
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        student = _resolve(Student.objects.all(), payload["student_id"], "el estudiante")
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise PermissionDenied("Actor lacks the required permission or student scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         event = services.resolve_prevailing_event(
             student=student,
             shift=shift,
@@ -212,7 +214,7 @@ class AttendanceEventResolutionView(GenericAPIView):
             movement_type=payload["movement_type"],
         )
         if event is None:
-            raise NotFound("No attendance event found for the given criteria.")
+            raise NotFound("No hay movimiento de asistencia para los criterios indicados.")
         return Response(AttendanceEventSerializer(event).data)
 
 
@@ -238,12 +240,14 @@ class AttendanceDayStatusView(GenericAPIView):
         query = DayStatusQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         payload = query.validated_data
-        student = _resolve(Student.objects.all(), payload["student_id"], "Student")
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        student = _resolve(Student.objects.all(), payload["student_id"], "el estudiante")
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise PermissionDenied("Actor lacks the required permission or student scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         record_sensitive_read(
             actor=request.user,
             action="attendance.day_status.read",
@@ -283,7 +287,7 @@ class JornadaClosureView(GenericAPIView):
         serializer = JornadaClosureRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
         result = services.close_jornada(
             shift=shift, event_date=payload["event_date"], actor=request.user
         )
@@ -339,14 +343,14 @@ class AttendancePresenceListView(GenericAPIView):
         query = AttendancePresenceQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         payload = query.validated_data
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
         grade = (
-            _resolve(Grade.objects.all(), payload["grade_id"], "Grade")
+            _resolve(Grade.objects.all(), payload["grade_id"], "el grado")
             if payload.get("grade_id")
             else None
         )
         section = (
-            _resolve(Section.objects.all(), payload["section_id"], "Section")
+            _resolve(Section.objects.all(), payload["section_id"], "la seccion")
             if payload.get("section_id")
             else None
         )
@@ -387,12 +391,14 @@ class AttendancePercentageView(GenericAPIView):
         query = AttendancePercentageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         payload = query.validated_data
-        student = _resolve(Student.objects.all(), payload["student_id"], "Student")
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        student = _resolve(Student.objects.all(), payload["student_id"], "el estudiante")
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise PermissionDenied("Actor lacks the required permission or student scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         record_sensitive_read(
             actor=request.user,
             action="attendance.percentage.read",
@@ -474,9 +480,9 @@ class AttendanceScanView(GenericAPIView):
                     credential_identifier=raw_item.get("credential_identifier", ""),
                     student_code=raw_item.get("student_code", ""),
                 )
-                shift = _resolve(Shift.objects.all(), raw_item["shift_id"], "Shift")
+                shift = _resolve(Shift.objects.all(), raw_item["shift_id"], "la jornada")
                 control_point = _resolve(
-                    ControlPoint.objects.all(), raw_item["control_point_id"], "Control point"
+                    ControlPoint.objects.all(), raw_item["control_point_id"], "el punto de control"
                 )
             except DomainError as exc:
                 results_by_index[index] = services.RejectedScanItem(
@@ -526,7 +532,7 @@ def _resolve(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise DomainError(f"{label} not found.") from exc
+        raise DomainError(f"No se encontro {label}.") from exc
 
 
 CREDENTIAL_TAGS = ["attendance: credencial"]
@@ -558,12 +564,14 @@ class StudentCredentialIssueView(GenericAPIView):
         serializer = StudentCredentialIssueSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         student = _resolve(
-            Student.objects.all(), serializer.validated_data["student_id"], "Student"
+            Student.objects.all(), serializer.validated_data["student_id"], "el estudiante"
         )
         if not can_access_student(
             user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
         ):
-            raise PermissionDenied("Actor lacks the required permission or student scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         credential = services.issue_credential(student=student, actor=request.user)
         return Response(
             StudentCredentialSerializer(credential).data, status=status.HTTP_201_CREATED

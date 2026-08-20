@@ -42,18 +42,18 @@ class EnrolmentCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise PermissionDenied("Actor lacks the required permission.")
+            raise PermissionDenied("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         enrolment = services.create_enrolment(
-            student=_resolve(Student.objects.all(), payload["student_id"], "Student"),
+            student=_resolve(Student.objects.all(), payload["student_id"], "el estudiante"),
             academic_cycle=_resolve(
                 AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
             ),
-            grade=_resolve(Grade.objects.all(), payload["grade_id"], "Grade"),
-            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            grade=_resolve(Grade.objects.all(), payload["grade_id"], "el grado"),
+            section=_resolve(Section.objects.all(), payload["section_id"], "la seccion"),
             effective_on=payload["effective_on"],
             ends_on=payload.get("ends_on"),
             actor=request.user,
@@ -81,7 +81,7 @@ class ActiveEnrolmentListView(GenericAPIView):
         student = None
         student_id = query.validated_data.get("student_id")
         if student_id:
-            student = _resolve(Student.objects.all(), student_id, "Student")
+            student = _resolve(Student.objects.all(), student_id, "el estudiante")
         page = self.paginate_queryset(services.active_enrolments(student=student))
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
@@ -108,14 +108,14 @@ class SectionOccupancyListView(GenericAPIView):
 
         academic_cycle_id = payload.get("academic_cycle_id")
         academic_cycle = (
-            _resolve(AcademicCycle.objects.all(), academic_cycle_id, "Academic cycle")
+            _resolve(AcademicCycle.objects.all(), academic_cycle_id, "el ciclo escolar")
             if academic_cycle_id
             else None
         )
         grade_id = payload.get("grade_id")
-        grade = _resolve(Grade.objects.all(), grade_id, "Grade") if grade_id else None
+        grade = _resolve(Grade.objects.all(), grade_id, "el grado") if grade_id else None
         section_id = payload.get("section_id")
-        section = _resolve(Section.objects.all(), section_id, "Section") if section_id else None
+        section = _resolve(Section.objects.all(), section_id, "la seccion") if section_id else None
 
         page = self.paginate_queryset(
             services.section_occupancy(
@@ -145,7 +145,9 @@ class EnrolmentHistoryListView(GenericAPIView):
     def get(self, request):
         query = self.get_serializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        student = _resolve(Student.objects.all(), query.validated_data["student_id"], "Student")
+        student = _resolve(
+            Student.objects.all(), query.validated_data["student_id"], "el estudiante"
+        )
         page = self.paginate_queryset(services.enrolment_history(student=student))
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
@@ -166,19 +168,19 @@ class MatriculationCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise PermissionDenied("Actor lacks the required permission.")
+            raise PermissionDenied("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         enrolment = services.matriculate_student(
-            student=_resolve(Student.objects.all(), payload["student_id"], "Student"),
+            student=_resolve(Student.objects.all(), payload["student_id"], "el estudiante"),
             academic_cycle=_resolve(
                 AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
             ),
-            grade=_resolve(Grade.objects.all(), payload["grade_id"], "Grade"),
-            shift=_resolve(Shift.objects.all(), payload["shift_id"], "Shift"),
-            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            grade=_resolve(Grade.objects.all(), payload["grade_id"], "el grado"),
+            shift=_resolve(Shift.objects.all(), payload["shift_id"], "la jornada"),
+            section=_resolve(Section.objects.all(), payload["section_id"], "la seccion"),
             effective_on=payload["effective_on"],
             actor=request.user,
         )
@@ -201,19 +203,19 @@ class ReenrolmentCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise PermissionDenied("Actor lacks the required permission.")
+            raise PermissionDenied("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         enrolment = services.reenrol_student(
-            student=_resolve(Student.objects.all(), payload["student_id"], "Student"),
+            student=_resolve(Student.objects.all(), payload["student_id"], "el estudiante"),
             academic_cycle=_resolve(
                 AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
             ),
-            grade=_resolve(Grade.objects.all(), payload["grade_id"], "Grade"),
-            shift=_resolve(Shift.objects.all(), payload["shift_id"], "Shift"),
-            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            grade=_resolve(Grade.objects.all(), payload["grade_id"], "el grado"),
+            shift=_resolve(Shift.objects.all(), payload["shift_id"], "la jornada"),
+            section=_resolve(Section.objects.all(), payload["section_id"], "la seccion"),
             effective_on=payload["effective_on"],
             actor=request.user,
         )
@@ -230,7 +232,7 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
     )
     def get(self, request, enrolment_id):
         _ensure_enrolment_permission(request)
-        enrolment = _resolve(Enrolment.objects.all(), enrolment_id, "Enrolment")
+        enrolment = _resolve(Enrolment.objects.all(), enrolment_id, "la matricula")
         requirements = enrolment.document_requirements.filter(is_active=True)
         page = self.paginate_queryset(requirements)
         return self.get_paginated_response(
@@ -246,7 +248,7 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
     )
     def post(self, request, enrolment_id):
         _ensure_enrolment_permission(request)
-        enrolment = _resolve(Enrolment.objects.all(), enrolment_id, "Enrolment")
+        enrolment = _resolve(Enrolment.objects.all(), enrolment_id, "la matricula")
         serializer = EnrolmentDocumentRequirementCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         requirement = services.set_document_requirement(
@@ -259,7 +261,7 @@ def _resolve(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise NotFound(f"{label} not found.") from exc
+        raise NotFound(f"No se encontro {label}.") from exc
 
 
 def _ensure_enrolment_permission(request, codenames=_ENROLMENT_WRITE_PERMISSIONS):
@@ -267,4 +269,4 @@ def _ensure_enrolment_permission(request, codenames=_ENROLMENT_WRITE_PERMISSIONS
     # create and the update permission are legitimate. The catalogue has no read-only
     # enrolment permission yet, so the listing accepts the same pair.
     if not any(request.user.has_atomic_permission(codename) for codename in codenames):
-        raise PermissionDenied("Actor lacks the required permission.")
+        raise PermissionDenied("El actor no tiene el permiso requerido.")

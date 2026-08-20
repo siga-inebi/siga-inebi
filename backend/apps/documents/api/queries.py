@@ -45,9 +45,9 @@ def document_template_or_404(institution, public_id):
     try:
         return document_templates_all(institution).get(public_id=public_id)
     except DocumentTemplate.DoesNotExist as exc:
-        raise NotFound("DocumentTemplate not found.") from exc
+        raise NotFound("No se encontro la plantilla de documento.") from exc
     except (ValueError, TypeError) as exc:  # malformed public_id
-        raise NotFound("DocumentTemplate not found.") from exc
+        raise NotFound("No se encontro la plantilla de documento.") from exc
 
 
 def document_template_versions(template):
@@ -58,6 +58,6 @@ def enrolment_or_404(public_id):
     try:
         return Enrolment.objects.get(public_id=public_id)
     except Enrolment.DoesNotExist as exc:
-        raise NotFound("Enrolment not found.") from exc
+        raise NotFound("No se encontro la matricula.") from exc
     except (ValueError, TypeError) as exc:  # malformed public_id
-        raise NotFound("Enrolment not found.") from exc
+        raise NotFound("No se encontro la matricula.") from exc

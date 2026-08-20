@@ -57,11 +57,20 @@ class EvaluationUnitSerializer(serializers.ModelSerializer):
         """Validate date ranges before passing to service."""
         if data["starts_on"] > data["ends_on"]:
             raise serializers.ValidationError(
-                {"ends_on": "Evaluation end date must be >= start date."}
+                {
+                    "ends_on": (
+                        "La fecha de fin de la evaluacion no puede ser anterior a la de inicio."
+                    )
+                }
             )
         if data["capture_starts_on"] > data["capture_ends_on"]:
             raise serializers.ValidationError(
-                {"capture_ends_on": "Capture window end date must be >= start date."}
+                {
+                    "capture_ends_on": (
+                        "La fecha de fin de la ventana de captura no puede ser anterior a "
+                        "la de inicio."
+                    )
+                }
             )
         return data
 
@@ -75,7 +84,12 @@ class RecoveryWindowSerializer(serializers.Serializer):
     def validate(self, data):
         if data["recovery_starts_on"] > data["recovery_ends_on"]:
             raise serializers.ValidationError(
-                {"recovery_ends_on": "Recovery window end date must be >= start date."}
+                {
+                    "recovery_ends_on": (
+                        "La fecha de fin de la ventana de recuperacion no puede ser anterior "
+                        "a la de inicio."
+                    )
+                }
             )
         return data
 
@@ -125,7 +139,7 @@ class EvaluationGlobalConfigSerializer(serializers.ModelSerializer):
 
     def validate_default_unit_count(self, value):
         if value <= 0:
-            raise serializers.ValidationError("default_unit_count must be a positive integer.")
+            raise serializers.ValidationError("default_unit_count debe ser un entero positivo.")
         return value
 
 
@@ -140,7 +154,7 @@ class CycleEvaluationConfigSerializer(serializers.ModelSerializer):
 
     def validate_unit_count(self, value):
         if value <= 0:
-            raise serializers.ValidationError("unit_count must be a positive integer.")
+            raise serializers.ValidationError("unit_count debe ser un entero positivo.")
         return value
 
 
@@ -186,6 +200,6 @@ class GradeSerializer(serializers.ModelSerializer):
         """RF-CAL-002: reject values outside the 0-100 scale."""
         if value < GRADE_MIN_VALUE or value > GRADE_MAX_VALUE:
             raise serializers.ValidationError(
-                f"Grade value must be between {GRADE_MIN_VALUE} and {GRADE_MAX_VALUE}."
+                f"La nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE}."
             )
         return value

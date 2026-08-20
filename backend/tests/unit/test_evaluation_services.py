@@ -134,7 +134,7 @@ class TestCreateEvaluationUnit:
         """
         cycle = AcademicCycleFactory()
 
-        with pytest.raises(DomainError, match="cannot be after"):
+        with pytest.raises(DomainError, match="no puede ser posterior"):
             create_evaluation_unit(
                 academic_cycle=cycle,
                 number=1,
@@ -249,7 +249,7 @@ class TestCaptureWindowValidation:
         )
 
         # Try to validate on a date after the window closed
-        with pytest.raises(DomainError, match="Grade capture window is closed"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             validate_capture_window_open(unit, on_date=date(2026, 3, 1))
 
     def test_capture_before_window_opens(self):
@@ -268,7 +268,7 @@ class TestCaptureWindowValidation:
         )
 
         # Try to validate before the window opens
-        with pytest.raises(DomainError, match="Grade capture window is closed"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             validate_capture_window_open(unit, on_date=date(2026, 1, 1))
 
     def test_invalid_capture_date_range(self):
@@ -277,7 +277,7 @@ class TestCaptureWindowValidation:
         """
         cycle = AcademicCycleFactory()
 
-        with pytest.raises(DomainError, match="Capture window start date"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             create_evaluation_unit(
                 academic_cycle=cycle,
                 number=1,
@@ -315,7 +315,7 @@ class TestRecoveryWindow:
             recovery_ends_on=date(2026, 3, 20),
         )
 
-        with pytest.raises(DomainError, match="Recovery window is closed"):
+        with pytest.raises(DomainError, match="ventana de recuperacion de la unidad"):
             validate_recovery_window_open(unit, on_date=date(2026, 3, 1))
 
     def test_recovery_after_window_closed_is_rejected(self):
@@ -338,7 +338,7 @@ class TestRecoveryWindow:
             recovery_ends_on=date(2026, 3, 20),
         )
 
-        with pytest.raises(DomainError, match="Recovery window is closed"):
+        with pytest.raises(DomainError, match="ventana de recuperacion de la unidad"):
             validate_recovery_window_open(unit, on_date=date(2026, 3, 21))
 
     def test_recovery_within_window_is_accepted(self):
@@ -379,7 +379,7 @@ class TestRecoveryWindow:
             capture_ends_on=date(2026, 2, 28),
         )
 
-        with pytest.raises(DomainError, match="No recovery window has been configured"):
+        with pytest.raises(DomainError, match="no tiene ventana de recuperacion configurada"):
             validate_recovery_window_open(unit, on_date=date(2026, 3, 15))
 
     def test_reject_invalid_recovery_date_range(self):
@@ -397,7 +397,7 @@ class TestRecoveryWindow:
             capture_ends_on=date(2026, 2, 28),
         )
 
-        with pytest.raises(DomainError, match="Recovery window start date"):
+        with pytest.raises(DomainError, match="ventana de recuperacion"):
             set_recovery_window(
                 unit=unit,
                 recovery_starts_on=date(2026, 3, 20),
@@ -450,7 +450,7 @@ class TestCaptureExceptionGrant:
         # No exception raised.
 
         # No other teacher gains access through this grant.
-        with pytest.raises(DomainError, match="Grade capture window is closed"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             validate_capture_allowed(unit, subject, other_teacher)
 
     def test_grant_expires_automatically(self):
@@ -475,7 +475,7 @@ class TestCaptureExceptionGrant:
 
         # Still active is_active=True; only expires_at determines validity.
         past_expiration = timezone.now() + timedelta(hours=2)
-        with pytest.raises(DomainError, match="Grade capture window is closed"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             validate_capture_allowed(unit, subject, teacher, on_datetime=past_expiration)
 
     def test_reject_empty_reason(self):
@@ -486,7 +486,7 @@ class TestCaptureExceptionGrant:
         subject = SubjectFactory()
         teacher = PersonFactory()
 
-        with pytest.raises(DomainError, match="reason is required"):
+        with pytest.raises(DomainError, match="requiere un motivo"):
             grant_capture_exception(
                 evaluation_unit=unit,
                 subject=subject,
@@ -503,7 +503,7 @@ class TestCaptureExceptionGrant:
         subject = SubjectFactory()
         teacher = PersonFactory()
 
-        with pytest.raises(DomainError, match="must be in the future"):
+        with pytest.raises(DomainError, match="debe ser futuro"):
             grant_capture_exception(
                 evaluation_unit=unit,
                 subject=subject,
@@ -559,7 +559,7 @@ class TestGlobalEvaluationConfig:
         """
         Test that a non-positive default_unit_count is rejected.
         """
-        with pytest.raises(DomainError, match="positive integer"):
+        with pytest.raises(DomainError, match="entero positivo"):
             update_global_evaluation_config(default_unit_count=0)
 
     def test_reject_non_positive_cycle_unit_count(self):
@@ -568,7 +568,7 @@ class TestGlobalEvaluationConfig:
         """
         cycle = AcademicCycleFactory()
 
-        with pytest.raises(DomainError, match="positive integer"):
+        with pytest.raises(DomainError, match="entero positivo"):
             set_cycle_unit_count(academic_cycle=cycle, unit_count=0)
 
 
@@ -671,7 +671,7 @@ class TestRegisterUnitGrade:
         subject = SubjectFactory(institution=cycle.institution)
         teacher = PersonFactory()
 
-        with pytest.raises(DomainError, match="Grade capture window is closed"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             register_unit_grade(
                 enrolment=enrolment,
                 subject=subject,
@@ -692,7 +692,7 @@ class TestRegisterUnitGrade:
         subject = SubjectFactory(institution=cycle.institution)
         teacher = PersonFactory()
 
-        with pytest.raises(DomainError, match="different academic cycles"):
+        with pytest.raises(DomainError, match="ciclos escolares distintos"):
             register_unit_grade(
                 enrolment=enrolment,
                 subject=subject,
@@ -736,7 +736,7 @@ class TestGradeScale:
         subject = SubjectFactory(institution=cycle.institution)
         teacher = PersonFactory()
 
-        with pytest.raises(DomainError, match="between 0 and 100"):
+        with pytest.raises(DomainError, match="entre 0 y 100"):
             register_unit_grade(
                 enrolment=enrolment,
                 subject=subject,
@@ -755,7 +755,7 @@ class TestGradeScale:
         subject = SubjectFactory(institution=cycle.institution)
         teacher = PersonFactory()
 
-        with pytest.raises(DomainError, match="between 0 and 100"):
+        with pytest.raises(DomainError, match="entre 0 y 100"):
             register_unit_grade(
                 enrolment=enrolment,
                 subject=subject,

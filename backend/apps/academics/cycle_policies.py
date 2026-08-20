@@ -6,7 +6,7 @@ def require_cycle_academic_writes(*, cycle, operation):
     if not cycle.is_closed:
         return
 
-    raise DomainError(f"Closed academic cycles do not accept academic changes: {operation}.")
+    raise DomainError(f"Un ciclo escolar cerrado no admite cambios academicos: {operation}.")
 
 
 def require_cycle_planning_writes(*, cycle, operation):
@@ -24,5 +24,5 @@ def require_cycle_planning_writes(*, cycle, operation):
         return
 
     raise DomainError(
-        f"Academic cycle structure can only change while the cycle is in planning: {operation}."
+        f"La estructura del ciclo escolar solo cambia mientras esta en preparacion: {operation}."
     )

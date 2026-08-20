@@ -75,8 +75,8 @@ def test_postgresql_exclusion_constraint_rejects_overlapping_current_assignments
 @pytest.mark.parametrize(
     ("ends_on", "message"),
     [
-        (date(2025, 12, 31), "end date must be within"),
-        (date(2026, 12, 31), "must leave at least one day"),
+        (date(2025, 12, 31), "fin de la asignacion debe caer dentro"),
+        (date(2026, 12, 31), "al menos un dia"),
     ],
 )
 def test_reassignment_rejects_an_invalid_successor_period(ends_on, message):

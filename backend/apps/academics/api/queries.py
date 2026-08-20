@@ -35,7 +35,7 @@ def resolve_institution(request):
     """
     institution = Institution.objects.order_by("pk").first()
     if institution is None:
-        raise NotFound("No institution is configured yet.")
+        raise NotFound("Todavia no hay institucion configurada.")
     return institution
 
 
@@ -153,7 +153,7 @@ def section_or_404(institution, public_id):
     queryset = Section.objects.filter(
         offering__academic_cycle__institution=institution
     ).select_related(*_SECTION_RELATED)
-    return _get(queryset, public_id, "Section")
+    return _get(queryset, public_id, "la seccion")
 
 
 _CURRICULUM_PLAN_RELATED = ("academic_cycle", "grade__level", "subject")
@@ -178,7 +178,7 @@ def curriculum_plan_or_404(institution, public_id):
     queryset = CurriculumPlan.objects.filter(
         academic_cycle__institution=institution
     ).select_related(*_CURRICULUM_PLAN_RELATED)
-    return _get(queryset, public_id, "Curriculum plan")
+    return _get(queryset, public_id, "el plan de estudios")
 
 
 def teaching_assignment_history(institution, *, teacher=None, academic_cycle=None):
@@ -239,13 +239,13 @@ def historical_cycle_or_404(institution, public_id):
             ),
         )
     )
-    return _get(queryset, public_id, "Academic cycle")
+    return _get(queryset, public_id, "el ciclo escolar")
 
 
 def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise NotFound(f"{label} not found.") from exc
+        raise NotFound(f"No se encontro {label}.") from exc
     except (ValueError, TypeError) as exc:  # malformed public_id
-        raise NotFound(f"{label} not found.") from exc
+        raise NotFound(f"No se encontro {label}.") from exc

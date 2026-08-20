@@ -31,13 +31,13 @@ def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise NotFound(f"{label} not found.") from exc
+        raise NotFound(f"No se encontro {label}.") from exc
     except (ValueError, TypeError) as exc:  # malformed public_id
-        raise NotFound(f"{label} not found.") from exc
+        raise NotFound(f"No se encontro {label}.") from exc
 
 
 def student_or_404(public_id):
-    return _get(Student.objects.all(), public_id, "Student")
+    return _get(Student.objects.all(), public_id, "el estudiante")
 
 
 def emergency_contacts(student, request):

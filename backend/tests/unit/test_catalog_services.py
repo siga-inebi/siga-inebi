@@ -53,7 +53,7 @@ def test_create_level_rejects_duplicate_sequence_in_institution():
     institution = InstitutionFactory()
     create_level(institution=institution, name="Preprimaria", code="PRE", sequence=1)
 
-    with pytest.raises(DomainError, match="sequence"):
+    with pytest.raises(DomainError, match="secuencia"):
         create_level(institution=institution, name="Primaria", code="PRI", sequence=1)
 
 
@@ -68,7 +68,7 @@ def test_create_level_allows_same_sequence_in_another_institution():
 def test_create_level_rejects_zero_or_negative_sequence():
     institution = InstitutionFactory()
 
-    with pytest.raises(DomainError, match="sequence"):
+    with pytest.raises(DomainError, match="secuencia"):
         create_level(institution=institution, name="Primaria", code="PRI", sequence=0)
 
 
@@ -122,7 +122,7 @@ def test_create_grade_rejects_duplicate_sequence_in_same_level():
     level = LevelFactory()
     create_grade(level=level, name="Primero", code="PRI1", sequence=1)
 
-    with pytest.raises(DomainError, match="sequence"):
+    with pytest.raises(DomainError, match="secuencia"):
         create_grade(level=level, name="Segundo", code="PRI2", sequence=1)
 
 
@@ -140,7 +140,7 @@ def test_create_grade_allows_same_sequence_in_a_different_level():
 def test_create_grade_rejects_inactive_level():
     level = LevelFactory(is_active=False)
 
-    with pytest.raises(DomainError, match="inactive"):
+    with pytest.raises(DomainError, match="registro esta inactivo"):
         create_grade(level=level, name="Primero", code="PRI1", sequence=1)
 
 
@@ -182,7 +182,7 @@ def test_deactivate_level_rejects_when_a_grade_is_offered_in_an_open_cycle():
     cycle = AcademicCycleFactory(institution=level.institution)
     GradeOfferingFactory(academic_cycle=cycle, grade=grade)
 
-    with pytest.raises(DomainError, match="active cycle"):
+    with pytest.raises(DomainError, match="ciclo activo"):
         deactivate_level(level=level)
 
 
@@ -191,7 +191,7 @@ def test_deactivate_grade_rejects_when_offered_in_an_open_cycle():
     cycle = AcademicCycleFactory(institution=grade.level.institution)
     GradeOfferingFactory(academic_cycle=cycle, grade=grade)
 
-    with pytest.raises(DomainError, match="active cycle"):
+    with pytest.raises(DomainError, match="ciclo activo"):
         deactivate_grade(grade=grade)
 
 
@@ -273,7 +273,7 @@ def test_link_subject_to_level_rejects_cross_institution_pairing():
     level = LevelFactory()
     foreign_subject = SubjectFactory()
 
-    with pytest.raises(DomainError, match="institution"):
+    with pytest.raises(DomainError, match="misma institucion"):
         link_subject_to_level(level=level, subject=foreign_subject)
 
 
@@ -282,7 +282,7 @@ def test_link_subject_to_level_rejects_inactive_level():
     level = LevelFactory(institution=institution, is_active=False)
     subject = SubjectFactory(institution=institution)
 
-    with pytest.raises(DomainError, match="inactive"):
+    with pytest.raises(DomainError, match="registro esta inactivo"):
         link_subject_to_level(level=level, subject=subject)
 
 
@@ -291,7 +291,7 @@ def test_link_subject_to_level_rejects_inactive_subject():
     level = LevelFactory(institution=institution)
     subject = SubjectFactory(institution=institution, is_active=False)
 
-    with pytest.raises(DomainError, match="inactive"):
+    with pytest.raises(DomainError, match="registro esta inactivo"):
         link_subject_to_level(level=level, subject=subject)
 
 
@@ -300,7 +300,7 @@ def test_link_subject_to_level_rejects_negative_weekly_hours():
     level = LevelFactory(institution=institution)
     subject = SubjectFactory(institution=institution)
 
-    with pytest.raises(DomainError, match="(?i)weekly hours"):
+    with pytest.raises(DomainError, match="(?i)horas semanales"):
         link_subject_to_level(level=level, subject=subject, weekly_hours=-1)
 
 
@@ -344,7 +344,7 @@ def test_update_level_subject_changes_requirement_and_hours():
 def test_update_level_subject_rejects_negative_weekly_hours():
     link = LevelSubjectFactory()
 
-    with pytest.raises(DomainError, match="(?i)weekly hours"):
+    with pytest.raises(DomainError, match="(?i)horas semanales"):
         update_level_subject(level=link.level, subject=link.subject, weekly_hours=-3)
 
 
@@ -353,7 +353,7 @@ def test_update_level_subject_rejects_unlinked_pair():
     level = LevelFactory(institution=institution)
     subject = SubjectFactory(institution=institution)
 
-    with pytest.raises(DomainError, match="not linked"):
+    with pytest.raises(DomainError, match="no esta vinculado"):
         update_level_subject(level=level, subject=subject, weekly_hours=1)
 
 
@@ -370,5 +370,5 @@ def test_unlink_subject_from_level_rejects_unlinked_pair():
     level = LevelFactory(institution=institution)
     subject = SubjectFactory(institution=institution)
 
-    with pytest.raises(DomainError, match="not linked"):
+    with pytest.raises(DomainError, match="no esta vinculado"):
         unlink_subject_from_level(level=level, subject=subject)

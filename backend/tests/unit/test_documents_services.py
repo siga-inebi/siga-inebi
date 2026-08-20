@@ -125,7 +125,7 @@ def test_validate_document_upload_accepts_supported_pdf_and_image_types():
 
 
 def test_validate_document_upload_rejects_unsupported_extension_and_oversized_payload():
-    with pytest.raises(DomainError, match="not supported|unsupported"):
+    with pytest.raises(DomainError, match="no es admitido|no admitido"):
         validate_document_upload(
             SimpleUploadedFile(
                 "document.exe",
@@ -139,7 +139,7 @@ def test_validate_document_upload_rejects_unsupported_extension_and_oversized_pa
         b"%PDF-1.4 " + b"A" * (10 * 1024 * 1024),
         content_type="application/pdf",
     )
-    with pytest.raises(DomainError, match="size|too large|maximum"):
+    with pytest.raises(DomainError, match="tamano maximo"):
         validate_document_upload(oversized)
 
 
@@ -530,7 +530,7 @@ def test_document_read_audit_is_recorded_for_authorized_users():
 
 
 def test_document_read_audit_logs_denial_for_unauthorized_users():
-    with pytest.raises(PermissionDenied, match="read documents"):
+    with pytest.raises(PermissionDenied, match="leer documentos"):
         record_document_read_audit(actor=UserFactory(), subject=StudentFactory())
 
     assert AuditEvent.objects.filter(action="documents.document.read_denied").exists()
@@ -594,7 +594,7 @@ def test_document_access_requires_permission_and_scope():
     permission = PermissionFactory(codename="document_read")
     assignment = RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
 
-    with pytest.raises(PermissionDenied, match="scope|read documents"):
+    with pytest.raises(PermissionDenied, match="alcance|leer documentos"):
         ensure_document_access(actor=actor, student=student)
 
     ScopeGrantFactory(assignment=assignment, student=student)

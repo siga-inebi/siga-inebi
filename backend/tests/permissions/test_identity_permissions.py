@@ -659,7 +659,7 @@ def test_person_cannot_be_linked_to_multiple_accounts():
     person = PersonFactory()
     create_account(actor=actor, person=person, username="first-account")
 
-    with pytest.raises(DomainError, match="already has an account"):
+    with pytest.raises(DomainError, match="ya tiene cuenta"):
         create_account(actor=actor, person=person, username="second-account")
 
 

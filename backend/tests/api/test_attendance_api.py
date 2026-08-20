@@ -954,7 +954,7 @@ def test_resolve_unknown_identifier_returns_400_without_any_student_data(auth_cl
 
     assert response.status_code == 400
     body = response.content.decode()
-    assert "not recognised" in body
+    assert "no es reconocida" in body
     assert student.student_code not in body
     assert str(student.public_id) not in body
     assert credential.opaque_identifier not in body
@@ -972,7 +972,7 @@ def test_resolve_credential_of_withdrawn_student_returns_400(auth_client):
 
     assert response.status_code == 400
     body = response.content.decode()
-    assert "no active enrolment" in body
+    assert "no tiene inscripcion activa" in body
     assert student.student_code not in body
 
 
@@ -1039,7 +1039,7 @@ def test_scan_with_an_unknown_credential_rejects_only_that_item(auth_client):
     assert response.status_code == 200
     body = response.json()
     assert body[0]["outcome"] == "rejected"
-    assert "not recognised" in body[0]["reason"]
+    assert "no es reconocida" in body[0]["reason"]
     assert body[1]["outcome"] == "created"
 
 

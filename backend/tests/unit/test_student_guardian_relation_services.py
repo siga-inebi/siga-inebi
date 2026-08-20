@@ -51,7 +51,7 @@ def test_ending_primary_relationship_requires_a_current_replacement():
         relationship_label="Madre",
     )
 
-    with pytest.raises(DomainError, match="replacement primary"):
+    with pytest.raises(DomainError, match="relacion principal de reemplazo"):
         end_student_guardian_relation(relation=relation)
 
     relation.refresh_from_db()

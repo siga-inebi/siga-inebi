@@ -219,7 +219,7 @@ class TestCaptureWindowIntegration:
             capture_ends_on=date(2026, 2, 28),
         )
 
-        with pytest.raises(DomainError, match="Grade capture window is closed"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             validate_capture_window_open(unit, on_date=date(2026, 3, 1))
 
 
@@ -249,7 +249,7 @@ class TestRecoveryWindowIntegration:
             recovery_ends_on=date(2026, 3, 20),
         )
 
-        with pytest.raises(DomainError, match="Recovery window is closed"):
+        with pytest.raises(DomainError, match="ventana de recuperacion de la unidad"):
             validate_recovery_window_open(unit, on_date=date(2026, 3, 5))
 
     def test_recovery_audit_trail(self):
@@ -319,7 +319,7 @@ class TestCaptureExceptionGrantIntegration:
 
         validate_capture_allowed(unit, subject, teacher)
 
-        with pytest.raises(DomainError, match="Grade capture window is closed"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             validate_capture_allowed(unit, subject, other_teacher)
 
     def test_grant_expires_automatically_integration(self):
@@ -344,7 +344,7 @@ class TestCaptureExceptionGrantIntegration:
         )
 
         after_expiration = timezone.now() + timedelta(hours=2)
-        with pytest.raises(DomainError, match="Grade capture window is closed"):
+        with pytest.raises(DomainError, match="ventana de captura"):
             validate_capture_allowed(unit, subject, teacher, on_datetime=after_expiration)
 
     def test_capture_exception_audit_trail(self):
@@ -539,7 +539,7 @@ class TestGradeScaleIntegration:
         subject = SubjectFactory(institution=cycle.institution)
         teacher = PersonFactory()
 
-        with pytest.raises(DomainError, match="between 0 and 100"):
+        with pytest.raises(DomainError, match="entre 0 y 100"):
             register_unit_grade(
                 enrolment=enrolment,
                 subject=subject,

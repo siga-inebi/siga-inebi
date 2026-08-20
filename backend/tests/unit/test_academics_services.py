@@ -37,7 +37,7 @@ pytestmark = pytest.mark.django_db
 
 def test_close_cycle_rejects_when_cycle_is_not_active():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
-    with pytest.raises(DomainError, match="active academic cycle"):
+    with pytest.raises(DomainError, match="ciclo escolar activo"):
         close_academic_cycle(cycle=cycle)
 
 
@@ -134,7 +134,7 @@ def test_activate_cycle_rejects_second_active_cycle():
         status=AcademicCycle.CycleStatus.DRAFT,
     )
 
-    with pytest.raises(DomainError, match="must be closed"):
+    with pytest.raises(DomainError, match="Hay que cerrar"):
         activate_academic_cycle(cycle=prepared)
 
     prepared.refresh_from_db()
@@ -202,7 +202,7 @@ def test_clone_cycle_can_omit_teaching_assignments_and_requires_closed_source():
         status=AcademicCycle.CycleStatus.DRAFT,
     )
 
-    with pytest.raises(DomainError, match="closed academic cycle"):
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
         clone_academic_cycle(
             source_cycle=source,
             year=2027,
@@ -277,7 +277,7 @@ def test_create_section_rejects_when_cycle_is_closed():
     grade = GradeFactory(institution=cycle.institution)
     shift = ShiftFactory(campus__institution=cycle.institution)
 
-    with pytest.raises(DomainError, match="do not accept academic changes"):
+    with pytest.raises(DomainError, match="no admite cambios academicos"):
         create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
 
 
@@ -287,7 +287,7 @@ def test_create_section_rejects_when_cycle_is_active():
     grade = GradeFactory(institution=cycle.institution)
     shift = ShiftFactory(campus__institution=cycle.institution)
 
-    with pytest.raises(DomainError, match="in planning"):
+    with pytest.raises(DomainError, match="en preparacion"):
         create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
 
 
@@ -296,7 +296,7 @@ def test_create_section_rejects_grade_from_other_institution():
     grade = GradeFactory()  # different institution
     shift = ShiftFactory(campus__institution=cycle.institution)
 
-    with pytest.raises(DomainError, match="must belong to the academic cycle institution"):
+    with pytest.raises(DomainError, match="institucion del ciclo escolar"):
         create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
 
 
@@ -314,7 +314,7 @@ def test_update_section_rejects_when_cycle_is_closed():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
     section = SectionFactory(academic_cycle=cycle)
 
-    with pytest.raises(DomainError, match="do not accept academic changes"):
+    with pytest.raises(DomainError, match="no admite cambios academicos"):
         update_section(section=section, name="B")
 
 
@@ -322,7 +322,7 @@ def test_update_section_rejects_when_cycle_is_active():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
     section = SectionFactory(academic_cycle=cycle)
 
-    with pytest.raises(DomainError, match="in planning"):
+    with pytest.raises(DomainError, match="en preparacion"):
         update_section(section=section, name="B")
 
 
@@ -342,7 +342,7 @@ def test_deactivate_section_rejects_when_cycle_is_active():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
     section = SectionFactory(academic_cycle=cycle)
 
-    with pytest.raises(DomainError, match="in planning"):
+    with pytest.raises(DomainError, match="en preparacion"):
         deactivate_section(section=section)
 
 
@@ -358,7 +358,7 @@ def test_deactivate_section_rejects_when_it_has_active_enrolments():
         status="active",
     )
 
-    with pytest.raises(DomainError, match="active enrolments"):
+    with pytest.raises(DomainError, match="matriculas activas"):
         deactivate_section(section=section)
 
 
@@ -390,7 +390,7 @@ def test_create_curriculum_plan_rejects_when_cycle_is_closed():
     grade = GradeFactory(institution=cycle.institution)
     subject = SubjectFactory(institution=cycle.institution)
 
-    with pytest.raises(DomainError, match="do not accept academic changes"):
+    with pytest.raises(DomainError, match="no admite cambios academicos"):
         create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
 
 
@@ -400,7 +400,7 @@ def test_create_curriculum_plan_rejects_when_cycle_is_active():
     grade = GradeFactory(institution=cycle.institution)
     subject = SubjectFactory(institution=cycle.institution)
 
-    with pytest.raises(DomainError, match="in planning"):
+    with pytest.raises(DomainError, match="en preparacion"):
         create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
 
 
@@ -409,7 +409,7 @@ def test_create_curriculum_plan_rejects_grade_from_other_institution():
     grade = GradeFactory()  # different institution
     subject = SubjectFactory(institution=cycle.institution)
 
-    with pytest.raises(DomainError, match="must belong to the academic cycle institution"):
+    with pytest.raises(DomainError, match="institucion del ciclo escolar"):
         create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject)
 
 
@@ -436,7 +436,7 @@ def test_update_curriculum_plan_rejects_when_cycle_is_active():
     cycle.status = AcademicCycle.CycleStatus.ACTIVE
     cycle.save(update_fields=["status", "updated_at"])
 
-    with pytest.raises(DomainError, match="in planning"):
+    with pytest.raises(DomainError, match="en preparacion"):
         update_curriculum_plan(plan=plan, is_required=False)
 
 
@@ -465,5 +465,5 @@ def test_deactivate_curriculum_plan_rejects_when_cycle_is_active():
     cycle.status = AcademicCycle.CycleStatus.ACTIVE
     cycle.save(update_fields=["status", "updated_at"])
 
-    with pytest.raises(DomainError, match="in planning"):
+    with pytest.raises(DomainError, match="en preparacion"):
         deactivate_curriculum_plan(plan=plan)
