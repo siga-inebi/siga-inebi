@@ -34,7 +34,7 @@ import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
-import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
+import { MutedCell, NameCell } from "@ui/table/cells.jsx";
 
 import { BulkEnrolmentWindow } from "./BulkEnrolmentWindow.jsx";
 import { EnrolmentDocumentsWindow } from "./EnrolmentDocumentsWindow.jsx";
@@ -184,30 +184,28 @@ export function EnrolmentsPage() {
     if (historyReady) historyList.refresh();
   };
 
-  /** Nombre del catalogo, con el identificador crudo como respaldo. */
-  const nameCell = (index, id) =>
-    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>);
-
   const columns = [
     {
       key: "student_id",
       label: "Estudiante",
-      render: (row) => nameCell(names.students, row.student_id),
+      render: (row) => <NameCell id={row.student_id} index={names.students} />,
     },
     {
       key: "academic_cycle_id",
       label: "Ciclo",
-      render: (row) => nameCell(names.cycles, row.academic_cycle_id),
+      render: (row) => (
+        <NameCell id={row.academic_cycle_id} index={names.cycles} />
+      ),
     },
     {
       key: "grade_id",
       label: "Grado",
-      render: (row) => nameCell(names.grades, row.grade_id),
+      render: (row) => <NameCell id={row.grade_id} index={names.grades} />,
     },
     {
       key: "section_id",
       label: "Seccion",
-      render: (row) => nameCell(names.sections, row.section_id),
+      render: (row) => <NameCell id={row.section_id} index={names.sections} />,
     },
     {
       key: "effective_on",

@@ -22,28 +22,21 @@ import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
-import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
+import { NameCell } from "@ui/table/cells.jsx";
 
 import { CurrentAverageWindow } from "./CurrentAverageWindow.jsx";
-
-/** Nombre del catalogo, con el identificador crudo como respaldo. */
-function nameCell(index, id) {
-  return (
-    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>)
-  );
-}
 
 function buildGradeColumns(onViewAverage, names) {
   return [
     {
       key: "enrolment",
       label: "Estudiante",
-      render: (row) => nameCell(names.enrolments, row.enrolment),
+      render: (row) => <NameCell id={row.enrolment} index={names.enrolments} />,
     },
     {
       key: "subject",
       label: "Subarea",
-      render: (row) => nameCell(names.subjects, row.subject),
+      render: (row) => <NameCell id={row.subject} index={names.subjects} />,
     },
     { key: "value", label: "Nota", align: "right", render: (row) => row.value },
     {

@@ -19,25 +19,18 @@ import { formatDateTime } from "@shared/utils/format.js";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
-import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
-
-/** Nombre del catalogo, con el identificador crudo como respaldo. */
-function nameCell(index, id) {
-  return (
-    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>)
-  );
-}
+import { NameCell } from "@ui/table/cells.jsx";
 
 const exceptionColumns = (names) => [
   {
     key: "subject",
     label: "Curso",
-    render: (row) => nameCell(names.subjects, row.subject),
+    render: (row) => <NameCell id={row.subject} index={names.subjects} />,
   },
   {
     key: "teacher",
     label: "Docente",
-    render: (row) => nameCell(names.teachers, row.teacher),
+    render: (row) => <NameCell id={row.teacher} index={names.teachers} />,
   },
   { key: "reason", label: "Motivo", render: (row) => row.reason },
   {

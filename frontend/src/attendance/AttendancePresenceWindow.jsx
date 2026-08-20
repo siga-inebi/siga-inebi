@@ -24,31 +24,18 @@ import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
-import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
-
-/**
- * Nombre del catalogo, con el identificador crudo como respaldo.
- *
- * Una fila de presencia puede apuntar a un estudiante dado de baja o a una
- * seccion que ya no figura en el catalogo; la celda vacia se leeria como un
- * error del sistema, y el identificador al menos es rastreable.
- */
-function nameCell(index, id) {
-  return (
-    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>)
-  );
-}
+import { MutedCell, NameCell } from "@ui/table/cells.jsx";
 
 const presenceColumns = (names) => [
   {
     key: "student_id",
     label: "Estudiante",
-    render: (row) => nameCell(names.students, row.student_id),
+    render: (row) => <NameCell id={row.student_id} index={names.students} />,
   },
   {
     key: "section_id",
     label: "Seccion",
-    render: (row) => nameCell(names.sections, row.section_id),
+    render: (row) => <NameCell id={row.section_id} index={names.sections} />,
   },
   {
     key: "entry_event",

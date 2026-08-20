@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -11,6 +11,8 @@ import Typography from "@mui/material/Typography";
 
 import { enrolmentsService } from "@enrolments/enrolmentsService.js";
 import { collectAllPages } from "@shared/api/pages.js";
+import { BatchResultAlert } from "@shared/crud/BatchResultAlert.jsx";
+import { useBatchSubmit } from "@shared/crud/useBatchSubmit.js";
 import {
   sectionsForCycle,
   useCycleCatalog,
@@ -54,11 +56,31 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
   const [loadingEnrolled, setLoadingEnrolled] = useState(false);
   const [loadError, setLoadError] = useState("");
 
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState(null);
-
   const sectionOptions = sectionsForCycle(sections.options, cycleId);
   const section = sectionOptions.find((option) => option.value === sectionId);
+
+  const createOne = useCallback(
+    (studentId) =>
+      enrolmentsService.matriculate({
+        student_id: studentId,
+        academic_cycle_id: cycleId,
+        grade_id: section.gradeId,
+        shift_id: section.shiftId,
+        section_id: sectionId,
+        effective_on: effectiveOn,
+      }),
+    [cycleId, section, sectionId, effectiveOn]
+  );
+  const describe = useCallback(
+    (studentId) =>
+      students.options.find((option) => option.value === studentId)?.label ??
+      studentId,
+    [students.options]
+  );
+  const { run, reset, submitting, result } = useBatchSubmit(
+    createOne,
+    describe
+  );
 
   // Quien ya tiene matricula vigente en el ciclo. Se relee al cambiar de ciclo
   // y despues de cada lote, porque el propio lote cambia la respuesta.
@@ -127,38 +149,9 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
     );
 
   const handleSubmit = async () => {
-    setSubmitting(true);
-
-    const created = [];
-    const failed = [];
-
-    for (const studentId of selected) {
-      const student = students.options.find(
-        (option) => option.value === studentId
-      );
-      try {
-        await enrolmentsService.matriculate({
-          student_id: studentId,
-          academic_cycle_id: cycleId,
-          grade_id: section.gradeId,
-          shift_id: section.shiftId,
-          section_id: sectionId,
-          effective_on: effectiveOn,
-        });
-        created.push(studentId);
-      } catch (error) {
-        failed.push({
-          student: student?.label ?? studentId,
-          message: error.message,
-        });
-      }
-    }
-
-    setSubmitting(false);
+    const summary = await run(selected);
     setSelected([]);
-    setResult({ created: created.length, failed });
-
-    if (created.length > 0) {
+    if (summary.created.length > 0) {
       onCreated?.();
     }
   };
@@ -210,7 +203,7 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
               setCycleId(event.target.value);
               setSectionId("");
               setSelected([]);
-              setResult(null);
+              reset();
             }}
             options={cycles.options}
             placeholder="Seleccione un ciclo"
@@ -232,7 +225,7 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
             loading={sections.loading}
             onChange={(event) => {
               setSectionId(event.target.value);
-              setResult(null);
+              reset();
             }}
             options={sectionOptions}
             placeholder="Seleccione una seccion"
@@ -252,21 +245,7 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
 
         {loadError ? <Alert severity="error">{loadError}</Alert> : null}
 
-        {result ? (
-          <Alert severity={result.failed.length > 0 ? "warning" : "success"}>
-            <Stack gap={0.5}>
-              <span>
-                {result.created} matricula{result.created === 1 ? "" : "s"}{" "}
-                creada{result.created === 1 ? "" : "s"}.
-              </span>
-              {result.failed.map((failure) => (
-                <span key={failure.student}>
-                  {failure.student}: {failure.message}
-                </span>
-              ))}
-            </Stack>
-          </Alert>
-        ) : null}
+        <BatchResultAlert noun="matricula" result={result} />
 
         {!ready ? (
           <Alert severity="info">

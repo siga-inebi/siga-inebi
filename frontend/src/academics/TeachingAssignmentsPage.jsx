@@ -25,7 +25,7 @@ import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
-import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
+import { MutedCell, NameCell } from "@ui/table/cells.jsx";
 
 import { BulkAssignmentWindow } from "./BulkAssignmentWindow.jsx";
 import { CloneAssignmentsWindow } from "./CloneAssignmentsWindow.jsx";
@@ -187,36 +187,28 @@ export function TeachingAssignmentsPage() {
     }
   };
 
-  /**
-   * Nombre del catalogo, o el identificador crudo si todavia no llego.
-   *
-   * El respaldo importa: un catalogo que aun carga (o un registro dado de baja
-   * que ya no figura en el) dejaria la celda vacia, y una fila sin datos se lee
-   * como un error del sistema.
-   */
-  const nameCell = (index, id) =>
-    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>);
-
   const columns = [
     {
       key: "section_id",
       label: "Seccion",
-      render: (row) => nameCell(names.sections, row.section_id),
+      render: (row) => <NameCell id={row.section_id} index={names.sections} />,
     },
     {
       key: "subject_id",
       label: "Curso",
-      render: (row) => nameCell(names.subjects, row.subject_id),
+      render: (row) => <NameCell id={row.subject_id} index={names.subjects} />,
     },
     {
       key: "teacher_id",
       label: "Docente",
-      render: (row) => nameCell(names.teachers, row.teacher_id),
+      render: (row) => <NameCell id={row.teacher_id} index={names.teachers} />,
     },
     {
       key: "academic_cycle_id",
       label: "Ciclo",
-      render: (row) => nameCell(names.cycles, row.academic_cycle_id),
+      render: (row) => (
+        <NameCell id={row.academic_cycle_id} index={names.cycles} />
+      ),
     },
     {
       key: "starts_on",

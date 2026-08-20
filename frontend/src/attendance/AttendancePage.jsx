@@ -36,7 +36,7 @@ import {
 } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
-import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
+import { MutedCell, NameCell } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 import { CameraPreviewWindow } from "@ui/display/CameraPreviewWindow.jsx";
@@ -47,29 +47,16 @@ import { DayStatusProbe } from "./DayStatusProbe.jsx";
 import { JornadaParametersWindow } from "./JornadaParametersWindow.jsx";
 import { ScanCaptureWindow } from "./ScanCaptureWindow.jsx";
 
-/**
- * Nombre del catalogo, con el identificador crudo como respaldo.
- *
- * Un evento de asistencia puede apuntar a un estudiante dado de baja o a una
- * jornada que ya no figura en el catalogo; la celda vacia se leeria como un
- * error del sistema, y el identificador al menos es rastreable.
- */
-function nameCell(index, id) {
-  return (
-    index.get(id) ?? (id ? <CodeCell value={id} /> : <MutedCell>—</MutedCell>)
-  );
-}
-
 const eventColumns = (names) => [
   {
     key: "student_id",
     label: "Estudiante",
-    render: (row) => nameCell(names.students, row.student_id),
+    render: (row) => <NameCell id={row.student_id} index={names.students} />,
   },
   {
     key: "shift_id",
     label: "Jornada",
-    render: (row) => nameCell(names.shifts, row.shift_id),
+    render: (row) => <NameCell id={row.shift_id} index={names.shifts} />,
   },
   {
     key: "event_date",
@@ -137,7 +124,7 @@ const alertColumns = (names) => [
   {
     key: "student_id",
     label: "Estudiante",
-    render: (row) => nameCell(names.students, row.student_id),
+    render: (row) => <NameCell id={row.student_id} index={names.students} />,
   },
   {
     key: "event_date",
@@ -149,7 +136,7 @@ const alertColumns = (names) => [
     label: "Seccion",
     render: (row) =>
       row.section_id ? (
-        nameCell(names.sections, row.section_id)
+        <NameCell id={row.section_id} index={names.sections} />
       ) : (
         <MutedCell>Sin seccion</MutedCell>
       ),

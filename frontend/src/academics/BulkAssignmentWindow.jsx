@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -9,7 +9,10 @@ import Typography from "@mui/material/Typography";
 
 import { academicsService } from "@academics/academicsService.js";
 import { collectAllPages } from "@shared/api/pages.js";
+import { BatchResultAlert } from "@shared/crud/BatchResultAlert.jsx";
+import { useBatchSubmit } from "@shared/crud/useBatchSubmit.js";
 import {
+  labelIndex,
   sectionsForCycle,
   useCycleCatalog,
   useSectionCatalog,
@@ -58,13 +61,25 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
   const [loadingAssigned, setLoadingAssigned] = useState(false);
   const [loadError, setLoadError] = useState("");
 
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState(null);
+  const createOne = useCallback(
+    (subject) =>
+      academicsService.createTeachingAssignment({
+        academic_cycle_id: cycleId,
+        section_id: sectionId,
+        subject_id: subject.value,
+        teacher_id: choices[subject.value],
+        starts_on: startsOn,
+      }),
+    [cycleId, sectionId, choices, startsOn]
+  );
+  const { run, reset, submitting, result } = useBatchSubmit(
+    createOne,
+    (subject) => subject.label
+  );
 
   const sectionOptions = sectionsForCycle(sections.options, cycleId);
   const teacherNames = useMemo(
-    () =>
-      new Map(teachers.options.map((option) => [option.value, option.label])),
+    () => labelIndex(teachers.options),
     [teachers.options]
   );
 
@@ -130,29 +145,7 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
   };
 
   const handleSubmit = async () => {
-    setSubmitting(true);
-    setResult(null);
-
-    const created = [];
-    const failed = [];
-
-    for (const subject of chosen) {
-      try {
-        await academicsService.createTeachingAssignment({
-          academic_cycle_id: cycleId,
-          section_id: sectionId,
-          subject_id: subject.value,
-          teacher_id: choices[subject.value],
-          starts_on: startsOn,
-        });
-        created.push(subject.label);
-      } catch (error) {
-        failed.push({ subject: subject.label, message: error.message });
-      }
-    }
-
-    setSubmitting(false);
-    setResult({ created, failed });
+    const { created } = await run(chosen);
     setChoices({});
 
     if (created.length > 0) {
@@ -160,10 +153,8 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
       // tabla lo refleje sin cerrar la ventana.
       setAssigned((current) => {
         const next = new Map(current);
-        for (const subject of chosen) {
-          if (created.includes(subject.label)) {
-            next.set(subject.value, choices[subject.value]);
-          }
+        for (const subject of created) {
+          next.set(subject.value, choices[subject.value]);
         }
         return next;
       });
@@ -259,7 +250,7 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
               setCycleId(event.target.value);
               setSectionId("");
               setChoices({});
-              setResult(null);
+              reset();
             }}
             options={cycles.options}
             placeholder="Seleccione un ciclo"
@@ -282,7 +273,7 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
             onChange={(event) => {
               setSectionId(event.target.value);
               setChoices({});
-              setResult(null);
+              reset();
             }}
             options={sectionOptions}
             placeholder="Seleccione una seccion"
@@ -302,22 +293,11 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
 
         {loadError ? <Alert severity="error">{loadError}</Alert> : null}
 
-        {result ? (
-          <Alert severity={result.failed.length > 0 ? "warning" : "success"}>
-            <Stack gap={0.5}>
-              <span>
-                {result.created.length} asignacion
-                {result.created.length === 1 ? "" : "es"} creada
-                {result.created.length === 1 ? "" : "s"}.
-              </span>
-              {result.failed.map((failure) => (
-                <span key={failure.subject}>
-                  {failure.subject}: {failure.message}
-                </span>
-              ))}
-            </Stack>
-          </Alert>
-        ) : null}
+        <BatchResultAlert
+          noun="asignacion"
+          nounPlural="asignaciones"
+          result={result}
+        />
 
         {ready && !loadingAssigned && pending.length > 1 ? (
           <Stack

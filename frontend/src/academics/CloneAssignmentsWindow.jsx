@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -9,7 +9,10 @@ import Typography from "@mui/material/Typography";
 
 import { academicsService } from "@academics/academicsService.js";
 import { collectAllPages } from "@shared/api/pages.js";
+import { BatchResultAlert } from "@shared/crud/BatchResultAlert.jsx";
+import { useBatchSubmit } from "@shared/crud/useBatchSubmit.js";
 import {
+  labelIndex,
   sectionsForCycle,
   useCycleCatalog,
   useSectionCatalog,
@@ -67,16 +70,34 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [loadError, setLoadError] = useState("");
 
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState(null);
-
   const names = useMemo(
     () => ({
-      subjects: new Map(subjects.options.map((o) => [o.value, o.label])),
-      teachers: new Map(teachers.options.map((o) => [o.value, o.label])),
-      sections: new Map(sections.options.map((o) => [o.value, o.label])),
+      subjects: labelIndex(subjects.options),
+      teachers: labelIndex(teachers.options),
+      sections: labelIndex(sections.options),
     }),
     [subjects.options, teachers.options, sections.options]
+  );
+
+  const createOne = useCallback(
+    (row) =>
+      academicsService.createTeachingAssignment({
+        academic_cycle_id: targetCycleId,
+        section_id: row.targetSectionId,
+        subject_id: row.subjectId,
+        teacher_id: choices[row.id],
+        starts_on: startsOn,
+      }),
+    [targetCycleId, choices, startsOn]
+  );
+  const describe = useCallback(
+    (row) =>
+      `${row.sectionLabel} · ${names.subjects.get(row.subjectId) ?? "Curso"}`,
+    [names]
+  );
+  const { run, reset, submitting, result } = useBatchSubmit(
+    createOne,
+    describe
   );
 
   // La vigencia propuesta es el inicio del ciclo destino: una asignacion que
@@ -99,7 +120,7 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
     let active = true;
     setLoadingPlan(true);
     setLoadError("");
-    setResult(null);
+    reset();
 
     Promise.all([
       collectAllPages((params) =>
@@ -174,7 +195,14 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
     return () => {
       active = false;
     };
-  }, [sourceCycleId, targetCycleId, sections.loading, sections.options, names]);
+  }, [
+    sourceCycleId,
+    targetCycleId,
+    sections.loading,
+    sections.options,
+    names,
+    reset,
+  ]);
 
   const sameCycle = sourceCycleId !== "" && sourceCycleId === targetCycleId;
   const pending = (plan ?? []).filter(
@@ -191,35 +219,12 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
     });
 
   const handleSubmit = async () => {
-    setSubmitting(true);
-    setResult(null);
-
-    const created = [];
-    const failed = [];
-
-    for (const row of chosen) {
-      const label = `${row.sectionLabel} · ${names.subjects.get(row.subjectId) ?? "Curso"}`;
-      try {
-        await academicsService.createTeachingAssignment({
-          academic_cycle_id: targetCycleId,
-          section_id: row.targetSectionId,
-          subject_id: row.subjectId,
-          teacher_id: choices[row.id],
-          starts_on: startsOn,
-        });
-        created.push(row.id);
-      } catch (error) {
-        failed.push({ label, message: error.message });
-      }
-    }
-
-    setSubmitting(false);
-    setResult({ created: created.length, failed });
+    const { created } = await run(chosen);
 
     if (created.length > 0) {
       // Lo creado deja de estar pendiente: se marca sin cerrar la ventana, para
       // que el resumen y la tabla cuenten la misma historia.
-      const done = new Set(created);
+      const done = new Set(created.map((row) => row.id));
       setPlan((current) =>
         (current ?? []).map((row) =>
           done.has(row.id) ? { ...row, assigned: true } : row
@@ -349,21 +354,11 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
 
         {loadError ? <Alert severity="error">{loadError}</Alert> : null}
 
-        {result ? (
-          <Alert severity={result.failed.length > 0 ? "warning" : "success"}>
-            <Stack gap={0.5}>
-              <span>
-                {result.created} asignacion{result.created === 1 ? "" : "es"}{" "}
-                creada{result.created === 1 ? "" : "s"}.
-              </span>
-              {result.failed.map((failure) => (
-                <span key={failure.label}>
-                  {failure.label}: {failure.message}
-                </span>
-              ))}
-            </Stack>
-          </Alert>
-        ) : null}
+        <BatchResultAlert
+          noun="asignacion"
+          nounPlural="asignaciones"
+          result={result}
+        />
 
         {orphans.length > 0 ? (
           <Alert severity="info">
