@@ -286,6 +286,7 @@ class Command(BaseCommand):
             admin_role = Role.objects.get(slug="system-administrator")
             assignment, _ = RoleAssignment.objects.get_or_create(user=user, role=admin_role)
             ScopeGrant.objects.get_or_create(assignment=assignment, module_key="identity")
+            ScopeGrant.objects.get_or_create(assignment=assignment, institution=institution)
             self.stdout.write(self.style.SUCCESS(f"Demo admin ready: {username}"))
         else:
             self.stdout.write(

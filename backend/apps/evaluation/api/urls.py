@@ -10,6 +10,7 @@ from apps.evaluation.api.views import (
     CaptureExceptionGrantListCreateView,
     EvaluationUnitListCreateView,
     EvaluationUnitRecoveryWindowView,
+    GradeListCreateView,
 )
 
 urlpatterns = [
@@ -23,5 +24,10 @@ urlpatterns = [
         "<uuid:unit_public_id>/capture-exceptions/",
         CaptureExceptionGrantListCreateView.as_view(),
         name="evaluation-unit-capture-exceptions",
+    ),
+    path(
+        "<uuid:unit_public_id>/grades/",
+        GradeListCreateView.as_view(),
+        name="evaluation-unit-grades",
     ),
 ]

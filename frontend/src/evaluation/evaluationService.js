@@ -57,4 +57,44 @@ export const evaluationService = {
       `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/capture-exceptions/`,
       payload
     ),
+
+  /**
+   * Notas de unidad (RF-CAL-001): la nota consolidada que el docente ya
+   * calculo para un estudiante, una subarea y una unidad. Registrar de nuevo
+   * la misma combinacion actualiza la nota existente.
+   */
+  listGrades: (cyclePublicId, unitPublicId, params) =>
+    apiClient.get(
+      withQuery(
+        `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/grades/`,
+        params
+      )
+    ),
+  registerGrade: (cyclePublicId, unitPublicId, payload) =>
+    apiClient.post(
+      `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/grades/`,
+      payload
+    ),
+
+  /**
+   * Promedio en curso de un estudiante en una subarea (RF-CAL-003).
+   *
+   * Promedia solo las unidades con nota registrada; una unidad sin nota
+   * nunca se trata como cero, se cuenta aparte como pendiente.
+   */
+  getCurrentAverage: (cyclePublicId, enrolmentId, subjectId) =>
+    apiClient.get(
+      `${ROOT}/cycles/${cyclePublicId}/enrolments/${enrolmentId}/subjects/${subjectId}/current-average/`
+    ),
+
+  /**
+   * Nota final de un estudiante en una subarea (RF-RES-001).
+   *
+   * Promedio de las notas de unidad registradas; se recalcula ante cualquier
+   * correccion mientras el ciclo esta abierto.
+   */
+  getFinalSubjectGrade: (cyclePublicId, enrolmentId, subjectId) =>
+    apiClient.get(
+      `${ROOT}/cycles/${cyclePublicId}/enrolments/${enrolmentId}/subjects/${subjectId}/final-grade/`
+    ),
 };

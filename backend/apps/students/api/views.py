@@ -15,10 +15,10 @@ from apps.students.api.serializers import (
     GuardianSerializer,
     StudentGuardianRelationEndSerializer,
     StudentGuardianRelationSerializer,
-    StudentObservationCreateSerializer,
-    StudentObservationSerializer,
     StudentHealthNoteCreateSerializer,
     StudentHealthNoteSerializer,
+    StudentObservationCreateSerializer,
+    StudentObservationSerializer,
     StudentSerializer,
 )
 from apps.students.models import Guardian, Student, StudentGuardianRelation
@@ -258,46 +258,6 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
     list_serializer = EmergencyContactSerializer
     create_serializer = EmergencyContactCreateSerializer
 
-    def list_queryset(self, request, public_id):
-        student = queries.student_or_404(public_id)
-        record_sensitive_read(
-            actor=request.user,
-            action="students.emergency_contacts.read",
-            resource="EmergencyContact",
-            resource_identifier=str(student.pk),
-            student=student,
-        )
-        return queries.emergency_contacts(student, request)
-
-    def create(self, request, payload, public_id):
-        student = queries.student_or_404(public_id)
-        return services.create_emergency_contact(student=student, actor=request.user, **payload)
-
-
-class EmergencyContactDetailView(
-    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
-):
-    detail_serializer = EmergencyContactSerializer
-    update_serializer = EmergencyContactUpdateSerializer
-
-    def get_object(self, public_id):
-        return queries.emergency_contact_or_404(public_id)
-
-    def update(self, request, emergency_contact, payload):
-        services.update_emergency_contact(
-            emergency_contact=emergency_contact, actor=request.user, **payload
-        )
-
-    def deactivate(self, request, emergency_contact):
-        services.deactivate_emergency_contact(
-            emergency_contact=emergency_contact, actor=request.user
-        )
-
-
-class StudentObservationListCreateView(StudentRecordListCreateView):
-    list_serializer = StudentObservationSerializer
-    create_serializer = StudentObservationCreateSerializer
-
     def _student(self, request, public_id, *, write=False):
         student = queries.student_or_404(public_id)
         required = ["student_view_sensitive"]
@@ -312,42 +272,55 @@ class StudentObservationListCreateView(StudentRecordListCreateView):
 
     def list_queryset(self, request, public_id):
         student = self._student(request, public_id)
-        services._audit(
-            request.user,
-            "students.observation.list_read",
-            student,
-            student_id=student.pk,
+        record_sensitive_read(
+            actor=request.user,
+            action="students.emergency_contacts.read",
+            resource="EmergencyContact",
+            resource_identifier=str(student.pk),
+            student=student,
         )
-        return queries.observations(student, request)
+        return queries.emergency_contacts(student, request)
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
-        return services.create_student_observation(student=student, actor=request.user, **payload)
+        return services.create_emergency_contact(student=student, actor=request.user, **payload)
 
 
-class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecordDetailView):
-    detail_serializer = StudentObservationSerializer
+class EmergencyContactDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
+    detail_serializer = EmergencyContactSerializer
+    update_serializer = EmergencyContactUpdateSerializer
 
     def get_object(self, public_id):
-        observation = queries.observation_or_404(public_id)
-        if not self.request.user.has_scoped_permission(
-            "student_view_sensitive", scope={"student": observation.student}
+        contact = queries.emergency_contact_or_404(public_id)
+        required = ["student_view_sensitive"]
+        if self.request.method in {"PATCH", "DELETE"}:
+            required.append("student_edit_basic")
+        if not all(
+            self.request.user.has_scoped_permission(codename, scope={"student": contact.student})
+            for codename in required
         ):
             raise PermissionDenied("Actor lacks sensitive student permission or scope.")
-        services._audit(
-            self.request.user,
-            "students.observation.detail_read",
-            observation,
-            student_id=observation.student_id,
-        )
-        return observation
+        if self.request.method == "GET":
+            record_sensitive_read(
+                actor=self.request.user,
+                action="students.emergency_contact.detail_read",
+                resource="EmergencyContact",
+                resource_identifier=str(contact.pk),
+                student=contact.student,
+            )
+        return contact
 
-    def deactivate(self, request, observation):
-        if not request.user.has_scoped_permission(
-            "student_edit_basic", scope={"student": observation.student}
-        ):
-            raise PermissionDenied("Actor lacks student edit permission or scope.")
-        services.deactivate_student_observation(observation=observation, actor=request.user)
+    def update(self, request, emergency_contact, payload):
+        services.update_emergency_contact(
+            emergency_contact=emergency_contact, actor=request.user, **payload
+        )
+
+    def deactivate(self, request, emergency_contact):
+        services.deactivate_emergency_contact(
+            emergency_contact=emergency_contact, actor=request.user
+        )
 
 
 class StudentHealthNoteListCreateView(StudentRecordListCreateView):
@@ -404,3 +377,59 @@ class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordD
         ):
             raise PermissionDenied("Actor lacks student edit permission or scope.")
         services.deactivate_student_health_note(health_note=health_note, actor=request.user)
+
+
+class StudentObservationListCreateView(StudentRecordListCreateView):
+    list_serializer = StudentObservationSerializer
+    create_serializer = StudentObservationCreateSerializer
+
+    def _student(self, request, public_id, *, write=False):
+        student = queries.student_or_404(public_id)
+        required = ["student_view_sensitive"]
+        if write:
+            required.append("student_edit_basic")
+        if not all(
+            request.user.has_scoped_permission(codename, scope={"student": student})
+            for codename in required
+        ):
+            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+        return student
+
+    def list_queryset(self, request, public_id):
+        student = self._student(request, public_id)
+        services._audit(
+            request.user,
+            "students.observation.list_read",
+            student,
+            student_id=student.pk,
+        )
+        return queries.observations(student, request)
+
+    def create(self, request, payload, public_id):
+        student = self._student(request, public_id, write=True)
+        return services.create_student_observation(student=student, actor=request.user, **payload)
+
+
+class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecordDetailView):
+    detail_serializer = StudentObservationSerializer
+
+    def get_object(self, public_id):
+        observation = queries.observation_or_404(public_id)
+        if not self.request.user.has_scoped_permission(
+            "student_view_sensitive", scope={"student": observation.student}
+        ):
+            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+        services._audit(
+            self.request.user,
+            "students.observation.detail_read",
+            observation,
+            student_id=observation.student_id,
+        )
+        return observation
+
+    def deactivate(self, request, observation):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": observation.student}
+        ):
+            raise PermissionDenied("Actor lacks student edit permission or scope.")
+        services.deactivate_student_observation(observation=observation, actor=request.user)

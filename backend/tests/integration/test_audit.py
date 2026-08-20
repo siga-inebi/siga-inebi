@@ -8,7 +8,7 @@ from django.utils import timezone
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
 from apps.enrolments.services import change_section, create_enrolment
-from apps.identity.services import assign_role, authenticate_account
+from apps.identity.services import assign_role, authenticate_account, disable_account
 from tests.factories.academic import CampusFactory, SectionFactory
 from tests.factories.attendance import JornadaParametersFactory
 from tests.factories.identity import (
@@ -18,9 +18,6 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
-from apps.identity.services import assign_role, authenticate_account, disable_account
-from tests.factories.academic import SectionFactory
-from tests.factories.identity import PermissionFactory, RoleFactory, UserFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -226,6 +223,10 @@ def test_aggregated_non_student_query_is_not_audited_as_a_sensitive_read(auth_cl
     assert response.status_code == 200
     after = AuditEvent.objects.filter(action__endswith=".read").count()
     assert after == before
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_disabling_an_account_with_a_declared_reason_is_audited():
     """
     RF-BIT-002's own scenario ("GIVEN un usuario que registra manualmente un
@@ -250,6 +251,10 @@ def test_disabling_an_account_with_a_declared_reason_is_audited():
     assert event.resource_identifier == str(target.pk)
     assert event.context["reason"] == "Solicitud del titular"
     assert "before" in event.context and "after" in event.context
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_events_stay_attributed_to_a_teacher_after_their_account_is_disabled():
     """
     RF-BIT-007's own scenario, reproducible as-is (no substitution needed):

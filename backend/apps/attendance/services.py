@@ -11,7 +11,7 @@ it (see ``docs/architecture/domain-map.md``).
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Case, IntegerField, Value, When
@@ -184,6 +184,179 @@ def record_attendance_event(
             actor=actor,
         )
     return event
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
+# idempotencia
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class ScanCaptureResult:
+    client_event_id: str
+    outcome: str  # "created" | "duplicate_suppressed" | "already_processed"
+    event: AttendanceEvent
+    duplicate_of: AttendanceEvent | None = None
+
+
+@dataclass
+class RejectedScanItem:
+    client_event_id: str
+    outcome: str = "rejected"
+    reason: str = ""
+
+
+@transaction.atomic
+def record_scan_movement(
+    *,
+    student,
+    shift,
+    control_point,
+    movement_type,
+    captured_at,
+    client_event_id,
+    operator,
+    batch_id="",
+    transmission=AttendanceEvent.Transmission.INDIVIDUAL,
+    actor=None,
+):
+    """
+    Register one scanned movement (RF-ASI-002), enforcing:
+
+    - RF-ASI-001: an operator is mandatory. The view already requires an
+      authenticated, permissioned actor before this is ever called, but a
+      future caller that skips the view (a management command, say) must not
+      be able to bypass this — so it's checked here too, not just there.
+    - RF-ASI-010: idempotency by client-generated ``client_event_id``. A
+      resend of an already-registered id is a no-op that returns the
+      original event, never a duplicate or an error.
+    - RF-ASI-004: duplicate suppression within the jornada's configured
+      window, evaluated on student/shift/date/movement_type alone --
+      independent of operator, device or control point. A suppressed
+      duplicate is recorded as an auditable rejection, not as a movement.
+    """
+    if operator is None:
+        raise DomainError("A scan movement must be recorded by an authenticated operator.")
+
+    _require_active(student, "Student")
+    _require_active(shift, "Shift")
+    _require_active(control_point, "Control point")
+
+    if client_event_id:
+        existing = AttendanceEvent.objects.filter(client_event_id=client_event_id).first()
+        if existing is not None:
+            return ScanCaptureResult(
+                client_event_id=client_event_id, outcome="already_processed", event=existing
+            )
+
+    event_date = timezone.localtime(captured_at).date()
+    academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+    parameters = get_effective_parameters(
+        shift=shift, academic_cycle=academic_cycle, on_date=event_date
+    )
+    suppression_window = timedelta(minutes=parameters.duplicate_suppression_minutes)
+
+    duplicate = (
+        AttendanceEvent.objects.filter(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=movement_type,
+            is_active=True,
+            captured_at__gte=captured_at - suppression_window,
+            captured_at__lte=captured_at + suppression_window,
+        )
+        .order_by("-captured_at")
+        .first()
+    )
+    if duplicate is not None:
+        record_event(
+            actor=operator,
+            action="attendance.event.rejected_duplicate",
+            resource="AttendanceEvent",
+            resource_identifier=str(duplicate.pk),
+            context={
+                "student_id": str(student.public_id),
+                "shift_id": str(shift.public_id),
+                "event_date": str(event_date),
+                "movement_type": movement_type,
+                "existing_captured_at": duplicate.captured_at.isoformat(),
+                "client_event_id": client_event_id,
+            },
+        )
+        return ScanCaptureResult(
+            client_event_id=client_event_id,
+            outcome="duplicate_suppressed",
+            event=duplicate,
+            duplicate_of=duplicate,
+        )
+
+    with unique_violation_as(
+        {
+            "unique_attendance_event_client_event_id": (
+                "This client_event_id was already used for another event."
+            )
+        }
+    ):
+        event = AttendanceEvent.objects.create(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=movement_type,
+            origin=AttendanceEvent.Origin.SCAN,
+            transmission=transmission,
+            captured_at=captured_at,
+            control_point=control_point,
+            operator=operator,
+            client_event_id=client_event_id,
+            batch_id=batch_id,
+        )
+
+    record_event(
+        actor=actor or operator,
+        action="attendance.event.recorded",
+        resource="AttendanceEvent",
+        resource_identifier=str(event.pk),
+        context={
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "event_date": str(event_date),
+            "movement_type": movement_type,
+            "origin": AttendanceEvent.Origin.SCAN,
+            "transmission": transmission,
+            "control_point_id": str(control_point.public_id),
+            "client_event_id": client_event_id,
+            "batch_id": batch_id,
+        },
+    )
+    if event_date < timezone.localdate():
+        recalculate_day(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            reason=RecalculationReason.LATE_EVENT,
+            actor=actor or operator,
+        )
+    return ScanCaptureResult(client_event_id=client_event_id, outcome="created", event=event)
+
+
+def record_scan_batch(*, items, operator, actor=None):
+    """
+    RF-ASI-010's batch form: process each already-resolved item through
+    ``record_scan_movement`` independently, so one rejected item (an
+    inactive student, say) never aborts the rest of the batch. Returns
+    results in the same order as ``items``.
+    """
+    results = []
+    for item in items:
+        try:
+            results.append(record_scan_movement(operator=operator, actor=actor, **item))
+        except DomainError as exc:
+            results.append(
+                RejectedScanItem(client_event_id=item.get("client_event_id", ""), reason=str(exc))
+            )
+    return results
 
 
 def _flag_declared_exit_without_entry(*, event, actor):
@@ -794,10 +967,13 @@ class RosterDayStatus:
     parameters: JornadaParameters
 
 
-def list_roster_day_statuses(*, shift, event_date, as_of=None):
+def list_roster_day_statuses(
+    *, shift, event_date, as_of=None, grade=None, section=None, students=None
+):
     """
     The derived status of every actively enrolled student of ``shift`` on
-    ``event_date`` (a read RF-JOR-007 consumes to evaluate absence alerts).
+    ``event_date`` (a read RF-JOR-007 consumes to evaluate absence alerts, and
+    RF-JOR-008's presence query narrows with ``grade``/``section``/``students``).
     Unlike ``close_jornada``, this is a pure read: no closing-time gating
     beyond what ``derive_day_status`` already applies on its own, and no
     alert side effects.
@@ -806,14 +982,19 @@ def list_roster_day_statuses(*, shift, event_date, as_of=None):
     parameters = get_effective_parameters(
         shift=shift, academic_cycle=academic_cycle, on_date=event_date
     )
-    enrolments = list(
-        Enrolment.objects.filter(
-            academic_cycle=academic_cycle,
-            status=Enrolment.EnrolmentStatus.ACTIVE,
-            section__offering__shift=shift,
-            student__is_active=True,
-        ).select_related("student", "section")
+    enrolments = Enrolment.objects.filter(
+        academic_cycle=academic_cycle,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+        section__offering__shift=shift,
+        student__is_active=True,
     )
+    if grade is not None:
+        enrolments = enrolments.filter(section__offering__grade=grade)
+    if section is not None:
+        enrolments = enrolments.filter(section=section)
+    if students is not None:
+        enrolments = enrolments.filter(student__in=students)
+    enrolments = list(enrolments.select_related("student", "section"))
     students = [enrolment.student for enrolment in enrolments]
 
     # Two batched reads for the whole roster instead of two per student: a
@@ -844,3 +1025,129 @@ def list_roster_day_statuses(*, shift, event_date, as_of=None):
             )
         )
     return statuses
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-008/009 — presencia en tiempo real y porcentaje de asistencia
+# --------------------------------------------------------------------------- #
+
+
+def list_present_students(
+    *, shift, event_date=None, grade=None, section=None, students=None, as_of=None
+):
+    """
+    Actively enrolled students of ``shift`` who have an entry registered and
+    no exit yet, as of right now (RF-JOR-008). A pure filter over
+    ``list_roster_day_statuses``: no new query shape, no side effects.
+    """
+    event_date = event_date or timezone.localdate()
+    roster = list_roster_day_statuses(
+        shift=shift,
+        event_date=event_date,
+        as_of=as_of,
+        grade=grade,
+        section=section,
+        students=students,
+    )
+    return [entry for entry in roster if entry.entry_event is not None and entry.exit_event is None]
+
+
+@dataclass
+class AttendancePercentageResult:
+    student: object
+    shift: object
+    academic_cycle: AcademicCycle
+    as_of_date: object
+    elapsed_school_days: int
+    present_days: int
+    late_days: int
+    percentage: float | None
+
+
+def compute_attendance_percentage(*, student, shift, as_of_date=None):
+    """
+    RF-JOR-009: the share of elapsed school days, since the student's active
+    enrolment began, that resolved to present or late. A day still in
+    progress (no closure yet, no final status) doesn't count in either the
+    numerator or the denominator. Nothing here is persisted — like
+    ``DayStatus``, this is recomputed from events and parameters every time.
+    """
+    as_of_date = as_of_date or timezone.localdate()
+    academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=as_of_date)
+    enrolment = (
+        Enrolment.objects.filter(
+            student=student,
+            academic_cycle=academic_cycle,
+            status=Enrolment.EnrolmentStatus.ACTIVE,
+            section__offering__shift=shift,
+        )
+        .order_by("-effective_on")
+        .first()
+    )
+    if enrolment is None:
+        raise DomainError(
+            f"Student '{student}' has no active enrolment for shift '{shift}' in the "
+            f"cycle covering {as_of_date}."
+        )
+
+    start_date = max(academic_cycle.starts_on, enrolment.effective_on)
+    empty_result = AttendancePercentageResult(
+        student=student,
+        shift=shift,
+        academic_cycle=academic_cycle,
+        as_of_date=as_of_date,
+        elapsed_school_days=0,
+        present_days=0,
+        late_days=0,
+        percentage=None,
+    )
+    if start_date > as_of_date:
+        return empty_result
+
+    versions = list(
+        JornadaParameters.objects.filter(
+            shift=shift, academic_cycle=academic_cycle, is_active=True
+        ).order_by("-effective_from")
+    )
+
+    def school_days_as_of(candidate_date):
+        version = next((v for v in versions if v.effective_from <= candidate_date), None)
+        return version.school_days if version is not None else None
+
+    qualifying_dates = []
+    current = start_date
+    while current <= as_of_date:
+        school_days = school_days_as_of(current)
+        if school_days is not None and current.isoweekday() in school_days:
+            qualifying_dates.append(current)
+        current += timedelta(days=1)
+
+    if not qualifying_dates:
+        return empty_result
+
+    results = derive_day_statuses(
+        students=[student], shift=shift, event_dates=qualifying_dates, as_of=timezone.now()
+    )
+    resolved = [
+        results.get((student.pk, event_date))
+        for event_date in qualifying_dates
+        if results.get((student.pk, event_date)) is not None
+    ]
+    present_days = sum(1 for result in resolved if result.status == DayStatus.PRESENT)
+    late_days = sum(1 for result in resolved if result.status == DayStatus.LATE)
+    elapsed_school_days = len(resolved)
+    percentage = (
+        round((present_days + late_days) / elapsed_school_days * 100, 2)
+        if elapsed_school_days
+        else None
+    )
+    return AttendancePercentageResult(
+        student=student,
+        shift=shift,
+        academic_cycle=academic_cycle,
+        as_of_date=as_of_date,
+        elapsed_school_days=elapsed_school_days,
+        present_days=present_days,
+        late_days=late_days,
+        percentage=percentage,
+    )

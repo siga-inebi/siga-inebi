@@ -12,6 +12,10 @@ RF-EVC-005: Configuracion global heredable
 - EvaluationGlobalConfig is the single, institution-wide starting point for new
   cycles. CycleEvaluationConfig lets one cycle override it without touching the
   global config or any other cycle.
+RF-CAL-001: Registro de la nota de unidad
+- Grade is the single consolidated value a teacher already computed for one
+  student (via Enrolment), one subject (subarea) and one evaluation unit. The
+  system does not derive it from activities; it only stores what arrives.
 """
 
 from django.contrib.postgres.constraints import ExclusionConstraint
@@ -21,6 +25,11 @@ from django.db.models import F, Func, Q, Value
 from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
+
+# RF-CAL-002: admitted grade scale, shared by the model constraint and by the
+# service/serializer validation so the three layers can't drift apart.
+GRADE_MIN_VALUE = 0
+GRADE_MAX_VALUE = 100
 
 
 class EvaluationUnit(TimeStampedModel):
@@ -289,3 +298,58 @@ class CycleEvaluationConfig(TimeStampedModel):
 
     def __str__(self):
         return f"Evaluation config override for {self.academic_cycle.name}"
+
+
+class Grade(TimeStampedModel):
+    """
+    Consolidated grade for one student, subarea and evaluation unit (RF-CAL-001).
+
+    The grade arrives already computed by the teacher; this model does not
+    derive it from underlying activities. Decomposing a unit grade into
+    activities in a later phase must be possible without migrating grades
+    already registered here, so the schema deliberately stays a single value
+    per (enrolment, subject, evaluation_unit).
+
+    "Sin calificar" (RF-CAL-003) is represented by the absence of a row for a
+    given combination, not by a null value: a registered value of zero and a
+    combination with no row must stay distinguishable.
+
+    RF-CAL-002: the grade is expressed on a 0-100 scale, enforced at the
+    database level so no write path can bypass it.
+    """
+
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment",
+        on_delete=models.PROTECT,
+        related_name="grades",
+        help_text="Ties the grade to the student, the section and the cycle.",
+    )
+    subject = models.ForeignKey(
+        "academics.Subject",
+        on_delete=models.PROTECT,
+        related_name="grades",
+        help_text="Subarea the grade belongs to.",
+    )
+    evaluation_unit = models.ForeignKey(
+        EvaluationUnit,
+        on_delete=models.PROTECT,
+        related_name="grades",
+        help_text="Unit the grade belongs to.",
+    )
+    value = models.PositiveSmallIntegerField(help_text="Consolidated grade for the unit.")
+
+    class Meta:
+        ordering = ["evaluation_unit", "subject"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["enrolment", "subject", "evaluation_unit"],
+                name="unique_grade_per_enrolment_subject_unit",
+            ),
+            models.CheckConstraint(
+                condition=Q(value__gte=GRADE_MIN_VALUE) & Q(value__lte=GRADE_MAX_VALUE),
+                name="grade_value_within_scale",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.enrolment} / {self.subject} / {self.evaluation_unit}: {self.value}"

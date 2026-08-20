@@ -6,10 +6,15 @@ from apps.students.models import (
     Guardian,
     Student,
     StudentGuardianRelation,
-    StudentObservation,
     StudentHealthNote,
+    StudentObservation,
 )
-from apps.students.services import create_guardian, create_student, create_student_guardian_relation
+from apps.students.services import (
+    create_guardian,
+    create_student,
+    create_student_guardian_relation,
+    update_student,
+)
 
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a parent record
@@ -162,24 +167,6 @@ class StudentObservationSerializer(serializers.ModelSerializer):
     author = serializers.CharField(source="author.username", read_only=True)
 
     class Meta:
-        model = StudentObservation
-        fields = [
-            "public_id",
-            "student",
-            "author",
-            "description",
-            "observed_on",
-            "is_active",
-            "created_at",
-        ]
-        read_only_fields = fields
-
-
-class StudentHealthNoteSerializer(serializers.ModelSerializer):
-    student = StudentRefSerializer(read_only=True)
-    author = serializers.CharField(source="author.username", read_only=True)
-
-    class Meta:
         model = StudentHealthNote
         fields = [
             "public_id",
@@ -193,11 +180,29 @@ class StudentHealthNoteSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class StudentObservationCreateSerializer(serializers.Serializer):
-    description = serializers.CharField()
-    observed_on = serializers.DateField(required=False)
-
-
 class StudentHealthNoteCreateSerializer(serializers.Serializer):
     content = serializers.CharField()
     recorded_on = serializers.DateField(required=False)
+
+
+class StudentObservationSerializer(serializers.ModelSerializer):
+    student = StudentRefSerializer(read_only=True)
+    author = serializers.CharField(source="author.username", read_only=True)
+
+    class Meta:
+        model = StudentObservation
+        fields = [
+            "public_id",
+            "student",
+            "author",
+            "description",
+            "observed_on",
+            "is_active",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class StudentObservationCreateSerializer(serializers.Serializer):
+    description = serializers.CharField()
+    observed_on = serializers.DateField(required=False)

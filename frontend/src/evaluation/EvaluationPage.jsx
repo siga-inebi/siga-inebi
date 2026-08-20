@@ -7,7 +7,9 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
+import GradingOutlinedIcon from "@mui/icons-material/GradingOutlined";
 import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
+import QueryStatsOutlinedIcon from "@mui/icons-material/QueryStatsOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import { cyclesService } from "@cycles/cyclesService.js";
@@ -26,6 +28,8 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 
 import { CaptureExceptionsWindow } from "./CaptureExceptionsWindow.jsx";
+import { FinalGradeWindow } from "./FinalGradeWindow.jsx";
+import { GradesWindow } from "./GradesWindow.jsx";
 
 const UNIT_COLUMNS = [
   { key: "number", label: "N.", align: "right", render: (row) => row.number },
@@ -156,6 +160,8 @@ export function EvaluationPage() {
   const [configError, setConfigError] = useState("");
   const [editing, setEditing] = useState(null);
   const [exceptionsFor, setExceptionsFor] = useState(null);
+  const [gradesFor, setGradesFor] = useState(null);
+  const [queryingResult, setQueryingResult] = useState(false);
 
   // El selector de ciclo se llena una vez y preselecciona el vigente: es el que
   // el usuario quiere ver el 95% de las veces.
@@ -257,14 +263,24 @@ export function EvaluationPage() {
     <>
       <PageHeader
         action={
-          <Button
-            disabled={!cycleId}
-            onClick={() => setEditing({ mode: "unit" })}
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nueva unidad
-          </Button>
+          <Stack direction="row" gap={1}>
+            <Button
+              disabled={!cycleId}
+              onClick={() => setQueryingResult(true)}
+              startIcon={<QueryStatsOutlinedIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Consultar resultado
+            </Button>
+            <Button
+              disabled={!cycleId}
+              onClick={() => setEditing({ mode: "unit" })}
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nueva unidad
+            </Button>
+          </Stack>
         }
         breadcrumb="Evaluacion"
         subtitle="Unidades de evaluacion del ciclo con sus ventanas de captura y recuperacion, y el numero de unidades configurado."
@@ -358,6 +374,12 @@ export function EvaluationPage() {
                         onClick={() => setExceptionsFor(unit)}
                       >
                         <KeyOutlinedIcon fontSize="small" />
+                      </ActionIconButton>
+                      <ActionIconButton
+                        label="Notas de la unidad"
+                        onClick={() => setGradesFor(unit)}
+                      >
+                        <GradingOutlinedIcon fontSize="small" />
                       </ActionIconButton>
                     </Stack>
                   ),
@@ -455,6 +477,22 @@ export function EvaluationPage() {
           key={exceptionsFor.public_id}
           onClose={() => setExceptionsFor(null)}
           unit={exceptionsFor}
+        />
+      ) : null}
+
+      {gradesFor ? (
+        <GradesWindow
+          cycleId={cycleId}
+          key={gradesFor.public_id}
+          onClose={() => setGradesFor(null)}
+          unit={gradesFor}
+        />
+      ) : null}
+
+      {queryingResult ? (
+        <FinalGradeWindow
+          cycleId={cycleId}
+          onClose={() => setQueryingResult(false)}
         />
       ) : null}
     </>

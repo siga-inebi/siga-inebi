@@ -6,13 +6,9 @@ from apps.academics.api.queries import historical_cycle_or_404
 from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, Section
 from apps.academics.services import (
     activate_academic_cycle,
-    create_academic_cycle,
-    create_section,
-from apps.academics.services import activate_academic_cycle, create_academic_cycle, create_section
-from apps.academics.services import (
-    activate_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_section,
     create_teaching_assignment,
 )
 from apps.audit.models import AuditEvent
@@ -33,6 +29,48 @@ from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
 pytestmark = [pytest.mark.integration, pytest.mark.django_db]
+
+
+def test_active_cycle_closes_after_units_settle_and_then_rejects_academic_writes():
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(level__institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    offering = GradeOffering.objects.create(academic_cycle=cycle, grade=grade, shift=shift)
+    section = Section.objects.create(offering=offering, name="A")
+    subject = SubjectFactory(institution=institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
+    activate_academic_cycle(cycle=cycle, actor=actor)
+    EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher.person,
+        actor=actor,
+    )
+
+    closed = close_academic_cycle(cycle=cycle, actor=actor)
+
+    assert closed.status == AcademicCycle.CycleStatus.CLOSED
+    assert AuditEvent.objects.filter(action="academics.cycle.closed").count() == 1
+    with pytest.raises(DomainError, match="do not accept academic changes"):
+        create_teaching_assignment(
+            academic_cycle=closed,
+            section=section,
+            subject=subject,
+            teacher=TeacherFactory().person,
+            actor=actor,
+        )
 
 
 def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
@@ -85,7 +123,6 @@ def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
 
 
 def test_created_sections_satisfy_cycle_activation_structure_check():
-def test_active_cycle_closes_after_units_settle_and_then_rejects_academic_writes():
     institution = InstitutionFactory()
     actor = UserFactory()
     cycle = create_academic_cycle(
@@ -133,9 +170,7 @@ def test_active_cycle_blocks_structure_but_still_allows_operational_writes():
     )
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
-    section = create_section(
-        academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor
-    )
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
     subject = SubjectFactory(institution=institution)
     CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
     cycle = activate_academic_cycle(cycle=cycle, actor=actor)
@@ -145,22 +180,6 @@ def test_active_cycle_blocks_structure_but_still_allows_operational_writes():
 
     teacher = TeacherFactory()
     assignment = create_teaching_assignment(
-        year=2026,
-        name="Ciclo 2026",
-        starts_on=date(2026, 1, 1),
-        ends_on=date(2026, 10, 31),
-        actor=actor,
-    )
-    grade = GradeFactory(level__institution=institution)
-    shift = ShiftFactory(campus__institution=institution)
-    offering = GradeOffering.objects.create(academic_cycle=cycle, grade=grade, shift=shift)
-    section = Section.objects.create(offering=offering, name="A")
-    subject = SubjectFactory(institution=institution)
-    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
-    activate_academic_cycle(cycle=cycle, actor=actor)
-    EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
-    teacher = TeacherFactory()
-    create_teaching_assignment(
         academic_cycle=cycle,
         section=section,
         subject=subject,
@@ -168,19 +187,6 @@ def test_active_cycle_blocks_structure_but_still_allows_operational_writes():
         actor=actor,
     )
     assert assignment.pk is not None
-
-    closed = close_academic_cycle(cycle=cycle, actor=actor)
-
-    assert closed.status == AcademicCycle.CycleStatus.CLOSED
-    assert AuditEvent.objects.filter(action="academics.cycle.closed").count() == 1
-    with pytest.raises(DomainError, match="do not accept academic changes"):
-        create_teaching_assignment(
-            academic_cycle=closed,
-            section=section,
-            subject=subject,
-            teacher=TeacherFactory().person,
-            actor=actor,
-        )
 
 
 def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():

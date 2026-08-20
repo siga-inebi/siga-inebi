@@ -126,7 +126,13 @@ def test_validate_document_upload_accepts_supported_pdf_and_image_types():
 
 def test_validate_document_upload_rejects_unsupported_extension_and_oversized_payload():
     with pytest.raises(DomainError, match="not supported|unsupported"):
-        validate_document_upload(SimpleUploadedFile("document.exe", b"bad", content_type="application/x-msdownload"))
+        validate_document_upload(
+            SimpleUploadedFile(
+                "document.exe",
+                b"bad",
+                content_type="application/x-msdownload",
+            )
+        )
 
     oversized = SimpleUploadedFile(
         "big.pdf",
@@ -138,7 +144,9 @@ def test_validate_document_upload_rejects_unsupported_extension_and_oversized_pa
 
 
 def test_normalize_document_filename_keeps_safe_and_stable_basename():
-    assert normalize_document_filename("  Mi Documento (oficial).PDF  ") == "mi-documento-oficial.pdf"
+    assert (
+        normalize_document_filename("  Mi Documento (oficial).PDF  ") == "mi-documento-oficial.pdf"
+    )
     assert normalize_document_filename("../weird name.png") == "weird-name.png"
 
 
@@ -684,7 +692,7 @@ def test_student_document_dossier_includes_document_records_for_the_student():
         grade=first_section.grade,
         section=first_section,
     )
-    record = DocumentRecord.objects.create(
+    DocumentRecord.objects.create(
         student=student,
         enrolment=first_enrolment,
         filename="birth-certificate.pdf",

@@ -54,25 +54,10 @@ def emergency_contact_or_404(public_id):
     )
 
 
-def observations(student, request):
-    return _filter_active(
-        StudentObservation.objects.filter(student=student).select_related("student", "author"),
-        request,
-    )
-
-
 def health_notes(student, request):
     return _filter_active(
         StudentHealthNote.objects.filter(student=student).select_related("student", "author"),
         request,
-    )
-
-
-def observation_or_404(public_id):
-    return _get(
-        StudentObservation.objects.select_related("student", "author").all(),
-        public_id,
-        "Student observation",
     )
 
 
@@ -81,4 +66,19 @@ def health_note_or_404(public_id):
         StudentHealthNote.objects.select_related("student", "author").all(),
         public_id,
         "Student health note",
+    )
+
+
+def observations(student, request):
+    return _filter_active(
+        StudentObservation.objects.filter(student=student).select_related("student", "author"),
+        request,
+    )
+
+
+def observation_or_404(public_id):
+    return _get(
+        StudentObservation.objects.select_related("student", "author"),
+        public_id,
+        "Student observation",
     )
