@@ -183,6 +183,76 @@ def test_section_endpoints_require_authentication(client, institution):
     assert client.get(reverse("section-detail", args=[section.public_id])).status_code == 403
 
 
+def test_create_curriculum_plan_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=institution)
+    subject = SubjectFactory(institution=institution)
+
+    response = auth_client.post(
+        reverse("curriculum-plan-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "subject_id": str(subject.public_id),
+            "is_required": False,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["is_required"] is False
+    assert body["academic_cycle_id"] == str(cycle.public_id)
+    assert body["grade"]["public_id"] == str(grade.public_id)
+    assert body["subject"]["public_id"] == str(subject.public_id)
+
+
+def test_create_curriculum_plan_api_rejects_when_cycle_is_active(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    grade = GradeFactory(institution=institution)
+    subject = SubjectFactory(institution=institution)
+
+    response = auth_client.post(
+        reverse("curriculum-plan-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "subject_id": str(subject.public_id),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "in planning" in response.json()["error"]["detail"]
+
+
+def test_deactivate_curriculum_plan_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    plan = CurriculumPlan.objects.create(
+        academic_cycle=cycle,
+        grade=GradeFactory(institution=institution),
+        subject=SubjectFactory(institution=institution),
+    )
+
+    response = auth_client.delete(reverse("curriculum-plan-detail", args=[plan.public_id]))
+
+    assert response.status_code == 204
+    plan.refresh_from_db()
+    assert plan.is_active is False
+
+
+def test_curriculum_plan_endpoints_require_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    plan = CurriculumPlan.objects.create(
+        academic_cycle=cycle,
+        grade=GradeFactory(institution=institution),
+        subject=SubjectFactory(institution=institution),
+    )
+
+    assert client.get(reverse("curriculum-plan-list-create")).status_code == 403
+    assert client.get(reverse("curriculum-plan-detail", args=[plan.public_id])).status_code == 403
+
+
 def test_cycle_endpoints_require_authentication(client, institution):
     assert client.get(reverse("academic-cycle-list-create")).status_code == 403
     response = client.post(

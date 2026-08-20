@@ -884,6 +884,91 @@ def deactivate_section(*, section, actor=None):
 
 
 # --------------------------------------------------------------------------- #
+# curriculum plans ("plan de estudios")
+# --------------------------------------------------------------------------- #
+
+
+def _curriculum_plan_conflicts(subject_name):
+    return {
+        "unique_curriculum_plan_per_cycle_grade_subject": (
+            f"Subject '{subject_name}' is already part of the curriculum plan for this "
+            "grade and cycle."
+        ),
+    }
+
+
+@transaction.atomic
+def create_curriculum_plan(*, academic_cycle, grade, subject, is_required=True, actor=None):
+    """
+    Assign a subject to a grade's study plan for a cycle (RF-EST-005).
+
+    Rules:
+    - Rejected once the academic cycle is closed (cycle_policies), and unless
+      the cycle is still in planning (RF-EST-011) — the study plan is part of
+      the structure, same as sections.
+    - Grade and subject must belong to the cycle's institution and be active.
+    - One entry per (cycle, grade, subject). Unlike a section, a plan entry
+      has no shift/capacity, so there is no implicit resource to resolve.
+    """
+    require_cycle_academic_writes(cycle=academic_cycle, operation="curriculum_plan.create")
+    require_cycle_planning_writes(cycle=academic_cycle, operation="curriculum_plan.create")
+
+    if grade.institution_id != academic_cycle.institution_id:
+        raise DomainError("Grade must belong to the academic cycle institution.")
+    if subject.institution_id != academic_cycle.institution_id:
+        raise DomainError("Subject must belong to the academic cycle institution.")
+    _require_active(grade, "Grade")
+    _require_active(subject, "Subject")
+
+    with unique_violation_as(_curriculum_plan_conflicts(subject.name)):
+        plan = CurriculumPlan.objects.create(
+            academic_cycle=academic_cycle,
+            grade=grade,
+            subject=subject,
+            is_required=is_required,
+        )
+
+    _audit(
+        actor,
+        "academics.curriculum_plan.created",
+        plan,
+        academic_cycle_id=academic_cycle.pk,
+        grade_id=grade.pk,
+        subject_id=subject.pk,
+        is_required=plan.is_required,
+    )
+    return plan
+
+
+def update_curriculum_plan(*, plan, is_required=None, actor=None):
+    """Change whether a subject is required in the plan. Planning-only (RF-EST-011)."""
+    require_cycle_academic_writes(cycle=plan.academic_cycle, operation="curriculum_plan.update")
+    require_cycle_planning_writes(cycle=plan.academic_cycle, operation="curriculum_plan.update")
+
+    return _changed(plan, actor, "academics.curriculum_plan.updated", is_required=is_required)
+
+
+@transaction.atomic
+def deactivate_curriculum_plan(*, plan, actor=None):
+    """Deactivate a curriculum plan entry instead of deleting it. Planning-only (RF-EST-011)."""
+    if not plan.is_active:
+        return plan
+
+    require_cycle_academic_writes(cycle=plan.academic_cycle, operation="curriculum_plan.deactivate")
+    require_cycle_planning_writes(cycle=plan.academic_cycle, operation="curriculum_plan.deactivate")
+
+    plan.is_active = False
+    plan.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "academics.curriculum_plan.deactivated",
+        plan,
+        academic_cycle_id=plan.academic_cycle_id,
+    )
+    return plan
+
+
+# --------------------------------------------------------------------------- #
 # teaching assignments
 # --------------------------------------------------------------------------- #
 
