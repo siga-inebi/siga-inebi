@@ -5,7 +5,9 @@ import Button from "@mui/material/Button";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
+import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import PhotoCameraOutlinedIcon from "@mui/icons-material/PhotoCameraOutlined";
+import QrCodeScannerOutlinedIcon from "@mui/icons-material/QrCodeScannerOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 
 import {
@@ -29,8 +31,11 @@ import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 import { CameraPreviewWindow } from "@ui/display/CameraPreviewWindow.jsx";
 
+import { AttendancePercentageProbe } from "./AttendancePercentageProbe.jsx";
+import { AttendancePresenceWindow } from "./AttendancePresenceWindow.jsx";
 import { DayStatusProbe } from "./DayStatusProbe.jsx";
 import { JornadaParametersWindow } from "./JornadaParametersWindow.jsx";
+import { ScanCaptureWindow } from "./ScanCaptureWindow.jsx";
 
 const EVENT_COLUMNS = [
   {
@@ -204,6 +209,8 @@ export function AttendancePage() {
   const [creating, setCreating] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [showParameters, setShowParameters] = useState(false);
+  const [showScan, setShowScan] = useState(false);
+  const [showPresence, setShowPresence] = useState(false);
 
   const handleCreateEvent = async (payload) => {
     await attendanceService.createEvent(payload);
@@ -218,6 +225,13 @@ export function AttendancePage() {
       <PageHeader
         action={
           <Stack direction="row" flexWrap="wrap" gap={1}>
+            <Button
+              onClick={() => setShowPresence(true)}
+              startIcon={<GroupsOutlinedIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Presencia en tiempo real
+            </Button>
             <Button
               onClick={() => setShowCamera(true)}
               startIcon={<PhotoCameraOutlinedIcon fontSize="small" />}
@@ -235,9 +249,16 @@ export function AttendancePage() {
             <Button
               onClick={() => setCreating(true)}
               startIcon={<AddIcon fontSize="small" />}
-              variant="contained"
+              variant="outlined"
             >
               Registrar movimiento
+            </Button>
+            <Button
+              onClick={() => setShowScan(true)}
+              startIcon={<QrCodeScannerOutlinedIcon fontSize="small" />}
+              variant="contained"
+            >
+              Registrar por escaneo
             </Button>
           </Stack>
         }
@@ -247,32 +268,35 @@ export function AttendancePage() {
       />
 
       <Grid container spacing={2} sx={{ mb: 1 }}>
-        <Grid size={{ xs: 12, lg: 5 }}>
+        <Grid size={{ xs: 12, lg: 6 }}>
           <DayStatusProbe />
         </Grid>
-        <Grid size={{ xs: 12, lg: 7 }}>
-          <SectionCard
-            subtitle="Emitidas por el cierre de jornada"
-            title="Alertas de asistencia"
-          >
-            {alerts.error ? (
-              <Alert severity="error" sx={{ m: 2 }}>
-                {alerts.error}
-              </Alert>
-            ) : null}
-            <SectionTableArea>
-              <DataTable
-                columns={ALERT_COLUMNS}
-                emptyMessage="Sin alertas de asistencia registradas."
-                getRowKey={(row) => row.public_id}
-                loading={alerts.loading}
-                pagination={alerts.pagination}
-                rows={alerts.items}
-              />
-            </SectionTableArea>
-          </SectionCard>
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <AttendancePercentageProbe />
         </Grid>
       </Grid>
+
+      <SectionCard
+        subtitle="Emitidas por el cierre de jornada"
+        sx={{ mb: 2 }}
+        title="Alertas de asistencia"
+      >
+        {alerts.error ? (
+          <Alert severity="error" sx={{ m: 2 }}>
+            {alerts.error}
+          </Alert>
+        ) : null}
+        <SectionTableArea>
+          <DataTable
+            columns={ALERT_COLUMNS}
+            emptyMessage="Sin alertas de asistencia registradas."
+            getRowKey={(row) => row.public_id}
+            loading={alerts.loading}
+            pagination={alerts.pagination}
+            rows={alerts.items}
+          />
+        </SectionTableArea>
+      </SectionCard>
 
       <SectionCard
         fillHeight
@@ -322,6 +346,20 @@ export function AttendancePage() {
 
       {showCamera ? (
         <CameraPreviewWindow onClose={() => setShowCamera(false)} />
+      ) : null}
+
+      {showScan ? (
+        <ScanCaptureWindow
+          onClose={() => setShowScan(false)}
+          onRecorded={() => {
+            events.refresh();
+            alerts.refresh();
+          }}
+        />
+      ) : null}
+
+      {showPresence ? (
+        <AttendancePresenceWindow onClose={() => setShowPresence(false)} />
       ) : null}
     </>
   );
