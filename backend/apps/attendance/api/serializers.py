@@ -194,14 +194,47 @@ class ControlPointSerializer(serializers.ModelSerializer):
 
 
 class ScanCaptureItemSerializer(serializers.Serializer):
+    """
+    One captured movement.
+
+    The subject arrives either as the credential's opaque identifier
+    (RF-CRE-006, what a real QR carries) or as ``student_code``, the fallback
+    that predates the credential. Exactly one is required: accepting both would
+    leave two answers for "who was scanned" and no rule for disagreement.
+    """
+
     client_event_id = serializers.CharField(
         max_length=100, help_text="Id unico generado por el cliente."
     )
-    student_code = serializers.CharField(max_length=50, help_text="Codigo leido del carnet.")
+    credential_identifier = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Identificador opaco leido del codigo QR de la credencial.",
+    )
+    student_code = serializers.CharField(
+        max_length=50,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Codigo estudiantil; alternativa al identificador de credencial.",
+    )
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
     control_point_id = serializers.UUIDField(help_text="Public ID del punto de control.")
     movement_type = serializers.ChoiceField(choices=AttendanceEvent.MovementType.choices)
     captured_at = serializers.DateTimeField(help_text="Hora de captura del escaneo.")
+
+    def validate(self, attrs):
+        identifies = [
+            bool(attrs.get("credential_identifier")),
+            bool(attrs.get("student_code")),
+        ]
+        if sum(identifies) != 1:
+            raise serializers.ValidationError(
+                "Se requiere credential_identifier o student_code, exactamente uno."
+            )
+        return attrs
 
 
 class ScanCaptureRequestSerializer(serializers.Serializer):
@@ -252,3 +285,28 @@ class StudentCredentialSerializer(serializers.ModelSerializer):
 
 class StudentCredentialIssueSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+
+
+class CredentialResolutionRequestSerializer(serializers.Serializer):
+    opaque_identifier = serializers.CharField(
+        max_length=64, help_text="Identificador opaco leido del codigo QR."
+    )
+
+
+class CredentialResolutionSerializer(serializers.Serializer):
+    """
+    RF-CRE-006 response: who the scanned credential belongs to.
+
+    The operator needs enough to confirm the person in front of them and no
+    more, so the payload carries identity and placement and stops there. The
+    identifier is not echoed back: the caller already holds it, and repeating
+    it only widens where it can be logged.
+    """
+
+    student_id = serializers.UUIDField(source="student.public_id")
+    student_code = serializers.CharField(source="student.student_code")
+    full_name = serializers.CharField(source="student.person.__str__")
+    grade_id = serializers.UUIDField(source="enrolment.grade.public_id")
+    section_id = serializers.UUIDField(source="enrolment.section.public_id")
+    academic_cycle_id = serializers.UUIDField(source="enrolment.academic_cycle.public_id")
+    credential_status = serializers.CharField(source="credential.status")

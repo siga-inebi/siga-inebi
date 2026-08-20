@@ -12,6 +12,7 @@ from apps.attendance.api.views import (
     JornadaClosureView,
     JornadaParametersListCreateView,
     StudentCredentialIssueView,
+    StudentCredentialResolutionView,
 )
 
 urlpatterns = [
@@ -69,5 +70,10 @@ urlpatterns = [
         "credentials/",
         StudentCredentialIssueView.as_view(),
         name="attendance-credential-issue",
+    ),
+    path(
+        "credentials/resolve/",
+        StudentCredentialResolutionView.as_view(),
+        name="attendance-credential-resolve",
     ),
 ]

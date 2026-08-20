@@ -41,6 +41,8 @@ from .serializers import (
     AttendancePercentageResultSerializer,
     AttendancePresenceQuerySerializer,
     ControlPointSerializer,
+    CredentialResolutionRequestSerializer,
+    CredentialResolutionSerializer,
     DayStatusQuerySerializer,
     DayStatusResultSerializer,
     JornadaClosureRequestSerializer,
@@ -463,16 +465,15 @@ class AttendanceScanView(GenericAPIView):
         resolved = []
         results_by_index = {}
         for index, raw_item in enumerate(raw_items):
-            student_code = raw_item["student_code"]
+            # Subject resolution and reference lookup both answer with
+            # ``DomainError``, so one handler covers every way an item can be
+            # unusable. The view no longer knows how a scanned subject is found:
+            # that rule, credential or code, lives in the service.
             try:
-                student = Student.objects.get(student_code=student_code, is_active=True)
-            except Student.DoesNotExist:
-                results_by_index[index] = services.RejectedScanItem(
-                    client_event_id=raw_item["client_event_id"],
-                    reason=f"Student with code '{student_code}' not found.",
+                student = services.resolve_scan_subject(
+                    credential_identifier=raw_item.get("credential_identifier", ""),
+                    student_code=raw_item.get("student_code", ""),
                 )
-                continue
-            try:
                 shift = _resolve(Shift.objects.all(), raw_item["shift_id"], "Shift")
                 control_point = _resolve(
                     ControlPoint.objects.all(), raw_item["control_point_id"], "Control point"
@@ -567,3 +568,54 @@ class StudentCredentialIssueView(GenericAPIView):
         return Response(
             StudentCredentialSerializer(credential).data, status=status.HTTP_201_CREATED
         )
+
+
+CREDENTIAL_RESOLVE_PERMISSION = "attendance_credential_resolve"
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Resolver identificador de credencial",
+        description=(
+            "Resuelve el identificador opaco leido del codigo QR y devuelve los "
+            "datos del estudiante para mostrarlos en el punto de control "
+            "(RF-CRE-006). Un identificador desconocido, revocado o de un "
+            "estudiante sin inscripcion activa devuelve HTTP 400 con la causa y "
+            "sin datos de ningun estudiante."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialResolutionRequestSerializer,
+        responses={200: CredentialResolutionSerializer},
+    ),
+)
+class StudentCredentialResolutionView(GenericAPIView):
+    """
+    RF-CRE-006 contract: resolve an opaque identifier to its bearer.
+
+    ``POST`` for a read on purpose. The identifier is what opens a movement, and
+    a GET would park it in the URL — that is, in the access log, the proxy
+    cache, and the browser history of a shared control-point terminal.
+
+    Authorisation is the module-wide permission, not a per-student scope: an
+    operator at the gate scans whoever walks in, so scoping this to a roster
+    would deny the only case it exists for.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialResolutionSerializer
+
+    def post(self, request):
+        _require_permission(request, CREDENTIAL_RESOLVE_PERMISSION)
+        serializer = CredentialResolutionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        resolution = services.resolve_credential(
+            opaque_identifier=serializer.validated_data["opaque_identifier"]
+        )
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.credential.resolved",
+            resource="StudentCredential",
+            resource_identifier=str(resolution.credential.public_id),
+            student=resolution.student,
+        )
+        return Response(CredentialResolutionSerializer(resolution).data)

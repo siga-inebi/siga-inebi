@@ -9,9 +9,10 @@ RF-JOR-004 (daily closure) reads the enrolment-lifecycle domain to know who
 is actively enrolled in a jornada; attendance-governance already depends on
 it (see ``docs/architecture/domain-map.md``).
 
-RF-CRE-001 (credential issuance with an opaque identifier) lives at the bottom
-of this module: the credential is what a scan resolves, so it belongs to the
-same attendance-capture domain rather than to a module of its own.
+RF-CRE-001 (credential issuance with an opaque identifier) and RF-CRE-006
+(resolving that identifier back to a student) live at the bottom of this
+module: the credential is what a scan resolves, so it belongs to the same
+attendance-capture domain rather than to a module of its own.
 """
 
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ from apps.common.models import DomainError
 from apps.common.opaque import generate_opaque_identifier
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import active_enrolments
+from apps.students.models import Student
 
 ORIGIN_PRECEDENCE = {
     AttendanceEvent.Origin.SCAN: 0,
@@ -1226,3 +1228,70 @@ def issue_credential(
         },
     )
     return credential
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-006 — resolucion de identificador
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class CredentialResolution:
+    credential: StudentCredential
+    student: object
+    enrolment: object
+
+
+def resolve_credential(*, opaque_identifier):
+    """
+    The student behind an opaque identifier (RF-CRE-006).
+
+    Every rejection says why without saying about whom. An unrecognised token
+    and a revoked one both answer with a fact about the credential, never with
+    a fact about a student, so a stranger holding a token cannot probe the
+    endpoint to learn whether it belongs to anybody.
+
+    Resolution is read-only and deliberately says nothing about the jornada:
+    whether a movement is admissible at this hour is RF-JOR-001's parameters
+    talking, not the credential's.
+    """
+    credential = (
+        StudentCredential.objects.select_related("student", "student__person")
+        .filter(opaque_identifier=opaque_identifier)
+        .first()
+    )
+    if credential is None:
+        raise DomainError("Credential is not recognised.")
+    if credential.status != StudentCredential.Status.ACTIVE or not credential.is_active:
+        raise DomainError("Credential has been revoked.")
+
+    enrolment = active_enrolments(student=credential.student).first()
+    if enrolment is None:
+        raise DomainError("The credential bearer has no active enrolment.")
+    return CredentialResolution(
+        credential=credential, student=credential.student, enrolment=enrolment
+    )
+
+
+def resolve_scan_subject(*, credential_identifier="", student_code=""):
+    """
+    The student a captured item refers to, whichever way it was identified.
+
+    The credential is the real path (RF-CRE-006). ``student_code`` predates it
+    and stays as the fallback the capture screen still offers when a credential
+    is unavailable; the note on RF-ASI-002 in the traceability matrix records
+    why it exists.
+
+    Both paths raise ``DomainError``, so the batch loop has one failure shape to
+    handle instead of one per lookup. Note the asymmetry: the enrolment check
+    lives in ``resolve_credential`` because RF-CRE-006 declares it for the
+    identifier, so the ``student_code`` fallback does NOT carry it. Extending
+    the guard to that path changes behaviour this requirement does not describe
+    and belongs to its own cut.
+    """
+    if credential_identifier:
+        return resolve_credential(opaque_identifier=credential_identifier).student
+    try:
+        return Student.objects.get(student_code=student_code, is_active=True)
+    except Student.DoesNotExist as exc:
+        raise DomainError(f"Student with code '{student_code}' not found.") from exc

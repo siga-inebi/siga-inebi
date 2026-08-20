@@ -201,3 +201,22 @@
 - La emision genera auditoria con el estudiante y la fecha, nunca con el identificador.
 - Las credenciales no se borran ni se reescriben: la revocacion y la reposicion conservan las
   anteriores como historia del expediente.
+
+## Resolucion de identificador de credencial
+
+- `POST /api/v1/attendance/credentials/resolve/` resuelve el identificador opaco leido del codigo
+  QR y devuelve identidad y ubicacion del estudiante para mostrarlas en el punto de control.
+- Es un POST aunque sea una lectura. Un GET dejaria el identificador en la URL, y con ella en el
+  log de acceso, la cache del proxy y el historial del navegador de una terminal compartida.
+- Requiere sesion y el permiso atomico `attendance.credential.resolve`. El alcance es modular, no
+  por estudiante: el operador del punto de control escanea a quien entra, y exigir alcance sobre
+  cada estudiante negaria el unico caso para el que existe el endpoint.
+- Un identificador desconocido, una credencial revocada o un estudiante sin inscripcion activa
+  devuelven HTTP 400 indicando la causa. El mensaje habla de la credencial, nunca de un
+  estudiante, de modo que sondear el endpoint no revela quien existe.
+- La respuesta no repite el identificador: quien llama ya lo tiene, y devolverlo solo amplia los
+  lugares donde puede quedar registrado.
+- Cada resolucion exitosa genera auditoria de lectura sensible.
+- La captura por escaneo (`POST /api/v1/attendance/scan/`) acepta `credential_identifier` o
+  `student_code` en cada elemento, exactamente uno. El primero es la via real; el segundo se
+  conserva como alternativa manual. El rechazo de un elemento no aborta el resto del lote.
