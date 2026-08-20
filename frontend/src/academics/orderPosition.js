@@ -72,6 +72,9 @@ export function positionField(siblings, excludeId) {
     label: "Posicion",
     type: "select",
     options: positionOptions(siblings, excludeId),
+    // Sin opcion vacia: siempre hay una posicion, y "Seleccione una opcion"
+    // arriba de "Al final" solo suma una fila que no significa nada.
+    placeholder: "",
     help: "Define el orden pedagogico. Los demas se renumeran solos.",
   };
 }

@@ -17,14 +17,20 @@ import Typography from "@mui/material/Typography";
  */
 export function PageHeader({ action, breadcrumb, subtitle, title }) {
   return (
+    // `flexWrap` y no solo `direction`: una pantalla puede llevar cinco acciones
+    // en el encabezado (asistencia), y con las acciones sin encoger el titulo y
+    // su descripcion quedaban comprimidos en una columna de dos palabras por
+    // linea. Asi el bloque de acciones baja completo a la linea siguiente en vez
+    // de estrangular al titulo.
     <Stack
-      alignItems={{ xs: "flex-start", sm: "center" }}
-      direction={{ xs: "column", sm: "row" }}
+      alignItems={{ xs: "flex-start", md: "center" }}
+      direction="row"
+      flexWrap="wrap"
       gap={2}
       justifyContent="space-between"
       sx={{ mb: 3 }}
     >
-      <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ flex: "1 1 22rem", minWidth: 0 }}>
         {breadcrumb ? (
           <Typography
             component="p"

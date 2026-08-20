@@ -301,7 +301,10 @@ export function EnrolmentsPage() {
             emptyLabel="Todos los estudiantes"
             label="Estudiante"
             loading={students.loading}
-            minWidth={280}
+            // La etiqueta es "Nombre Apellido · EST-2026-0027": mas angosto que
+            // esto la parte en dos lineas y el codigo, que es lo que
+            // desambigua a dos homonimos, queda cortado abajo.
+            minWidth={360}
             onChange={setStudentFilter}
             options={students.options}
             value={studentFilter}

@@ -239,7 +239,9 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
     {
       key: "previous",
       label: "Docente del ciclo anterior",
-      render: (row) => names.teachers.get(row.teacherId) ?? "Docente",
+      render: (row) => (
+        <MutedCell>{names.teachers.get(row.teacherId) ?? "Docente"}</MutedCell>
+      ),
     },
     {
       key: "teacher",
@@ -252,9 +254,11 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
           return <StatusChip label="Ya asignado" variant="neutral" />;
         }
         return (
+          // Sin etiqueta propia (la columna ya dice "Se asignara a") y con ancho
+          // minimo: el nombre completo del docente es el dato que hay que leer
+          // para decidir, y truncado a "An..." la confirmacion no sirve de nada.
           <FormSelect
             fullWidth
-            label="Docente"
             loading={teachers.loading}
             onChange={(event) =>
               setChoices((current) => ({
@@ -264,6 +268,7 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
             }
             options={teachers.options}
             placeholder="No clonar esta"
+            sx={{ minWidth: "16rem" }}
             value={choices[row.id] ?? SKIP}
           />
         );
