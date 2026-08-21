@@ -12,6 +12,7 @@ ATOMIC_PERMISSIONS = (
     ("enrollment.create", "Can create enrollments"),
     ("enrollment.update", "Can update enrollments"),
     ("attendance.scan", "Can scan attendance credentials"),
+    ("attendance.credential.issue", "Can issue student credentials"),
     ("attendance.record_entry", "Can record attendance entries"),
     ("attendance.record_exit", "Can record attendance exits"),
     ("attendance.declared_close", "Can perform declared attendance close"),

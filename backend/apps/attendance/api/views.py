@@ -50,6 +50,8 @@ from .serializers import (
     PresentStudentSerializer,
     ScanCaptureItemResultSerializer,
     ScanCaptureRequestSerializer,
+    StudentCredentialIssueSerializer,
+    StudentCredentialSerializer,
 )
 
 CONFIGURE_PERMISSION = "attendance_jornada_configure"
@@ -524,3 +526,44 @@ def _resolve(queryset, public_id, label):
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
         raise DomainError(f"{label} not found.") from exc
+
+
+CREDENTIAL_TAGS = ["attendance: credencial"]
+CREDENTIAL_ISSUE_PERMISSION = "attendance_credential_issue"
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Emitir credencial de estudiante",
+        description=(
+            "Emite la credencial de un estudiante con inscripcion activa y "
+            "devuelve el identificador opaco que codifica el codigo QR. El "
+            "identificador se genera aleatoriamente y no se deriva del codigo "
+            "estudiantil ni de ningun dato personal (RF-CRE-001). Es la unica "
+            "respuesta que lo expone."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=StudentCredentialIssueSerializer,
+        responses={201: StudentCredentialSerializer},
+    ),
+)
+class StudentCredentialIssueView(GenericAPIView):
+    """RF-CRE-001 contract: issue a credential carrying an opaque identifier."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentCredentialSerializer
+
+    def post(self, request):
+        serializer = StudentCredentialIssueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        student = _resolve(
+            Student.objects.all(), serializer.validated_data["student_id"], "Student"
+        )
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise PermissionDenied("Actor lacks the required permission or student scope.")
+        credential = services.issue_credential(student=student, actor=request.user)
+        return Response(
+            StudentCredentialSerializer(credential).data, status=status.HTTP_201_CREATED
+        )

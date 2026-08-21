@@ -7,15 +7,24 @@ RF-JOR-005 — deteccion de inconsistencias entre fuentes, con matricula real de
 RF-JOR-006 — recalculo ante cambios, con matricula real de por medio.
 RF-ASI-001/002/004/010 — captura por escaneo con matricula, punto de control
 y supresion de duplicados reales.
+RF-CRE-001 — emision de credencial sobre una matricula real.
 """
 
 from datetime import datetime, time, timedelta
 
 import pytest
+from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
+from apps.attendance.models import (
+    AttendanceAlert,
+    AttendanceEvent,
+    DayStatus,
+    JornadaParameters,
+    StudentCredential,
+)
+from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
@@ -394,3 +403,50 @@ def test_scan_capture_end_to_end_with_real_enrolment_control_point_and_duplicate
     status = services.derive_day_status(student=student, shift=shift, event_date=cycle.starts_on)
     assert status.status == DayStatus.PRESENT
     assert status.entry_event == first.event
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-001 — emision de credencial sobre matricula real
+# --------------------------------------------------------------------------- #
+
+
+def test_credential_issuance_requires_a_real_enrolment_and_a_unique_identifier():
+    """
+    The credential depends on the enrolment-lifecycle domain, so the guard is
+    exercised against real rows: a student is refused before being enrolled and
+    issued afterwards, and the uniqueness of the identifier is enforced by the
+    database rather than by a read-then-write in Python.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    actor = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.issue_credential(student=student, actor=actor)
+
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    credential = services.issue_credential(student=student, actor=actor)
+
+    assert credential.status == StudentCredential.Status.ACTIVE
+    assert StudentCredential.objects.filter(student=student).count() == 1
+
+    classmate = StudentFactory()
+    create_enrolment(
+        student=classmate,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    with pytest.raises(IntegrityError):
+        StudentCredential.objects.create(
+            student=classmate,
+            opaque_identifier=credential.opaque_identifier,
+            status=StudentCredential.Status.ACTIVE,
+            issued_at=timezone.now(),
+        )

@@ -14,6 +14,7 @@ WRITE_PERMISSION_CODENAMES = {
     "attendance_record_manual",
     "attendance_declared_close",
     "attendance_scan",
+    "attendance_credential_issue",
     "attendance_justification_resolve",
     "enrollment_create",
     "enrollment_update",
