@@ -220,3 +220,52 @@ class RecalculationReason(models.TextChoices):
     LATE_EVENT = "late_event", "Evento con fecha anterior"
     PARAMETERS_CHANGED = "parameters_changed", "Cambio de parametros de jornada"
     JUSTIFICATION_RESOLVED = "justification_resolved", "Resolucion de justificacion"
+
+
+class StudentCredential(TimeStampedModel):
+    """
+    A student's QR credential (RF-CRE-001).
+
+    ``opaque_identifier`` is the whole QR payload. It is generated randomly and
+    is not derived from ``student_code``, the national ID, or any other personal
+    data, so scanning the printed code with an off-the-shelf reader yields a
+    meaningless string instead of identifying its bearer.
+
+    Credentials are never deleted or rewritten: reposition (RF-CRE-004) issues a
+    new row and revocation (RF-CRE-003) flips ``status`` on the old one, so the
+    student's credential history stays queryable (AGENTS.md #12). The revocation
+    reason and revoking actor belong to RF-CRE-003 and are not modelled yet.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Vigente"
+        REVOKED = "revoked", "Revocada"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="credentials"
+    )
+    opaque_identifier = models.CharField(max_length=64)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    issued_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-issued_at"]
+        constraints = [
+            # Named explicitly rather than declared with ``unique=True`` so the
+            # services can map the violation back to a message by name.
+            models.UniqueConstraint(
+                fields=["opaque_identifier"],
+                name="unique_credential_opaque_identifier",
+            ),
+            models.UniqueConstraint(
+                fields=["student"],
+                condition=Q(status="active", is_active=True),
+                name="unique_active_student_credential",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["student", "status"], name="attendance_cred_student_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.student} ({self.status})"

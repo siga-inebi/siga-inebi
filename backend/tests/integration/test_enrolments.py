@@ -76,7 +76,7 @@ def test_cannot_duplicate_incompatible_active_enrolment():
         section=section,
     )
 
-    with pytest.raises(DomainError, match="already has an active enrolment"):
+    with pytest.raises(DomainError, match="ya tiene una inscripcion activa"):
         create_enrolment(
             student=student,
             academic_cycle=section.academic_cycle,
@@ -141,7 +141,7 @@ def test_create_enrolment_rejects_section_from_another_cycle():
     other_section = SectionFactory()
     student = StudentFactory()
 
-    with pytest.raises(DomainError, match="Section must belong to the academic cycle"):
+    with pytest.raises(DomainError, match="seccion debe pertenecer al ciclo escolar"):
         create_enrolment(
             student=student,
             academic_cycle=section.academic_cycle,
@@ -157,7 +157,7 @@ def test_create_enrolment_rejects_end_date_before_effective_date():
     section = SectionFactory()
     student = StudentFactory()
 
-    with pytest.raises(DomainError, match="end date cannot precede"):
+    with pytest.raises(DomainError, match="no puede ser anterior a su fecha de vigencia"):
         create_enrolment(
             student=student,
             academic_cycle=section.academic_cycle,
@@ -203,7 +203,7 @@ def test_matriculation_blocks_full_section_and_preserves_student_status():
     )
     student = StudentFactory(status="pre_enrolled")
 
-    with pytest.raises(DomainError, match="Section capacity has been reached"):
+    with pytest.raises(DomainError, match="alcanzo su cupo"):
         matriculate_student(
             student=student,
             academic_cycle=section.academic_cycle,
@@ -252,7 +252,7 @@ def test_section_occupancy_reflects_the_same_capacity_guard_used_at_matriculatio
     assert full.available_seats == 0
 
     # The write-side guard now agrees: the section is full.
-    with pytest.raises(DomainError, match="Section capacity has been reached"):
+    with pytest.raises(DomainError, match="alcanzo su cupo"):
         matriculate_student(
             student=StudentFactory(status="pre_enrolled"),
             academic_cycle=section.academic_cycle,

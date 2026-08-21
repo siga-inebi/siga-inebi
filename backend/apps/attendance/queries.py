@@ -28,31 +28,31 @@ def _payload_get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
-        raise DomainError(f"{label} not found.") from exc
+        raise DomainError(f"No se encontro {label}.") from exc
 
 
 def student_for_payload(public_id):
-    return _payload_get(Student.objects.all(), public_id, "Student")
+    return _payload_get(Student.objects.all(), public_id, "el estudiante")
 
 
 def shift_for_payload(public_id):
-    return _payload_get(Shift.objects.all(), public_id, "Shift")
+    return _payload_get(Shift.objects.all(), public_id, "la jornada")
 
 
 def grade_for_payload(public_id):
-    return _payload_get(Grade.objects.all(), public_id, "Grade")
+    return _payload_get(Grade.objects.all(), public_id, "el grado")
 
 
 def section_for_payload(public_id):
-    return _payload_get(Section.objects.all(), public_id, "Section")
+    return _payload_get(Section.objects.all(), public_id, "la seccion")
 
 
 def academic_cycle_for_payload(public_id):
-    return _payload_get(AcademicCycle.objects.all(), public_id, "Academic cycle")
+    return _payload_get(AcademicCycle.objects.all(), public_id, "el ciclo escolar")
 
 
 def control_point_for_payload(public_id):
-    return _payload_get(ControlPoint.objects.all(), public_id, "Control point")
+    return _payload_get(ControlPoint.objects.all(), public_id, "el punto de control")
 
 
 def student_by_code(student_code):
@@ -76,4 +76,6 @@ def origin_permissions():
 
 
 def no_event_error():
-    return ResourceNotFoundError("No attendance event found for the given criteria.")
+    return ResourceNotFoundError(
+        "No se encontro movimiento de asistencia para los criterios indicados."
+    )

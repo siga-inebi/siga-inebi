@@ -58,20 +58,20 @@ from apps.teachers.models import Teacher
 def _clean_code(value, *, field="code"):
     code = (value or "").strip().upper()
     if not code:
-        raise DomainError(f"A non-empty {field} is required.")
+        raise DomainError(f"Se requiere {field} con contenido.")
     return code
 
 
 def _clean_name(value, *, field="name"):
     name = (value or "").strip()
     if not name:
-        raise DomainError(f"A non-empty {field} is required.")
+        raise DomainError(f"Se requiere {field} con contenido.")
     return name
 
 
 def _require_active(instance, label):
     if not instance.is_active:
-        raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
+        raise DomainError(f"No se puede usar {label} '{instance}': su registro esta inactivo.")
 
 
 def _has_open_cycle_usage(offering_queryset):
@@ -132,7 +132,7 @@ def _ordered_with(queryset, instance, insert_after):
         if found is None:
             # Un hermano de otro nivel (o de otra institucion) dejaria el orden
             # a medio escribir: se rechaza antes de tocar una sola fila.
-            raise DomainError("The reference item does not belong to the same group.")
+            raise DomainError("El elemento de referencia no pertenece al mismo grupo.")
         index = found + 1
     rows.insert(index, instance)
     return rows
@@ -148,7 +148,7 @@ def _place_in_order(*, queryset, instance, insert_after):
     if insert_after is APPEND:
         return instance
     if insert_after is not None and insert_after.pk == instance.pk:
-        raise DomainError("An item cannot be inserted after itself.")
+        raise DomainError("Un elemento no puede insertarse despues de si mismo.")
     _apply_order(queryset, _ordered_with(queryset, instance, insert_after))
     return instance
 
@@ -175,7 +175,7 @@ def _cycle_conflicts(*, year, name):
             "Academic cycle dates cannot overlap another cycle in the institution."
         ),
         "unique_active_cycle_per_institution": (
-            "The current active cycle must be closed before activating another cycle."
+            "Hay que cerrar el ciclo activo antes de activar otro."
         ),
     }
 
@@ -213,9 +213,13 @@ def create_academic_cycle(
     ends_on = ends_on or defaults["ends_on"]
     description = (description or "").strip()
     if starts_on > ends_on:
-        raise DomainError("Academic cycle end date cannot be before its start date.")
+        raise DomainError(
+            "La fecha de fin del ciclo escolar no puede ser anterior a su fecha de inicio."
+        )
     if starts_on.year != year:
-        raise DomainError("Academic cycle year must match its start date year.")
+        raise DomainError(
+            "El ano del ciclo escolar debe coincidir con el ano de su fecha de inicio."
+        )
 
     with unique_violation_as(_cycle_conflicts(year=year, name=name)):
         cycle = AcademicCycle.objects.create(
@@ -256,13 +260,14 @@ def _academic_cycle_opening_gaps(cycle):
     for offering in offerings:
         if not offering.sections.filter(is_active=True).exists():
             gaps.append(
-                f"sections for grade '{offering.grade.name}' in shift '{offering.shift.name}'"
+                f"faltan secciones del grado '{offering.grade.name}' en la jornada "
+                f"'{offering.shift.name}'"
             )
         if (
             offering.grade_id not in grades_with_plan
             and offering.grade_id not in reported_plan_gaps
         ):
-            gaps.append(f"curriculum plan for grade '{offering.grade.name}'")
+            gaps.append(f"falta el plan de estudios del grado '{offering.grade.name}'")
             reported_plan_gaps.add(offering.grade_id)
     return gaps
 
@@ -282,7 +287,7 @@ def clone_academic_cycle(
     """Create an independent draft cycle from existing academic structure (RF-CIC-007)."""
     source = AcademicCycle.objects.select_for_update().get(pk=source_cycle.pk)
     if source.status != AcademicCycle.CycleStatus.CLOSED:
-        raise DomainError("Only a closed academic cycle can be cloned.")
+        raise DomainError("Solo se puede clonar un ciclo escolar cerrado.")
     target = create_academic_cycle(
         institution=source.institution,
         year=year,
@@ -363,7 +368,7 @@ def activate_academic_cycle(*, cycle, actor=None):
     """Activate a prepared cycle with its available opening structure validated."""
     locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
     if locked.status != AcademicCycle.CycleStatus.DRAFT:
-        raise DomainError("Only an academic cycle in preparation can be activated.")
+        raise DomainError("Solo se puede activar un ciclo escolar en preparacion.")
     if (
         AcademicCycle.objects.select_for_update()
         .filter(
@@ -373,13 +378,11 @@ def activate_academic_cycle(*, cycle, actor=None):
         .exclude(pk=locked.pk)
         .exists()
     ):
-        raise DomainError(
-            "The current active cycle must be closed before activating another cycle."
-        )
+        raise DomainError("Hay que cerrar el ciclo activo antes de activar otro.")
     opening_gaps = _academic_cycle_opening_gaps(locked)
     if opening_gaps:
         raise DomainError(
-            "Academic cycle structure is incomplete: " + "; ".join(opening_gaps) + "."
+            "La estructura del ciclo escolar esta incompleta: " + "; ".join(opening_gaps) + "."
         )
 
     locked.status = AcademicCycle.CycleStatus.ACTIVE
@@ -403,9 +406,9 @@ def _cycle_closure_gaps(cycle):
     gaps = []
     for unit in cycle.evaluation_units.order_by("number"):
         if unit.status != "closed":
-            gaps.append(f"evaluation unit '{unit.name}' is still open")
+            gaps.append(f"la unidad de evaluacion '{unit.name}' sigue abierta")
         elif unit.recovery_ends_on is not None and today <= unit.recovery_ends_on:
-            gaps.append(f"evaluation unit '{unit.name}' recovery window has not expired yet")
+            gaps.append(f"la ventana de recuperacion de la unidad '{unit.name}' aun no vence")
     return gaps
 
 
@@ -421,11 +424,11 @@ def close_academic_cycle(*, cycle, actor=None):
     """
     locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
     if locked.status != AcademicCycle.CycleStatus.ACTIVE:
-        raise DomainError("Only an active academic cycle can be closed.")
+        raise DomainError("Solo se puede cerrar un ciclo escolar activo.")
 
     gaps = _cycle_closure_gaps(locked)
     if gaps:
-        raise DomainError("Academic cycle cannot be closed: " + "; ".join(gaps) + ".")
+        raise DomainError("No se puede cerrar el ciclo escolar: " + "; ".join(gaps) + ".")
 
     locked.status = AcademicCycle.CycleStatus.CLOSED
     locked.save(update_fields=["status", "updated_at"])
@@ -539,7 +542,7 @@ def update_campus(*, campus, name=None, address=None, is_main=None, actor=None):
         address = address.strip()
 
     if is_main is not None and is_main != campus.is_main and is_main:
-        _require_active(campus, "Campus")
+        _require_active(campus, "el campus")
         Campus.objects.filter(institution=campus.institution, is_main=True).exclude(
             pk=campus.pk
         ).update(is_main=False)
@@ -569,7 +572,7 @@ def deactivate_campus(*, campus, actor=None):
 
     if _has_open_cycle_usage(GradeOffering.objects.filter(shift__campus=campus)):
         raise DomainError(
-            f"Campus '{campus.name}' is used by an active cycle and cannot be deactivated."
+            f"El campus '{campus.name}' lo usa un ciclo activo y no puede desactivarse."
         )
 
     campus.is_active = False
@@ -594,7 +597,7 @@ def create_shift(*, campus, name, code, actor=None):
     - Campus must be active.
     - Code is unique per campus, so two campuses may both have "MAT".
     """
-    _require_active(campus, "Campus")
+    _require_active(campus, "el campus")
     name = _clean_name(name)
     code = _clean_code(code)
 
@@ -624,7 +627,7 @@ def deactivate_shift(*, shift, actor=None):
 
     if _has_open_cycle_usage(GradeOffering.objects.filter(shift=shift)):
         raise DomainError(
-            f"Shift '{shift.name}' is used by an active cycle and cannot be deactivated."
+            f"La jornada '{shift.name}' la usa un ciclo activo y no puede desactivarse."
         )
 
     shift.is_active = False
@@ -643,15 +646,13 @@ def _level_conflicts(code, sequence):
         "unique_level_code_per_institution": (
             f"Level code '{code}' already exists for this institution."
         ),
-        "unique_level_sequence_per_institution": (
-            f"Level sequence {sequence} is already used by another level."
-        ),
+        "unique_level_sequence_per_institution": (f"La secuencia {sequence} ya la usa otro nivel."),
     }
 
 
 def _require_positive_sequence(sequence, label):
     if sequence is not None and sequence < 1:
-        raise DomainError(f"{label} sequence must be a positive integer.")
+        raise DomainError(f"La secuencia de {label} debe ser un entero positivo.")
 
 
 # Estructura nacional: los cuatro niveles del sistema educativo guatemalteco.
@@ -728,7 +729,7 @@ def create_level(*, institution, name, code=None, sequence=None, insert_after=AP
     supplied = (code or "").strip()
     siblings = _institution_levels(institution)
 
-    _require_positive_sequence(sequence, "Level")
+    _require_positive_sequence(sequence, "nivel")
     # Un numero explicito manda sobre la posicion: es el contrato anterior de la
     # API y renumerar despues lo pisaria sin avisar.
     explicit_sequence = sequence is not None
@@ -779,7 +780,7 @@ def update_level(*, level, name=None, sequence=None, insert_after=APPEND, actor=
     """
     if name is not None:
         name = _clean_name(name)
-    _require_positive_sequence(sequence, "Level")
+    _require_positive_sequence(sequence, "nivel")
 
     with unique_violation_as(_level_conflicts(level.code, sequence)):
         _changed(level, actor, "academics.level.updated", name=name, sequence=sequence)
@@ -801,7 +802,8 @@ def deactivate_level(*, level, actor=None):
 
     if _has_open_cycle_usage(GradeOffering.objects.filter(grade__level=level)):
         raise DomainError(
-            f"Level '{level.name}' has grades offered in an active cycle and cannot be deactivated."
+            f"El nivel '{level.name}' tiene grados ofertados en un ciclo activo y no puede "
+            f"desactivarse."
         )
 
     level.is_active = False
@@ -823,7 +825,7 @@ def _grade_conflicts(code, sequence):
             f"Grade code '{code}' already exists for this institution."
         ),
         "unique_grade_sequence_per_level": (
-            f"Grade sequence {sequence} is already used inside this level."
+            f"La secuencia {sequence} ya se usa dentro de este nivel."
         ),
     }
 
@@ -868,12 +870,12 @@ def create_grade(*, level, name, code=None, sequence=None, insert_after=APPEND, 
     is possible because ``Grade`` carries a derived ``institution`` column; see
     the model docstring and migration 0004.
     """
-    _require_active(level, "Level")
+    _require_active(level, "el nivel")
     name = _clean_name(name)
     supplied = (code or "").strip()
     siblings = _level_grades(level)
 
-    _require_positive_sequence(sequence, "Grade")
+    _require_positive_sequence(sequence, "grado")
     explicit_sequence = sequence is not None
     if not explicit_sequence:
         sequence = _next_sequence(siblings)
@@ -912,7 +914,7 @@ def update_grade(*, grade, name=None, sequence=None, insert_after=APPEND, actor=
     """Rename a grade or reorder it inside its level. The code is immutable."""
     if name is not None:
         name = _clean_name(name)
-    _require_positive_sequence(sequence, "Grade")
+    _require_positive_sequence(sequence, "grado")
 
     with unique_violation_as(_grade_conflicts(grade.code, sequence)):
         _changed(grade, actor, "academics.grade.updated", name=name, sequence=sequence)
@@ -931,7 +933,7 @@ def deactivate_grade(*, grade, actor=None):
 
     if _has_open_cycle_usage(GradeOffering.objects.filter(grade=grade)):
         raise DomainError(
-            f"Grade '{grade.name}' is offered in an active cycle and cannot be deactivated."
+            f"El grado '{grade.name}' esta ofertado en un ciclo activo y no puede desactivarse."
         )
 
     grade.is_active = False
@@ -982,7 +984,7 @@ def deactivate_subject(*, subject, actor=None):
 
 def _validate_weekly_hours(weekly_hours):
     if weekly_hours is not None and weekly_hours < 0:
-        raise DomainError("Weekly hours cannot be negative.")
+        raise DomainError("Las horas semanales no pueden ser negativas.")
 
 
 def link_subject_to_level(*, level, subject, is_required=True, weekly_hours=0, actor=None):
@@ -996,10 +998,10 @@ def link_subject_to_level(*, level, subject, is_required=True, weekly_hours=0, a
     - The pair can only be linked once.
     """
     if level.institution_id != subject.institution_id:
-        raise DomainError("Level and subject must belong to the same institution.")
+        raise DomainError("El nivel y el curso deben pertenecer a la misma institucion.")
 
-    _require_active(level, "Level")
-    _require_active(subject, "Subject")
+    _require_active(level, "el nivel")
+    _require_active(subject, "el curso")
     _validate_weekly_hours(weekly_hours)
 
     conflicts = {
@@ -1033,7 +1035,7 @@ def get_level_subject(level, subject):
         )
     except LevelSubject.DoesNotExist as exc:
         raise DomainError(
-            f"Subject '{subject.name}' is not linked to level '{level.name}'."
+            f"El curso '{subject.name}' no esta vinculado al nivel '{level.name}'."
         ) from exc
 
 
@@ -1082,11 +1084,11 @@ def _resolve_or_create_grade_offering(*, academic_cycle, grade, shift, actor=Non
     RF-EST-007 usable end-to-end without exposing a new public resource.
     """
     if grade.institution_id != academic_cycle.institution_id:
-        raise DomainError("Grade must belong to the academic cycle institution.")
+        raise DomainError("El grado debe pertenecer a la institucion del ciclo escolar.")
     if shift.institution != academic_cycle.institution:
-        raise DomainError("Shift must belong to the academic cycle institution.")
-    _require_active(grade, "Grade")
-    _require_active(shift, "Shift")
+        raise DomainError("La jornada debe pertenecer a la institucion del ciclo escolar.")
+    _require_active(grade, "el grado")
+    _require_active(shift, "la jornada")
 
     offering, created = GradeOffering.objects.get_or_create(
         academic_cycle=academic_cycle, grade=grade, shift=shift
@@ -1113,7 +1115,7 @@ def _section_conflicts(name):
 
 def _validate_capacity(capacity):
     if capacity is not None and capacity < 0:
-        raise DomainError("Section capacity cannot be negative.")
+        raise DomainError("El cupo de la seccion no puede ser negativo.")
 
 
 @transaction.atomic
@@ -1180,7 +1182,7 @@ def deactivate_section(*, section, actor=None):
     require_cycle_planning_writes(cycle=section.academic_cycle, operation="section.deactivate")
     if section.enrolments.filter(status="active").exists():
         raise DomainError(
-            f"Section '{section.name}' has active enrolments and cannot be deactivated."
+            f"La seccion '{section.name}' tiene matriculas activas y no puede desactivarse."
         )
 
     section.is_active = False
@@ -1220,11 +1222,11 @@ def create_curriculum_plan(*, academic_cycle, grade, subject, is_required=True, 
     require_cycle_planning_writes(cycle=academic_cycle, operation="curriculum_plan.create")
 
     if grade.institution_id != academic_cycle.institution_id:
-        raise DomainError("Grade must belong to the academic cycle institution.")
+        raise DomainError("El grado debe pertenecer a la institucion del ciclo escolar.")
     if subject.institution_id != academic_cycle.institution_id:
-        raise DomainError("Subject must belong to the academic cycle institution.")
-    _require_active(grade, "Grade")
-    _require_active(subject, "Subject")
+        raise DomainError("El curso debe pertenecer a la institucion del ciclo escolar.")
+    _require_active(grade, "el grado")
+    _require_active(subject, "el curso")
 
     with unique_violation_as(_curriculum_plan_conflicts(subject.name)):
         plan = CurriculumPlan.objects.create(
@@ -1291,26 +1293,30 @@ def _teacher_profile_for(person):
     try:
         teacher = person.teacher_profile
     except Teacher.DoesNotExist as exc:
-        raise DomainError("Teacher must have an active Teacher profile.") from exc
+        raise DomainError("El docente debe tener un perfil de docente activo.") from exc
     if not teacher.is_active:
-        raise DomainError("Teacher must have an active Teacher profile.")
+        raise DomainError("El docente debe tener un perfil de docente activo.")
     return teacher
 
 
 def _validate_teaching_assignment(*, academic_cycle, section, subject, teacher, starts_on, ends_on):
     if section.offering.academic_cycle_id != academic_cycle.id:
-        raise DomainError("Section must belong to the academic cycle.")
+        raise DomainError("La seccion debe pertenecer al ciclo escolar.")
     if subject.institution_id != academic_cycle.institution_id:
-        raise DomainError("Subject must belong to the academic cycle institution.")
+        raise DomainError("El curso debe pertenecer a la institucion del ciclo escolar.")
     _teacher_profile_for(teacher)
 
     if starts_on < academic_cycle.starts_on or starts_on > academic_cycle.ends_on:
-        raise DomainError("Assignment start date must be within the academic cycle.")
+        raise DomainError("La fecha de inicio de la asignacion debe caer dentro del ciclo escolar.")
     if ends_on is not None:
         if ends_on < academic_cycle.starts_on or ends_on > academic_cycle.ends_on:
-            raise DomainError("Assignment end date must be within the academic cycle.")
+            raise DomainError(
+                "La fecha de fin de la asignacion debe caer dentro del ciclo escolar."
+            )
         if ends_on < starts_on:
-            raise DomainError("Assignment end date cannot be before its start date.")
+            raise DomainError(
+                "La fecha de fin de la asignacion no puede ser anterior a su fecha de inicio."
+            )
 
 
 @transaction.atomic
@@ -1370,17 +1376,22 @@ def reassign_teaching_assignment(*, assignment, teacher, ends_on, actor=None):
     )
 
     if assignment.ends_on is not None:
-        raise DomainError("Only the current teaching assignment can be reassigned.")
+        raise DomainError("Solo se puede reasignar la asignacion docente vigente.")
     if assignment.teacher_id == teacher.id:
-        raise DomainError("Reassignment requires a different teacher.")
+        raise DomainError("La reasignacion requiere un docente distinto.")
     if ends_on < academic_cycle.starts_on or ends_on > academic_cycle.ends_on:
-        raise DomainError("Assignment end date must be within the academic cycle.")
+        raise DomainError("La fecha de fin de la asignacion debe caer dentro del ciclo escolar.")
     if ends_on < assignment.starts_on:
-        raise DomainError("Reassignment end date cannot be before the current assignment starts.")
+        raise DomainError(
+            "La fecha de fin de la reasignacion no puede ser anterior al inicio de la "
+            "asignacion vigente."
+        )
 
     new_starts_on = ends_on + timedelta(days=1)
     if new_starts_on > academic_cycle.ends_on:
-        raise DomainError("Reassignment end date must leave at least one day for the successor.")
+        raise DomainError(
+            "La fecha de fin de la reasignacion debe dejar al menos un dia al sucesor."
+        )
     _validate_teaching_assignment(
         academic_cycle=academic_cycle,
         section=assignment.section,

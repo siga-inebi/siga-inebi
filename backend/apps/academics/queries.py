@@ -264,13 +264,13 @@ def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise ResourceNotFoundError(f"{label} not found.") from exc
+        raise ResourceNotFoundError(f"No se encontro {label}.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError(f"{label} not found.") from exc
+        raise ResourceNotFoundError(f"No se encontro {label}.") from exc
 
 
 def _get_payload(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
-        raise DomainError(f"{label} not found.") from exc
+        raise DomainError(f"No se encontro {label}.") from exc

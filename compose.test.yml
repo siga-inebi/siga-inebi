@@ -1,10 +1,21 @@
 services:
   db-test:
     image: postgres:16-alpine
+    # Fijado igual que el cluster de desarrollo y produccion. Las pruebas de
+    # RNF-LOC-001 corren contra un reloj configurado como el del
+    # establecimiento, no contra el UTC por omision de la imagen.
+    command:
+      - postgres
+      - -c
+      - timezone=America/Guatemala
+      - -c
+      - log_timezone=America/Guatemala
     environment:
       POSTGRES_DB: siga_inebi_test
       POSTGRES_USER: siga_inebi_test
       POSTGRES_PASSWORD: siga_inebi_test_password
+      TZ: America/Guatemala
+      PGTZ: America/Guatemala
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U siga_inebi_test -d siga_inebi_test"]
       interval: 5s
@@ -31,6 +42,7 @@ services:
       DJANGO_SECRET_KEY: test-secret-key
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
       TIME_ZONE: America/Guatemala
+      TZ: America/Guatemala
     depends_on:
       db-test:
         condition: service_healthy

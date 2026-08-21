@@ -155,7 +155,7 @@ def test_deactivate_campus_rejects_when_used_by_an_open_cycle():
     cycle = AcademicCycleFactory(institution=campus.institution)
     GradeOfferingFactory(academic_cycle=cycle, shift=shift)
 
-    with pytest.raises(DomainError, match="active cycle"):
+    with pytest.raises(DomainError, match="ciclo activo"):
         deactivate_campus(campus=campus)
 
 
@@ -228,7 +228,7 @@ def test_same_shift_code_can_exist_in_two_campuses():
 def test_create_shift_rejects_inactive_campus():
     campus = CampusFactory(is_active=False)
 
-    with pytest.raises(DomainError, match="inactive"):
+    with pytest.raises(DomainError, match="registro esta inactivo"):
         create_shift(campus=campus, name="Matutina", code="MAT")
 
 
@@ -260,5 +260,5 @@ def test_deactivate_shift_rejects_when_used_by_an_open_cycle():
         grade=GradeFactory(institution=shift.campus.institution),
     )
 
-    with pytest.raises(DomainError, match="active cycle"):
+    with pytest.raises(DomainError, match="ciclo activo"):
         deactivate_shift(shift=shift)

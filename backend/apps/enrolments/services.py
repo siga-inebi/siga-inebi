@@ -14,10 +14,10 @@ from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 # dice que hacer, no que constraint fallo.
 DUPLICATE_ENROLMENT_MESSAGES = {
     "unique_active_enrolment_per_student": (
-        "Student already has an active enrolment. Close it before enrolling again."
+        "El estudiante ya tiene una inscripcion activa. Cierrala antes de inscribirlo de nuevo."
     ),
     "unique_enrolment_per_student_section": (
-        "Student was already enrolled in this section. Repeating means another cycle."
+        "El estudiante ya estuvo inscrito en esa seccion. Repetir supone otro ciclo escolar."
     ),
 }
 
@@ -61,7 +61,7 @@ def _ensure_section_has_capacity(section):
         status=Enrolment.EnrolmentStatus.ACTIVE,
     ).count()
     if active_count >= locked_section.capacity:
-        raise DomainError("Section capacity has been reached.")
+        raise DomainError("La seccion alcanzo su cupo.")
 
 
 def active_enrolments(*, student=None):
@@ -99,11 +99,13 @@ def create_enrolment(
         operation="enrolment.create",
     )
     if section.academic_cycle.id != academic_cycle.pk:
-        raise DomainError("Section must belong to the academic cycle.")
+        raise DomainError("La seccion debe pertenecer al ciclo escolar.")
     if section.grade.id != grade.pk:
-        raise DomainError("Section must belong to the grade.")
+        raise DomainError("La seccion debe pertenecer al grado.")
     if ends_on is not None and effective_on > ends_on:
-        raise DomainError("Enrolment end date cannot precede its effective date.")
+        raise DomainError(
+            "La fecha de fin de la matricula no puede ser anterior a su fecha de vigencia."
+        )
     _ensure_section_has_capacity(section)
 
     with unique_violation_as(DUPLICATE_ENROLMENT_MESSAGES):
@@ -142,9 +144,9 @@ def matriculate_student(
     de existencia, y matricular a alguien archivado lo reviviria a medias.
     """
     if not student.is_active:
-        raise DomainError("Inactive students cannot be matriculated.")
+        raise DomainError("Un estudiante inactivo no puede matricularse.")
     if section.shift.id != shift.pk:
-        raise DomainError("Section must belong to the selected shift.")
+        raise DomainError("La seccion debe pertenecer a la jornada seleccionada.")
 
     enrolment = create_enrolment(
         student=student,
@@ -222,7 +224,7 @@ def reenrol_student(
     como completada, con la fecha en que arranca la nueva.
     """
     if not student.is_active:
-        raise DomainError("Inactive students cannot be reenrolled.")
+        raise DomainError("Un estudiante inactivo no puede reinscribirse.")
 
     previous = (
         Enrolment.objects.filter(student=student)
@@ -232,9 +234,9 @@ def reenrol_student(
         .first()
     )
     if previous is None:
-        raise DomainError("Student has no previous enrolment to inherit.")
+        raise DomainError("El estudiante no tiene matricula previa de la cual heredar.")
     if section.shift.id != shift.pk:
-        raise DomainError("Section must belong to the selected shift.")
+        raise DomainError("La seccion debe pertenecer a la jornada seleccionada.")
 
     _close_open_enrolments(
         student=student,
@@ -274,9 +276,9 @@ def change_section(*, enrolment, new_section, actor=None, effective_on=None):
         operation="enrolment.change_section",
     )
     if new_section.academic_cycle.id != enrolment.academic_cycle_id:
-        raise DomainError("Section must belong to the academic cycle.")
+        raise DomainError("La seccion debe pertenecer al ciclo escolar.")
     if new_section.grade.id != enrolment.grade_id:
-        raise DomainError("Section must belong to the grade.")
+        raise DomainError("La seccion debe pertenecer al grado.")
     _ensure_section_has_capacity(new_section)
 
     effective_on = effective_on or timezone.localdate()
@@ -320,16 +322,16 @@ def set_document_requirement(
     actor=None,
 ):
     if enrolment.academic_cycle.status == enrolment.academic_cycle.CycleStatus.CLOSED:
-        raise DomainError("Closed academic cycles do not allow document changes.")
+        raise DomainError("Un ciclo escolar cerrado no admite cambios en documentos.")
 
     code = code.strip().upper()
     name = name.strip()
     if not code:
-        raise DomainError("Document code cannot be empty.")
+        raise DomainError("El codigo del documento no puede estar vacio.")
     if not name:
-        raise DomainError("Document name cannot be empty.")
+        raise DomainError("El nombre del documento no puede estar vacio.")
     if status is not None and status not in EnrolmentDocumentRequirement.DeliveryStatus.values:
-        raise DomainError("Invalid document delivery status.")
+        raise DomainError("Estado de entrega del documento no valido.")
 
     # Only overwrite what the caller actually supplied: a partial update must not
     # reset the delivery state. On creation the model defaults fill the rest.

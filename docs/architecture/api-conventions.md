@@ -204,3 +204,62 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - Crear una asignacion requiere el objeto `scope` con al menos una dimension soportada:
   institucion, ciclo, grado, seccion, curso, asignacion docente, estudiante o modulo.
 - Una invocacion directa sin permiso o scope devuelve HTTP 403 y genera auditoria.
+
+## Credencial estudiantil
+
+- `POST /api/v1/attendance/credentials/` emite la credencial de un estudiante y devuelve el
+  identificador opaco que codifica el codigo QR. Requiere sesion, el permiso atomico
+  `attendance.credential.issue` y alcance sobre el estudiante.
+- El codigo QR codifica unicamente ese identificador. Se genera aleatoriamente con `secrets` y no
+  se deriva del codigo estudiantil, del numero de identificacion ni de ningun otro dato personal,
+  de modo que un lector externo obtiene una cadena sin significado.
+- La respuesta de emision es la unica que expone `opaque_identifier`. Ningun listado lo publica:
+  una pagina de tokens vigentes es una pagina de pases utilizables.
+- Solo un estudiante con inscripcion activa recibe credencial, y solo puede tener una vigente a
+  la vez. Un segundo intento devuelve HTTP 400 sin crear nada.
+- La emision genera auditoria con el estudiante y la fecha, nunca con el identificador.
+- Las credenciales no se borran ni se reescriben: la revocacion y la reposicion conservan las
+  anteriores como historia del expediente.
+
+## Resolucion de identificador de credencial
+
+- `POST /api/v1/attendance/credentials/resolve/` resuelve el identificador opaco leido del codigo
+  QR y devuelve identidad y ubicacion del estudiante para mostrarlas en el punto de control.
+- Es un POST aunque sea una lectura. Un GET dejaria el identificador en la URL, y con ella en el
+  log de acceso, la cache del proxy y el historial del navegador de una terminal compartida.
+- Requiere sesion y el permiso atomico `attendance.credential.resolve`. El alcance es modular, no
+  por estudiante: el operador del punto de control escanea a quien entra, y exigir alcance sobre
+  cada estudiante negaria el unico caso para el que existe el endpoint.
+- Un identificador desconocido, una credencial revocada o un estudiante sin inscripcion activa
+  devuelven HTTP 400 indicando la causa. El mensaje habla de la credencial, nunca de un
+  estudiante, de modo que sondear el endpoint no revela quien existe.
+- La respuesta no repite el identificador: quien llama ya lo tiene, y devolverlo solo amplia los
+  lugares donde puede quedar registrado.
+- Cada resolucion exitosa genera auditoria de lectura sensible.
+- La captura por escaneo (`POST /api/v1/attendance/scan/`) acepta `credential_identifier` o
+  `student_code` en cada elemento, exactamente uno. El primero es la via real; el segundo se
+  conserva como alternativa manual. El rechazo de un elemento no aborta el resto del lote.
+- Las dos vias exigen inscripcion activa: quien esta retirado del establecimiento no registra
+  asistencia, y por cual de las dos puertas entro el escaneo no es un dato de su matricula. Los
+  origenes `manual` y `declared` quedan fuera de esa regla a proposito: un operador autorizado
+  registrando a mano un movimiento de un estudiante recien retirado puede ser correccion legitima
+  de historia.
+
+## Idioma de los mensajes
+
+- El producto es monolingue: `LANGUAGE_CODE` es `es-gt` y `LANGUAGES` declara ese unico idioma.
+  `LocaleMiddleware` solo puede activar un idioma declarado, asi que un `Accept-Language: en` no
+  cambia los mensajes propios de DRF ni de Django. Sin ese cierre, la garantia dependia de la
+  configuracion del navegador de cada usuario.
+- Los mensajes de dominio se escriben en espanol. El cliente los muestra literales
+  (`frontend/src/shared/api/apiClient.js` toma `error.detail` y lo pone en pantalla), asi que un
+  mensaje en ingles en el backend es texto en ingles frente a quien opera el sistema.
+- La convencion de nombres tecnicos en ingles no cambia: aplica a identificadores, codigos,
+  acciones de auditoria y campos del contrato, no al texto que alguien lee.
+- Las etiquetas que se interpolan en un mensaje viajan en espanol y con su articulo
+  (`"la jornada"`, `"el estudiante"`), y los mensajes se redactan sin depender del genero del
+  sustantivo interpolado.
+- `RuntimeError` queda fuera de esta regla: los guardias de inmutabilidad protegen contra un error
+  de programacion, salen como HTTP 500 y no son mensajes destinados a leerse.
+- `backend/tests/api/test_localization_messages.py` recorre `apps/` y falla si reaparece un mensaje
+  visible en ingles, incluidos los mapas de `unique_violation_as`.

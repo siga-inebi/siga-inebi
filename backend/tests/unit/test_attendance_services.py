@@ -9,6 +9,8 @@ RF-JOR-008 — consulta de presencia en tiempo real.
 RF-JOR-009 — porcentaje de asistencia del ciclo.
 RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
 idempotencia.
+RF-CRE-001 — emision de credencial con identificador opaco.
+RF-CRE-006 — resolucion de identificador.
 
 All in isolation from the API layer.
 """
@@ -25,10 +27,12 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     RecalculationReason,
+    StudentCredential,
 )
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
-from apps.enrolments.services import create_enrolment
+from apps.enrolments.models import Enrolment
+from apps.enrolments.services import active_enrolments, create_enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
     CampusFactory,
@@ -42,6 +46,7 @@ from tests.factories.attendance import (
     JornadaParametersFactory,
 )
 from tests.factories.identity import UserFactory
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
@@ -1684,3 +1689,285 @@ def test_record_scan_batch_resend_of_confirmed_batch_is_a_no_op_success():
         "already_processed",
     ]
     assert AttendanceEvent.objects.count() == 2
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-001 — emision de credencial con identificador opaco
+# --------------------------------------------------------------------------- #
+
+
+def test_issuing_a_credential_for_an_enrolled_student_creates_an_active_one():
+    """
+    Escenario 1 (RF-CRE-001): GIVEN un estudiante con inscripcion activa y sin
+    credencial vigente, WHEN un usuario autorizado emite su credencial, THEN el
+    sistema genera un identificador opaco unico y lo asocia al estudiante, AND
+    la credencial queda en estado vigente.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    actor = UserFactory()
+
+    credential = services.issue_credential(student=student, actor=actor)
+
+    assert credential.student == student
+    assert credential.status == StudentCredential.Status.ACTIVE
+    assert credential.opaque_identifier
+    assert (
+        StudentCredential.objects.filter(
+            student=student, status=StudentCredential.Status.ACTIVE
+        ).count()
+        == 1
+    )
+    assert AuditEvent.objects.filter(action="attendance.credential.issued").exists()
+
+
+def test_the_opaque_identifier_does_not_encode_any_personal_data():
+    """
+    Escenario 2 (RF-CRE-001): GIVEN una credencial emitida, WHEN se inspecciona
+    el contenido codificado en el codigo QR, THEN contiene solo el identificador
+    opaco, AND no permite deducir el codigo estudiantil ni ningun dato personal
+    del portador.
+
+    Two students sharing every personal attribute are issued credentials in the
+    same breath: if anything about the bearer leaked into the token, identical
+    bearers would produce related tokens.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    twins = []
+    for student_code in ("EST-2026-0001", "EST-2026-0002"):
+        person = PersonFactory(first_name="Ana", last_name="Ramirez")
+        student = StudentFactory(person=person, student_code=student_code)
+        create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.offering.grade,
+            section=section,
+        )
+        twins.append(services.issue_credential(student=student))
+
+    first, second = twins
+    assert first.opaque_identifier != second.opaque_identifier
+    for credential in twins:
+        payload = credential.opaque_identifier
+        student = credential.student
+        person = student.person
+        for secret in (
+            student.student_code,
+            student.student_code.lower(),
+            person.first_name,
+            person.last_name,
+            person.email,
+            person.phone_number,
+            str(student.public_id),
+        ):
+            assert secret not in payload
+        # Length is the observable proof of randomness: 32 random bytes render
+        # as 43 url-safe characters, far more than any derivation would need.
+        assert len(payload) >= 40
+
+
+def test_a_student_without_an_active_enrolment_gets_no_credential():
+    student = StudentFactory()
+
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.issue_credential(student=student)
+
+    assert not StudentCredential.objects.filter(student=student).exists()
+
+
+def test_a_second_credential_is_refused_while_one_is_still_active():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    services.issue_credential(student=student)
+
+    with pytest.raises(DomainError, match="ya tiene una credencial vigente"):
+        services.issue_credential(student=student)
+
+    assert StudentCredential.objects.filter(student=student).count() == 1
+
+
+def test_a_colliding_identifier_is_regenerated_instead_of_failing():
+    """
+    The generator is injected, so a collision can be provoked deterministically:
+    the first candidate is already taken and the service must retry rather than
+    surface the integrity error.
+    """
+    cycle = AcademicCycleFactory()
+    first_student, _section, _shift = _enrolled_student(cycle)
+    taken = services.issue_credential(student=first_student).opaque_identifier
+
+    second_section = SectionFactory(academic_cycle=cycle)
+    second_student = StudentFactory()
+    create_enrolment(
+        student=second_student,
+        academic_cycle=cycle,
+        grade=second_section.offering.grade,
+        section=second_section,
+    )
+    candidates = iter([taken, "a-free-identifier"])
+
+    credential = services.issue_credential(
+        student=second_student, generate_identifier=lambda: next(candidates)
+    )
+
+    assert credential.opaque_identifier == "a-free-identifier"
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-006 — resolucion de identificador
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unknown_identifier_is_rejected_without_naming_any_student():
+    """
+    Escenario 1 (RF-CRE-006): GIVEN un codigo QR que no corresponde a ninguna
+    credencial emitida, WHEN un operador lo escanea, THEN el sistema informa que
+    la credencial no es reconocida, AND no muestra informacion de ningun
+    estudiante.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    issued = services.issue_credential(student=student)
+
+    with pytest.raises(DomainError) as failure:
+        services.resolve_credential(opaque_identifier="not-a-real-token")
+
+    message = str(failure.value)
+    assert "no es reconocida" in message
+    # The rejection is a fact about the credential, never about a person: an
+    # outsider probing the endpoint learns nothing about who exists.
+    assert student.student_code not in message
+    assert str(student.public_id) not in message
+    assert issued.opaque_identifier not in message
+
+
+def test_a_withdrawn_students_credential_resolves_to_a_rejection():
+    """
+    Escenario 2 (RF-CRE-006): GIVEN una credencial vigente cuyo estudiante fue
+    retirado del establecimiento, WHEN un operador la escanea, THEN el sistema
+    rechaza el movimiento indicando que el estudiante no tiene inscripcion
+    activa.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    enrolment = active_enrolments(student=student).get()
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.resolve_credential(opaque_identifier=credential.opaque_identifier)
+
+    # The credential itself is untouched: withdrawal is an enrolment fact, and
+    # rewriting the credential would erase why it stopped working.
+    credential.refresh_from_db()
+    assert credential.status == StudentCredential.Status.ACTIVE
+
+
+def test_a_valid_identifier_resolves_to_its_bearer_and_placement():
+    cycle = AcademicCycleFactory()
+    student, section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    resolution = services.resolve_credential(opaque_identifier=credential.opaque_identifier)
+
+    assert resolution.student == student
+    assert resolution.credential == credential
+    assert resolution.enrolment.section == section
+
+
+def test_a_revoked_credential_no_longer_resolves():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+    credential.status = StudentCredential.Status.REVOKED
+    credential.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="fue revocada"):
+        services.resolve_credential(opaque_identifier=credential.opaque_identifier)
+
+
+def test_the_scan_subject_resolves_from_either_a_credential_or_a_student_code():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    by_credential = services.resolve_scan_subject(
+        credential_identifier=credential.opaque_identifier
+    )
+    by_code = services.resolve_scan_subject(student_code=student.student_code)
+
+    assert by_credential == student
+    assert by_code == student
+
+    with pytest.raises(DomainError, match="no es reconocida"):
+        services.resolve_scan_subject(credential_identifier="unknown-token")
+    with pytest.raises(DomainError, match="No existe estudiante"):
+        services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST")
+
+
+# --------------------------------------------------------------------------- #
+# Consistencia entre las dos vias de identificacion del sujeto escaneado
+# --------------------------------------------------------------------------- #
+
+
+def test_both_identification_paths_refuse_a_student_without_active_enrolment():
+    """
+    La regla de inscripcion activa no depende de por donde entro el escaneo.
+    Antes vivia solo en la ruta de credencial, asi que la misma operacion se
+    aceptaba o se rechazaba segun como el operador hubiera identificado a la
+    persona.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    enrolment = active_enrolments(student=student).get()
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.resolve_scan_subject(credential_identifier=credential.opaque_identifier)
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.resolve_scan_subject(student_code=student.student_code)
+
+
+def test_the_credential_rejection_still_refuses_to_name_the_bearer():
+    """
+    Compartir la regla no comparte la redaccion. RF-CRE-006 prohibe revelar al
+    estudiante al rechazar, asi que la ruta de credencial sigue hablando del
+    portador; la de codigo puede devolver el codigo que el operador ya escribio.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    enrolment = active_enrolments(student=student).get()
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.save(update_fields=["status"])
+
+    with pytest.raises(DomainError) as by_credential:
+        services.resolve_scan_subject(credential_identifier=credential.opaque_identifier)
+    with pytest.raises(DomainError) as by_code:
+        services.resolve_scan_subject(student_code=student.student_code)
+
+    assert student.student_code not in str(by_credential.value)
+    assert str(student.public_id) not in str(by_credential.value)
+    assert student.student_code in str(by_code.value)
+
+
+def test_an_enrolled_student_still_resolves_by_either_path():
+    """La regla rechaza al retirado sin estorbar al inscrito."""
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    by_credential = services.resolve_scan_subject(
+        credential_identifier=credential.opaque_identifier
+    )
+    by_code = services.resolve_scan_subject(student_code=student.student_code)
+
+    assert by_credential == student
+    assert by_code == student

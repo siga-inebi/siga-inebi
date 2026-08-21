@@ -32,6 +32,8 @@ from .serializers import (
     AttendancePercentageResultSerializer,
     AttendancePresenceQuerySerializer,
     ControlPointSerializer,
+    CredentialResolutionRequestSerializer,
+    CredentialResolutionSerializer,
     DayStatusQuerySerializer,
     DayStatusResultSerializer,
     JornadaClosureRequestSerializer,
@@ -41,6 +43,8 @@ from .serializers import (
     PresentStudentSerializer,
     ScanCaptureItemResultSerializer,
     ScanCaptureRequestSerializer,
+    StudentCredentialIssueSerializer,
+    StudentCredentialSerializer,
 )
 
 CONFIGURE_PERMISSION = "attendance_jornada_configure"
@@ -49,7 +53,7 @@ STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise AuthorizationError("Actor lacks the required permission.")
+        raise AuthorizationError("El actor no tiene el permiso requerido.")
 
 
 # Provisional: one atomic permission per event origin. A separate
@@ -148,7 +152,7 @@ class AttendanceEventListCreateView(GenericAPIView):
         payload = serializer.validated_data
         codename = ORIGIN_PERMISSIONS[payload["origin"]]
         if not request.user.has_atomic_permission(codename):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
         student = queries.student_for_payload(payload.pop("student_id"))
         shift = queries.shift_for_payload(payload.pop("shift_id"))
         event = services.record_attendance_event(
@@ -185,7 +189,9 @@ class AttendanceEventResolutionView(GenericAPIView):
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise AuthorizationError("Actor lacks the required permission or student scope.")
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         event = services.resolve_prevailing_event(
             student=student,
             shift=shift,
@@ -224,7 +230,9 @@ class AttendanceDayStatusView(GenericAPIView):
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise AuthorizationError("Actor lacks the required permission or student scope.")
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         record_sensitive_read(
             actor=request.user,
             action="attendance.day_status.read",
@@ -369,7 +377,9 @@ class AttendancePercentageView(GenericAPIView):
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise AuthorizationError("Actor lacks the required permission or student scope.")
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         record_sensitive_read(
             actor=request.user,
             action="attendance.percentage.read",
@@ -438,18 +448,11 @@ class AttendanceScanView(GenericAPIView):
         resolved = []
         results_by_index = {}
         for index, raw_item in enumerate(raw_items):
-            student_code = raw_item["student_code"]
             try:
-                student = queries.student_by_code(student_code)
-            except (ValueError, TypeError):
-                student = None
-            if student is None:
-                results_by_index[index] = services.RejectedScanItem(
-                    client_event_id=raw_item["client_event_id"],
-                    reason=f"Student with code '{student_code}' not found.",
+                student = services.resolve_scan_subject(
+                    credential_identifier=raw_item.get("credential_identifier", ""),
+                    student_code=raw_item.get("student_code", ""),
                 )
-                continue
-            try:
                 shift = queries.shift_for_payload(raw_item["shift_id"])
                 control_point = queries.control_point_for_payload(raw_item["control_point_id"])
             except DomainError as exc:
@@ -490,3 +493,70 @@ class AttendanceScanView(GenericAPIView):
             for result in (results_by_index[i] for i in range(len(raw_items)))
         ]
         return Response(ScanCaptureItemResultSerializer(data, many=True).data)
+
+
+CREDENTIAL_TAGS = ["attendance: credencial"]
+CREDENTIAL_ISSUE_PERMISSION = "attendance_credential_issue"
+CREDENTIAL_RESOLVE_PERMISSION = "attendance_credential_resolve"
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Emitir credencial de estudiante",
+        tags=CREDENTIAL_TAGS,
+        request=StudentCredentialIssueSerializer,
+        responses={201: StudentCredentialSerializer},
+    ),
+)
+class StudentCredentialIssueView(GenericAPIView):
+    """Emitir identificador opaco para una credencial estudiantil (RF-CRE-001)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentCredentialSerializer
+
+    def post(self, request):
+        serializer = StudentCredentialIssueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        student = queries.student_for_payload(serializer.validated_data["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        credential = services.issue_credential(student=student, actor=request.user)
+        return Response(
+            StudentCredentialSerializer(credential).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Resolver identificador de credencial",
+        tags=CREDENTIAL_TAGS,
+        request=CredentialResolutionRequestSerializer,
+        responses={200: CredentialResolutionSerializer},
+    ),
+)
+class StudentCredentialResolutionView(GenericAPIView):
+    """Resolver QR opaco sin exponer el identificador en URL (RF-CRE-006)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialResolutionSerializer
+
+    def post(self, request):
+        _require_permission(request, CREDENTIAL_RESOLVE_PERMISSION)
+        serializer = CredentialResolutionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        resolution = services.resolve_credential(
+            opaque_identifier=serializer.validated_data["opaque_identifier"]
+        )
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.credential.resolved",
+            resource="StudentCredential",
+            resource_identifier=str(resolution.credential.public_id),
+            student=resolution.student,
+        )
+        return Response(CredentialResolutionSerializer(resolution).data)

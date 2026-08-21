@@ -7,15 +7,26 @@ RF-JOR-005 — deteccion de inconsistencias entre fuentes, con matricula real de
 RF-JOR-006 — recalculo ante cambios, con matricula real de por medio.
 RF-ASI-001/002/004/010 — captura por escaneo con matricula, punto de control
 y supresion de duplicados reales.
+RF-CRE-001 — emision de credencial sobre una matricula real.
+RF-CRE-006 — resolucion de identificador contra matricula y retiro reales.
 """
 
 from datetime import datetime, time, timedelta
 
 import pytest
+from django.db import IntegrityError
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, DayStatus, JornadaParameters
+from apps.attendance.models import (
+    AttendanceAlert,
+    AttendanceEvent,
+    DayStatus,
+    JornadaParameters,
+    StudentCredential,
+)
+from apps.common.models import DomainError
+from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
@@ -394,3 +405,108 @@ def test_scan_capture_end_to_end_with_real_enrolment_control_point_and_duplicate
     status = services.derive_day_status(student=student, shift=shift, event_date=cycle.starts_on)
     assert status.status == DayStatus.PRESENT
     assert status.entry_event == first.event
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-001 — emision de credencial sobre matricula real
+# --------------------------------------------------------------------------- #
+
+
+def test_credential_issuance_requires_a_real_enrolment_and_a_unique_identifier():
+    """
+    The credential depends on the enrolment-lifecycle domain, so the guard is
+    exercised against real rows: a student is refused before being enrolled and
+    issued afterwards, and the uniqueness of the identifier is enforced by the
+    database rather than by a read-then-write in Python.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    actor = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.issue_credential(student=student, actor=actor)
+
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    credential = services.issue_credential(student=student, actor=actor)
+
+    assert credential.status == StudentCredential.Status.ACTIVE
+    assert StudentCredential.objects.filter(student=student).count() == 1
+
+    classmate = StudentFactory()
+    create_enrolment(
+        student=classmate,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    with pytest.raises(IntegrityError):
+        StudentCredential.objects.create(
+            student=classmate,
+            opaque_identifier=credential.opaque_identifier,
+            status=StudentCredential.Status.ACTIVE,
+            issued_at=timezone.now(),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-006 — resolucion de identificador sobre matricula real
+# --------------------------------------------------------------------------- #
+
+
+def test_withdrawing_a_student_stops_their_credential_without_touching_past_movements():
+    """
+    Escenario 2 (RF-CRE-006) cruzando dominios: la credencial deja de resolver
+    en cuanto la matricula deja de estar activa, y los movimientos ya
+    registrados con ella no se alteran. El retiro aplica hacia adelante.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    operator = UserFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(13, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=cycle.starts_on,
+    )
+    control_point = ControlPointFactory(campus=shift.campus)
+    credential = services.issue_credential(student=student, actor=operator)
+
+    subject = services.resolve_scan_subject(credential_identifier=credential.opaque_identifier)
+    entry = services.record_scan_movement(
+        student=subject,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 0))),
+        client_event_id="cred-entry-1",
+        operator=operator,
+    ).event
+
+    enrolment = student.enrolments.get()
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.resolve_scan_subject(credential_identifier=credential.opaque_identifier)
+
+    entry.refresh_from_db()
+    assert entry.is_active
+    assert AttendanceEvent.objects.filter(student=student).count() == 1

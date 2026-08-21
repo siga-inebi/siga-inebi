@@ -78,7 +78,7 @@ def test_cycle_end_date_before_start_is_rejected(auth_client, institution):
     )
 
     assert response.status_code == 400
-    assert "cannot be before" in response.json()["error"]["detail"]
+    assert "no puede ser anterior" in response.json()["error"]["detail"]
 
 
 def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institution):
@@ -98,7 +98,7 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
     response = auth_client.post(reverse("academic-cycle-activate", args=[prepared.public_id]))
 
     assert response.status_code == 400
-    assert "must be closed" in response.json()["error"]["detail"]
+    assert "Hay que cerrar" in response.json()["error"]["detail"]
 
 
 def test_create_section_api_creates_offering_and_section(auth_client, institution):
@@ -162,7 +162,7 @@ def test_create_section_api_rejects_when_cycle_is_active(auth_client, institutio
     )
 
     assert response.status_code == 400
-    assert "in planning" in response.json()["error"]["detail"]
+    assert "en preparacion" in response.json()["error"]["detail"]
 
 
 def test_deactivate_section_api_contract(auth_client, institution):
@@ -223,7 +223,7 @@ def test_create_curriculum_plan_api_rejects_when_cycle_is_active(auth_client, in
     )
 
     assert response.status_code == 400
-    assert "in planning" in response.json()["error"]["detail"]
+    assert "en preparacion" in response.json()["error"]["detail"]
 
 
 def test_deactivate_curriculum_plan_api_contract(auth_client, institution):

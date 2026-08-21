@@ -77,8 +77,8 @@ def validate_capture_window_open(unit: EvaluationUnit, on_date=None) -> None:
     """
     if not unit.is_capture_window_open(on_date):
         raise DomainError(
-            f"Grade capture window is closed for unit '{unit.name}'. "
-            f"Window: {unit.capture_starts_on} to {unit.capture_ends_on}."
+            f"La ventana de captura de notas de la unidad '{unit.name}' esta cerrada. "
+            f"Vigencia: del {unit.capture_starts_on} al {unit.capture_ends_on}."
         )
 
 
@@ -95,11 +95,11 @@ def validate_recovery_window_open(unit: EvaluationUnit, on_date=None) -> None:
             the given date.
     """
     if unit.recovery_starts_on is None or unit.recovery_ends_on is None:
-        raise DomainError(f"No recovery window has been configured for unit '{unit.name}'.")
+        raise DomainError(f"La unidad '{unit.name}' no tiene ventana de recuperacion configurada.")
     if not unit.is_recovery_window_open(on_date):
         raise DomainError(
-            f"Recovery window is closed for unit '{unit.name}'. "
-            f"Window: {unit.recovery_starts_on} to {unit.recovery_ends_on}."
+            f"La ventana de recuperacion de la unidad '{unit.name}' esta cerrada. "
+            f"Vigencia: del {unit.recovery_starts_on} al {unit.recovery_ends_on}."
         )
 
 
@@ -129,8 +129,8 @@ def set_recovery_window(
     """
     if recovery_starts_on > recovery_ends_on:
         raise DomainError(
-            f"Recovery window start date ({recovery_starts_on}) cannot be after "
-            f"end date ({recovery_ends_on})."
+            f"La fecha de inicio de la ventana de recuperacion ({recovery_starts_on}) no "
+            f"puede ser posterior a la de fin ({recovery_ends_on})."
         )
 
     unit.recovery_starts_on = recovery_starts_on
@@ -178,9 +178,9 @@ def grant_capture_exception(
     """
     reason = (reason or "").strip()
     if not reason:
-        raise DomainError("A reason is required to grant a capture exception.")
+        raise DomainError("Se requiere un motivo para otorgar una excepcion de captura.")
     if expires_at <= timezone.now():
-        raise DomainError("Capture exception expiration must be in the future.")
+        raise DomainError("El vencimiento de la excepcion de captura debe ser futuro.")
 
     grant = CaptureExceptionGrant.objects.create(
         evaluation_unit=evaluation_unit,
@@ -248,8 +248,9 @@ def validate_capture_allowed(
     if has_active_capture_exception(evaluation_unit, subject, teacher, at=at):
         return
     raise DomainError(
-        f"Grade capture window is closed for unit '{evaluation_unit.name}' and no "
-        f"exceptional grant authorizes teacher '{teacher}' for subject '{subject}'."
+        f"La ventana de captura de la unidad '{evaluation_unit.name}' esta cerrada y "
+        f"ninguna autorizacion excepcional habilita al docente '{teacher}' en el curso "
+        f"'{subject}'."
     )
 
 
@@ -279,7 +280,7 @@ def update_global_evaluation_config(
         DomainError: If default_unit_count is not a positive integer.
     """
     if default_unit_count <= 0:
-        raise DomainError("default_unit_count must be a positive integer.")
+        raise DomainError("default_unit_count debe ser un entero positivo.")
 
     config = get_global_evaluation_config()
     config.default_unit_count = default_unit_count
@@ -326,7 +327,7 @@ def set_cycle_unit_count(
         DomainError: If unit_count is not a positive integer.
     """
     if unit_count <= 0:
-        raise DomainError("unit_count must be a positive integer.")
+        raise DomainError("unit_count debe ser un entero positivo.")
 
     config, _ = CycleEvaluationConfig.objects.get_or_create(academic_cycle=academic_cycle)
     config.unit_count = unit_count
@@ -379,13 +380,16 @@ def create_evaluation_unit(
     """
     # Validate evaluation period dates
     if starts_on > ends_on:
-        raise DomainError(f"Unit start date ({starts_on}) cannot be after end date ({ends_on}).")
+        raise DomainError(
+            f"La fecha de inicio de la unidad ({starts_on}) no puede ser posterior a la de "
+            f"fin ({ends_on})."
+        )
 
     # Validate capture window dates (RF-EVC-002)
     if capture_starts_on > capture_ends_on:
         raise DomainError(
-            f"Capture window start date ({capture_starts_on}) cannot be after "
-            f"end date ({capture_ends_on})."
+            f"La fecha de inicio de la ventana de captura ({capture_starts_on}) no puede "
+            f"ser posterior a la de fin ({capture_ends_on})."
         )
 
     # Create unit; DB constraint will reject overlap
@@ -457,13 +461,12 @@ def register_unit_grade(
     """
     if not GRADE_MIN_VALUE <= value <= GRADE_MAX_VALUE:
         raise DomainError(
-            f"Grade value must be between {GRADE_MIN_VALUE} and {GRADE_MAX_VALUE} "
-            f"(received {value})."
+            f"La nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE} (se recibio {value})."
         )
 
     if evaluation_unit.academic_cycle_id != enrolment.academic_cycle_id:
         raise DomainError(
-            "The evaluation unit and the enrolment belong to different academic cycles."
+            "La unidad de evaluacion y la matricula pertenecen a ciclos escolares distintos."
         )
 
     validate_capture_allowed(evaluation_unit, subject, teacher)

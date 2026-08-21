@@ -120,7 +120,7 @@ def test_revoked_role_is_denied_on_next_permission_evaluation():
 def test_role_assignment_requires_explicit_scope():
     actor = UserFactory(is_superuser=True)
 
-    with pytest.raises(DomainError, match="explicit scope"):
+    with pytest.raises(DomainError, match="alcance explicito"):
         assign_role(actor=actor, user=UserFactory(), role=RoleFactory(), scope=None)
 
 
@@ -132,7 +132,7 @@ def test_last_account_administrator_role_cannot_be_revoked():
         role=RoleFactory(permissions=[account_create]),
     )
 
-    with pytest.raises(DomainError, match="last account administrator"):
+    with pytest.raises(DomainError, match="ultimo administrador de cuentas"):
         revoke_role_assignment(actor=actor, assignment=protected)
 
     RoleAssignmentFactory(role=RoleFactory(permissions=[account_create]))
@@ -148,7 +148,7 @@ def test_last_administrator_role_cannot_lose_account_create_permission():
     protected_role = RoleFactory(permissions=[account_create])
     RoleAssignmentFactory(role=protected_role)
 
-    with pytest.raises(DomainError, match="last account administrator"):
+    with pytest.raises(DomainError, match="ultimo administrador de cuentas"):
         update_role(actor=actor, role=protected_role, permission_codenames=[])
 
     RoleAssignmentFactory(role=RoleFactory(permissions=[account_create]))
@@ -163,7 +163,7 @@ def test_last_account_administrator_cannot_be_disabled():
     account_create = PermissionFactory(codename="account_create")
     protected = RoleAssignmentFactory(role=RoleFactory(permissions=[account_create])).user
 
-    with pytest.raises(DomainError, match="last account administrator"):
+    with pytest.raises(DomainError, match="ultimo administrador de cuentas"):
         disable_account(actor=actor, user=protected)
 
     RoleAssignmentFactory(role=RoleFactory(permissions=[account_create]))
@@ -224,7 +224,7 @@ def test_rf_cta_007_self_role_assignment_is_rejected_and_audited():
     RoleAssignmentFactory(user=actor, role=role_admin)
     extra_role = RoleFactory()
 
-    with pytest.raises(AuthorizationError, match="Users cannot assign roles to themselves."):
+    with pytest.raises(AuthorizationError, match="Nadie puede asignarse roles a si mismo."):
         assign_role(
             actor=actor,
             user=actor,
@@ -247,7 +247,7 @@ def test_rf_cta_007_self_role_revocation_is_rejected_and_audited():
     role_admin = RoleFactory(permissions=[PermissionFactory(codename="role_assign")])
     assignment = RoleAssignmentFactory(user=actor, role=role_admin)
 
-    with pytest.raises(AuthorizationError, match="Users cannot revoke their own roles."):
+    with pytest.raises(AuthorizationError, match="Nadie puede revocar sus propios roles."):
         revoke_role_assignment(actor=actor, assignment=assignment)
 
     event = AuditEvent.objects.filter(
@@ -267,7 +267,7 @@ def test_rf_cta_007_self_account_disable_is_rejected_and_audited():
         role=RoleFactory(permissions=[PermissionFactory(codename="account_disable")]),
     )
 
-    with pytest.raises(AuthorizationError, match="Users cannot disable their own accounts."):
+    with pytest.raises(AuthorizationError, match="Nadie puede deshabilitar su propia cuenta."):
         disable_account(actor=actor, user=actor)
 
     event = AuditEvent.objects.filter(

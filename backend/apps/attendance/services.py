@@ -8,6 +8,11 @@ this same module instead of putting their rules in views or serializers.
 RF-JOR-004 (daily closure) reads the enrolment-lifecycle domain to know who
 is actively enrolled in a jornada; attendance-governance already depends on
 it (see ``docs/architecture/domain-map.md``).
+
+RF-CRE-001 (credential issuance with an opaque identifier) and RF-CRE-006
+(resolving that identifier back to a student) live at the bottom of this
+module: the credential is what a scan resolves, so it belongs to the same
+attendance-capture domain rather than to a module of its own.
 """
 
 from dataclasses import dataclass
@@ -24,11 +29,16 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     RecalculationReason,
+    StudentCredential,
 )
 from apps.audit.services import record_event
+from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
+from apps.common.opaque import generate_opaque_identifier
 from apps.enrolments.models import Enrolment
+from apps.enrolments.services import active_enrolments
+from apps.students.models import Student
 
 ORIGIN_PRECEDENCE = {
     AttendanceEvent.Origin.SCAN: 0,
@@ -39,7 +49,7 @@ ORIGIN_PRECEDENCE = {
 
 def _require_active(instance, label):
     if not instance.is_active:
-        raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
+        raise DomainError(f"No se puede usar {label} '{instance}': su registro esta inactivo.")
 
 
 @transaction.atomic
@@ -62,15 +72,15 @@ def set_jornada_parameters(
     supersedes them for dates on or after it (RF-JOR-001, and RF-JOR-006
     later).
     """
-    _require_active(shift, "Shift")
-    _require_active(academic_cycle, "Academic cycle")
+    _require_active(shift, "la jornada")
+    _require_active(academic_cycle, "el ciclo escolar")
     if academic_cycle.institution_id != shift.institution.pk:
-        raise DomainError("Shift and academic cycle must belong to the same institution.")
+        raise DomainError("La jornada y el ciclo escolar deben pertenecer a la misma institucion.")
 
     with unique_violation_as(
         {
             "unique_jornada_parameters_effective_from": (
-                "Jornada parameters already exist for this shift, cycle, and effective date."
+                "Ya existen parametros para esa jornada, ciclo y fecha de vigencia."
             )
         }
     ):
@@ -115,7 +125,9 @@ def get_effective_parameters(*, shift, academic_cycle, on_date):
         .first()
     )
     if parameters is None:
-        raise DomainError(f"No jornada parameters are configured for shift '{shift}' on {on_date}.")
+        raise DomainError(
+            f"La jornada '{shift}' no tiene parametros configurados para el {on_date}."
+        )
     return parameters
 
 
@@ -127,7 +139,7 @@ def resolve_academic_cycle_for(*, shift, event_date):
         ends_on__gte=event_date,
     ).first()
     if academic_cycle is None:
-        raise DomainError(f"No academic cycle covers {event_date} for shift '{shift}'.")
+        raise DomainError(f"Ningun ciclo escolar cubre el {event_date} para la jornada '{shift}'.")
     return academic_cycle
 
 
@@ -148,8 +160,8 @@ def record_attendance_event(
     conflicting events for the same student/shift/date/movement all coexist,
     and RF-JOR-003's precedence rule decides which one is used later.
     """
-    _require_active(student, "Student")
-    _require_active(shift, "Shift")
+    _require_active(student, "el estudiante")
+    _require_active(shift, "la jornada")
 
     event = AttendanceEvent.objects.create(
         student=student,
@@ -237,11 +249,11 @@ def record_scan_movement(
       duplicate is recorded as an auditable rejection, not as a movement.
     """
     if operator is None:
-        raise DomainError("A scan movement must be recorded by an authenticated operator.")
+        raise DomainError("Un movimiento por escaneo debe registrarlo un operador autenticado.")
 
-    _require_active(student, "Student")
-    _require_active(shift, "Shift")
-    _require_active(control_point, "Control point")
+    _require_active(student, "el estudiante")
+    _require_active(shift, "la jornada")
+    _require_active(control_point, "el punto de control")
 
     if client_event_id:
         existing = AttendanceEvent.objects.filter(client_event_id=client_event_id).first()
@@ -295,7 +307,7 @@ def record_scan_movement(
     with unique_violation_as(
         {
             "unique_attendance_event_client_event_id": (
-                "This client_event_id was already used for another event."
+                "Ese client_event_id ya se uso para otro movimiento."
             )
         }
     ):
@@ -568,7 +580,7 @@ def derive_day_statuses(*, students, shift, event_dates, as_of=None):
         )
         if parameters is None:
             raise DomainError(
-                f"No jornada parameters are configured for shift '{shift}' on {event_date}."
+                f"La jornada '{shift}' no tiene parametros configurados para el {event_date}."
             )
         parameters_by_date[event_date] = parameters
 
@@ -666,7 +678,7 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
     cierre"). The latter raises an alert for the control point staff and the
     section's coordinator. Never mutates or removes the events it reads.
     """
-    _require_active(shift, "Shift")
+    _require_active(shift, "la jornada")
     academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
     parameters = get_effective_parameters(
         shift=shift, academic_cycle=academic_cycle, on_date=event_date
@@ -1086,8 +1098,8 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
     )
     if enrolment is None:
         raise DomainError(
-            f"Student '{student}' has no active enrolment for shift '{shift}' in the "
-            f"cycle covering {as_of_date}."
+            f"El estudiante '{student}' no tiene inscripcion activa en la jornada "
+            f"'{shift}' para el ciclo que cubre el {as_of_date}."
         )
 
     start_date = max(academic_cycle.starts_on, enrolment.effective_on)
@@ -1151,3 +1163,162 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
         late_days=late_days,
         percentage=percentage,
     )
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-001 — emision de credencial con identificador opaco
+# --------------------------------------------------------------------------- #
+
+
+def _is_enrolled(student):
+    """
+    Whether ``student`` currently holds an active enrolment.
+
+    A predicate rather than a guard because the three callers owe the user
+    different messages: the credential paths must not name the bearer
+    (RF-CRE-006 forbids revealing a student on rejection), while the
+    student-code path may echo back the code the caller already supplied.
+    Sharing the rule and not the wording keeps one definition of "enrolled"
+    without leaking through the one door that has to stay shut.
+    """
+    return active_enrolments(student=student).exists()
+
+
+@transaction.atomic
+def issue_credential(
+    *,
+    student,
+    actor=None,
+    issued_at=None,
+    generate_identifier=generate_opaque_identifier,
+):
+    """
+    Issue a credential for ``student`` and return it.
+
+    ``generate_identifier`` is injected rather than called through a module
+    global so a test can pin the token it asserts on, and so a future policy
+    change (different length, different alphabet) does not have to reach into
+    this function. Collisions are resolved by the unique constraint and a
+    retry, never by reading before writing: two concurrent issuances would both
+    pass a pre-check and the loser would surface as a 500.
+
+    Only an actively enrolled student gets one: a credential is what opens a
+    movement, and issuing one to somebody who is not enrolled would create a
+    usable pass with no jornada behind it.
+    """
+    _require_active(student, "el estudiante")
+    if not _is_enrolled(student):
+        raise DomainError(
+            f"El estudiante '{student}' no tiene inscripcion activa, asi que no se le puede "
+            "emitir credencial."
+        )
+    issued_at = issued_at or timezone.now()
+
+    def build(identifier):
+        return StudentCredential.objects.create(
+            student=student,
+            opaque_identifier=identifier,
+            status=StudentCredential.Status.ACTIVE,
+            issued_at=issued_at,
+        )
+
+    with unique_violation_as(
+        {"unique_active_student_credential": "El estudiante ya tiene una credencial vigente."}
+    ):
+        credential = create_with_generated_code(
+            build=build,
+            generate=generate_identifier,
+            constraint="unique_credential_opaque_identifier",
+        )
+
+    # The identifier itself is deliberately absent from the audit context: the
+    # trail records that a credential was issued and to whom, not the token,
+    # which is the one secret the QR carries.
+    record_event(
+        actor=actor,
+        action="attendance.credential.issued",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "issued_at": issued_at.isoformat(),
+        },
+    )
+    return credential
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-006 — resolucion de identificador
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class CredentialResolution:
+    credential: StudentCredential
+    student: object
+    enrolment: object
+
+
+def resolve_credential(*, opaque_identifier):
+    """
+    The student behind an opaque identifier (RF-CRE-006).
+
+    Every rejection says why without saying about whom. An unrecognised token
+    and a revoked one both answer with a fact about the credential, never with
+    a fact about a student, so a stranger holding a token cannot probe the
+    endpoint to learn whether it belongs to anybody.
+
+    Resolution is read-only and deliberately says nothing about the jornada:
+    whether a movement is admissible at this hour is RF-JOR-001's parameters
+    talking, not the credential's.
+    """
+    credential = (
+        StudentCredential.objects.select_related("student", "student__person")
+        .filter(opaque_identifier=opaque_identifier)
+        .first()
+    )
+    if credential is None:
+        raise DomainError("La credencial no es reconocida.")
+    if credential.status != StudentCredential.Status.ACTIVE or not credential.is_active:
+        raise DomainError("La credencial fue revocada.")
+
+    enrolment = active_enrolments(student=credential.student).first()
+    if enrolment is None:
+        raise DomainError("El portador de la credencial no tiene inscripcion activa.")
+    return CredentialResolution(
+        credential=credential, student=credential.student, enrolment=enrolment
+    )
+
+
+def resolve_scan_subject(*, credential_identifier="", student_code=""):
+    """
+    The student a captured item refers to, whichever way it was identified.
+
+    The credential is the real path (RF-CRE-006). ``student_code`` predates it
+    and stays as the fallback the capture screen still offers when a credential
+    is unavailable; the note on RF-ASI-002 in the traceability matrix records
+    why it exists.
+
+    Both paths raise ``DomainError``, so the batch loop has one failure shape to
+    handle instead of one per lookup, and both carry the enrolment rule. They
+    did not always: the check used to live only in ``resolve_credential``, where
+    RF-CRE-006 declares it, so the same operation was accepted or refused
+    depending on how the operator happened to identify the person. Somebody
+    withdrawn from the establishment does not register attendance, and by which
+    door the scan came in is not a fact about their enrolment.
+
+    The manual and declared origins that go through ``record_attendance_event``
+    stay outside this rule on purpose: an authorised operator recording a
+    movement by hand for a just-withdrawn student can be a legitimate
+    correction of history, and forbidding that is a business decision no
+    requirement has taken.
+    """
+    if credential_identifier:
+        return resolve_credential(opaque_identifier=credential_identifier).student
+    try:
+        student = Student.objects.get(student_code=student_code, is_active=True)
+    except Student.DoesNotExist as exc:
+        raise DomainError(f"No existe estudiante con codigo '{student_code}'.") from exc
+    if not _is_enrolled(student):
+        raise DomainError(f"El estudiante con codigo '{student_code}' no tiene inscripcion activa.")
+    return student

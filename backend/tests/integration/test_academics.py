@@ -64,7 +64,7 @@ def test_active_cycle_closes_after_units_settle_and_then_rejects_academic_writes
 
     assert closed.status == AcademicCycle.CycleStatus.CLOSED
     assert AuditEvent.objects.filter(action="academics.cycle.closed").count() == 1
-    with pytest.raises(DomainError, match="do not accept academic changes"):
+    with pytest.raises(DomainError, match="no admite cambios academicos"):
         create_teaching_assignment(
             academic_cycle=closed,
             section=section,
@@ -118,7 +118,7 @@ def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
 
     assert offering.pk is not None
     assert prepared.status == AcademicCycle.CycleStatus.DRAFT
-    with pytest.raises(DomainError, match="must be closed"):
+    with pytest.raises(DomainError, match="Hay que cerrar"):
         activate_academic_cycle(cycle=prepared, actor=actor)
     assert AuditEvent.objects.filter(action="academics.cycle.created").count() == 2
 
@@ -175,7 +175,7 @@ def test_created_curriculum_plan_satisfies_activation_and_freezes_once_active():
     assert activated.status == AcademicCycle.CycleStatus.ACTIVE
     assert cycle.curriculum_plans.filter(pk=plan.pk).exists()
     assert AuditEvent.objects.filter(action="academics.curriculum_plan.created").count() == 1
-    with pytest.raises(DomainError, match="in planning"):
+    with pytest.raises(DomainError, match="en preparacion"):
         create_curriculum_plan(
             academic_cycle=activated,
             grade=grade,
@@ -207,7 +207,7 @@ def test_active_cycle_blocks_structure_but_still_allows_operational_writes():
     CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
     cycle = activate_academic_cycle(cycle=cycle, actor=actor)
 
-    with pytest.raises(DomainError, match="in planning"):
+    with pytest.raises(DomainError, match="en preparacion"):
         create_section(academic_cycle=cycle, grade=grade, shift=shift, name="B", actor=actor)
 
     teacher = TeacherFactory()

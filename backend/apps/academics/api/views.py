@@ -912,7 +912,7 @@ class TeachingAssignmentListCreateView(CatalogueView):
         payload = self.validated(TeachingAssignmentCreateSerializer, request)
         academic_cycle = queries.academic_cycle_for_payload(payload["academic_cycle_id"])
         if academic_cycle.institution_id != self.institution.id:
-            raise DomainError("Academic cycle must belong to the current institution.")
+            raise DomainError("El ciclo escolar debe pertenecer a la institucion actual.")
         assignment = services.create_teaching_assignment(
             academic_cycle=academic_cycle,
             section=queries.section_for_payload(payload["section_id"]),
@@ -945,7 +945,7 @@ class TeachingAssignmentReassignView(CatalogueView):
         payload = self.validated(TeachingAssignmentReassignSerializer, request)
         assignment = queries.teaching_assignment_or_404(public_id)
         if assignment.academic_cycle.institution_id != self.institution.id:
-            raise DomainError("Teaching assignment must belong to the current institution.")
+            raise DomainError("La asignacion docente debe pertenecer a la institucion actual.")
         successor = services.reassign_teaching_assignment(
             assignment=assignment,
             teacher=teacher_queries.teacher_for_payload(payload["teacher_id"]).person,
@@ -1083,7 +1083,7 @@ class AcademicCycleDefaultsView(CatalogueView):
             try:
                 return int(requested)
             except ValueError as exc:
-                raise DomainError("Year must be a whole number.") from exc
+                raise DomainError("El anio debe ser un numero entero.") from exc
 
         latest = queries.latest_cycle_year(self.institution)
         return latest + 1 if latest else timezone.localdate().year

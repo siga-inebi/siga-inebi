@@ -81,7 +81,7 @@ class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
         """
         cycle_public_id = kwargs.get("cycle_public_id")
         if not cycle_public_id:
-            raise DomainError("cycle_public_id required in URL")
+            raise DomainError("Se requiere cycle_public_id en la URL.")
 
         if not self.check_director_permission():
             raise AuthorizationError(

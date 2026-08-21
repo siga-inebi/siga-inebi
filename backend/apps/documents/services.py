@@ -67,7 +67,7 @@ def normalize_document_filename(filename):
 def validate_document_upload(upload):
     """Validate uploaded documents against the documented file storage rules."""
     if upload is None:
-        raise DomainError("A document upload is required.")
+        raise DomainError("Se requiere adjuntar un documento.")
 
     original_name = getattr(upload, "name", "") or "document"
     content_type = (getattr(upload, "content_type", "") or "").lower()
@@ -76,12 +76,12 @@ def validate_document_upload(upload):
     upload.seek(0)
 
     if not payload:
-        raise DomainError("Uploaded document is empty.")
+        raise DomainError("El documento adjunto esta vacio.")
 
     suffix = Path(original_name).suffix.lower()
     allowed_suffixes = set().union(*(types for types in ALLOWED_DOCUMENT_CONTENT_TYPES.values()))
     if suffix not in allowed_suffixes:
-        raise DomainError("Uploaded document type is not supported.")
+        raise DomainError("El tipo del documento adjunto no es admitido.")
 
     resolved_content_type = None
     for mime_type, suffixes in ALLOWED_DOCUMENT_CONTENT_TYPES.items():
@@ -90,14 +90,14 @@ def validate_document_upload(upload):
             break
 
     if resolved_content_type is None:
-        raise DomainError("Uploaded document type is not supported.")
+        raise DomainError("El tipo del documento adjunto no es admitido.")
 
     if content_type and content_type not in ALLOWED_DOCUMENT_CONTENT_TYPES:
-        raise DomainError("Uploaded document type is not supported.")
+        raise DomainError("El tipo del documento adjunto no es admitido.")
 
     max_size = getattr(settings, "DOCUMENT_MAX_UPLOAD_SIZE_BYTES", 10 * 1024 * 1024)
     if size_bytes > max_size:
-        raise DomainError(f"Uploaded document exceeds the maximum size of {max_size} bytes.")
+        raise DomainError(f"El documento adjunto excede el tamano maximo de {max_size} bytes.")
 
     return {
         "filename": original_name,
@@ -118,7 +118,7 @@ def get_active_document_template(*, institution, kind):
     normalized_kind = str(kind or "").strip().lower()
     valid_kinds = {code for code, _label in DOCUMENT_TYPE_CATALOG}
     if normalized_kind not in valid_kinds:
-        raise DomainError(f"Unsupported document type '{kind}'.")
+        raise DomainError(f"Tipo de documento no admitido: '{kind}'.")
 
     templates = DocumentTemplate.objects.filter(
         institution=institution,
@@ -127,8 +127,8 @@ def get_active_document_template(*, institution, kind):
     ).order_by("created_at")
     if templates.count() != 1:
         raise DomainError(
-            f"Exactly one active template is required for document type '{normalized_kind}', "
-            f"found {templates.count()}."
+            f"Se requiere exactamente una plantilla activa para el tipo de documento "
+            f"'{normalized_kind}'; se encontraron {templates.count()}."
         )
     return templates.get()
 
@@ -137,10 +137,10 @@ def ensure_document_access(*, actor, student=None, document=None):
     """Guard document reads by permission and explicit student scope."""
     target_student = student or getattr(document, "student", None)
     if target_student is None:
-        raise AuthorizationError("Document access requires a student target.")
+        raise AuthorizationError("El acceso a documentos requiere un estudiante como destino.")
 
     if not actor or not getattr(actor, "is_authenticated", False):
-        raise AuthorizationError("Actor must be authenticated to read documents.")
+        raise AuthorizationError("Debe estar autenticado para leer documentos.")
 
     if actor.is_superuser:
         return True
@@ -153,7 +153,7 @@ def ensure_document_access(*, actor, student=None, document=None):
             resource_identifier=str(target_student.pk),
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise AuthorizationError("Actor lacks permission to read documents.")
+        raise AuthorizationError("El actor no tiene permiso para leer documentos.")
 
     if not actor.has_scoped_permission(DOCUMENT_READ_PERMISSION, scope={"student": target_student}):
         record_event(
@@ -163,7 +163,7 @@ def ensure_document_access(*, actor, student=None, document=None):
             resource_identifier=str(target_student.pk),
             context={"result": "denied", "reason": "missing_scope"},
         )
-        raise AuthorizationError("Actor lacks the required scope to read documents.")
+        raise AuthorizationError("El actor no tiene el alcance requerido para leer documentos.")
 
     record_event(
         actor=actor,
@@ -193,16 +193,16 @@ def issue_document_download_token(*, actor, document):
 def validate_document_download_token(*, document, token):
     """Validate and reject expired or invalid download tokens."""
     if not token:
-        raise DomainError("A valid download token is required.")
+        raise DomainError("Se requiere un token de descarga valido.")
 
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
     try:
         download_token = DocumentDownloadToken.objects.get(document=document, token_hash=digest)
     except DocumentDownloadToken.DoesNotExist as exc:
-        raise DomainError("The provided download token is invalid.") from exc
+        raise DomainError("El token de descarga proporcionado no es valido.") from exc
 
     if not download_token.is_valid:
-        raise DomainError("The provided download token is invalid or expired.")
+        raise DomainError("El token de descarga proporcionado no es valido o vencio.")
 
     download_token.used_at = timezone.now()
     download_token.save(update_fields=["used_at", "updated_at"])
@@ -229,7 +229,7 @@ def list_field_tags(*, actor=None, include_sensitive=False):
             resource="FieldTag",
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise AuthorizationError("Actor lacks permission to view sensitive field tags.")
+        raise AuthorizationError("El actor no tiene permiso para ver etiquetas de campo sensibles.")
 
     record_event(
         actor=actor,
@@ -264,7 +264,7 @@ def record_document_read_audit(
             resource_identifier=resource_identifier,
             context={"result": "denied", "reason": "missing_permission", **(context or {})},
         )
-        raise AuthorizationError("Actor lacks permission to read documents.")
+        raise AuthorizationError("El actor no tiene permiso para leer documentos.")
 
     record_event(
         actor=actor,
@@ -340,14 +340,14 @@ def student_document_dossier(*, student):
 def _clean_code(value, *, field="code"):
     code = (value or "").strip().upper()
     if not code:
-        raise DomainError(f"A non-empty {field} is required.")
+        raise DomainError(f"Se requiere {field} con contenido.")
     return code
 
 
 def _clean_name(value, *, field="name"):
     name = (value or "").strip()
     if not name:
-        raise DomainError(f"A non-empty {field} is required.")
+        raise DomainError(f"Se requiere {field} con contenido.")
     return name
 
 
@@ -498,7 +498,7 @@ def deactivate_document_record(*, record, actor=None):
 def issue_official_document_folio(*, institution, document_type="", issued_at=None):
     """Allocate the next institutional sequential folio for an official document."""
     if institution is None:
-        raise DomainError("An institution is required to issue a document folio.")
+        raise DomainError("Se requiere una institucion para emitir el folio de un documento.")
 
     issued_at = issued_at or timezone.now()
     year = issued_at.year
@@ -539,7 +539,8 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
     """
     if persist:
         raise DomainError(
-            "Generated documents are compiled in memory and must not be persisted to storage."
+            "Los documentos generados se componen en memoria y no deben persistirse en "
+            "almacenamiento."
         )
 
     data = payload or {}
@@ -619,7 +620,7 @@ def ensure_official_document_issuance_permission(*, actor):
             resource="OfficialDocumentIssuance",
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise AuthorizationError("Actor lacks permission to issue official documents.")
+        raise AuthorizationError("El actor no tiene permiso para emitir documentos oficiales.")
 
     return True
 
@@ -650,8 +651,8 @@ def ensure_official_document_issuance_allowed(*, enrolment, actor=None):
     blocking_codes = evaluate_official_document_issuance(enrolment=enrolment, actor=actor)
     if blocking_codes:
         raise DomainError(
-            "Official document issuance is blocked by pending required documents: "
-            f"{', '.join(blocking_codes)}."
+            "La emision del documento oficial esta bloqueada por documentos obligatorios "
+            f"pendientes: {', '.join(blocking_codes)}."
         )
 
     return True

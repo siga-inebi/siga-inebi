@@ -56,7 +56,11 @@ def create_student(*, person_data, student_code=None, status=None, actor=None):
     with transaction.atomic():
         if supplied:
             with unique_violation_as(
-                {STUDENT_CODE_CONSTRAINT: (f"Student code '{supplied}' is already registered.")}
+                {
+                    STUDENT_CODE_CONSTRAINT: (
+                        f"El codigo de estudiante '{supplied}' ya esta registrado."
+                    )
+                }
             ):
                 student = build(supplied)
         else:
@@ -82,11 +86,11 @@ def update_student(*, student, actor=None, **changes):
     if "student_code" in supplied:
         supplied["student_code"] = _clean_text(supplied["student_code"], field="student code")
     if "status" in supplied and supplied["status"] not in Student.StudentStatus.values:
-        raise DomainError("Student status is invalid.")
+        raise DomainError("El estado del estudiante no es valido.")
     if "photo" in supplied:
         content_type = getattr(supplied["photo"], "content_type", "")
         if content_type and not content_type.startswith("image/"):
-            raise DomainError("Student photo must be an image.")
+            raise DomainError("La fotografia del estudiante debe ser una imagen.")
         supplied["photo"] = normalize_student_photo(supplied["photo"])
     if not supplied:
         return student
@@ -131,13 +135,13 @@ def create_guardian(*, person_data, actor=None):
 def _clean_text(value, *, field):
     text = (value or "").strip()
     if not text:
-        raise DomainError(f"A non-empty {field} is required.")
+        raise DomainError(f"Se requiere {field} con contenido.")
     return text
 
 
 def _require_active(instance, label):
     if not instance.is_active:
-        raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
+        raise DomainError(f"No se puede usar {label} '{instance}': su registro esta inactivo.")
 
 
 def student_allows_interaction(student):
@@ -147,7 +151,9 @@ def student_allows_interaction(student):
 
 def _require_student_interaction(student):
     if not student_allows_interaction(student):
-        raise DomainError("Only active students allow ordinary record interactions.")
+        raise DomainError(
+            "Solo un estudiante activo admite interacciones ordinarias de expediente."
+        )
 
 
 def _audit(actor, action, instance, **context):
@@ -229,7 +235,7 @@ def create_student_guardian_relation(
     """Create a current guardian link, making the first current link primary."""
     starts_at = starts_at or timezone.localdate()
     if starts_at > timezone.localdate():
-        raise DomainError("A guardian relationship cannot start in the future.")
+        raise DomainError("Una relacion con encargado no puede iniciar en el futuro.")
 
     _require_student_interaction(student)
 
@@ -268,7 +274,9 @@ def change_primary_student_guardian_relation(*, relation, actor=None):
     )
     relation = relations.filter(pk=relation.pk).first()
     if relation is None or not relation.is_active:
-        raise DomainError("Only a current active guardian relationship can be primary.")
+        raise DomainError(
+            "Solo una relacion con encargado vigente y activa puede ser la principal."
+        )
 
     relations.filter(is_primary=True).exclude(pk=relation.pk).update(
         is_primary=False,
@@ -294,7 +302,7 @@ def end_student_guardian_relation(*, relation, replacement_relation=None, actor=
     relations = StudentGuardianRelation.objects.select_for_update().filter(student=student)
     relation = relations.filter(pk=relation.pk, ends_at__isnull=True).first()
     if relation is None:
-        raise DomainError("The guardian relationship is already ended.")
+        raise DomainError("La relacion con el encargado ya termino.")
 
     replacement = None
     if replacement_relation is not None:
@@ -305,12 +313,12 @@ def end_student_guardian_relation(*, relation, replacement_relation=None, actor=
             starts_at__lte=timezone.localdate(),
         ).first()
         if replacement is None or replacement.pk == relation.pk:
-            raise DomainError("Replacement must be another current relationship for this student.")
+            raise DomainError("El reemplazo debe ser otra relacion vigente del mismo estudiante.")
 
     if relation.is_primary:
         if replacement is None:
             raise DomainError(
-                "A replacement primary relationship is required before ending the primary."
+                "Se requiere una relacion principal de reemplazo antes de terminar la actual."
             )
         change_primary_student_guardian_relation(relation=replacement, actor=actor)
 
@@ -385,7 +393,7 @@ def create_student_health_note(*, student, content, actor, recorded_on=None):
     content = _clean_text(content, field="content")
     recorded_on = recorded_on or timezone.localdate()
     if recorded_on > timezone.localdate():
-        raise DomainError("A health note cannot be recorded in the future.")
+        raise DomainError("Una nota de salud no puede registrarse con fecha futura.")
     note = StudentHealthNote.objects.create(
         student=student, author=actor, content=content, recorded_on=recorded_on
     )
@@ -411,7 +419,7 @@ def create_student_observation(*, student, description, actor, observed_on=None)
     description = _clean_text(description, field="description")
     observed_on = observed_on or timezone.localdate()
     if observed_on > timezone.localdate():
-        raise DomainError("An observation cannot be recorded in the future.")
+        raise DomainError("Una observacion no puede registrarse con fecha futura.")
     observation = StudentObservation.objects.create(
         student=student, author=actor, description=description, observed_on=observed_on
     )

@@ -45,7 +45,7 @@ def _has_identity_permission(actor, codename):
 
 def filter_queryset_by_scope(*, actor, codename, queryset, dimension, lookup, when=None):
     if dimension not in SCOPE_DIMENSIONS:
-        raise DomainError("Unsupported scope dimension.")
+        raise DomainError("Dimension de alcance no soportada.")
     when = when or timezone.now()
     allowed_ids = ScopeGrant.objects.filter(
         assignment__in=RoleAssignment.objects.active_at(when).filter(
@@ -70,7 +70,9 @@ def list_atomic_permissions(*, actor):
             resource="Permission",
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise AuthorizationError("Actor lacks permission to read the permission catalog.")
+        raise AuthorizationError(
+            "El actor no tiene permiso para consultar el catalogo de permisos."
+        )
 
     permissions = Permission.objects.filter(
         content_type__app_label="identity",
@@ -103,7 +105,9 @@ def _audit_role_denied(*, actor, action, role=None, reason="missing_permission")
 def _resolve_atomic_permissions(permission_codenames):
     requested = set(permission_codenames)
     if not requested.issubset(ATOMIC_PERMISSION_CODENAMES):
-        raise DomainError("Role permissions must belong to the atomic permission catalog.")
+        raise DomainError(
+            "Los permisos de un rol deben pertenecer al catalogo de permisos atomicos."
+        )
 
     permissions = list(
         Permission.objects.filter(
@@ -113,7 +117,7 @@ def _resolve_atomic_permissions(permission_codenames):
         )
     )
     if len(permissions) != len(requested):
-        raise DomainError("One or more atomic permissions do not exist.")
+        raise DomainError("Uno o mas permisos atomicos no existen.")
     return permissions
 
 
@@ -144,20 +148,20 @@ def _ensure_account_administrator_remains(*, assignment=None, role=None, user=No
     if user is not None:
         administrators = administrators.exclude(user=user)
     if not administrators.exists():
-        raise DomainError("The last account administrator cannot be removed.")
+        raise DomainError("No se puede quitar al ultimo administrador de cuentas.")
 
 
 def list_roles(*, actor):
     if not _can_manage_roles(actor):
         _audit_role_denied(actor=actor, action="list")
-        raise AuthorizationError("Actor lacks permission to read roles.")
+        raise AuthorizationError("El actor no tiene permiso para consultar roles.")
     return Role.objects.prefetch_related("permissions").order_by("name")
 
 
 def create_role(*, actor, name, slug, description="", permission_codenames=()):
     if not _can_manage_roles(actor):
         _audit_role_denied(actor=actor, action="create")
-        raise AuthorizationError("Actor lacks permission to create roles.")
+        raise AuthorizationError("El actor no tiene permiso para crear roles.")
 
     permissions = _resolve_atomic_permissions(permission_codenames)
     with transaction.atomic():
@@ -180,7 +184,7 @@ def create_role(*, actor, name, slug, description="", permission_codenames=()):
 def update_role(*, actor, role, name=None, description=None, permission_codenames=None):
     if not _can_manage_roles(actor):
         _audit_role_denied(actor=actor, action="update", role=role)
-        raise AuthorizationError("Actor lacks permission to update roles.")
+        raise AuthorizationError("El actor no tiene permiso para modificar roles.")
     protect_system_role(actor=actor, role=role)
 
     permissions = None
@@ -264,12 +268,12 @@ def create_account(*, actor, person, username, email=""):
     is_authorized = _can_create_account(actor)
     if not is_authorized:
         _audit_account_create_denied(actor=actor, person=person)
-        raise AuthorizationError("Actor lacks permission to create accounts.")
+        raise AuthorizationError("El actor no tiene permiso para crear cuentas.")
 
     if person is None:
-        raise DomainError("An institutional person is required.")
+        raise DomainError("Se requiere una persona institucional.")
     if hasattr(person, "user_account"):
-        raise DomainError("The institutional person already has an account.")
+        raise DomainError("Esa persona institucional ya tiene cuenta.")
 
     user_model = get_user_model()
     with transaction.atomic():
@@ -310,7 +314,7 @@ def _generate_activation_code():
 
 def _issue_activation_challenge(*, actor, account, reason):
     if account.status != account.AccountStatus.PENDING or account.is_active:
-        raise DomainError("Activation challenges require a pending inactive account.")
+        raise DomainError("Los desafios de activacion requieren una cuenta pendiente e inactiva.")
 
     now = timezone.now()
     ActivationChallenge.objects.filter(
@@ -346,7 +350,7 @@ def _issue_activation_challenge(*, actor, account, reason):
 def provision_account_with_activation(*, actor, person, username, email=""):
     if not _can_create_account(actor):
         _audit_account_create_denied(actor=actor, person=person)
-        raise AuthorizationError("Actor lacks permission to create accounts.")
+        raise AuthorizationError("El actor no tiene permiso para crear cuentas.")
 
     with transaction.atomic():
         account = create_account(
@@ -377,7 +381,7 @@ def reissue_activation_challenge(*, actor, account):
                 "reason": "missing_permission",
             },
         )
-        raise AuthorizationError("Actor lacks permission to issue activation challenges.")
+        raise AuthorizationError("El actor no tiene permiso para emitir desafios de activacion.")
     if actor.pk == account.pk:
         record_event(
             actor=actor,
@@ -390,7 +394,7 @@ def reissue_activation_challenge(*, actor, account):
                 "reason": "self_activation",
             },
         )
-        raise AuthorizationError("Users cannot reissue activation challenges for themselves.")
+        raise AuthorizationError("Nadie puede reemitir su propio desafio de activacion.")
 
     with transaction.atomic():
         locked_account = account.__class__.objects.select_for_update().get(pk=account.pk)
@@ -618,7 +622,7 @@ def assign_role(
             resource_identifier=str(user.pk),
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise AuthorizationError("Actor lacks permission to assign roles.")
+        raise AuthorizationError("El actor no tiene permiso para asignar roles.")
     if actor.pk == user.pk:
         record_event(
             actor=actor,
@@ -627,7 +631,7 @@ def assign_role(
             resource_identifier=str(user.pk),
             context={"result": "denied", "reason": "self_escalation"},
         )
-        raise AuthorizationError("Users cannot assign roles to themselves.")
+        raise AuthorizationError("Nadie puede asignarse roles a si mismo.")
     if not scope or not any(
         scope.get(field_name)
         for field_name in (
@@ -641,7 +645,7 @@ def assign_role(
             "module_key",
         )
     ):
-        raise DomainError("Role assignments require an explicit scope.")
+        raise DomainError("Las asignaciones de rol requieren un alcance explicito.")
 
     assignment, created = RoleAssignment.objects.get_or_create(
         user=user,
@@ -692,7 +696,7 @@ def revoke_role_assignment(*, actor, assignment, ends_at=None):
             resource_identifier=str(assignment.public_id),
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise AuthorizationError("Actor lacks permission to revoke role assignments.")
+        raise AuthorizationError("El actor no tiene permiso para revocar asignaciones de rol.")
     if actor.pk == assignment.user_id:
         record_event(
             actor=actor,
@@ -701,7 +705,7 @@ def revoke_role_assignment(*, actor, assignment, ends_at=None):
             resource_identifier=str(assignment.public_id),
             context={"result": "denied", "reason": "self_escalation"},
         )
-        raise AuthorizationError("Users cannot revoke their own roles.")
+        raise AuthorizationError("Nadie puede revocar sus propios roles.")
 
     effective_end = ends_at or timezone.now()
     with transaction.atomic():
@@ -729,7 +733,7 @@ def revoke_role_assignment(*, actor, assignment, ends_at=None):
 
 def protect_system_role(*, actor, role):
     if role.is_system and not getattr(actor, "is_superuser", False):
-        raise DomainError("System roles require elevated authorization.")
+        raise DomainError("Los roles del sistema requieren autorizacion elevada.")
     return role
 
 
@@ -765,7 +769,7 @@ def disable_account(*, actor, user, force=False, reason=""):
                 "result": "denied",
             },
         )
-        raise AuthorizationError("Actor lacks permission to disable accounts.")
+        raise AuthorizationError("El actor no tiene permiso para deshabilitar cuentas.")
     if actor.pk == user.pk:
         record_event(
             actor=actor,
@@ -778,7 +782,7 @@ def disable_account(*, actor, user, force=False, reason=""):
                 "reason": "self_deactivation",
             },
         )
-        raise AuthorizationError("Users cannot disable their own accounts.")
+        raise AuthorizationError("Nadie puede deshabilitar su propia cuenta.")
 
     deps = get_account_active_dependencies(user)
     if deps["teaching_assignments"] and not force:
