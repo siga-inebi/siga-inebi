@@ -1,8 +1,8 @@
 import pytest
-from django.core.exceptions import PermissionDenied
 
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
+from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from apps.identity.services import (
@@ -31,7 +31,7 @@ from tests.factories.students import StudentFactory
 def test_permission_catalog_requires_administrative_permission():
     actor = UserFactory()
 
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         list_atomic_permissions(actor=actor)
 
     event = AuditEvent.objects.get(action="identity.permission_catalog.read_denied")
@@ -224,7 +224,7 @@ def test_rf_cta_007_self_role_assignment_is_rejected_and_audited():
     RoleAssignmentFactory(user=actor, role=role_admin)
     extra_role = RoleFactory()
 
-    with pytest.raises(PermissionDenied, match="Nadie puede asignarse roles a si mismo."):
+    with pytest.raises(AuthorizationError, match="Nadie puede asignarse roles a si mismo."):
         assign_role(
             actor=actor,
             user=actor,
@@ -247,7 +247,7 @@ def test_rf_cta_007_self_role_revocation_is_rejected_and_audited():
     role_admin = RoleFactory(permissions=[PermissionFactory(codename="role_assign")])
     assignment = RoleAssignmentFactory(user=actor, role=role_admin)
 
-    with pytest.raises(PermissionDenied, match="Nadie puede revocar sus propios roles."):
+    with pytest.raises(AuthorizationError, match="Nadie puede revocar sus propios roles."):
         revoke_role_assignment(actor=actor, assignment=assignment)
 
     event = AuditEvent.objects.filter(
@@ -267,7 +267,7 @@ def test_rf_cta_007_self_account_disable_is_rejected_and_audited():
         role=RoleFactory(permissions=[PermissionFactory(codename="account_disable")]),
     )
 
-    with pytest.raises(PermissionDenied, match="Nadie puede deshabilitar su propia cuenta."):
+    with pytest.raises(AuthorizationError, match="Nadie puede deshabilitar su propia cuenta."):
         disable_account(actor=actor, user=actor)
 
     event = AuditEvent.objects.filter(

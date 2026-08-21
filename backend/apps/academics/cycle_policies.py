@@ -1,4 +1,4 @@
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 
 
 def require_cycle_academic_writes(*, cycle, operation):

@@ -24,6 +24,18 @@
 - `tests/migrations/`
 - `tests/factories/`
 
+## Guardas de arquitectura
+
+Las pruebas unitarias tambien protegen los limites del monolito modular:
+
+- Los modulos `apps/<domain>/queries.py` no pueden depender de DRF, HTTP ni objetos de solicitud.
+- Las vistas bajo `apps/<domain>/api/views.py` no pueden ejecutar consultas ORM directas.
+- Las excepciones de dominio, recurso y autorizacion deben mantener el sobre de error documentado
+  por la API.
+
+Estas guardas se ejecutan con la suite normal y deben actualizarse solo si una ADR aprobada cambia
+los limites de capa.
+
 ## Marcadores backend
 
 - `unit`

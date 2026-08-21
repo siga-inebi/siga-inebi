@@ -4,7 +4,7 @@ from pathlib import Path
 from django.core.files.base import ContentFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 
 STUDENT_PHOTO_MAX_BYTES = 5 * 1024 * 1024
 STUDENT_PHOTO_SIZE = (295, 354)

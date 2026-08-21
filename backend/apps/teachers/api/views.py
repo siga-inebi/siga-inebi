@@ -3,11 +3,11 @@ from rest_framework import generics, permissions
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from apps.teachers import queries
 from apps.teachers.api.serializers import (
     SuggestedEmployeeCodeSerializer,
     TeacherSerializer,
 )
-from apps.teachers.models import Teacher
 from apps.teachers.services import deactivate_teacher, next_employee_code
 
 
@@ -34,13 +34,17 @@ class TeacherNextCodeView(GenericAPIView):
 
 
 class TeacherListCreateView(generics.ListCreateAPIView):
-    queryset = Teacher.objects.all()
     serializer_class = TeacherSerializer
+
+    def get_queryset(self):
+        return queries.teachers()
 
 
 class TeacherDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Teacher.objects.all()
     serializer_class = TeacherSerializer
+
+    def get_queryset(self):
+        return queries.teachers()
 
     def perform_destroy(self, instance):
         deactivate_teacher(teacher=instance, actor=self.request.user)

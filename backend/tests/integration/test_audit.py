@@ -1,12 +1,12 @@
 from datetime import timedelta
 
 import pytest
-from django.core.exceptions import PermissionDenied
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
+from apps.common.exceptions import AuthorizationError
 from apps.enrolments.services import change_section, create_enrolment
 from apps.identity.services import assign_role, authenticate_account, disable_account
 from tests.factories.academic import CampusFactory, SectionFactory
@@ -294,7 +294,7 @@ def test_denied_operation_can_be_audited():
     target = UserFactory()
     role = RoleFactory(permissions=[PermissionFactory(codename="role_assign")])
 
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         assign_role(actor=actor, user=target, role=role)
 
     denied_event = record_event(

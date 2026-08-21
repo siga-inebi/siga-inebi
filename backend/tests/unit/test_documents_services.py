@@ -2,10 +2,10 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
-from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from apps.audit.models import AuditEvent
+from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
 from apps.documents.models import DocumentRecord, DocumentTemplate
@@ -217,12 +217,12 @@ def test_official_document_issuance_returns_every_blocking_code():
 
 
 def test_official_document_issuance_permission_is_denied_without_actor():
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         ensure_official_document_issuance_permission(actor=None)
 
 
 def test_official_document_issuance_permission_is_denied_without_the_permission():
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         ensure_official_document_issuance_permission(actor=UserFactory())
 
 
@@ -491,13 +491,13 @@ def test_sensitive_tags_are_excluded_by_default():
 
 @patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
 def test_including_sensitive_tags_without_permission_is_denied():
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         list_field_tags(actor=UserFactory(), include_sensitive=True)
 
 
 @patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
 def test_including_sensitive_tags_without_actor_is_denied():
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         list_field_tags(include_sensitive=True)
 
 
@@ -530,7 +530,7 @@ def test_document_read_audit_is_recorded_for_authorized_users():
 
 
 def test_document_read_audit_logs_denial_for_unauthorized_users():
-    with pytest.raises(PermissionDenied, match="leer documentos"):
+    with pytest.raises(AuthorizationError, match="leer documentos"):
         record_document_read_audit(actor=UserFactory(), subject=StudentFactory())
 
     assert AuditEvent.objects.filter(action="documents.document.read_denied").exists()
@@ -594,7 +594,7 @@ def test_document_access_requires_permission_and_scope():
     permission = PermissionFactory(codename="document_read")
     assignment = RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
 
-    with pytest.raises(PermissionDenied, match="alcance|leer documentos"):
+    with pytest.raises(AuthorizationError, match="alcance|leer documentos"):
         ensure_document_access(actor=actor, student=student)
 
     ScopeGrantFactory(assignment=assignment, student=student)

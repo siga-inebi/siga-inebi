@@ -179,7 +179,7 @@ class TestEvaluationUnitAPI:
             content_type="application/json",
         )
         assert response.status_code == 400
-        assert "overlap" in response.json()["error"].lower()
+        assert "overlap" in response.json()["error"]["detail"].lower()
 
     def test_reject_invalid_date_range_api(self, auth_client, institution):
         """
@@ -206,9 +206,8 @@ class TestEvaluationUnitAPI:
         )
 
         assert response.status_code == 400
-        payload = response.json()
-        if payload.get("ends_on"):
-            assert "no puede ser anterior" in payload["ends_on"][0].lower()
+        detail = response.json()["error"]["detail"]
+        assert "no puede ser anterior" in detail["ends_on"][0].lower()
 
     def test_list_units_by_cycle(self, auth_client, institution):
         """
@@ -257,7 +256,7 @@ class TestEvaluationUnitAPI:
         )
 
         assert response.status_code == 404
-        assert "not found" in response.json()["error"].lower()
+        assert "not found" in response.json()["error"]["detail"]["detail"].lower()
 
 
 class TestRecoveryWindowAPI:
@@ -662,7 +661,7 @@ class TestGradeAPI:
         )
 
         assert response.status_code == 400
-        assert "esta cerrada" in response.json()["error"].lower()
+        assert "esta cerrada" in response.json()["error"]["detail"].lower()
 
     def test_list_grades_by_unit(self, auth_client, institution):
         """
@@ -980,7 +979,7 @@ class TestGradeScaleAPI:
         )
 
         assert response.status_code == 400
-        assert "entre 0 y 100" in response.json()["value"][0]
+        assert "entre 0 y 100" in response.json()["error"]["detail"]["value"][0]
 
     def test_reject_negative_value_api(self, auth_client, institution):
         """

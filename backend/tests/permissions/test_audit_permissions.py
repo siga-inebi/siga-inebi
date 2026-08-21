@@ -4,11 +4,11 @@ role/scope access control, and get audited either way -- allowed or denied.
 """
 
 import pytest
-from django.core.exceptions import PermissionDenied
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
+from apps.common.exceptions import AuthorizationError
 from apps.identity.models import Role
 from apps.identity.services import create_role
 from tests.factories.identity import (
@@ -37,7 +37,7 @@ def test_authorized_write_is_audited():
 def test_denied_write_is_still_audited():
     assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[]))
 
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         create_role(actor=assignment.user, name="Coordinador", slug="coordinador")
 
     event = AuditEvent.objects.latest("created_at")

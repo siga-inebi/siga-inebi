@@ -15,22 +15,13 @@ lies, and anything generated from it (typed clients, SDKs) inherits the lie.
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions, status
-from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from apps.academics.models import AcademicCycle, Grade, Section, Shift
-from apps.attendance import services
-from apps.attendance.models import (
-    AttendanceAlert,
-    AttendanceEvent,
-    ControlPoint,
-    JornadaParameters,
-)
+from apps.attendance import queries, services
 from apps.audit.services import record_sensitive_read
-from apps.common.models import DomainError
+from apps.common.exceptions import AuthorizationError, DomainError
 from apps.identity.scopes import authorized_student_queryset, can_access_student
-from apps.students.models import Student
 
 from .serializers import (
     AttendanceAlertSerializer,
@@ -62,18 +53,14 @@ STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise PermissionDenied("El actor no tiene el permiso requerido.")
+        raise AuthorizationError("El actor no tiene el permiso requerido.")
 
 
 # Provisional: one atomic permission per event origin. A separate
 # attendance-capture effort owns the real scanning/ingestion workflow and may
 # replace this mapping; this skeleton exists only so RF-JOR-002/003 have
 # events to read (see tmp/attendance_basis.md).
-ORIGIN_PERMISSIONS = {
-    AttendanceEvent.Origin.SCAN: "attendance_scan",
-    AttendanceEvent.Origin.MANUAL: "attendance_record_manual",
-    AttendanceEvent.Origin.DECLARED: "attendance_declared_close",
-}
+ORIGIN_PERMISSIONS = queries.origin_permissions()
 
 TAGS = ["attendance: jornada"]
 
@@ -101,7 +88,7 @@ class JornadaParametersListCreateView(GenericAPIView):
     serializer_class = JornadaParametersSerializer
 
     def get_queryset(self):
-        return JornadaParameters.objects.select_related("shift", "academic_cycle").all()
+        return queries.jornada_parameters()
 
     def get(self, request):
         _require_permission(request, CONFIGURE_PERMISSION)
@@ -113,10 +100,8 @@ class JornadaParametersListCreateView(GenericAPIView):
         serializer = JornadaParametersCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "la jornada")
-        academic_cycle = _resolve(
-            AcademicCycle.objects.all(), payload.pop("academic_cycle_id"), "el ciclo escolar"
-        )
+        shift = queries.shift_for_payload(payload.pop("shift_id"))
+        academic_cycle = queries.academic_cycle_for_payload(payload.pop("academic_cycle_id"))
         parameters = services.set_jornada_parameters(
             shift=shift, academic_cycle=academic_cycle, actor=request.user, **payload
         )
@@ -151,11 +136,11 @@ class AttendanceEventListCreateView(GenericAPIView):
     serializer_class = AttendanceEventSerializer
 
     def get_queryset(self):
-        return AttendanceEvent.objects.filter(
-            student__in=authorized_student_queryset(
+        return queries.attendance_events(
+            students=authorized_student_queryset(
                 user=self.request.user, codename=STUDENT_VIEW_PERMISSION
             )
-        ).select_related("student", "shift")
+        )
 
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
@@ -167,9 +152,9 @@ class AttendanceEventListCreateView(GenericAPIView):
         payload = serializer.validated_data
         codename = ORIGIN_PERMISSIONS[payload["origin"]]
         if not request.user.has_atomic_permission(codename):
-            raise PermissionDenied("El actor no tiene el permiso requerido.")
-        student = _resolve(Student.objects.all(), payload.pop("student_id"), "el estudiante")
-        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "la jornada")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
+        student = queries.student_for_payload(payload.pop("student_id"))
+        shift = queries.shift_for_payload(payload.pop("shift_id"))
         event = services.record_attendance_event(
             student=student, shift=shift, actor=request.user, **payload
         )
@@ -199,12 +184,12 @@ class AttendanceEventResolutionView(GenericAPIView):
         query = AttendanceEventResolutionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         payload = query.validated_data
-        student = _resolve(Student.objects.all(), payload["student_id"], "el estudiante")
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
+        student = queries.student_for_payload(payload["student_id"])
+        shift = queries.shift_for_payload(payload["shift_id"])
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise PermissionDenied(
+            raise AuthorizationError(
                 "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
             )
         event = services.resolve_prevailing_event(
@@ -214,7 +199,7 @@ class AttendanceEventResolutionView(GenericAPIView):
             movement_type=payload["movement_type"],
         )
         if event is None:
-            raise NotFound("No hay movimiento de asistencia para los criterios indicados.")
+            raise queries.no_event_error()
         return Response(AttendanceEventSerializer(event).data)
 
 
@@ -240,12 +225,12 @@ class AttendanceDayStatusView(GenericAPIView):
         query = DayStatusQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         payload = query.validated_data
-        student = _resolve(Student.objects.all(), payload["student_id"], "el estudiante")
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
+        student = queries.student_for_payload(payload["student_id"])
+        shift = queries.shift_for_payload(payload["shift_id"])
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise PermissionDenied(
+            raise AuthorizationError(
                 "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
             )
         record_sensitive_read(
@@ -287,7 +272,7 @@ class JornadaClosureView(GenericAPIView):
         serializer = JornadaClosureRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
+        shift = queries.shift_for_payload(payload["shift_id"])
         result = services.close_jornada(
             shift=shift, event_date=payload["event_date"], actor=request.user
         )
@@ -309,11 +294,11 @@ class AttendanceAlertListView(GenericAPIView):
     serializer_class = AttendanceAlertSerializer
 
     def get_queryset(self):
-        return AttendanceAlert.objects.filter(
-            student__in=authorized_student_queryset(
+        return queries.attendance_alerts(
+            students=authorized_student_queryset(
                 user=self.request.user, codename=STUDENT_VIEW_PERMISSION
             )
-        ).select_related("student", "shift", "section")
+        )
 
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
@@ -343,14 +328,10 @@ class AttendancePresenceListView(GenericAPIView):
         query = AttendancePresenceQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         payload = query.validated_data
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
-        grade = (
-            _resolve(Grade.objects.all(), payload["grade_id"], "el grado")
-            if payload.get("grade_id")
-            else None
-        )
+        shift = queries.shift_for_payload(payload["shift_id"])
+        grade = queries.grade_for_payload(payload["grade_id"]) if payload.get("grade_id") else None
         section = (
-            _resolve(Section.objects.all(), payload["section_id"], "la seccion")
+            queries.section_for_payload(payload["section_id"])
             if payload.get("section_id")
             else None
         )
@@ -391,12 +372,12 @@ class AttendancePercentageView(GenericAPIView):
         query = AttendancePercentageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         payload = query.validated_data
-        student = _resolve(Student.objects.all(), payload["student_id"], "el estudiante")
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
+        student = queries.student_for_payload(payload["student_id"])
+        shift = queries.shift_for_payload(payload["shift_id"])
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
         ):
-            raise PermissionDenied(
+            raise AuthorizationError(
                 "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
             )
         record_sensitive_read(
@@ -427,7 +408,7 @@ class ControlPointListView(GenericAPIView):
     serializer_class = ControlPointSerializer
 
     def get_queryset(self):
-        return ControlPoint.objects.select_related("campus").all()
+        return queries.control_points()
 
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
@@ -462,28 +443,18 @@ class AttendanceScanView(GenericAPIView):
         payload = serializer.validated_data
         batch_id = payload["batch_id"]
         raw_items = payload["items"]
-        transmission = (
-            AttendanceEvent.Transmission.BATCH
-            if batch_id or len(raw_items) > 1
-            else AttendanceEvent.Transmission.INDIVIDUAL
-        )
+        transmission = queries.scan_transmission(batch_id=batch_id, item_count=len(raw_items))
 
         resolved = []
         results_by_index = {}
         for index, raw_item in enumerate(raw_items):
-            # Subject resolution and reference lookup both answer with
-            # ``DomainError``, so one handler covers every way an item can be
-            # unusable. The view no longer knows how a scanned subject is found:
-            # that rule, credential or code, lives in the service.
             try:
                 student = services.resolve_scan_subject(
                     credential_identifier=raw_item.get("credential_identifier", ""),
                     student_code=raw_item.get("student_code", ""),
                 )
-                shift = _resolve(Shift.objects.all(), raw_item["shift_id"], "la jornada")
-                control_point = _resolve(
-                    ControlPoint.objects.all(), raw_item["control_point_id"], "el punto de control"
-                )
+                shift = queries.shift_for_payload(raw_item["shift_id"])
+                control_point = queries.control_point_for_payload(raw_item["control_point_id"])
             except DomainError as exc:
                 results_by_index[index] = services.RejectedScanItem(
                     client_event_id=raw_item["client_event_id"], reason=str(exc)
@@ -524,38 +495,21 @@ class AttendanceScanView(GenericAPIView):
         return Response(ScanCaptureItemResultSerializer(data, many=True).data)
 
 
-def _resolve(queryset, public_id, label):
-    """
-    Resolve a reference that arrived in the request body. A bad reference in a
-    payload is a bad request, not a missing endpoint, so it lands as a 400.
-    """
-    try:
-        return queryset.get(public_id=public_id)
-    except queryset.model.DoesNotExist as exc:
-        raise DomainError(f"No se encontro {label}.") from exc
-
-
 CREDENTIAL_TAGS = ["attendance: credencial"]
 CREDENTIAL_ISSUE_PERMISSION = "attendance_credential_issue"
+CREDENTIAL_RESOLVE_PERMISSION = "attendance_credential_resolve"
 
 
 @extend_schema_view(
     post=extend_schema(
         summary="Emitir credencial de estudiante",
-        description=(
-            "Emite la credencial de un estudiante con inscripcion activa y "
-            "devuelve el identificador opaco que codifica el codigo QR. El "
-            "identificador se genera aleatoriamente y no se deriva del codigo "
-            "estudiantil ni de ningun dato personal (RF-CRE-001). Es la unica "
-            "respuesta que lo expone."
-        ),
         tags=CREDENTIAL_TAGS,
         request=StudentCredentialIssueSerializer,
         responses={201: StudentCredentialSerializer},
     ),
 )
 class StudentCredentialIssueView(GenericAPIView):
-    """RF-CRE-001 contract: issue a credential carrying an opaque identifier."""
+    """Emitir identificador opaco para una credencial estudiantil (RF-CRE-001)."""
 
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentCredentialSerializer
@@ -563,51 +517,30 @@ class StudentCredentialIssueView(GenericAPIView):
     def post(self, request):
         serializer = StudentCredentialIssueSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        student = _resolve(
-            Student.objects.all(), serializer.validated_data["student_id"], "el estudiante"
-        )
+        student = queries.student_for_payload(serializer.validated_data["student_id"])
         if not can_access_student(
             user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
         ):
-            raise PermissionDenied(
+            raise AuthorizationError(
                 "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
             )
         credential = services.issue_credential(student=student, actor=request.user)
         return Response(
-            StudentCredentialSerializer(credential).data, status=status.HTTP_201_CREATED
+            StudentCredentialSerializer(credential).data,
+            status=status.HTTP_201_CREATED,
         )
-
-
-CREDENTIAL_RESOLVE_PERMISSION = "attendance_credential_resolve"
 
 
 @extend_schema_view(
     post=extend_schema(
         summary="Resolver identificador de credencial",
-        description=(
-            "Resuelve el identificador opaco leido del codigo QR y devuelve los "
-            "datos del estudiante para mostrarlos en el punto de control "
-            "(RF-CRE-006). Un identificador desconocido, revocado o de un "
-            "estudiante sin inscripcion activa devuelve HTTP 400 con la causa y "
-            "sin datos de ningun estudiante."
-        ),
         tags=CREDENTIAL_TAGS,
         request=CredentialResolutionRequestSerializer,
         responses={200: CredentialResolutionSerializer},
     ),
 )
 class StudentCredentialResolutionView(GenericAPIView):
-    """
-    RF-CRE-006 contract: resolve an opaque identifier to its bearer.
-
-    ``POST`` for a read on purpose. The identifier is what opens a movement, and
-    a GET would park it in the URL — that is, in the access log, the proxy
-    cache, and the browser history of a shared control-point terminal.
-
-    Authorisation is the module-wide permission, not a per-student scope: an
-    operator at the gate scans whoever walks in, so scoping this to a roster
-    would deny the only case it exists for.
-    """
+    """Resolver QR opaco sin exponer el identificador en URL (RF-CRE-006)."""
 
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = CredentialResolutionSerializer

@@ -24,8 +24,7 @@ from apps.academics.api.views import (
     RetrieveMixin,
     UpdateMixin,
 )
-from apps.documents import services
-from apps.documents.api import queries
+from apps.documents import queries, services
 
 from .serializers import (
     DocumentTemplateCreateSerializer,
@@ -73,6 +72,10 @@ def _wants_sensitive(request):
     return str(request.query_params.get("include_sensitive", "")).lower() in {"1", "true", "yes"}
 
 
+def _include_inactive(request):
+    return str(request.query_params.get("include_inactive", "")).lower() in {"1", "true", "yes"}
+
+
 @extend_schema_view(
     get=extend_schema(
         summary="Listar plantillas",
@@ -100,7 +103,9 @@ class DocumentTemplateListCreateView(CatalogueListCreateView):
     create_serializer = DocumentTemplateCreateSerializer
 
     def list_queryset(self, request):
-        return queries.document_templates(self.institution, request)
+        return queries.document_templates(
+            self.institution, include_inactive=_include_inactive(request)
+        )
 
     def create(self, request, payload):
         template = services.create_document_template(

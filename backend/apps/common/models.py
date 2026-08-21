@@ -2,6 +2,10 @@ import uuid
 
 from django.db import models
 
+from .exceptions import DomainError
+
+__all__ = ["DomainError", "TimeStampedModel"]
+
 
 class TimeStampedModel(models.Model):
     public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
@@ -11,7 +15,3 @@ class TimeStampedModel(models.Model):
 
     class Meta:
         abstract = True
-
-
-class DomainError(Exception):
-    pass

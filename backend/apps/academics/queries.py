@@ -1,13 +1,6 @@
-"""
-Read-side query helpers for the academic catalogue.
-
-Every list and detail payload is built from the querysets defined here, so the
-annotations the serializers depend on always exist and no view triggers a
-hidden per-row count.
-"""
+"""Read-side queries for the academic-structure domain."""
 
 from django.db.models import Count, Prefetch, Q
-from rest_framework.exceptions import NotFound
 
 from apps.academics.models import (
     AcademicCycle,
@@ -23,38 +16,37 @@ from apps.academics.models import (
     Subject,
     TeachingAssignment,
 )
+from apps.common.exceptions import DomainError, ResourceNotFoundError
 
 
-def resolve_institution(request):
-    """
-    Resolve the institution the request operates on.
-
-    Until institutional scoping lands (RF-EST / identity-access), the API works
-    against the single configured institution. Centralising it here keeps the
-    change to one place.
-    """
+def resolve_institution():
     institution = Institution.objects.order_by("pk").first()
     if institution is None:
-        raise NotFound("Todavia no hay institucion configurada.")
+        raise ResourceNotFoundError("No institution is configured yet.")
     return institution
 
 
-def _wants_inactive(request):
-    return str(request.query_params.get("include_inactive", "")).lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+def academic_cycles(institution):
+    return AcademicCycle.objects.filter(institution=institution).order_by("-year", "starts_on")
 
 
-def _filter_active(queryset, request):
-    if _wants_inactive(request):
-        return queryset
-    return queryset.filter(is_active=True)
+def academic_cycle_or_404(institution, public_id):
+    return _get(academic_cycles(institution), public_id, "Academic cycle")
+
+
+def academic_cycle_for_payload(public_id):
+    return _get_payload(AcademicCycle.objects.all(), public_id, "Academic cycle")
+
+
+def latest_cycle_year(institution):
+    return academic_cycles(institution).values_list("year", flat=True).first()
+
+
+def _filter_active(queryset, *, include_inactive=False):
+    return queryset if include_inactive else queryset.filter(is_active=True)
 
 
 def campuses_all(institution):
-    # annotate() clears the model's default ordering, so list order is explicit.
     return (
         Campus.objects.filter(institution=institution)
         .annotate(_shift_count=Count("shifts", filter=Q(shifts__is_active=True), distinct=True))
@@ -62,16 +54,19 @@ def campuses_all(institution):
     )
 
 
-def campuses(institution, request):
-    return _filter_active(campuses_all(institution), request)
+def campuses(institution, *, include_inactive=False):
+    return _filter_active(campuses_all(institution), include_inactive=include_inactive)
 
 
 def campus_or_404(institution, public_id):
     return _get(campuses_all(institution), public_id, "Campus")
 
 
-def shifts(campus, request):
-    return _filter_active(Shift.objects.filter(campus=campus).select_related("campus"), request)
+def shifts(campus, *, include_inactive=False):
+    return _filter_active(
+        Shift.objects.filter(campus=campus).select_related("campus"),
+        include_inactive=include_inactive,
+    )
 
 
 def shift_or_404(institution, public_id):
@@ -82,8 +77,8 @@ def shift_or_404(institution, public_id):
     )
 
 
-def levels(institution, request):
-    return _filter_active(levels_all(institution), request)
+def shift_for_payload(institution, public_id):
+    return _get_payload(Shift.objects.filter(campus__institution=institution), public_id, "Shift")
 
 
 def levels_all(institution):
@@ -97,12 +92,18 @@ def levels_all(institution):
     )
 
 
+def levels(institution, *, include_inactive=False):
+    return _filter_active(levels_all(institution), include_inactive=include_inactive)
+
+
 def level_or_404(institution, public_id):
     return _get(levels_all(institution), public_id, "Level")
 
 
-def grades(level, request):
-    return _filter_active(Grade.objects.filter(level=level).select_related("level"), request)
+def grades(level, *, include_inactive=False):
+    return _filter_active(
+        Grade.objects.filter(level=level).select_related("level"), include_inactive=include_inactive
+    )
 
 
 def grade_or_404(institution, public_id):
@@ -113,9 +114,14 @@ def grade_or_404(institution, public_id):
     )
 
 
-def subjects(institution, request):
+def grade_for_payload(institution, public_id):
+    return _get_payload(Grade.objects.filter(level__institution=institution), public_id, "Grade")
+
+
+def subjects(institution, *, include_inactive=False):
     return _filter_active(
-        Subject.objects.filter(institution=institution).prefetch_related("levels"), request
+        Subject.objects.filter(institution=institution).prefetch_related("levels"),
+        include_inactive=include_inactive,
     )
 
 
@@ -127,6 +133,10 @@ def subject_or_404(institution, public_id):
     )
 
 
+def subject_for_payload(public_id):
+    return _get_payload(Subject.objects.all(), public_id, "Subject")
+
+
 def level_subjects(level):
     return LevelSubject.objects.filter(level=level).select_related("level", "subject")
 
@@ -134,51 +144,55 @@ def level_subjects(level):
 _SECTION_RELATED = ("offering__grade__level", "offering__shift__campus", "offering__academic_cycle")
 
 
-def sections(institution, request):
+def sections(institution, *, include_inactive=False, academic_cycle_id=None, grade_id=None):
     queryset = Section.objects.filter(
         offering__academic_cycle__institution=institution
     ).select_related(*_SECTION_RELATED)
-    queryset = _filter_active(queryset, request)
-
-    academic_cycle_id = request.query_params.get("academic_cycle_id")
+    queryset = _filter_active(queryset, include_inactive=include_inactive)
     if academic_cycle_id:
         queryset = queryset.filter(offering__academic_cycle__public_id=academic_cycle_id)
-    grade_id = request.query_params.get("grade_id")
     if grade_id:
         queryset = queryset.filter(offering__grade__public_id=grade_id)
     return queryset
 
 
 def section_or_404(institution, public_id):
-    queryset = Section.objects.filter(
-        offering__academic_cycle__institution=institution
-    ).select_related(*_SECTION_RELATED)
-    return _get(queryset, public_id, "la seccion")
+    return _get(
+        Section.objects.filter(offering__academic_cycle__institution=institution).select_related(
+            *_SECTION_RELATED
+        ),
+        public_id,
+        "Section",
+    )
+
+
+def section_for_payload(public_id):
+    return _get_payload(Section.objects.all(), public_id, "Section")
 
 
 _CURRICULUM_PLAN_RELATED = ("academic_cycle", "grade__level", "subject")
 
 
-def curriculum_plans(institution, request):
+def curriculum_plans(institution, *, include_inactive=False, academic_cycle_id=None, grade_id=None):
     queryset = CurriculumPlan.objects.filter(
         academic_cycle__institution=institution
     ).select_related(*_CURRICULUM_PLAN_RELATED)
-    queryset = _filter_active(queryset, request)
-
-    academic_cycle_id = request.query_params.get("academic_cycle_id")
+    queryset = _filter_active(queryset, include_inactive=include_inactive)
     if academic_cycle_id:
         queryset = queryset.filter(academic_cycle__public_id=academic_cycle_id)
-    grade_id = request.query_params.get("grade_id")
     if grade_id:
         queryset = queryset.filter(grade__public_id=grade_id)
     return queryset
 
 
 def curriculum_plan_or_404(institution, public_id):
-    queryset = CurriculumPlan.objects.filter(
-        academic_cycle__institution=institution
-    ).select_related(*_CURRICULUM_PLAN_RELATED)
-    return _get(queryset, public_id, "el plan de estudios")
+    return _get(
+        CurriculumPlan.objects.filter(academic_cycle__institution=institution).select_related(
+            *_CURRICULUM_PLAN_RELATED
+        ),
+        public_id,
+        "Curriculum plan",
+    )
 
 
 def teaching_assignment_history(institution, *, teacher=None, academic_cycle=None):
@@ -192,6 +206,14 @@ def teaching_assignment_history(institution, *, teacher=None, academic_cycle=Non
     return queryset.order_by("-academic_cycle__starts_on", "-starts_on", "-created_at")
 
 
+def teaching_assignment_or_404(public_id):
+    return _get(
+        TeachingAssignment.objects.select_related("academic_cycle").all(),
+        public_id,
+        "Teaching assignment",
+    )
+
+
 def historical_cycle_or_404(institution, public_id):
     queryset = (
         AcademicCycle.objects.filter(institution=institution)
@@ -203,11 +225,7 @@ def historical_cycle_or_404(institution, public_id):
                     .prefetch_related(
                         Prefetch("sections", queryset=Section.objects.order_by("name"))
                     )
-                    .order_by(
-                        "grade__level__sequence",
-                        "grade__sequence",
-                        "shift__name",
-                    )
+                    .order_by("grade__level__sequence", "grade__sequence", "shift__name")
                 ),
             ),
             Prefetch(
@@ -239,13 +257,20 @@ def historical_cycle_or_404(institution, public_id):
             ),
         )
     )
-    return _get(queryset, public_id, "el ciclo escolar")
+    return _get(queryset, public_id, "Academic cycle")
 
 
 def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise NotFound(f"No se encontro {label}.") from exc
-    except (ValueError, TypeError) as exc:  # malformed public_id
-        raise NotFound(f"No se encontro {label}.") from exc
+        raise ResourceNotFoundError(f"No se encontro {label}.") from exc
+    except (ValueError, TypeError) as exc:
+        raise ResourceNotFoundError(f"No se encontro {label}.") from exc
+
+
+def _get_payload(queryset, public_id, label):
+    try:
+        return queryset.get(public_id=public_id)
+    except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
+        raise DomainError(f"No se encontro {label}.") from exc

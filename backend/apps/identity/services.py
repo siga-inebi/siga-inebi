@@ -6,14 +6,14 @@ from django.contrib.auth import authenticate, get_user_model, update_session_aut
 from django.contrib.auth.models import Permission
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.sessions.models import Session
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.core.signing import salted_hmac
 from django.db import models, transaction
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
 from apps.audit.services import record_event
-from apps.common.models import DomainError
+from apps.common.exceptions import AuthorizationError, DomainError
 from apps.identity.atomic_permissions import ATOMIC_PERMISSION_CODENAMES
 from apps.identity.models import ActivationChallenge, Role, RoleAssignment, ScopeGrant
 
@@ -70,7 +70,9 @@ def list_atomic_permissions(*, actor):
             resource="Permission",
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise PermissionDenied("El actor no tiene permiso para consultar el catalogo de permisos.")
+        raise AuthorizationError(
+            "El actor no tiene permiso para consultar el catalogo de permisos."
+        )
 
     permissions = Permission.objects.filter(
         content_type__app_label="identity",
@@ -152,14 +154,14 @@ def _ensure_account_administrator_remains(*, assignment=None, role=None, user=No
 def list_roles(*, actor):
     if not _can_manage_roles(actor):
         _audit_role_denied(actor=actor, action="list")
-        raise PermissionDenied("El actor no tiene permiso para consultar roles.")
+        raise AuthorizationError("El actor no tiene permiso para consultar roles.")
     return Role.objects.prefetch_related("permissions").order_by("name")
 
 
 def create_role(*, actor, name, slug, description="", permission_codenames=()):
     if not _can_manage_roles(actor):
         _audit_role_denied(actor=actor, action="create")
-        raise PermissionDenied("El actor no tiene permiso para crear roles.")
+        raise AuthorizationError("El actor no tiene permiso para crear roles.")
 
     permissions = _resolve_atomic_permissions(permission_codenames)
     with transaction.atomic():
@@ -182,7 +184,7 @@ def create_role(*, actor, name, slug, description="", permission_codenames=()):
 def update_role(*, actor, role, name=None, description=None, permission_codenames=None):
     if not _can_manage_roles(actor):
         _audit_role_denied(actor=actor, action="update", role=role)
-        raise PermissionDenied("El actor no tiene permiso para modificar roles.")
+        raise AuthorizationError("El actor no tiene permiso para modificar roles.")
     protect_system_role(actor=actor, role=role)
 
     permissions = None
@@ -266,7 +268,7 @@ def create_account(*, actor, person, username, email=""):
     is_authorized = _can_create_account(actor)
     if not is_authorized:
         _audit_account_create_denied(actor=actor, person=person)
-        raise PermissionDenied("El actor no tiene permiso para crear cuentas.")
+        raise AuthorizationError("El actor no tiene permiso para crear cuentas.")
 
     if person is None:
         raise DomainError("Se requiere una persona institucional.")
@@ -348,7 +350,7 @@ def _issue_activation_challenge(*, actor, account, reason):
 def provision_account_with_activation(*, actor, person, username, email=""):
     if not _can_create_account(actor):
         _audit_account_create_denied(actor=actor, person=person)
-        raise PermissionDenied("El actor no tiene permiso para crear cuentas.")
+        raise AuthorizationError("El actor no tiene permiso para crear cuentas.")
 
     with transaction.atomic():
         account = create_account(
@@ -379,7 +381,7 @@ def reissue_activation_challenge(*, actor, account):
                 "reason": "missing_permission",
             },
         )
-        raise PermissionDenied("El actor no tiene permiso para emitir desafios de activacion.")
+        raise AuthorizationError("El actor no tiene permiso para emitir desafios de activacion.")
     if actor.pk == account.pk:
         record_event(
             actor=actor,
@@ -392,7 +394,7 @@ def reissue_activation_challenge(*, actor, account):
                 "reason": "self_activation",
             },
         )
-        raise PermissionDenied("Nadie puede reemitir su propio desafio de activacion.")
+        raise AuthorizationError("Nadie puede reemitir su propio desafio de activacion.")
 
     with transaction.atomic():
         locked_account = account.__class__.objects.select_for_update().get(pk=account.pk)
@@ -620,7 +622,7 @@ def assign_role(
             resource_identifier=str(user.pk),
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise PermissionDenied("El actor no tiene permiso para asignar roles.")
+        raise AuthorizationError("El actor no tiene permiso para asignar roles.")
     if actor.pk == user.pk:
         record_event(
             actor=actor,
@@ -629,7 +631,7 @@ def assign_role(
             resource_identifier=str(user.pk),
             context={"result": "denied", "reason": "self_escalation"},
         )
-        raise PermissionDenied("Nadie puede asignarse roles a si mismo.")
+        raise AuthorizationError("Nadie puede asignarse roles a si mismo.")
     if not scope or not any(
         scope.get(field_name)
         for field_name in (
@@ -694,7 +696,7 @@ def revoke_role_assignment(*, actor, assignment, ends_at=None):
             resource_identifier=str(assignment.public_id),
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise PermissionDenied("El actor no tiene permiso para revocar asignaciones de rol.")
+        raise AuthorizationError("El actor no tiene permiso para revocar asignaciones de rol.")
     if actor.pk == assignment.user_id:
         record_event(
             actor=actor,
@@ -703,7 +705,7 @@ def revoke_role_assignment(*, actor, assignment, ends_at=None):
             resource_identifier=str(assignment.public_id),
             context={"result": "denied", "reason": "self_escalation"},
         )
-        raise PermissionDenied("Nadie puede revocar sus propios roles.")
+        raise AuthorizationError("Nadie puede revocar sus propios roles.")
 
     effective_end = ends_at or timezone.now()
     with transaction.atomic():
@@ -767,7 +769,7 @@ def disable_account(*, actor, user, force=False, reason=""):
                 "result": "denied",
             },
         )
-        raise PermissionDenied("El actor no tiene permiso para deshabilitar cuentas.")
+        raise AuthorizationError("El actor no tiene permiso para deshabilitar cuentas.")
     if actor.pk == user.pk:
         record_event(
             actor=actor,
@@ -780,7 +782,7 @@ def disable_account(*, actor, user, force=False, reason=""):
                 "reason": "self_deactivation",
             },
         )
-        raise PermissionDenied("Nadie puede deshabilitar su propia cuenta.")
+        raise AuthorizationError("Nadie puede deshabilitar su propia cuenta.")
 
     deps = get_account_active_dependencies(user)
     if deps["teaching_assignments"] and not force:
@@ -835,7 +837,7 @@ def change_password(*, user, current_password, new_password, request=None):
     Cierra las demás sesiones activas y registra el evento en bitácora sin guardar texto claro.
     """
     if not user or not getattr(user, "is_authenticated", False):
-        raise PermissionDenied("Debe estar autenticado para cambiar la contraseña.")
+        raise AuthorizationError("Debe estar autenticado para cambiar la contraseña.")
 
     if not user.check_password(current_password):
         record_event(
