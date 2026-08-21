@@ -504,7 +504,7 @@ def test_withdrawing_a_student_stops_their_credential_without_touching_past_move
     enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
     enrolment.save(update_fields=["status"])
 
-    with pytest.raises(DomainError, match="no active enrolment"):
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
         services.resolve_scan_subject(credential_identifier=credential.opaque_identifier)
 
     entry.refresh_from_db()

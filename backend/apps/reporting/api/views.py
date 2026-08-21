@@ -42,7 +42,7 @@ STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise PermissionDenied("Actor lacks the required permission.")
+        raise PermissionDenied("El actor no tiene el permiso requerido.")
 
 
 def _resolve(queryset, public_id, label):
@@ -53,7 +53,7 @@ def _resolve(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise DomainError(f"{label} not found.") from exc
+        raise DomainError(f"No se encontro {label}.") from exc
 
 
 TAGS = ["reporting: alerts"]
@@ -96,7 +96,7 @@ class AbsenceThresholdParametersListCreateView(GenericAPIView):
         serializer = AbsenceThresholdParametersCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "Shift")
+        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "la jornada")
         academic_cycle = _resolve(
             AcademicCycle.objects.all(), payload.pop("academic_cycle_id"), "Academic cycle"
         )
@@ -135,7 +135,7 @@ class ReportingAlertListView(GenericAPIView):
 
         shift = None
         if "shift_id" in payload:
-            shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+            shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
 
         queryset = services.list_alerts(
             shift=shift,
@@ -170,7 +170,7 @@ class ReportingAlertAcknowledgeView(GenericAPIView):
 
     def post(self, request, public_id):
         _require_permission(request, ALERT_ACKNOWLEDGE_PERMISSION)
-        alert = _resolve(Alert.objects.select_related("student"), public_id, "Alert")
+        alert = _resolve(Alert.objects.select_related("student"), public_id, "la alerta")
         # Holding the acknowledge permission is not enough: the alert is
         # about a student, so the actor's student scope decides too, the same
         # way the list view above and attendance's own single-resource
@@ -179,7 +179,9 @@ class ReportingAlertAcknowledgeView(GenericAPIView):
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=alert.student
         ):
-            raise PermissionDenied("Actor lacks the required permission or student scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         alert = services.acknowledge_alert(alert=alert, actor=request.user)
         return Response(ReportingAlertSerializer(alert).data)
 
@@ -206,7 +208,7 @@ class AlertEvaluationView(GenericAPIView):
         serializer = AlertEvaluationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        shift = _resolve(Shift.objects.all(), payload["shift_id"], "la jornada")
         result = services.evaluate_daily_alerts(
             shift=shift, event_date=payload["event_date"], actor=request.user
         )

@@ -210,7 +210,7 @@ def test_create_enrolment_rejects_invalid_vigency_dates(auth_client):
     )
 
     assert response.status_code == 400
-    assert "end date cannot precede" in response.json()["error"]["detail"]
+    assert "no puede ser anterior a su fecha de vigencia" in response.json()["error"]["detail"]
 
 
 def test_create_enrolment_rejects_full_section(auth_client):
@@ -230,7 +230,7 @@ def test_create_enrolment_rejects_full_section(auth_client):
     )
 
     assert response.status_code == 400
-    assert "Section capacity has been reached" in response.json()["error"]["detail"]
+    assert "alcanzo su cupo" in response.json()["error"]["detail"]
 
 
 def test_matriculate_student_returns_academic_assignment_and_activates_student(auth_client):
@@ -292,7 +292,7 @@ def test_matriculate_student_rejects_a_second_active_enrolment(auth_client):
     )
 
     assert response.status_code == 400
-    assert "already has an active enrolment" in response.json()["error"]["detail"]
+    assert "ya tiene una inscripcion activa" in response.json()["error"]["detail"]
 
 
 def test_matriculate_student_rejects_full_section(auth_client):
@@ -313,7 +313,7 @@ def test_matriculate_student_rejects_full_section(auth_client):
     )
 
     assert response.status_code == 400
-    assert "Section capacity has been reached" in response.json()["error"]["detail"]
+    assert "alcanzo su cupo" in response.json()["error"]["detail"]
     student.refresh_from_db()
     assert student.status == student.StudentStatus.PRE_ENROLLED
 
@@ -332,7 +332,7 @@ def test_matriculate_student_rejects_shift_not_assigned_to_section(auth_client):
     )
 
     assert response.status_code == 400
-    assert "selected shift" in response.json()["error"]["detail"]
+    assert "jornada seleccionada" in response.json()["error"]["detail"]
 
 
 def test_reenrolment_reuses_student_record_and_audits_source(auth_client):
@@ -448,7 +448,7 @@ def test_reenrolment_requires_previous_enrolment(auth_client):
     )
 
     assert response.status_code == 400
-    assert "no previous enrolment" in response.json()["error"]["detail"]
+    assert "no tiene matricula previa" in response.json()["error"]["detail"]
 
 
 def _grant_enrolment_update(user):

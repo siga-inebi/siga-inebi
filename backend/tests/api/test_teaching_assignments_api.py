@@ -135,7 +135,7 @@ def test_create_teaching_assignment_returns_validation_error_for_mismatched_sect
     )
 
     assert response.status_code == 400
-    assert "Section must belong" in response.json()["error"]["detail"]
+    assert "seccion debe pertenecer" in response.json()["error"]["detail"]
 
 
 def test_teaching_assignment_endpoints_require_matching_institution_scope(auth_client, institution):
@@ -219,8 +219,8 @@ def test_closed_cycle_rejects_teaching_assignment_api_writes(auth_client, instit
 
     assert create_response.status_code == 400
     assert reassign_response.status_code == 400
-    assert "Closed academic cycles" in create_response.json()["error"]["detail"]
-    assert "Closed academic cycles" in reassign_response.json()["error"]["detail"]
+    assert "ciclo escolar cerrado" in create_response.json()["error"]["detail"]
+    assert "ciclo escolar cerrado" in reassign_response.json()["error"]["detail"]
 
     history_response = auth_client.get(
         reverse("teaching-assignment-history"),

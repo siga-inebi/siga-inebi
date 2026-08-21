@@ -98,13 +98,15 @@ def _denied_operations(scenario):
 def test_closed_cycle_denies_cross_domain_write(closed_cycle, operation_name):
     operation = _denied_operations(closed_cycle)[operation_name]
 
-    with pytest.raises(DomainError, match=rf"Closed academic cycles.*{re.escape(operation_name)}"):
+    with pytest.raises(
+        DomainError, match=rf"no admite cambios academicos.*{re.escape(operation_name)}"
+    ):
         operation()
 
 
 def test_closed_cycle_denials_preserve_history(closed_cycle):
     for operation in _denied_operations(closed_cycle).values():
-        with pytest.raises(DomainError, match="Closed academic cycles"):
+        with pytest.raises(DomainError, match="ciclo escolar cerrado"):
             operation()
 
     closed_cycle.enrolment.refresh_from_db()
@@ -132,7 +134,7 @@ def test_change_section_rejects_target_section_from_another_cycle():
     )
     foreign_section = SectionFactory(academic_cycle=closed_elsewhere, grade=origin.grade)
 
-    with pytest.raises(DomainError, match="Section must belong to the academic cycle"):
+    with pytest.raises(DomainError, match="seccion debe pertenecer al ciclo escolar"):
         change_section(enrolment=enrolment, new_section=foreign_section)
 
     enrolment.refresh_from_db()
@@ -150,5 +152,5 @@ def test_change_section_rejects_target_section_from_another_grade():
     )
     other_grade_section = SectionFactory(academic_cycle=origin.academic_cycle)
 
-    with pytest.raises(DomainError, match="Section must belong to the grade"):
+    with pytest.raises(DomainError, match="seccion debe pertenecer al grado"):
         change_section(enrolment=enrolment, new_section=other_grade_section)

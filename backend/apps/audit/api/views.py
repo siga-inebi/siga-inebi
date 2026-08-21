@@ -34,7 +34,7 @@ TAGS = ["audit: bitacora"]
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise PermissionDenied("Actor lacks the required permission.")
+        raise PermissionDenied("El actor no tiene el permiso requerido.")
 
 
 def _query_filters(request):

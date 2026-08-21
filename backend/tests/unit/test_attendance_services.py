@@ -1770,7 +1770,7 @@ def test_the_opaque_identifier_does_not_encode_any_personal_data():
 def test_a_student_without_an_active_enrolment_gets_no_credential():
     student = StudentFactory()
 
-    with pytest.raises(DomainError, match="no active enrolment"):
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
         services.issue_credential(student=student)
 
     assert not StudentCredential.objects.filter(student=student).exists()
@@ -1781,7 +1781,7 @@ def test_a_second_credential_is_refused_while_one_is_still_active():
     student, _section, _shift = _enrolled_student(cycle)
     services.issue_credential(student=student)
 
-    with pytest.raises(DomainError, match="already has an active credential"):
+    with pytest.raises(DomainError, match="ya tiene una credencial vigente"):
         services.issue_credential(student=student)
 
     assert StudentCredential.objects.filter(student=student).count() == 1
@@ -1834,7 +1834,7 @@ def test_an_unknown_identifier_is_rejected_without_naming_any_student():
         services.resolve_credential(opaque_identifier="not-a-real-token")
 
     message = str(failure.value)
-    assert "not recognised" in message
+    assert "no es reconocida" in message
     # The rejection is a fact about the credential, never about a person: an
     # outsider probing the endpoint learns nothing about who exists.
     assert student.student_code not in message
@@ -1857,7 +1857,7 @@ def test_a_withdrawn_students_credential_resolves_to_a_rejection():
     enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
     enrolment.save(update_fields=["status"])
 
-    with pytest.raises(DomainError, match="no active enrolment"):
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
         services.resolve_credential(opaque_identifier=credential.opaque_identifier)
 
     # The credential itself is untouched: withdrawal is an enrolment fact, and
@@ -1885,7 +1885,7 @@ def test_a_revoked_credential_no_longer_resolves():
     credential.status = StudentCredential.Status.REVOKED
     credential.save(update_fields=["status"])
 
-    with pytest.raises(DomainError, match="revoked"):
+    with pytest.raises(DomainError, match="fue revocada"):
         services.resolve_credential(opaque_identifier=credential.opaque_identifier)
 
 
@@ -1902,7 +1902,7 @@ def test_the_scan_subject_resolves_from_either_a_credential_or_a_student_code():
     assert by_credential == student
     assert by_code == student
 
-    with pytest.raises(DomainError, match="not recognised"):
+    with pytest.raises(DomainError, match="no es reconocida"):
         services.resolve_scan_subject(credential_identifier="unknown-token")
-    with pytest.raises(DomainError, match="not found"):
+    with pytest.raises(DomainError, match="No existe estudiante"):
         services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST")

@@ -67,7 +67,7 @@ def test_explicit_student_code_is_kept_and_its_duplicate_rejected():
     created = create_student(person_data=_person(), student_code=" mineduc-77 ")
 
     assert created.student_code == "mineduc-77"
-    with pytest.raises(DomainError, match="already registered"):
+    with pytest.raises(DomainError, match="ya esta registrado"):
         create_student(person_data=_person(), student_code="mineduc-77")
 
 
@@ -275,7 +275,7 @@ def test_position_referring_to_another_group_is_rejected():
     stranger = GradeFactory()
     create_grade(level=level, name="Primero Basico")
 
-    with pytest.raises(DomainError, match="same group"):
+    with pytest.raises(DomainError, match="mismo grupo"):
         create_grade(level=level, name="Segundo Basico", insert_after=stranger)
 
 

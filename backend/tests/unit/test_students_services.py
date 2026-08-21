@@ -40,7 +40,7 @@ def test_update_student_status_uses_domain_service_and_audits_change():
 def test_update_student_rejects_invalid_status_without_writing():
     student = StudentFactory(status=Student.StudentStatus.ACTIVE)
 
-    with pytest.raises(DomainError, match="status is invalid"):
+    with pytest.raises(DomainError, match="estado del estudiante no es valido"):
         update_student(student=student, status="unknown")
 
     student.refresh_from_db()
@@ -52,7 +52,7 @@ def test_update_student_rejects_non_image_photo_without_replacing_current_file()
     original_name = student.photo.name
     document = SimpleUploadedFile("notes.txt", b"not-an-image", content_type="text/plain")
 
-    with pytest.raises(DomainError, match="photo must be an image"):
+    with pytest.raises(DomainError, match="fotografia del estudiante debe ser una imagen"):
         update_student(student=student, photo=document)
 
     student.refresh_from_db()
@@ -80,7 +80,7 @@ def test_update_student_rejects_photo_larger_than_five_megabytes():
         content_type="image/jpeg",
     )
 
-    with pytest.raises(DomainError, match="cannot exceed 5 MB"):
+    with pytest.raises(DomainError, match="no puede exceder 5 MB"):
         update_student(student=student, photo=oversized)
 
 
@@ -88,7 +88,7 @@ def test_update_student_rejects_invalid_image_content():
     student = StudentFactory()
     invalid = SimpleUploadedFile("fake.jpg", b"not-an-image", content_type="image/jpeg")
 
-    with pytest.raises(DomainError, match="valid image"):
+    with pytest.raises(DomainError, match="imagen valida"):
         update_student(student=student, photo=invalid)
 
 

@@ -56,7 +56,11 @@ def create_teacher(
     with transaction.atomic():
         if supplied:
             with unique_violation_as(
-                {EMPLOYEE_CODE_CONSTRAINT: (f"Employee code '{supplied}' is already registered.")}
+                {
+                    EMPLOYEE_CODE_CONSTRAINT: (
+                        f"El codigo de empleado '{supplied}' ya esta registrado."
+                    )
+                }
             ):
                 teacher = build(supplied)
         else:

@@ -30,7 +30,7 @@ ACTIVE_ALERT_CONSTRAINT = "unique_active_alert_per_student_day_type"
 
 def _require_active(instance, label):
     if not instance.is_active:
-        raise DomainError(f"{label} '{instance}' is inactive and cannot be used.")
+        raise DomainError(f"No se puede usar {label} '{instance}': su registro esta inactivo.")
 
 
 @transaction.atomic
@@ -42,16 +42,16 @@ def set_absence_threshold_parameters(
     effective from a date. Existing versions are never mutated: the same
     vigencia idiom as ``attendance.JornadaParameters``.
     """
-    _require_active(shift, "Shift")
-    _require_active(academic_cycle, "Academic cycle")
+    _require_active(shift, "la jornada")
+    _require_active(academic_cycle, "el ciclo escolar")
     if academic_cycle.institution_id != shift.institution.pk:
-        raise DomainError("Shift and academic cycle must belong to the same institution.")
+        raise DomainError("La jornada y el ciclo escolar deben pertenecer a la misma institucion.")
 
     with unique_violation_as(
         {
             "unique_absence_threshold_parameters_effective_from": (
-                "Absence threshold parameters already exist for this shift, cycle, "
-                "and effective date."
+                "Ya existen parametros de umbral de ausencias para esa jornada, ciclo "
+                "y fecha de vigencia."
             )
         }
     ):
@@ -90,7 +90,9 @@ def get_effective_absence_threshold(*, shift, academic_cycle, on_date):
         .first()
     )
     if parameters is None:
-        raise DomainError(f"No absence threshold is configured for shift '{shift}' on {on_date}.")
+        raise DomainError(
+            f"La jornada '{shift}' no tiene umbral de ausencias configurado para el {on_date}."
+        )
     return parameters
 
 
@@ -293,8 +295,9 @@ def evaluate_frequent_absence_alerts(*, shift, event_date, actor=None):
         max_calendar_days -= 1
     if len(window_dates) < threshold.lookback_days:
         raise DomainError(
-            f"Jornada parameters for shift '{shift}' declare no usable school days, "
-            f"so a {threshold.lookback_days}-day absence window cannot be built."
+            f"Los parametros de la jornada '{shift}' no declaran dias lectivos utilizables, "
+            f"asi que no puede construirse una ventana de ausencias de "
+            f"{threshold.lookback_days} dias."
         )
 
     roster = attendance_services.list_roster_day_statuses(shift=shift, event_date=event_date)
@@ -363,9 +366,9 @@ def evaluate_daily_alerts(*, shift, event_date, as_of=None, actor=None):
 def acknowledge_alert(*, alert, actor):
     """Mark an alert as atendida, recording who attended it and when."""
     if not alert.is_active:
-        raise DomainError("Cannot acknowledge an alert that has been superseded.")
+        raise DomainError("No se puede atender una alerta que fue superada.")
     if alert.acknowledged_at is not None:
-        raise DomainError("Alert has already been acknowledged.")
+        raise DomainError("La alerta ya fue atendida.")
 
     # Compare-and-set rather than read-then-save: two concurrent requests
     # both clear the checks above, and only the one whose UPDATE still
@@ -377,7 +380,7 @@ def acknowledge_alert(*, alert, actor):
         pk=alert.pk, is_active=True, acknowledged_at__isnull=True
     ).update(acknowledged_at=now, acknowledged_by=actor, updated_at=now)
     if not claimed:
-        raise DomainError("Alert has already been acknowledged.")
+        raise DomainError("La alerta ya fue atendida.")
     alert.refresh_from_db()
     record_event(
         actor=actor,

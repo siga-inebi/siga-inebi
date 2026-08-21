@@ -64,7 +64,7 @@ def test_update_campus_cannot_promote_an_inactive_campus():
     main = CampusFactory(institution=institution, is_main=True)
     retired = CampusFactory(institution=institution, is_active=False)
 
-    with pytest.raises(DomainError, match="inactive"):
+    with pytest.raises(DomainError, match="registro esta inactivo"):
         update_campus(campus=retired, is_main=True)
 
     main.refresh_from_db()
@@ -109,7 +109,7 @@ def test_update_level_rejects_a_sequence_already_taken():
     LevelFactory(institution=institution, sequence=1)
     second = LevelFactory(institution=institution, sequence=2)
 
-    with pytest.raises(DomainError, match="sequence"):
+    with pytest.raises(DomainError, match="secuencia"):
         update_level(level=second, sequence=1)
 
 
@@ -125,7 +125,7 @@ def test_update_level_keeping_its_own_sequence_is_allowed():
 def test_update_level_rejects_non_positive_sequence():
     level = LevelFactory(sequence=2)
 
-    with pytest.raises(DomainError, match="sequence"):
+    with pytest.raises(DomainError, match="secuencia"):
         update_level(level=level, sequence=0)
 
 
@@ -148,7 +148,7 @@ def test_update_grade_rejects_a_sequence_already_taken_in_its_level():
     GradeFactory(level=level, sequence=1)
     second = GradeFactory(level=level, sequence=2)
 
-    with pytest.raises(DomainError, match="sequence"):
+    with pytest.raises(DomainError, match="secuencia"):
         update_grade(grade=second, sequence=1)
 
 
@@ -167,7 +167,7 @@ def test_update_grade_allows_a_sequence_taken_in_another_level():
 def test_update_grade_rejects_non_positive_sequence():
     grade = GradeFactory(sequence=2)
 
-    with pytest.raises(DomainError, match="sequence"):
+    with pytest.raises(DomainError, match="secuencia"):
         update_grade(grade=grade, sequence=0)
 
 

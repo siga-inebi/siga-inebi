@@ -220,3 +220,22 @@
 - La captura por escaneo (`POST /api/v1/attendance/scan/`) acepta `credential_identifier` o
   `student_code` en cada elemento, exactamente uno. El primero es la via real; el segundo se
   conserva como alternativa manual. El rechazo de un elemento no aborta el resto del lote.
+
+## Idioma de los mensajes
+
+- El producto es monolingue: `LANGUAGE_CODE` es `es-gt` y `LANGUAGES` declara ese unico idioma.
+  `LocaleMiddleware` solo puede activar un idioma declarado, asi que un `Accept-Language: en` no
+  cambia los mensajes propios de DRF ni de Django. Sin ese cierre, la garantia dependia de la
+  configuracion del navegador de cada usuario.
+- Los mensajes de dominio se escriben en espanol. El cliente los muestra literales
+  (`frontend/src/shared/api/apiClient.js` toma `error.detail` y lo pone en pantalla), asi que un
+  mensaje en ingles en el backend es texto en ingles frente a quien opera el sistema.
+- La convencion de nombres tecnicos en ingles no cambia: aplica a identificadores, codigos,
+  acciones de auditoria y campos del contrato, no al texto que alguien lee.
+- Las etiquetas que se interpolan en un mensaje viajan en espanol y con su articulo
+  (`"la jornada"`, `"el estudiante"`), y los mensajes se redactan sin depender del genero del
+  sustantivo interpolado.
+- `RuntimeError` queda fuera de esta regla: los guardias de inmutabilidad protegen contra un error
+  de programacion, salen como HTTP 500 y no son mensajes destinados a leerse.
+- `backend/tests/api/test_localization_messages.py` recorre `apps/` y falla si reaparece un mensaje
+  visible en ingles, incluidos los mapas de `unique_violation_as`.

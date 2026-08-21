@@ -38,7 +38,7 @@ def test_create_teaching_assignment_defaults_to_cycle_start_and_requires_active_
 
     teacher.is_active = False
     teacher.save(update_fields=["is_active", "updated_at"])
-    with pytest.raises(DomainError, match="active Teacher profile"):
+    with pytest.raises(DomainError, match="perfil de docente activo"):
         create_teaching_assignment(
             academic_cycle=cycle,
             section=SectionFactory(academic_cycle=cycle),
@@ -46,7 +46,7 @@ def test_create_teaching_assignment_defaults_to_cycle_start_and_requires_active_
             teacher=teacher.person,
         )
 
-    with pytest.raises(DomainError, match="active Teacher profile"):
+    with pytest.raises(DomainError, match="perfil de docente activo"):
         create_teaching_assignment(
             academic_cycle=cycle,
             section=SectionFactory(academic_cycle=cycle),
@@ -59,7 +59,7 @@ def test_create_teaching_assignment_defaults_to_cycle_start_and_requires_active_
 def test_create_teaching_assignment_rejects_start_outside_cycle(starts_on):
     cycle, section, subject, teacher = _assignment_context()
 
-    with pytest.raises(DomainError, match="start date must be within"):
+    with pytest.raises(DomainError, match="inicio de la asignacion debe caer dentro"):
         create_teaching_assignment(
             academic_cycle=cycle,
             section=section,
@@ -73,7 +73,7 @@ def test_create_teaching_assignment_validates_section_cycle_and_subject_institut
     cycle, _, subject, teacher = _assignment_context()
     foreign_cycle = AcademicCycleFactory(starts_on=date(2026, 1, 1), ends_on=date(2026, 12, 31))
 
-    with pytest.raises(DomainError, match="Section must belong"):
+    with pytest.raises(DomainError, match="seccion debe pertenecer"):
         create_teaching_assignment(
             academic_cycle=cycle,
             section=SectionFactory(academic_cycle=foreign_cycle),
@@ -81,7 +81,7 @@ def test_create_teaching_assignment_validates_section_cycle_and_subject_institut
             teacher=teacher.person,
         )
 
-    with pytest.raises(DomainError, match="Subject must belong"):
+    with pytest.raises(DomainError, match="curso debe pertenecer"):
         create_teaching_assignment(
             academic_cycle=cycle,
             section=SectionFactory(academic_cycle=cycle),
@@ -101,7 +101,7 @@ def test_closed_cycle_rejects_teaching_assignment_changes():
     cycle.status = AcademicCycle.CycleStatus.CLOSED
     cycle.save(update_fields=["status", "updated_at"])
 
-    with pytest.raises(DomainError, match="Closed academic cycles"):
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
         create_teaching_assignment(
             academic_cycle=cycle,
             section=section,
@@ -109,7 +109,7 @@ def test_closed_cycle_rejects_teaching_assignment_changes():
             teacher=TeacherFactory().person,
         )
 
-    with pytest.raises(DomainError, match="Closed academic cycles"):
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
         reassign_teaching_assignment(
             assignment=assignment,
             teacher=TeacherFactory().person,

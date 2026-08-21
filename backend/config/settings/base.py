@@ -123,6 +123,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "es-gt"
+# RNF-LOC-002: el producto es monolingue. `LocaleMiddleware` solo puede activar
+# un idioma que este en `LANGUAGES`, asi que declarar uno cierra la unica puerta
+# por la que un `Accept-Language: en` cambiaba a ingles los mensajes propios de
+# DRF y de Django. Sin esto, la garantia dependia del navegador del usuario.
+LANGUAGES = [("es-gt", "Espanol (Guatemala)")]
 TIME_ZONE = env("TIME_ZONE", "America/Guatemala")
 USE_I18N = True
 USE_TZ = True

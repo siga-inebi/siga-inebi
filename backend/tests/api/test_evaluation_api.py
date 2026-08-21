@@ -208,7 +208,7 @@ class TestEvaluationUnitAPI:
         assert response.status_code == 400
         payload = response.json()
         if payload.get("ends_on"):
-            assert "end" in payload["ends_on"][0].lower()
+            assert "no puede ser anterior" in payload["ends_on"][0].lower()
 
     def test_list_units_by_cycle(self, auth_client, institution):
         """
@@ -662,7 +662,7 @@ class TestGradeAPI:
         )
 
         assert response.status_code == 400
-        assert "closed" in response.json()["error"].lower()
+        assert "esta cerrada" in response.json()["error"].lower()
 
     def test_list_grades_by_unit(self, auth_client, institution):
         """
@@ -980,7 +980,7 @@ class TestGradeScaleAPI:
         )
 
         assert response.status_code == 400
-        assert "0 and 100" in response.json()["value"][0]
+        assert "entre 0 y 100" in response.json()["value"][0]
 
     def test_reject_negative_value_api(self, auth_client, institution):
         """

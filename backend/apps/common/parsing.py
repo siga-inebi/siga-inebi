@@ -19,4 +19,4 @@ def parse_uuid(value, *, field):
     try:
         return uuid.UUID(str(value))
     except (ValueError, AttributeError, TypeError) as exc:
-        raise DomainError(f"'{value}' is not a valid {field} identifier.") from exc
+        raise DomainError(f"'{value}' no es un identificador valido de {field}.") from exc

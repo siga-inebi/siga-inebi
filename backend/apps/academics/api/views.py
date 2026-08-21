@@ -122,7 +122,9 @@ class CatalogueView(GenericAPIView):
         if not self.request.user.has_scoped_permission(
             "scope_assign", scope={"institution": self.institution}
         ):
-            raise PermissionDenied("Actor lacks the required permission or institution scope.")
+            raise PermissionDenied(
+                "El actor no tiene el permiso requerido o el alcance sobre la institucion."
+            )
 
 
 class CatalogueListCreateView(CatalogueView):
@@ -925,13 +927,13 @@ class TeachingAssignmentListCreateView(CatalogueView):
         self.require_assignment_scope()
         payload = self.validated(TeachingAssignmentCreateSerializer, request)
         academic_cycle = _resolve(
-            AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
+            AcademicCycle.objects.all(), payload["academic_cycle_id"], "el ciclo escolar"
         )
         if academic_cycle.institution_id != self.institution.id:
-            raise DomainError("Academic cycle must belong to the current institution.")
+            raise DomainError("El ciclo escolar debe pertenecer a la institucion actual.")
         assignment = services.create_teaching_assignment(
             academic_cycle=academic_cycle,
-            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            section=_resolve(Section.objects.all(), payload["section_id"], "la seccion"),
             subject=_resolve(Subject.objects.all(), payload["subject_id"], "Subject"),
             teacher=_resolve(Teacher.objects.all(), payload["teacher_id"], "Teacher").person,
             starts_on=payload.get("starts_on"),
@@ -961,7 +963,7 @@ class TeachingAssignmentReassignView(CatalogueView):
         payload = self.validated(TeachingAssignmentReassignSerializer, request)
         assignment = _resolve(TeachingAssignment.objects.all(), public_id, "Teaching assignment")
         if assignment.academic_cycle.institution_id != self.institution.id:
-            raise DomainError("Teaching assignment must belong to the current institution.")
+            raise DomainError("La asignacion docente debe pertenecer a la institucion actual.")
         successor = services.reassign_teaching_assignment(
             assignment=assignment,
             teacher=_resolve(Teacher.objects.all(), payload["teacher_id"], "Teacher").person,
@@ -993,7 +995,7 @@ class TeachingAssignmentHistoryView(CatalogueView):
             _resolve(Teacher.objects.all(), teacher_id, "Teacher").person if teacher_id else None
         )
         academic_cycle = (
-            _resolve(AcademicCycle.objects.all(), academic_cycle_id, "Academic cycle")
+            _resolve(AcademicCycle.objects.all(), academic_cycle_id, "el ciclo escolar")
             if academic_cycle_id
             else None
         )
@@ -1103,7 +1105,7 @@ class AcademicCycleDefaultsView(CatalogueView):
             try:
                 return int(requested)
             except ValueError as exc:
-                raise DomainError("Year must be a whole number.") from exc
+                raise DomainError("El ano debe ser un numero entero.") from exc
 
         latest = (
             AcademicCycle.objects.filter(institution=self.institution)
@@ -1127,7 +1129,7 @@ def _resolve(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise DomainError(f"{label} not found.") from exc
+        raise DomainError(f"No se encontro {label}.") from exc
 
 
 def _resolve_subject(public_id):
