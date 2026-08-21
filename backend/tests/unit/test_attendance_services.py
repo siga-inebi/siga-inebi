@@ -1906,3 +1906,68 @@ def test_the_scan_subject_resolves_from_either_a_credential_or_a_student_code():
         services.resolve_scan_subject(credential_identifier="unknown-token")
     with pytest.raises(DomainError, match="No existe estudiante"):
         services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST")
+
+
+# --------------------------------------------------------------------------- #
+# Consistencia entre las dos vias de identificacion del sujeto escaneado
+# --------------------------------------------------------------------------- #
+
+
+def test_both_identification_paths_refuse_a_student_without_active_enrolment():
+    """
+    La regla de inscripcion activa no depende de por donde entro el escaneo.
+    Antes vivia solo en la ruta de credencial, asi que la misma operacion se
+    aceptaba o se rechazaba segun como el operador hubiera identificado a la
+    persona.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    enrolment = active_enrolments(student=student).get()
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.resolve_scan_subject(credential_identifier=credential.opaque_identifier)
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.resolve_scan_subject(student_code=student.student_code)
+
+
+def test_the_credential_rejection_still_refuses_to_name_the_bearer():
+    """
+    Compartir la regla no comparte la redaccion. RF-CRE-006 prohibe revelar al
+    estudiante al rechazar, asi que la ruta de credencial sigue hablando del
+    portador; la de codigo puede devolver el codigo que el operador ya escribio.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    enrolment = active_enrolments(student=student).get()
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.save(update_fields=["status"])
+
+    with pytest.raises(DomainError) as by_credential:
+        services.resolve_scan_subject(credential_identifier=credential.opaque_identifier)
+    with pytest.raises(DomainError) as by_code:
+        services.resolve_scan_subject(student_code=student.student_code)
+
+    assert student.student_code not in str(by_credential.value)
+    assert str(student.public_id) not in str(by_credential.value)
+    assert student.student_code in str(by_code.value)
+
+
+def test_an_enrolled_student_still_resolves_by_either_path():
+    """La regla rechaza al retirado sin estorbar al inscrito."""
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    by_credential = services.resolve_scan_subject(
+        credential_identifier=credential.opaque_identifier
+    )
+    by_code = services.resolve_scan_subject(student_code=student.student_code)
+
+    assert by_credential == student
+    assert by_code == student
