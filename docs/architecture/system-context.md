@@ -23,7 +23,7 @@ SIGA-INEBI centraliza informacion academica, administrativa y operativa del esta
 ## Contexto operacional
 
 - Institucion unica inicial.
-- Zona horaria local del establecimiento.
+- Zona horaria local del establecimiento, fijada explicitamente en el servidor y en la base de datos mediante `TIME_ZONE`; ver `docs/architecture/database-strategy.md`.
 - Uso en escritorio y telefonos de gama baja.
 - Operacion critica durante jornada escolar.
 - Escaneo QR requiere camara en contexto seguro.
