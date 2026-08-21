@@ -15,17 +15,15 @@ aparecian en el schema publicado. Cada operacion lo declara con
 ``extend_schema``.
 """
 
-from django.db.models import Q
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.academics.models import AcademicCycle, Subject
 from apps.audit.services import record_event
-from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment
+from apps.common.exceptions import AuthorizationError, DomainError, ResourceNotFoundError
+from apps.evaluation import queries
 from apps.evaluation.api.serializers import (
     CaptureExceptionGrantSerializer,
     CycleEvaluationConfigSerializer,
@@ -34,7 +32,6 @@ from apps.evaluation.api.serializers import (
     GradeSerializer,
     RecoveryWindowSerializer,
 )
-from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
 from apps.evaluation.services import (
     create_evaluation_unit,
     get_current_average,
@@ -65,13 +62,7 @@ class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
 
     def get_queryset(self):
         """Filter units by cycle from URL parameter."""
-        cycle_public_id = self.kwargs.get("cycle_public_id")
-        if cycle_public_id:
-            return EvaluationUnit.objects.filter(
-                academic_cycle__public_id=cycle_public_id,
-                is_active=True,
-            ).order_by("number")
-        return EvaluationUnit.objects.none()
+        return queries.evaluation_units(self.kwargs.get("cycle_public_id"))
 
     def check_director_permission(self):
         """
@@ -90,44 +81,29 @@ class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
         """
         cycle_public_id = kwargs.get("cycle_public_id")
         if not cycle_public_id:
-            return Response(
-                {"error": "cycle_public_id required in URL"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise DomainError("cycle_public_id required in URL")
 
         if not self.check_director_permission():
-            return Response(
-                {"error": "Permission denied. Only directors can configure evaluation units."},
-                status=status.HTTP_403_FORBIDDEN,
+            raise AuthorizationError(
+                "Permission denied. Only directors can configure evaluation units."
             )
 
-        try:
-            cycle = AcademicCycle.objects.get(public_id=cycle_public_id)
-        except AcademicCycle.DoesNotExist:
-            return Response(
-                {"error": "Cycle not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        cycle = queries.academic_cycle_or_none(cycle_public_id)
+        if cycle is None:
+            raise ResourceNotFoundError("Cycle not found.")
 
         serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
 
-        try:
-            unit = create_evaluation_unit(
-                academic_cycle=cycle,
-                number=serializer.validated_data["number"],
-                name=serializer.validated_data["name"],
-                starts_on=serializer.validated_data["starts_on"],
-                ends_on=serializer.validated_data["ends_on"],
-                capture_starts_on=serializer.validated_data["capture_starts_on"],
-                capture_ends_on=serializer.validated_data["capture_ends_on"],
-            )
-        except DomainError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=serializer.validated_data["number"],
+            name=serializer.validated_data["name"],
+            starts_on=serializer.validated_data["starts_on"],
+            ends_on=serializer.validated_data["ends_on"],
+            capture_starts_on=serializer.validated_data["capture_starts_on"],
+            capture_ends_on=serializer.validated_data["capture_ends_on"],
+        )
 
         serializer = self.get_serializer(unit)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -161,41 +137,27 @@ class EvaluationUnitRecoveryWindowView(APIView):
 
     def patch(self, request, *args, **kwargs):
         if not self.check_director_permission():
-            return Response(
-                {"error": "Permission denied. Only directors can configure evaluation units."},
-                status=status.HTTP_403_FORBIDDEN,
+            raise AuthorizationError(
+                "Permission denied. Only directors can configure evaluation units."
             )
 
         cycle_public_id = kwargs.get("cycle_public_id")
         unit_public_id = kwargs.get("unit_public_id")
 
-        try:
-            unit = EvaluationUnit.objects.get(
-                public_id=unit_public_id,
-                academic_cycle__public_id=cycle_public_id,
-                is_active=True,
-            )
-        except EvaluationUnit.DoesNotExist:
-            return Response(
-                {"error": "Evaluation unit not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
 
         serializer = RecoveryWindowSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
 
-        try:
-            unit = set_recovery_window(
-                unit=unit,
-                recovery_starts_on=serializer.validated_data["recovery_starts_on"],
-                recovery_ends_on=serializer.validated_data["recovery_ends_on"],
-            )
-        except DomainError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        unit = set_recovery_window(
+            unit=unit,
+            recovery_starts_on=serializer.validated_data["recovery_starts_on"],
+            recovery_ends_on=serializer.validated_data["recovery_ends_on"],
+        )
 
         return Response(
             EvaluationUnitSerializer(unit).data,
@@ -228,10 +190,8 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
         """Filter grants by unit and cycle from URL parameters."""
         cycle_public_id = self.kwargs.get("cycle_public_id")
         unit_public_id = self.kwargs.get("unit_public_id")
-        return CaptureExceptionGrant.objects.filter(
-            evaluation_unit__public_id=unit_public_id,
-            evaluation_unit__academic_cycle__public_id=cycle_public_id,
-            is_active=True,
+        return queries.capture_exception_grants(
+            cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
         )
 
     def create(self, request, *args, **kwargs):
@@ -242,48 +202,29 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
         academic authorization permission can grant one.
         """
         if not self.check_director_permission():
-            return Response(
-                {
-                    "error": (
-                        "Permission denied. Only academic authorization can grant "
-                        "capture exceptions."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            raise AuthorizationError(
+                "Permission denied. Only academic authorization can grant capture exceptions."
             )
 
         cycle_public_id = kwargs.get("cycle_public_id")
         unit_public_id = kwargs.get("unit_public_id")
 
-        try:
-            unit = EvaluationUnit.objects.get(
-                public_id=unit_public_id,
-                academic_cycle__public_id=cycle_public_id,
-                is_active=True,
-            )
-        except EvaluationUnit.DoesNotExist:
-            return Response(
-                {"error": "Evaluation unit not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
 
         serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
 
-        try:
-            grant = grant_capture_exception(
-                evaluation_unit=unit,
-                subject=serializer.validated_data["subject"],
-                teacher=serializer.validated_data["teacher"],
-                reason=serializer.validated_data["reason"],
-                expires_at=serializer.validated_data["expires_at"],
-            )
-        except DomainError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        grant = grant_capture_exception(
+            evaluation_unit=unit,
+            subject=serializer.validated_data["subject"],
+            teacher=serializer.validated_data["teacher"],
+            reason=serializer.validated_data["reason"],
+            expires_at=serializer.validated_data["expires_at"],
+        )
 
         serializer = self.get_serializer(grant)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -325,24 +266,16 @@ class EvaluationGlobalConfigView(APIView):
 
     def patch(self, request, *args, **kwargs):
         if not self.check_director_permission():
-            return Response(
-                {"error": "Permission denied. Only directors can configure evaluation settings."},
-                status=status.HTTP_403_FORBIDDEN,
+            raise AuthorizationError(
+                "Permission denied. Only directors can configure evaluation settings."
             )
 
         serializer = EvaluationGlobalConfigSerializer(data=request.data, partial=True)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
 
-        try:
-            config = update_global_evaluation_config(
-                default_unit_count=serializer.validated_data["default_unit_count"],
-            )
-        except DomainError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        config = update_global_evaluation_config(
+            default_unit_count=serializer.validated_data["default_unit_count"],
+        )
 
         return Response(EvaluationGlobalConfigSerializer(config).data, status=status.HTTP_200_OK)
 
@@ -385,15 +318,12 @@ class CycleEvaluationConfigView(APIView):
         return bool(self.request.user and self.request.user.is_authenticated)
 
     def _get_cycle_or_none(self, cycle_public_id):
-        try:
-            return AcademicCycle.objects.get(public_id=cycle_public_id)
-        except AcademicCycle.DoesNotExist:
-            return None
+        return queries.academic_cycle_or_none(cycle_public_id)
 
     def get(self, request, *args, **kwargs):
         cycle = self._get_cycle_or_none(kwargs.get("cycle_public_id"))
         if cycle is None:
-            return Response({"error": "Cycle not found."}, status=status.HTTP_404_NOT_FOUND)
+            raise ResourceNotFoundError("Cycle not found.")
 
         override = getattr(cycle, "evaluation_config", None)
         return Response(
@@ -405,29 +335,21 @@ class CycleEvaluationConfigView(APIView):
 
     def patch(self, request, *args, **kwargs):
         if not self.check_director_permission():
-            return Response(
-                {"error": "Permission denied. Only directors can configure evaluation settings."},
-                status=status.HTTP_403_FORBIDDEN,
+            raise AuthorizationError(
+                "Permission denied. Only directors can configure evaluation settings."
             )
 
         cycle = self._get_cycle_or_none(kwargs.get("cycle_public_id"))
         if cycle is None:
-            return Response({"error": "Cycle not found."}, status=status.HTTP_404_NOT_FOUND)
+            raise ResourceNotFoundError("Cycle not found.")
 
         serializer = CycleEvaluationConfigSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
 
-        try:
-            config = set_cycle_unit_count(
-                academic_cycle=cycle,
-                unit_count=serializer.validated_data["unit_count"],
-            )
-        except DomainError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        config = set_cycle_unit_count(
+            academic_cycle=cycle,
+            unit_count=serializer.validated_data["unit_count"],
+        )
 
         return Response(
             {
@@ -469,21 +391,12 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
         """
         cycle_public_id = self.kwargs.get("cycle_public_id")
         unit_public_id = self.kwargs.get("unit_public_id")
-        queryset = Grade.objects.filter(
-            evaluation_unit__public_id=unit_public_id,
-            evaluation_unit__academic_cycle__public_id=cycle_public_id,
-            is_active=True,
-        )
-
         assignments = teaching_assignment_queryset(user=self.request.user)
-        pairs = list(assignments.values_list("section_id", "subject_id"))
-        if pairs:
-            scope = Q(pk__in=[])
-            for section_id, subject_id in pairs:
-                scope |= Q(enrolment__section_id=section_id, subject_id=subject_id)
-            queryset = queryset.filter(scope)
-
-        return queryset
+        return queries.grades(
+            cycle_public_id=cycle_public_id,
+            unit_public_id=unit_public_id,
+            assignments=assignments,
+        )
 
     def create(self, request, *args, **kwargs):
         """
@@ -494,29 +407,19 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
         assignment over the enrolment's section and the subject (RF-CAL-006).
         """
         if not self.check_teacher_permission():
-            return Response(
-                {"error": "Permission denied. Only teachers can register grades."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            raise AuthorizationError("Permission denied. Only teachers can register grades.")
 
         cycle_public_id = kwargs.get("cycle_public_id")
         unit_public_id = kwargs.get("unit_public_id")
 
-        try:
-            unit = EvaluationUnit.objects.get(
-                public_id=unit_public_id,
-                academic_cycle__public_id=cycle_public_id,
-                is_active=True,
-            )
-        except EvaluationUnit.DoesNotExist:
-            return Response(
-                {"error": "Evaluation unit not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
 
         serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
 
         enrolment = serializer.validated_data["enrolment"]
         subject = serializer.validated_data["subject"]
@@ -534,29 +437,18 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
                     "unit_id": str(unit.public_id),
                 },
             )
-            return Response(
-                {
-                    "error": (
-                        "Permission denied. No teaching assignment over this section and subject."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            raise AuthorizationError(
+                "Permission denied. No teaching assignment over this section and subject."
             )
 
-        try:
-            grade = register_unit_grade(
-                enrolment=enrolment,
-                subject=subject,
-                evaluation_unit=unit,
-                teacher=serializer.validated_data["teacher"],
-                value=serializer.validated_data["value"],
-                actor=request.user,
-            )
-        except DomainError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        grade = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=serializer.validated_data["teacher"],
+            value=serializer.validated_data["value"],
+            actor=request.user,
+        )
 
         serializer = self.get_serializer(grade)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -565,32 +457,20 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
 def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
     """
     Resolve (enrolment, subject) for the current-average and final-grade
-    endpoints, both keyed the same way. Returns (enrolment, subject, None) on
-    success, or (None, None, error_response) on a 404.
+    endpoints, both keyed the same way. Raises a domain-level not-found error
+    which the central API exception handler serializes consistently.
     """
-    try:
-        enrolment = Enrolment.objects.get(
-            public_id=enrolment_id,
-            academic_cycle__public_id=cycle_public_id,
-            is_active=True,
-        )
-    except Enrolment.DoesNotExist:
-        return (
-            None,
-            None,
-            Response({"error": "Enrolment not found."}, status=status.HTTP_404_NOT_FOUND),
-        )
+    enrolment = queries.enrolment_or_none(
+        cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
+    )
+    if enrolment is None:
+        raise ResourceNotFoundError("Enrolment not found.")
 
-    try:
-        subject = Subject.objects.get(public_id=subject_id, is_active=True)
-    except Subject.DoesNotExist:
-        return (
-            None,
-            None,
-            Response({"error": "Subject not found."}, status=status.HTTP_404_NOT_FOUND),
-        )
+    subject = queries.subject_or_none(subject_id)
+    if subject is None:
+        raise ResourceNotFoundError("Subject not found.")
 
-    return enrolment, subject, None
+    return enrolment, subject
 
 
 @extend_schema_view(
@@ -614,11 +494,9 @@ class CurrentAverageView(APIView):
     """
 
     def get(self, request, *args, **kwargs):
-        enrolment, subject, error = _resolve_enrolment_subject(
+        enrolment, subject = _resolve_enrolment_subject(
             kwargs.get("cycle_public_id"), kwargs.get("enrolment_id"), kwargs.get("subject_id")
         )
-        if error:
-            return error
 
         return Response(get_current_average(enrolment, subject))
 
@@ -644,10 +522,8 @@ class FinalSubjectGradeView(APIView):
     """
 
     def get(self, request, *args, **kwargs):
-        enrolment, subject, error = _resolve_enrolment_subject(
+        enrolment, subject = _resolve_enrolment_subject(
             kwargs.get("cycle_public_id"), kwargs.get("enrolment_id"), kwargs.get("subject_id")
         )
-        if error:
-            return error
 
         return Response(get_final_subject_grade(enrolment, subject))

@@ -27,7 +27,7 @@ from apps.attendance.models import (
 )
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 from apps.enrolments.models import Enrolment
 
 ORIGIN_PRECEDENCE = {

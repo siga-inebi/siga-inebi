@@ -26,7 +26,7 @@ from django.utils import timezone
 from apps.academics.models import AcademicCycle, Subject
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import (
     GRADE_MAX_VALUE,

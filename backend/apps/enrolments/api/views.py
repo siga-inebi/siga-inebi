@@ -1,11 +1,10 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status
-from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from apps.academics.models import AcademicCycle, Grade, Section, Shift
-from apps.enrolments import services
+from apps.common.exceptions import AuthorizationError
+from apps.enrolments import queries, services
 from apps.enrolments.api.serializers import (
     ActiveEnrolmentQuerySerializer,
     EnrolmentCreateSerializer,
@@ -19,8 +18,6 @@ from apps.enrolments.api.serializers import (
     SectionOccupancyQuerySerializer,
     SectionOccupancySerializer,
 )
-from apps.enrolments.models import Enrolment
-from apps.students.models import Student
 
 _ENROLMENT_WRITE_PERMISSIONS = ("enrollment_create", "enrollment_update")
 
@@ -42,18 +39,16 @@ class EnrolmentCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise PermissionDenied("Actor lacks the required permission.")
+            raise AuthorizationError("Actor lacks the required permission.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         enrolment = services.create_enrolment(
-            student=_resolve(Student.objects.all(), payload["student_id"], "Student"),
-            academic_cycle=_resolve(
-                AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
-            ),
-            grade=_resolve(Grade.objects.all(), payload["grade_id"], "Grade"),
-            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            student=queries.student_or_404(payload["student_id"]),
+            academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
+            grade=queries.grade_or_404(payload["grade_id"]),
+            section=queries.section_or_404(payload["section_id"]),
             effective_on=payload["effective_on"],
             ends_on=payload.get("ends_on"),
             actor=request.user,
@@ -81,7 +76,7 @@ class ActiveEnrolmentListView(GenericAPIView):
         student = None
         student_id = query.validated_data.get("student_id")
         if student_id:
-            student = _resolve(Student.objects.all(), student_id, "Student")
+            student = queries.student_or_404(student_id)
         page = self.paginate_queryset(services.active_enrolments(student=student))
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
@@ -108,14 +103,12 @@ class SectionOccupancyListView(GenericAPIView):
 
         academic_cycle_id = payload.get("academic_cycle_id")
         academic_cycle = (
-            _resolve(AcademicCycle.objects.all(), academic_cycle_id, "Academic cycle")
-            if academic_cycle_id
-            else None
+            queries.academic_cycle_or_404(academic_cycle_id) if academic_cycle_id else None
         )
         grade_id = payload.get("grade_id")
-        grade = _resolve(Grade.objects.all(), grade_id, "Grade") if grade_id else None
+        grade = queries.grade_or_404(grade_id) if grade_id else None
         section_id = payload.get("section_id")
-        section = _resolve(Section.objects.all(), section_id, "Section") if section_id else None
+        section = queries.section_or_404(section_id) if section_id else None
 
         page = self.paginate_queryset(
             services.section_occupancy(
@@ -145,7 +138,7 @@ class EnrolmentHistoryListView(GenericAPIView):
     def get(self, request):
         query = self.get_serializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        student = _resolve(Student.objects.all(), query.validated_data["student_id"], "Student")
+        student = queries.student_or_404(query.validated_data["student_id"])
         page = self.paginate_queryset(services.enrolment_history(student=student))
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
@@ -166,19 +159,17 @@ class MatriculationCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise PermissionDenied("Actor lacks the required permission.")
+            raise AuthorizationError("Actor lacks the required permission.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         enrolment = services.matriculate_student(
-            student=_resolve(Student.objects.all(), payload["student_id"], "Student"),
-            academic_cycle=_resolve(
-                AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
-            ),
-            grade=_resolve(Grade.objects.all(), payload["grade_id"], "Grade"),
-            shift=_resolve(Shift.objects.all(), payload["shift_id"], "Shift"),
-            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            student=queries.student_or_404(payload["student_id"]),
+            academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
+            grade=queries.grade_or_404(payload["grade_id"]),
+            shift=queries.shift_or_404(payload["shift_id"]),
+            section=queries.section_or_404(payload["section_id"]),
             effective_on=payload["effective_on"],
             actor=request.user,
         )
@@ -201,19 +192,17 @@ class ReenrolmentCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise PermissionDenied("Actor lacks the required permission.")
+            raise AuthorizationError("Actor lacks the required permission.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         enrolment = services.reenrol_student(
-            student=_resolve(Student.objects.all(), payload["student_id"], "Student"),
-            academic_cycle=_resolve(
-                AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
-            ),
-            grade=_resolve(Grade.objects.all(), payload["grade_id"], "Grade"),
-            shift=_resolve(Shift.objects.all(), payload["shift_id"], "Shift"),
-            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
+            student=queries.student_or_404(payload["student_id"]),
+            academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
+            grade=queries.grade_or_404(payload["grade_id"]),
+            shift=queries.shift_or_404(payload["shift_id"]),
+            section=queries.section_or_404(payload["section_id"]),
             effective_on=payload["effective_on"],
             actor=request.user,
         )
@@ -230,7 +219,7 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
     )
     def get(self, request, enrolment_id):
         _ensure_enrolment_permission(request)
-        enrolment = _resolve(Enrolment.objects.all(), enrolment_id, "Enrolment")
+        enrolment = queries.enrolment_or_404(enrolment_id)
         requirements = enrolment.document_requirements.filter(is_active=True)
         page = self.paginate_queryset(requirements)
         return self.get_paginated_response(
@@ -246,7 +235,7 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
     )
     def post(self, request, enrolment_id):
         _ensure_enrolment_permission(request)
-        enrolment = _resolve(Enrolment.objects.all(), enrolment_id, "Enrolment")
+        enrolment = queries.enrolment_or_404(enrolment_id)
         serializer = EnrolmentDocumentRequirementCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         requirement = services.set_document_requirement(
@@ -255,16 +244,9 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
         return Response(EnrolmentDocumentRequirementSerializer(requirement).data)
 
 
-def _resolve(queryset, public_id, label):
-    try:
-        return queryset.get(public_id=public_id)
-    except queryset.model.DoesNotExist as exc:
-        raise NotFound(f"{label} not found.") from exc
-
-
 def _ensure_enrolment_permission(request, codenames=_ENROLMENT_WRITE_PERMISSIONS):
     # Registering document state is an upsert over an existing enrolment, so both the
     # create and the update permission are legitimate. The catalogue has no read-only
     # enrolment permission yet, so the listing accepts the same pair.
     if not any(request.user.has_atomic_permission(codename) for codename in codenames):
-        raise PermissionDenied("Actor lacks the required permission.")
+        raise AuthorizationError("Actor lacks the required permission.")

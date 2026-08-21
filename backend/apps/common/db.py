@@ -11,7 +11,7 @@ from contextlib import contextmanager
 
 from django.db import IntegrityError, transaction
 
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 
 
 def constraint_name(exc):

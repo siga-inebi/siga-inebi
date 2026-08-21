@@ -16,14 +16,13 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
-from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
 from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
-from apps.common.models import DomainError
+from apps.common.exceptions import AuthorizationError, DomainError
 from apps.documents.field_catalog import FIELD_TAGS
 from apps.documents.models import (
     DocumentDownloadToken,
@@ -138,10 +137,10 @@ def ensure_document_access(*, actor, student=None, document=None):
     """Guard document reads by permission and explicit student scope."""
     target_student = student or getattr(document, "student", None)
     if target_student is None:
-        raise PermissionDenied("Document access requires a student target.")
+        raise AuthorizationError("Document access requires a student target.")
 
     if not actor or not getattr(actor, "is_authenticated", False):
-        raise PermissionDenied("Actor must be authenticated to read documents.")
+        raise AuthorizationError("Actor must be authenticated to read documents.")
 
     if actor.is_superuser:
         return True
@@ -154,7 +153,7 @@ def ensure_document_access(*, actor, student=None, document=None):
             resource_identifier=str(target_student.pk),
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise PermissionDenied("Actor lacks permission to read documents.")
+        raise AuthorizationError("Actor lacks permission to read documents.")
 
     if not actor.has_scoped_permission(DOCUMENT_READ_PERMISSION, scope={"student": target_student}):
         record_event(
@@ -164,7 +163,7 @@ def ensure_document_access(*, actor, student=None, document=None):
             resource_identifier=str(target_student.pk),
             context={"result": "denied", "reason": "missing_scope"},
         )
-        raise PermissionDenied("Actor lacks the required scope to read documents.")
+        raise AuthorizationError("Actor lacks the required scope to read documents.")
 
     record_event(
         actor=actor,
@@ -230,7 +229,7 @@ def list_field_tags(*, actor=None, include_sensitive=False):
             resource="FieldTag",
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise PermissionDenied("Actor lacks permission to view sensitive field tags.")
+        raise AuthorizationError("Actor lacks permission to view sensitive field tags.")
 
     record_event(
         actor=actor,
@@ -265,7 +264,7 @@ def record_document_read_audit(
             resource_identifier=resource_identifier,
             context={"result": "denied", "reason": "missing_permission", **(context or {})},
         )
-        raise PermissionDenied("Actor lacks permission to read documents.")
+        raise AuthorizationError("Actor lacks permission to read documents.")
 
     record_event(
         actor=actor,
@@ -620,7 +619,7 @@ def ensure_official_document_issuance_permission(*, actor):
             resource="OfficialDocumentIssuance",
             context={"result": "denied", "reason": "missing_permission"},
         )
-        raise PermissionDenied("Actor lacks permission to issue official documents.")
+        raise AuthorizationError("Actor lacks permission to issue official documents.")
 
     return True
 

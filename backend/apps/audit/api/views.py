@@ -20,10 +20,10 @@ from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import GenericAPIView
 
 from apps.audit import services
+from apps.common.exceptions import AuthorizationError
 
 from .serializers import AuditEventQuerySerializer, AuditEventSerializer
 
@@ -34,7 +34,7 @@ TAGS = ["audit: bitacora"]
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise PermissionDenied("Actor lacks the required permission.")
+        raise AuthorizationError("Actor lacks the required permission.")
 
 
 def _query_filters(request):

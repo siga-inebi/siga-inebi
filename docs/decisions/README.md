@@ -13,4 +13,5 @@ Registrar decisiones base y condiciones para revisarlas cuando requerimientos ca
 - [ADR-0005 Authentication and Authorization](ADR-0005-authentication-and-authorization.md)
 - [ADR-0006 Soft Delete and History](ADR-0006-soft-delete-and-history.md)
 - [ADR-0007 Docker and Local Development Environments](ADR-0007-docker-and-local-environments.md)
+- [ADR-0008 Application Layer Boundaries](ADR-0008-application-layer-boundaries.md)
 - [Pending Decisions](pending-decisions.md)

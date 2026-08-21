@@ -15,6 +15,25 @@
 - Interpretacion de fecha efectiva y eventos en zona horaria local del establecimiento.
 - Errores consistentes con codigo, mensaje y detalles validables.
 
+## Limites de capa y errores
+
+Cada dominio separa las responsabilidades de lectura, caso de uso y transporte HTTP:
+
+- Las vistas y serializadores bajo `apps/<domain>/api/` traducen la solicitud y la respuesta HTTP.
+  No construyen consultas ORM ni contienen reglas de negocio.
+- Las consultas de lectura viven en `apps/<domain>/queries.py`. Pueden usar el ORM de Django, pero
+  no importan DRF, objetos `Request`, respuestas HTTP ni excepciones de transporte.
+- Los servicios bajo `apps/<domain>/services.py` coordinan escrituras, invariantes, transacciones y
+  auditoria. No dependen de vistas ni serializadores.
+- Las excepciones de aplicacion viven en `apps.common.exceptions`: `DomainError` representa una
+  regla de negocio (HTTP 400), `ResourceNotFoundError` un recurso inexistente (HTTP 404) y
+  `AuthorizationError` una denegacion de permiso o alcance (HTTP 403).
+
+`config.api.exception_handler.api_exception_handler` es el unico punto que serializa estas
+excepciones. El sobre de error se conserva como `error.status_code` y `error.detail`. Para errores
+404 y 403, `detail` mantiene la forma `{"detail": "..."}` usada por DRF; asi el traslado de una
+consulta o una regla fuera de una vista no rompe a los consumidores existentes.
+
 ## Seguridad
 
 - Sesion via cookie segura para frontend web.

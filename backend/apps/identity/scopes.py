@@ -1,8 +1,8 @@
-from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, TeachingAssignment
+from apps.common.exceptions import AuthorizationError
 from apps.identity.models import ScopeGrant
 from apps.students.models import Student
 
@@ -116,13 +116,13 @@ def effective_student_queryset(*, user, codename, queryset=None, when=None):
 def authorized_student_queryset(*, user, codename, queryset=None, when=None):
     """Resolve a student queryset or deny when permission or scope is missing."""
     if not user.has_atomic_permission(codename, when=when):
-        raise PermissionDenied("Actor lacks the required permission.")
+        raise AuthorizationError("Actor lacks the required permission.")
     guardian_students = guardian_student_queryset(user=user)
     teacher_students = teacher_student_queryset(user=user, when=when)
     has_administrative_scope = has_effective_scope_grant(user=user, codename=codename, when=when)
     has_derived_scope = guardian_students.exists() or teacher_students.exists()
     if not has_administrative_scope and not has_derived_scope:
-        raise PermissionDenied("Actor lacks an effective scope grant.")
+        raise AuthorizationError("Actor lacks an effective scope grant.")
     return effective_student_queryset(user=user, codename=codename, queryset=queryset, when=when)
 
 
@@ -133,7 +133,7 @@ def can_access_student(*, user, codename, student, when=None):
             .filter(pk=student.pk)
             .exists()
         )
-    except PermissionDenied:
+    except AuthorizationError:
         return False
 
 

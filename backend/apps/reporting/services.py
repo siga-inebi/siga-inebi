@@ -22,7 +22,7 @@ from apps.attendance import services as attendance_services
 from apps.attendance.models import AttendanceAlert, DayStatus
 from apps.audit.services import record_event
 from apps.common.db import constraint_name, unique_violation_as
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 from apps.reporting.models import AbsenceThresholdParameters, Alert
 
 ACTIVE_ALERT_CONSTRAINT = "unique_active_alert_per_student_day_type"

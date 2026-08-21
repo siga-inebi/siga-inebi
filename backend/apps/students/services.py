@@ -4,7 +4,7 @@ from django.utils import timezone
 from apps.audit.services import record_event
 from apps.common.codes import create_with_generated_code, next_sequential_code
 from apps.common.db import unique_violation_as
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 from apps.people.models import Person
 from apps.students.images import normalize_student_photo
 from apps.students.models import (

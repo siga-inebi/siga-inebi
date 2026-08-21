@@ -2,7 +2,7 @@
 
 import uuid
 
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 
 
 def parse_uuid(value, *, field):

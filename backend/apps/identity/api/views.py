@@ -1,12 +1,10 @@
 from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.db import models
-from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from apps.identity import queries
 from apps.identity.api.permissions import ScopedAtomicPermission
 from apps.identity.api.serializers import (
     AccountActivationSerializer,
@@ -22,7 +20,6 @@ from apps.identity.api.serializers import (
     RoleSerializer,
     RoleWriteSerializer,
 )
-from apps.identity.models import Role, RoleAssignment
 from apps.identity.services import (
     activate_account,
     assign_role,
@@ -98,7 +95,7 @@ class RoleDetailView(GenericAPIView):
 
     @extend_schema(request=RoleWriteSerializer, responses={200: RoleSerializer})
     def patch(self, request, role_id):
-        role = get_object_or_404(Role, public_id=role_id)
+        role = queries.role_or_404(role_id)
         serializer = self.get_serializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.validated_data.pop("slug", None)
@@ -118,10 +115,10 @@ class RoleAssignmentCreateView(GenericAPIView):
 
     @extend_schema(request=RoleAssignmentWriteSerializer, responses={201: RoleAssignmentSerializer})
     def post(self, request, account_id):
-        account = get_object_or_404(get_user_model(), pk=account_id)
+        account = queries.account_or_404(account_id)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        role = get_object_or_404(Role, public_id=serializer.validated_data.pop("role"))
+        role = queries.role_or_404(serializer.validated_data.pop("role"))
         scope = serializer.validated_data.pop("scope")
         assignment = assign_role(
             actor=request.user,
@@ -141,10 +138,7 @@ class RoleAssignmentRevokeView(GenericAPIView):
 
     @extend_schema(request=None, responses={200: RoleAssignmentSerializer})
     def delete(self, request, assignment_id):
-        assignment = get_object_or_404(
-            RoleAssignment.objects.select_related("role"),
-            public_id=assignment_id,
-        )
+        assignment = queries.role_assignment_or_404(assignment_id)
         revoked = revoke_role_assignment(actor=request.user, assignment=assignment)
         return Response(RoleAssignmentSerializer(revoked).data)
 
@@ -186,7 +180,7 @@ class ActivationChallengeReissueView(GenericAPIView):
 
     @extend_schema(request=None, responses={201: ActivationChallengeSerializer})
     def post(self, request, account_id):
-        account = get_object_or_404(get_user_model(), pk=account_id)
+        account = queries.account_or_404(account_id)
         challenge, code = reissue_activation_challenge(actor=request.user, account=account)
         response = Response(
             {
@@ -210,16 +204,10 @@ class AccountListView(GenericAPIView):
     serializer_class = AccountListSerializer
 
     def get_queryset(self):
-        qs = get_user_model().objects.select_related("person").order_by("username")
-        if s := self.request.query_params.get("status"):
-            qs = qs.filter(status=s)
-        if q := self.request.query_params.get("search"):
-            qs = qs.filter(
-                models.Q(username__icontains=q)
-                | models.Q(person__first_name__icontains=q)
-                | models.Q(person__last_name__icontains=q)
-            )
-        return qs
+        return queries.accounts(
+            status=self.request.query_params.get("status"),
+            search=self.request.query_params.get("search"),
+        )
 
     @extend_schema(responses={200: AccountListSerializer(many=True)})
     def get(self, request):
@@ -237,7 +225,7 @@ class AccountDisableView(GenericAPIView):
 
     @extend_schema(request=AccountDisableSerializer, responses={200: AccountListSerializer})
     def post(self, request, account_id):
-        account = get_object_or_404(get_user_model(), pk=account_id)
+        account = queries.account_or_404(account_id)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         result = disable_account(

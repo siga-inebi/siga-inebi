@@ -13,19 +13,15 @@ which service it calls. OpenAPI text is attached with ``extend_schema_view`` so
 the docs stay per-resource even though the handlers are inherited.
 """
 
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import permissions, status
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from apps.academics import services
-from apps.academics.api import queries
-from apps.academics.models import AcademicCycle, Grade, Section, Shift, Subject, TeachingAssignment
-from apps.common.models import DomainError
-from apps.teachers.models import Teacher
+from apps.academics import queries, services
+from apps.common.exceptions import AuthorizationError, DomainError
+from apps.teachers import queries as teacher_queries
 
 from .serializers import (
     AcademicCycleCloneSerializer,
@@ -82,6 +78,10 @@ YEAR = OpenApiParameter(
 )
 
 
+def _include_inactive(request):
+    return str(request.query_params.get("include_inactive", "")).lower() in {"1", "true", "yes"}
+
+
 def positional(payload, resolve):
     """
     Translate ``insert_after`` from the payload into what the service expects.
@@ -110,7 +110,7 @@ class CatalogueView(GenericAPIView):
     @property
     def institution(self):
         if not hasattr(self, "_institution"):
-            self._institution = queries.resolve_institution(self.request)
+            self._institution = queries.resolve_institution()
         return self._institution
 
     def validated(self, serializer_class, request):
@@ -122,7 +122,7 @@ class CatalogueView(GenericAPIView):
         if not self.request.user.has_scoped_permission(
             "scope_assign", scope={"institution": self.institution}
         ):
-            raise PermissionDenied("Actor lacks the required permission or institution scope.")
+            raise AuthorizationError("Actor lacks the required permission or institution scope.")
 
 
 class CatalogueListCreateView(CatalogueView):
@@ -209,9 +209,7 @@ class AcademicCycleListCreateView(CatalogueListCreateView):
     create_serializer = AcademicCycleCreateSerializer
 
     def list_queryset(self, request):
-        return AcademicCycle.objects.filter(institution=self.institution).order_by(
-            "-year", "starts_on"
-        )
+        return queries.academic_cycles(self.institution)
 
     def create(self, request, payload):
         return services.create_academic_cycle(
@@ -246,11 +244,7 @@ class AcademicCycleActivateView(CatalogueView):
         responses={200: AcademicCycleSerializer},
     )
     def post(self, request, public_id):
-        cycle = get_object_or_404(
-            AcademicCycle,
-            public_id=public_id,
-            institution=self.institution,
-        )
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
         activated = services.activate_academic_cycle(cycle=cycle, actor=request.user)
         return Response(AcademicCycleSerializer(activated).data)
 
@@ -267,11 +261,7 @@ class AcademicCycleCloseView(CatalogueView):
         responses={200: AcademicCycleSerializer},
     )
     def post(self, request, public_id):
-        cycle = get_object_or_404(
-            AcademicCycle,
-            public_id=public_id,
-            institution=self.institution,
-        )
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
         closed = services.close_academic_cycle(cycle=cycle, actor=request.user)
         return Response(AcademicCycleSerializer(closed).data)
 
@@ -286,11 +276,7 @@ class AcademicCycleCloneView(CatalogueView):
         responses={201: AcademicCycleSerializer},
     )
     def post(self, request, public_id):
-        source = get_object_or_404(
-            AcademicCycle,
-            public_id=public_id,
-            institution=self.institution,
-        )
+        source = queries.academic_cycle_or_404(self.institution, public_id)
         payload = self.validated(AcademicCycleCloneSerializer, request)
         cloned = services.clone_academic_cycle(
             source_cycle=source,
@@ -329,7 +315,7 @@ class CampusListCreateView(CatalogueListCreateView):
     create_serializer = CampusCreateSerializer
 
     def list_queryset(self, request):
-        return queries.campuses(self.institution, request)
+        return queries.campuses(self.institution, include_inactive=_include_inactive(request))
 
     def create(self, request, payload):
         campus = services.create_campus(institution=self.institution, actor=request.user, **payload)
@@ -396,7 +382,10 @@ class CampusShiftListCreateView(CatalogueListCreateView):
     create_serializer = ShiftCreateSerializer
 
     def list_queryset(self, request, public_id):
-        return queries.shifts(queries.campus_or_404(self.institution, public_id), request)
+        return queries.shifts(
+            queries.campus_or_404(self.institution, public_id),
+            include_inactive=_include_inactive(request),
+        )
 
     def create(self, request, payload, public_id):
         campus = queries.campus_or_404(self.institution, public_id)
@@ -463,7 +452,7 @@ class LevelListCreateView(CatalogueListCreateView):
     create_serializer = LevelCreateSerializer
 
     def list_queryset(self, request):
-        return queries.levels(self.institution, request)
+        return queries.levels(self.institution, include_inactive=_include_inactive(request))
 
     def create(self, request, payload):
         payload.update(positional(payload, self._sibling))
@@ -532,7 +521,10 @@ class LevelGradeListCreateView(CatalogueListCreateView):
     create_serializer = GradeCreateSerializer
 
     def list_queryset(self, request, public_id):
-        return queries.grades(queries.level_or_404(self.institution, public_id), request)
+        return queries.grades(
+            queries.level_or_404(self.institution, public_id),
+            include_inactive=_include_inactive(request),
+        )
 
     def create(self, request, payload, public_id):
         level = queries.level_or_404(self.institution, public_id)
@@ -595,7 +587,7 @@ class SubjectListCreateView(CatalogueListCreateView):
     create_serializer = SubjectCreateSerializer
 
     def list_queryset(self, request):
-        return queries.subjects(self.institution, request)
+        return queries.subjects(self.institution, include_inactive=_include_inactive(request))
 
     def create(self, request, payload):
         return services.create_subject(institution=self.institution, actor=request.user, **payload)
@@ -746,24 +738,19 @@ class SectionListCreateView(CatalogueListCreateView):
     create_serializer = SectionCreateSerializer
 
     def list_queryset(self, request):
-        return queries.sections(self.institution, request)
+        return queries.sections(
+            self.institution,
+            include_inactive=_include_inactive(request),
+            academic_cycle_id=request.query_params.get("academic_cycle_id"),
+            grade_id=request.query_params.get("grade_id"),
+        )
 
     def create(self, request, payload):
-        academic_cycle = _resolve(
-            AcademicCycle.objects.filter(institution=self.institution),
-            payload["academic_cycle_id"],
-            "Academic cycle",
+        academic_cycle = queries.academic_cycle_or_404(
+            self.institution, payload["academic_cycle_id"]
         )
-        grade = _resolve(
-            Grade.objects.filter(level__institution=self.institution),
-            payload["grade_id"],
-            "Grade",
-        )
-        shift = _resolve(
-            Shift.objects.filter(campus__institution=self.institution),
-            payload["shift_id"],
-            "Shift",
-        )
+        grade = queries.grade_for_payload(self.institution, payload["grade_id"])
+        shift = queries.shift_for_payload(self.institution, payload["shift_id"])
         section = services.create_section(
             academic_cycle=academic_cycle,
             grade=grade,
@@ -843,19 +830,18 @@ class CurriculumPlanListCreateView(CatalogueListCreateView):
     create_serializer = CurriculumPlanCreateSerializer
 
     def list_queryset(self, request):
-        return queries.curriculum_plans(self.institution, request)
+        return queries.curriculum_plans(
+            self.institution,
+            include_inactive=_include_inactive(request),
+            academic_cycle_id=request.query_params.get("academic_cycle_id"),
+            grade_id=request.query_params.get("grade_id"),
+        )
 
     def create(self, request, payload):
-        academic_cycle = _resolve(
-            AcademicCycle.objects.filter(institution=self.institution),
-            payload["academic_cycle_id"],
-            "Academic cycle",
+        academic_cycle = queries.academic_cycle_or_404(
+            self.institution, payload["academic_cycle_id"]
         )
-        grade = _resolve(
-            Grade.objects.filter(level__institution=self.institution),
-            payload["grade_id"],
-            "Grade",
-        )
+        grade = queries.grade_for_payload(self.institution, payload["grade_id"])
         subject = _resolve_subject(payload["subject_id"])
         plan = services.create_curriculum_plan(
             academic_cycle=academic_cycle,
@@ -924,16 +910,14 @@ class TeachingAssignmentListCreateView(CatalogueView):
     def post(self, request):
         self.require_assignment_scope()
         payload = self.validated(TeachingAssignmentCreateSerializer, request)
-        academic_cycle = _resolve(
-            AcademicCycle.objects.all(), payload["academic_cycle_id"], "Academic cycle"
-        )
+        academic_cycle = queries.academic_cycle_for_payload(payload["academic_cycle_id"])
         if academic_cycle.institution_id != self.institution.id:
             raise DomainError("Academic cycle must belong to the current institution.")
         assignment = services.create_teaching_assignment(
             academic_cycle=academic_cycle,
-            section=_resolve(Section.objects.all(), payload["section_id"], "Section"),
-            subject=_resolve(Subject.objects.all(), payload["subject_id"], "Subject"),
-            teacher=_resolve(Teacher.objects.all(), payload["teacher_id"], "Teacher").person,
+            section=queries.section_for_payload(payload["section_id"]),
+            subject=queries.subject_for_payload(payload["subject_id"]),
+            teacher=teacher_queries.teacher_for_payload(payload["teacher_id"]).person,
             starts_on=payload.get("starts_on"),
             actor=request.user,
         )
@@ -959,12 +943,12 @@ class TeachingAssignmentReassignView(CatalogueView):
     def post(self, request, public_id):
         self.require_assignment_scope()
         payload = self.validated(TeachingAssignmentReassignSerializer, request)
-        assignment = _resolve(TeachingAssignment.objects.all(), public_id, "Teaching assignment")
+        assignment = queries.teaching_assignment_or_404(public_id)
         if assignment.academic_cycle.institution_id != self.institution.id:
             raise DomainError("Teaching assignment must belong to the current institution.")
         successor = services.reassign_teaching_assignment(
             assignment=assignment,
-            teacher=_resolve(Teacher.objects.all(), payload["teacher_id"], "Teacher").person,
+            teacher=teacher_queries.teacher_for_payload(payload["teacher_id"]).person,
             ends_on=payload["ends_on"],
             actor=request.user,
         )
@@ -989,13 +973,9 @@ class TeachingAssignmentHistoryView(CatalogueView):
         self.require_assignment_scope()
         teacher_id = request.query_params.get("teacher_id")
         academic_cycle_id = request.query_params.get("academic_cycle_id")
-        teacher = (
-            _resolve(Teacher.objects.all(), teacher_id, "Teacher").person if teacher_id else None
-        )
+        teacher = teacher_queries.teacher_for_payload(teacher_id).person if teacher_id else None
         academic_cycle = (
-            _resolve(AcademicCycle.objects.all(), academic_cycle_id, "Academic cycle")
-            if academic_cycle_id
-            else None
+            queries.academic_cycle_for_payload(academic_cycle_id) if academic_cycle_id else None
         )
         page = self.paginate_queryset(
             queries.teaching_assignment_history(
@@ -1105,12 +1085,7 @@ class AcademicCycleDefaultsView(CatalogueView):
             except ValueError as exc:
                 raise DomainError("Year must be a whole number.") from exc
 
-        latest = (
-            AcademicCycle.objects.filter(institution=self.institution)
-            .order_by("-year")
-            .values_list("year", flat=True)
-            .first()
-        )
+        latest = queries.latest_cycle_year(self.institution)
         return latest + 1 if latest else timezone.localdate().year
 
 
@@ -1119,21 +1094,10 @@ class AcademicCycleDefaultsView(CatalogueView):
 # --------------------------------------------------------------------------- #
 
 
-def _resolve(queryset, public_id, label):
-    """
-    Resolve a reference that arrived in the request body. A bad reference in a
-    payload is a bad request, not a missing endpoint, so it lands as a 400.
-    """
-    try:
-        return queryset.get(public_id=public_id)
-    except queryset.model.DoesNotExist as exc:
-        raise DomainError(f"{label} not found.") from exc
-
-
 def _resolve_subject(public_id):
     """
     Resolved without an institution filter on purpose: the service must be the
     one reporting a cross-institution pairing, instead of the API hiding it
     behind a generic "not found".
     """
-    return _resolve(Subject.objects.all(), public_id, "Subject")
+    return queries.subject_for_payload(public_id)

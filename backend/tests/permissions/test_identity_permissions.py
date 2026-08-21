@@ -1,12 +1,12 @@
 from datetime import timedelta
 
 import pytest
-from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.academics.services import create_teaching_assignment, reassign_teaching_assignment
 from apps.audit.models import AuditEvent
+from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
@@ -550,7 +550,7 @@ def test_user_cannot_self_assign_privileges():
     actor = UserFactory()
     role = RoleFactory(permissions=[PermissionFactory(codename="role_assign")])
 
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         assign_role(actor=actor, user=actor, role=role)
 
 
@@ -596,7 +596,7 @@ def test_unauthorized_account_disable_is_denied_and_audited():
     actor = UserFactory()
     target = UserFactory()
 
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         disable_account(actor=actor, user=target)
 
     target.refresh_from_db()
@@ -641,7 +641,7 @@ def test_unauthorized_account_creation_is_denied_and_audited():
     actor = UserFactory()
     person = PersonFactory()
 
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         create_account(actor=actor, person=person, username="denied-account")
 
     assert not person.__class__.objects.filter(pk=person.pk, user_account__isnull=False).exists()
@@ -670,7 +670,7 @@ def test_rf_aut_006_unauthenticated_user_cannot_change_password():
     """RF-AUT-006: Solo el usuario autenticado (titular) puede cambiar su contraseña."""
     from apps.identity.services import change_password
 
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(AuthorizationError):
         change_password(
             user=None,
             current_password="old-pass",

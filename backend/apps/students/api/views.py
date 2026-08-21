@@ -1,13 +1,12 @@
-from django.core.exceptions import PermissionDenied
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from apps.audit.services import record_sensitive_read
+from apps.common.exceptions import AuthorizationError
 from apps.identity.scopes import authorized_student_queryset
-from apps.students import services
-from apps.students.api import queries
+from apps.students import queries, services
 from apps.students.api.serializers import (
     EmergencyContactCreateSerializer,
     EmergencyContactSerializer,
@@ -22,13 +21,16 @@ from apps.students.api.serializers import (
     StudentSerializer,
     SuggestedStudentCodeSerializer,
 )
-from apps.students.models import Guardian, Student, StudentGuardianRelation
 from apps.students.services import (
     change_primary_student_guardian_relation,
     deactivate_guardian,
     deactivate_student,
     end_student_guardian_relation,
 )
+
+
+def _include_inactive(request):
+    return str(request.query_params.get("include_inactive", "")).lower() in {"1", "true", "yes"}
 
 
 @extend_schema_view(
@@ -53,25 +55,23 @@ class StudentNextCodeView(GenericAPIView):
 
 
 class StudentListCreateView(generics.ListCreateAPIView):
-    queryset = Student.objects.all()
     serializer_class = StudentSerializer
 
     def get_queryset(self):
         return authorized_student_queryset(
             user=self.request.user,
             codename="student_view_basic",
-            queryset=super().get_queryset(),
+            queryset=queries.students(),
         )
 
     def perform_create(self, serializer):
         user = self.request.user
         if not user.has_scoped_permission("student_edit_basic", scope={"module_key": "students"}):
-            raise PermissionDenied("Actor lacks the required permission or scope.")
+            raise AuthorizationError("Actor lacks the required permission or scope.")
         serializer.save()
 
 
 class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Student.objects.all()
     serializer_class = StudentSerializer
 
     def get_queryset(self):
@@ -79,7 +79,7 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
         return authorized_student_queryset(
             user=self.request.user,
             codename=codename,
-            queryset=super().get_queryset(),
+            queryset=queries.students(),
         )
 
     def perform_destroy(self, instance):
@@ -87,31 +87,30 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class GuardianListCreateView(generics.ListCreateAPIView):
-    queryset = Guardian.objects.all()
     serializer_class = GuardianSerializer
+
+    def get_queryset(self):
+        return queries.guardians()
 
 
 class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Guardian.objects.all()
     serializer_class = GuardianSerializer
+
+    def get_queryset(self):
+        return queries.guardians()
 
     def perform_destroy(self, instance):
         deactivate_guardian(guardian=instance, actor=self.request.user)
 
 
 class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
-    queryset = StudentGuardianRelation.objects.select_related("student", "guardian__person")
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                student__in=authorized_student_queryset(
-                    user=self.request.user,
-                    codename="student_view_basic",
-                )
+        return queries.guardian_relations().filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user,
+                codename="student_view_basic",
             )
         )
 
@@ -120,40 +119,30 @@ class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
         if not self.request.user.has_scoped_permission(
             "student_edit_basic", scope={"student": student}
         ):
-            raise PermissionDenied("Actor lacks the required permission or student scope.")
+            raise AuthorizationError("Actor lacks the required permission or student scope.")
         serializer.save()
 
 
 class StudentGuardianRelationDetailView(generics.RetrieveAPIView):
-    queryset = StudentGuardianRelation.objects.all()
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                student__in=authorized_student_queryset(
-                    user=self.request.user,
-                    codename="student_view_basic",
-                )
+        return queries.guardian_relations().filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user,
+                codename="student_view_basic",
             )
         )
 
 
 class StudentGuardianRelationPrimaryView(GenericAPIView):
-    queryset = StudentGuardianRelation.objects.all()
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                student__in=authorized_student_queryset(
-                    user=self.request.user,
-                    codename="student_edit_basic",
-                )
+        return queries.guardian_relations().filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user,
+                codename="student_edit_basic",
             )
         )
 
@@ -164,18 +153,13 @@ class StudentGuardianRelationPrimaryView(GenericAPIView):
 
 
 class StudentGuardianRelationEndView(GenericAPIView):
-    queryset = StudentGuardianRelation.objects.all()
     serializer_class = StudentGuardianRelationEndSerializer
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                student__in=authorized_student_queryset(
-                    user=self.request.user,
-                    codename="student_edit_basic",
-                )
+        return queries.guardian_relations().filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user,
+                codename="student_edit_basic",
             )
         )
 
@@ -289,7 +273,7 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
             request.user.has_scoped_permission(codename, scope={"student": student})
             for codename in required
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise AuthorizationError("Actor lacks sensitive student permission or scope.")
         return student
 
     def list_queryset(self, request, public_id):
@@ -301,7 +285,7 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
             resource_identifier=str(student.pk),
             student=student,
         )
-        return queries.emergency_contacts(student, request)
+        return queries.emergency_contacts(student, include_inactive=_include_inactive(request))
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
@@ -323,7 +307,7 @@ class EmergencyContactDetailView(
             self.request.user.has_scoped_permission(codename, scope={"student": contact.student})
             for codename in required
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise AuthorizationError("Actor lacks sensitive student permission or scope.")
         if self.request.method == "GET":
             record_sensitive_read(
                 actor=self.request.user,
@@ -358,7 +342,7 @@ class StudentHealthNoteListCreateView(StudentRecordListCreateView):
             request.user.has_scoped_permission(codename, scope={"student": student})
             for codename in required
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise AuthorizationError("Actor lacks sensitive student permission or scope.")
         return student
 
     def list_queryset(self, request, public_id):
@@ -369,7 +353,7 @@ class StudentHealthNoteListCreateView(StudentRecordListCreateView):
             student,
             student_id=student.pk,
         )
-        return queries.health_notes(student, request)
+        return queries.health_notes(student, include_inactive=_include_inactive(request))
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
@@ -384,7 +368,7 @@ class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordD
         if not self.request.user.has_scoped_permission(
             "student_view_sensitive", scope={"student": note.student}
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise AuthorizationError("Actor lacks sensitive student permission or scope.")
         services._audit(
             self.request.user,
             "students.health_note.detail_read",
@@ -397,7 +381,7 @@ class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordD
         if not request.user.has_scoped_permission(
             "student_edit_basic", scope={"student": health_note.student}
         ):
-            raise PermissionDenied("Actor lacks student edit permission or scope.")
+            raise AuthorizationError("Actor lacks student edit permission or scope.")
         services.deactivate_student_health_note(health_note=health_note, actor=request.user)
 
 
@@ -414,7 +398,7 @@ class StudentObservationListCreateView(StudentRecordListCreateView):
             request.user.has_scoped_permission(codename, scope={"student": student})
             for codename in required
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise AuthorizationError("Actor lacks sensitive student permission or scope.")
         return student
 
     def list_queryset(self, request, public_id):
@@ -425,7 +409,7 @@ class StudentObservationListCreateView(StudentRecordListCreateView):
             student,
             student_id=student.pk,
         )
-        return queries.observations(student, request)
+        return queries.observations(student, include_inactive=_include_inactive(request))
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
@@ -440,7 +424,7 @@ class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecord
         if not self.request.user.has_scoped_permission(
             "student_view_sensitive", scope={"student": observation.student}
         ):
-            raise PermissionDenied("Actor lacks sensitive student permission or scope.")
+            raise AuthorizationError("Actor lacks sensitive student permission or scope.")
         services._audit(
             self.request.user,
             "students.observation.detail_read",
@@ -453,5 +437,5 @@ class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecord
         if not request.user.has_scoped_permission(
             "student_edit_basic", scope={"student": observation.student}
         ):
-            raise PermissionDenied("Actor lacks student edit permission or scope.")
+            raise AuthorizationError("Actor lacks student edit permission or scope.")
         services.deactivate_student_observation(observation=observation, actor=request.user)

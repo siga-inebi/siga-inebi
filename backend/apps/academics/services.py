@@ -47,7 +47,7 @@ from apps.common.codes import (
     next_suffixed_code,
 )
 from apps.common.db import unique_violation_as
-from apps.common.models import DomainError
+from apps.common.exceptions import DomainError
 from apps.teachers.models import Teacher
 
 # --------------------------------------------------------------------------- #

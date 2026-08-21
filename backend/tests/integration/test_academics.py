@@ -2,8 +2,8 @@ from datetime import date
 
 import pytest
 
-from apps.academics.api.queries import historical_cycle_or_404
 from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, Section
+from apps.academics.queries import historical_cycle_or_404
 from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,

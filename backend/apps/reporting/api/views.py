@@ -14,15 +14,12 @@ published schema matches what the endpoint really accepts and returns.
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions, status
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from apps.academics.models import AcademicCycle, Shift
-from apps.common.models import DomainError
+from apps.common.exceptions import AuthorizationError
 from apps.identity.scopes import authorized_student_queryset, can_access_student
-from apps.reporting import services
-from apps.reporting.models import AbsenceThresholdParameters, Alert
+from apps.reporting import queries, services
 
 from .serializers import (
     AbsenceThresholdParametersCreateSerializer,
@@ -42,18 +39,7 @@ STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise PermissionDenied("Actor lacks the required permission.")
-
-
-def _resolve(queryset, public_id, label):
-    """
-    Resolve a reference that arrived in the request. A bad reference is a
-    bad request, not a missing endpoint, so it lands as a 400.
-    """
-    try:
-        return queryset.get(public_id=public_id)
-    except queryset.model.DoesNotExist as exc:
-        raise DomainError(f"{label} not found.") from exc
+        raise AuthorizationError("Actor lacks the required permission.")
 
 
 TAGS = ["reporting: alerts"]
@@ -82,7 +68,7 @@ class AbsenceThresholdParametersListCreateView(GenericAPIView):
     serializer_class = AbsenceThresholdParametersSerializer
 
     def get_queryset(self):
-        return AbsenceThresholdParameters.objects.select_related("shift", "academic_cycle").all()
+        return queries.absence_threshold_parameters()
 
     def get(self, request):
         _require_permission(request, THRESHOLD_CONFIGURE_PERMISSION)
@@ -96,10 +82,8 @@ class AbsenceThresholdParametersListCreateView(GenericAPIView):
         serializer = AbsenceThresholdParametersCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        shift = _resolve(Shift.objects.all(), payload.pop("shift_id"), "Shift")
-        academic_cycle = _resolve(
-            AcademicCycle.objects.all(), payload.pop("academic_cycle_id"), "Academic cycle"
-        )
+        shift = queries.shift_for_payload(payload.pop("shift_id"))
+        academic_cycle = queries.academic_cycle_for_payload(payload.pop("academic_cycle_id"))
         parameters = services.set_absence_threshold_parameters(
             shift=shift, academic_cycle=academic_cycle, actor=request.user, **payload
         )
@@ -135,7 +119,7 @@ class ReportingAlertListView(GenericAPIView):
 
         shift = None
         if "shift_id" in payload:
-            shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+            shift = queries.shift_for_payload(payload["shift_id"])
 
         queryset = services.list_alerts(
             shift=shift,
@@ -170,7 +154,7 @@ class ReportingAlertAcknowledgeView(GenericAPIView):
 
     def post(self, request, public_id):
         _require_permission(request, ALERT_ACKNOWLEDGE_PERMISSION)
-        alert = _resolve(Alert.objects.select_related("student"), public_id, "Alert")
+        alert = queries.alert_for_payload(public_id)
         # Holding the acknowledge permission is not enough: the alert is
         # about a student, so the actor's student scope decides too, the same
         # way the list view above and attendance's own single-resource
@@ -179,7 +163,7 @@ class ReportingAlertAcknowledgeView(GenericAPIView):
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=alert.student
         ):
-            raise PermissionDenied("Actor lacks the required permission or student scope.")
+            raise AuthorizationError("Actor lacks the required permission or student scope.")
         alert = services.acknowledge_alert(alert=alert, actor=request.user)
         return Response(ReportingAlertSerializer(alert).data)
 
@@ -206,7 +190,7 @@ class AlertEvaluationView(GenericAPIView):
         serializer = AlertEvaluationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        shift = _resolve(Shift.objects.all(), payload["shift_id"], "Shift")
+        shift = queries.shift_for_payload(payload["shift_id"])
         result = services.evaluate_daily_alerts(
             shift=shift, event_date=payload["event_date"], actor=request.user
         )
