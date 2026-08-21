@@ -10,6 +10,7 @@ RF-JOR-009 — porcentaje de asistencia del ciclo.
 RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
 idempotencia.
 RF-CRE-001 — emision de credencial con identificador opaco.
+RF-CRE-006 — resolucion de identificador.
 
 All in isolation from the API layer.
 """
@@ -30,7 +31,8 @@ from apps.attendance.models import (
 )
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
-from apps.enrolments.services import create_enrolment
+from apps.enrolments.models import Enrolment
+from apps.enrolments.services import active_enrolments, create_enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
     CampusFactory,
@@ -1810,3 +1812,97 @@ def test_a_colliding_identifier_is_regenerated_instead_of_failing():
     )
 
     assert credential.opaque_identifier == "a-free-identifier"
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-006 — resolucion de identificador
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unknown_identifier_is_rejected_without_naming_any_student():
+    """
+    Escenario 1 (RF-CRE-006): GIVEN un codigo QR que no corresponde a ninguna
+    credencial emitida, WHEN un operador lo escanea, THEN el sistema informa que
+    la credencial no es reconocida, AND no muestra informacion de ningun
+    estudiante.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    issued = services.issue_credential(student=student)
+
+    with pytest.raises(DomainError) as failure:
+        services.resolve_credential(opaque_identifier="not-a-real-token")
+
+    message = str(failure.value)
+    assert "not recognised" in message
+    # The rejection is a fact about the credential, never about a person: an
+    # outsider probing the endpoint learns nothing about who exists.
+    assert student.student_code not in message
+    assert str(student.public_id) not in message
+    assert issued.opaque_identifier not in message
+
+
+def test_a_withdrawn_students_credential_resolves_to_a_rejection():
+    """
+    Escenario 2 (RF-CRE-006): GIVEN una credencial vigente cuyo estudiante fue
+    retirado del establecimiento, WHEN un operador la escanea, THEN el sistema
+    rechaza el movimiento indicando que el estudiante no tiene inscripcion
+    activa.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    enrolment = active_enrolments(student=student).get()
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="no active enrolment"):
+        services.resolve_credential(opaque_identifier=credential.opaque_identifier)
+
+    # The credential itself is untouched: withdrawal is an enrolment fact, and
+    # rewriting the credential would erase why it stopped working.
+    credential.refresh_from_db()
+    assert credential.status == StudentCredential.Status.ACTIVE
+
+
+def test_a_valid_identifier_resolves_to_its_bearer_and_placement():
+    cycle = AcademicCycleFactory()
+    student, section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    resolution = services.resolve_credential(opaque_identifier=credential.opaque_identifier)
+
+    assert resolution.student == student
+    assert resolution.credential == credential
+    assert resolution.enrolment.section == section
+
+
+def test_a_revoked_credential_no_longer_resolves():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+    credential.status = StudentCredential.Status.REVOKED
+    credential.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="revoked"):
+        services.resolve_credential(opaque_identifier=credential.opaque_identifier)
+
+
+def test_the_scan_subject_resolves_from_either_a_credential_or_a_student_code():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+
+    by_credential = services.resolve_scan_subject(
+        credential_identifier=credential.opaque_identifier
+    )
+    by_code = services.resolve_scan_subject(student_code=student.student_code)
+
+    assert by_credential == student
+    assert by_code == student
+
+    with pytest.raises(DomainError, match="not recognised"):
+        services.resolve_scan_subject(credential_identifier="unknown-token")
+    with pytest.raises(DomainError, match="not found"):
+        services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST")

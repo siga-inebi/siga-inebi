@@ -10,6 +10,7 @@ RF-JOR-009 — contrato del endpoint de porcentaje de asistencia del ciclo.
 RF-ASI-001/002/004/010 — contrato del endpoint de captura por escaneo y del
 catalogo de puntos de control.
 RF-CRE-001 — contrato del endpoint de emision de credencial.
+RF-CRE-006 — contrato del endpoint de resolucion de identificador.
 """
 
 from datetime import datetime, time, timedelta
@@ -21,6 +22,8 @@ from django.utils import timezone
 
 from apps.attendance import services
 from apps.attendance.models import AttendanceAlert, AttendanceEvent, StudentCredential
+from apps.audit.models import AuditEvent
+from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
 from tests.factories.attendance import (
@@ -911,3 +914,154 @@ def test_issue_credential_requires_authentication(client):
     )
 
     assert response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-006 — contrato del endpoint de resolucion de identificador
+# --------------------------------------------------------------------------- #
+
+CREDENTIAL_RESOLVE_PERMISSION = "attendance_credential_resolve"
+
+
+def _resolve_credential(client, identifier):
+    return client.post(
+        reverse("attendance-credential-resolve"),
+        {"opaque_identifier": identifier},
+        content_type="application/json",
+    )
+
+
+def _issued_credential(student=None, cycle=None):
+    student = student or StudentFactory()
+    _enrol(student, cycle)
+    return student, services.issue_credential(student=student)
+
+
+def test_resolve_credential_requires_permission(auth_client):
+    _student, credential = _issued_credential()
+
+    response = _resolve_credential(auth_client, credential.opaque_identifier)
+
+    assert response.status_code == 403
+
+
+def test_resolve_unknown_identifier_returns_400_without_any_student_data(auth_client):
+    """Escenario 1 (RF-CRE-006) sobre el contrato HTTP."""
+    student, credential = _issued_credential()
+    _grant(auth_client.user, CREDENTIAL_RESOLVE_PERMISSION)
+
+    response = _resolve_credential(auth_client, "no-such-token")
+
+    assert response.status_code == 400
+    body = response.content.decode()
+    assert "not recognised" in body
+    assert student.student_code not in body
+    assert str(student.public_id) not in body
+    assert credential.opaque_identifier not in body
+
+
+def test_resolve_credential_of_withdrawn_student_returns_400(auth_client):
+    """Escenario 2 (RF-CRE-006) sobre el contrato HTTP."""
+    student, credential = _issued_credential()
+    _grant(auth_client.user, CREDENTIAL_RESOLVE_PERMISSION)
+    enrolment = student.enrolments.get()
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.save(update_fields=["status"])
+
+    response = _resolve_credential(auth_client, credential.opaque_identifier)
+
+    assert response.status_code == 400
+    body = response.content.decode()
+    assert "no active enrolment" in body
+    assert student.student_code not in body
+
+
+def test_resolve_credential_returns_the_bearer_and_audits_the_read(auth_client):
+    student, credential = _issued_credential()
+    _grant(auth_client.user, CREDENTIAL_RESOLVE_PERMISSION)
+
+    response = _resolve_credential(auth_client, credential.opaque_identifier)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["student_id"] == str(student.public_id)
+    assert body["student_code"] == student.student_code
+    assert body["full_name"] == str(student.person)
+    assert body["credential_status"] == StudentCredential.Status.ACTIVE
+    # The token is not echoed back: the caller already has it.
+    assert credential.opaque_identifier not in response.content.decode()
+    assert AuditEvent.objects.filter(action="attendance.credential.resolved").exists()
+
+
+def test_resolve_credential_requires_authentication(client):
+    response = _resolve_credential(client, "any-token")
+
+    assert response.status_code in (401, 403)
+
+
+def test_scan_with_a_credential_identifier_creates_the_event(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory()
+    student, credential = _issued_credential(cycle=parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    item = _scan_item(student, parameters.shift, control_point, "cred-1", timezone.now())
+    item.pop("student_code")
+    item["credential_identifier"] = credential.opaque_identifier
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [item]}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["outcome"] == "created"
+    assert body[0]["event"]["student_id"] == str(student.public_id)
+
+
+def test_scan_with_an_unknown_credential_rejects_only_that_item(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory()
+    student, credential = _issued_credential(cycle=parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    good = _scan_item(student, parameters.shift, control_point, "cred-ok", timezone.now())
+    good.pop("student_code")
+    good["credential_identifier"] = credential.opaque_identifier
+    bad = _scan_item(student, parameters.shift, control_point, "cred-bad", timezone.now())
+    bad.pop("student_code")
+    bad["credential_identifier"] = "unknown-token"
+
+    response = auth_client.post(
+        reverse("attendance-scan"),
+        {"batch_id": "mixed", "items": [bad, good]},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["outcome"] == "rejected"
+    assert "not recognised" in body[0]["reason"]
+    assert body[1]["outcome"] == "created"
+
+
+def test_scan_item_must_identify_the_subject_exactly_one_way(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory()
+    student, credential = _issued_credential(cycle=parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    both = _scan_item(student, parameters.shift, control_point, "cred-both", timezone.now())
+    both["credential_identifier"] = credential.opaque_identifier
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [both]}, content_type="application/json"
+    )
+
+    assert response.status_code == 400
+
+    neither = _scan_item(student, parameters.shift, control_point, "cred-none", timezone.now())
+    neither.pop("student_code")
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [neither]}, content_type="application/json"
+    )
+
+    assert response.status_code == 400
