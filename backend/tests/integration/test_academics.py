@@ -2,7 +2,13 @@ from datetime import date
 
 import pytest
 
-from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, Section
+from apps.academics.models import (
+    AcademicCycle,
+    CurriculumPlan,
+    GradeOffering,
+    Section,
+    TeachingAssignment,
+)
 from apps.academics.queries import historical_cycle_or_404
 from apps.academics.services import (
     activate_academic_cycle,
@@ -121,6 +127,91 @@ def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
     with pytest.raises(DomainError, match="Hay que cerrar"):
         activate_academic_cycle(cycle=prepared, actor=actor)
     assert AuditEvent.objects.filter(action="academics.cycle.created").count() == 2
+
+
+def test_active_cycle_structure_changes_do_not_alter_previous_cycle_records():
+    """RF-EST-013: adding structure to the active cycle (a new teaching
+    assignment) leaves a previous, already-closed cycle's own structure and
+    records untouched -- each cycle's rows are independent, not a shared,
+    mutable snapshot (RN-CIC-001)."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+
+    previous = create_academic_cycle(
+        institution=institution,
+        year=2025,
+        name="Ciclo 2025",
+        starts_on=date(2025, 1, 1),
+        ends_on=date(2025, 10, 31),
+        actor=actor,
+    )
+    previous_grade = GradeFactory(level__institution=institution)
+    previous_shift = ShiftFactory(campus__institution=institution)
+    previous_section = create_section(
+        academic_cycle=previous,
+        grade=previous_grade,
+        shift=previous_shift,
+        name="A",
+        actor=actor,
+    )
+    previous_subject = SubjectFactory(institution=institution)
+    create_curriculum_plan(
+        academic_cycle=previous, grade=previous_grade, subject=previous_subject, actor=actor
+    )
+    previous = activate_academic_cycle(cycle=previous, actor=actor)
+    previous_teacher = TeacherFactory()
+    previous_assignment = create_teaching_assignment(
+        academic_cycle=previous,
+        section=previous_section,
+        subject=previous_subject,
+        teacher=previous_teacher.person,
+        actor=actor,
+    )
+    previous = close_academic_cycle(cycle=previous, actor=actor)
+
+    active = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    active_grade = GradeFactory(level__institution=institution)
+    active_shift = ShiftFactory(campus__institution=institution)
+    active_section = create_section(
+        academic_cycle=active,
+        grade=active_grade,
+        shift=active_shift,
+        name="A",
+        actor=actor,
+    )
+    active_subject = SubjectFactory(institution=institution)
+    create_curriculum_plan(
+        academic_cycle=active, grade=active_grade, subject=active_subject, actor=actor
+    )
+    active = activate_academic_cycle(cycle=active, actor=actor)
+    active_teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=active,
+        section=active_section,
+        subject=active_subject,
+        teacher=active_teacher.person,
+        actor=actor,
+    )
+
+    previous.refresh_from_db()
+    previous_section.refresh_from_db()
+    previous_assignment.refresh_from_db()
+
+    assert previous.status == AcademicCycle.CycleStatus.CLOSED
+    assert previous_section.name == "A"
+    assert previous_section.offering.academic_cycle_id == previous.pk
+    assert previous.grade_offerings.count() == 1
+    assert previous.curriculum_plans.count() == 1
+    assert previous.teaching_assignments.count() == 1
+    assert previous_assignment.teacher_id == previous_teacher.person.pk
+    assert TeachingAssignment.objects.filter(academic_cycle=previous).get().pk == previous_assignment.pk
 
 
 def test_created_sections_satisfy_cycle_activation_structure_check():
