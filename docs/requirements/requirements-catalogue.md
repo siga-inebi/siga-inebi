@@ -79,7 +79,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EST-003 | Subareas del ciclo | Debe | institutional-structure | Not implemented | #167 | TBD | Base curricular |
 | RF-EST-004 | Etiqueta de presentacion configurable | Podria | institutional-structure | Not implemented | #168 | TBD | Postergado |
 | RF-EST-005 | Plan de estudios por grado y ciclo | Debe | institutional-structure | Not implemented | #169 | TBD | Nucleo academico |
-| RF-EST-006 | Carga horaria de la subarea | Deberia | institutional-structure | Not implemented | #170 | TBD | Cruza horario |
+| RF-EST-006 | Carga horaria de la subarea | Deberia | institutional-structure | Implemented | #170 | backend/tests/api/test_academics_catalog_api.py | Cruza horario |
 | RF-EST-007 | Secciones | Debe | institutional-structure | Not implemented | #171 | TBD | Nucleo fundacional |
 | RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Not implemented | #172 | TBD | Afecta matricula |
 | RF-EST-009 | Asignacion de docentes a subareas de seccion | Debe | institutional-structure | Implemented | #173 | backend/tests/{unit/test_teaching_assignment_services.py,api/test_teaching_assignments_api.py} | Ya implementado por RF-ALC-003/RF-CIC-002 |
