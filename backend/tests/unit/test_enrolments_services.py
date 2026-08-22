@@ -15,6 +15,7 @@ from apps.enrolments.services import (
     reenrol_student,
     section_occupancy,
     set_document_requirement,
+    withdraw_student,
 )
 from tests.factories.academic import AcademicCycleFactory, GradeFactory, SectionFactory
 from tests.factories.identity import UserFactory
@@ -147,6 +148,63 @@ def test_student_movement_is_immutable_by_instance_and_queryset():
         StudentMovement.objects.filter(pk=movement.pk).update(effective_on=date(2026, 4, 1))
     with pytest.raises(RuntimeError, match="no pueden eliminarse"):
         StudentMovement.objects.filter(pk=movement.pk).delete()
+
+
+def test_withdraw_student_closes_operational_presence_and_records_reason():
+    section = SectionFactory()
+    student = StudentFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="  Cambio de residencia  ",
+        effective_on=date(2026, 5, 20),
+        actor=actor,
+    )
+
+    enrolment.refresh_from_db()
+    student.refresh_from_db()
+    assert movement.movement_type == StudentMovement.MovementType.WITHDRAWAL
+    assert movement.reason == "Cambio de residencia"
+    assert movement.source_enrolment == enrolment
+    assert movement.target_enrolment is None
+    assert movement.effective_on == enrolment.ends_on == date(2026, 5, 20)
+    assert enrolment.status == Enrolment.EnrolmentStatus.WITHDRAWN
+    assert student.status == student.StudentStatus.WITHDRAWN
+    assert list(active_enrolments(student=student)) == []
+    assert AuditEvent.objects.filter(action="enrolments.student.withdrawn", actor=actor).exists()
+
+
+def test_withdraw_student_rejects_blank_reason_invalid_date_and_second_attempt():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    with pytest.raises(DomainError, match="causa del retiro"):
+        withdraw_student(enrolment=enrolment, reason="   ")
+    with pytest.raises(DomainError, match="anterior a la matricula"):
+        withdraw_student(
+            enrolment=enrolment,
+            reason="Traslado de domicilio",
+            effective_on=date(2026, 1, 31),
+        )
+
+    withdraw_student(enrolment=enrolment, reason="Traslado de domicilio")
+    with pytest.raises(DomainError, match="matricula activa"):
+        withdraw_student(enrolment=enrolment, reason="Intento repetido")
+    assert StudentMovement.objects.count() == 1
 
 
 def test_create_enrolment_keeps_explicit_vigency_dates():
