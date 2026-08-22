@@ -17,7 +17,10 @@ from apps.enrolments.services import (
     section_occupancy,
     set_document_requirement,
 )
-from tests.factories.academic import AcademicCycleFactory, SectionFactory
+from apps.evaluation.models import Grade as EvaluationGrade
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.attendance import AttendanceEventFactory
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.students import StudentFactory
 
 
@@ -105,6 +108,16 @@ def test_change_section_keeps_history():
         grade=first_section.grade,
         section=first_section,
     )
+    attendance = AttendanceEventFactory(
+        student=student,
+        shift=first_section.shift,
+    )
+    grade = EvaluationGrade.objects.create(
+        enrolment=enrolment,
+        subject=SubjectFactory(institution=first_section.academic_cycle.institution),
+        evaluation_unit=EvaluationUnitFactory(academic_cycle=first_section.academic_cycle),
+        value=85,
+    )
 
     replacement = change_section(
         enrolment=enrolment,
@@ -116,6 +129,13 @@ def test_change_section_keeps_history():
     assert enrolment.status == enrolment.EnrolmentStatus.COMPLETED
     assert replacement.section_id == second_section.id
     assert student.enrolments.count() == 2
+    assert StudentMovement.objects.filter(
+        source_enrolment=enrolment,
+        target_enrolment=replacement,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+    ).exists()
+    assert EvaluationGrade.objects.get(pk=grade.pk).enrolment_id == enrolment.pk
+    assert attendance.student.attendance_events.filter(pk=attendance.pk).exists()
 
 
 @pytest.mark.integration

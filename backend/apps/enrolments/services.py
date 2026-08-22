@@ -349,6 +349,10 @@ def change_section(*, enrolment, new_section, actor=None, effective_on=None):
         raise DomainError("La seccion debe pertenecer al ciclo escolar.")
     if new_section.grade.id != enrolment.grade_id:
         raise DomainError("La seccion debe pertenecer al grado.")
+    if enrolment.status != Enrolment.EnrolmentStatus.ACTIVE:
+        raise DomainError("Solo una matricula activa puede cambiar de seccion.")
+    if new_section.id == enrolment.section_id:
+        raise DomainError("La seccion destino debe ser distinta de la actual.")
     _ensure_section_has_capacity(new_section)
 
     effective_on = effective_on or timezone.localdate()
@@ -368,6 +372,14 @@ def change_section(*, enrolment, new_section, actor=None, effective_on=None):
             effective_on=effective_on,
             status=Enrolment.EnrolmentStatus.ACTIVE,
         )
+    record_student_movement(
+        student=enrolment.student,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+        source_enrolment=enrolment,
+        target_enrolment=replacement,
+        effective_on=effective_on,
+        actor=actor,
+    )
     record_event(
         actor=actor,
         action="enrolments.enrolment.section_changed",

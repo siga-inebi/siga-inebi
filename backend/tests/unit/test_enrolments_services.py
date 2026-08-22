@@ -427,6 +427,59 @@ def test_change_section_rejects_full_target_section_without_closing_current_enro
     assert current_enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
 
 
+def test_change_section_records_immutable_movement_with_same_effective_date():
+    source_section = SectionFactory(name="A")
+    target_section = SectionFactory(
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        shift=source_section.shift,
+        name="B",
+    )
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    replacement = change_section(
+        enrolment=enrolment,
+        new_section=target_section,
+        effective_on=date(2026, 4, 15),
+    )
+
+    movement = StudentMovement.objects.get()
+    enrolment.refresh_from_db()
+    assert movement.movement_type == StudentMovement.MovementType.SECTION_CHANGE
+    assert movement.source_enrolment == enrolment
+    assert movement.target_enrolment == replacement
+    assert movement.effective_on == enrolment.ends_on == replacement.effective_on
+
+
+def test_change_section_rejects_inactive_source_and_same_section():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(DomainError, match="distinta"):
+        change_section(enrolment=enrolment, new_section=section)
+
+    enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
+    enrolment.save(update_fields=["status", "updated_at"])
+    target = SectionFactory(
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+    )
+    with pytest.raises(DomainError, match="matricula activa"):
+        change_section(enrolment=enrolment, new_section=target)
+
+
 def test_reenrol_student_reuses_student_record_and_previous_enrolment():
     previous_section = SectionFactory(name="A")
     target_cycle = AcademicCycleFactory(

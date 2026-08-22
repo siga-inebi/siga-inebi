@@ -163,3 +163,8 @@ class ReenrolmentCreateSerializer(serializers.Serializer):
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada destino.")
     section_id = serializers.UUIDField(help_text="Public ID de la sección asignada.")
     effective_on = serializers.DateField(help_text="Fecha de inicio de la reinscripción.")
+
+
+class SectionChangeCreateSerializer(serializers.Serializer):
+    new_section_id = serializers.UUIDField(help_text="Public ID de la seccion destino.")
+    effective_on = serializers.DateField(help_text="Fecha efectiva del cambio.")

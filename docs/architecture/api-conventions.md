@@ -278,3 +278,12 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   de programacion, salen como HTTP 500 y no son mensajes destinados a leerse.
 - `backend/tests/api/test_localization_messages.py` recorre `apps/` y falla si reaparece un mensaje
   visible en ingles, incluidos los mapas de `unique_violation_as`.
+
+## Cambio de seccion
+
+- `POST /api/v1/enrolments/{enrolment_id}/section-change/` exige `enrollment.update`, recibe
+  `new_section_id` y `effective_on`, cierra la matricula de origen y crea una nueva en la seccion
+  destino. Ambas quedan enlazadas por un movimiento `section_change` con la misma fecha efectiva.
+- El cambio no copia ni reasigna calificaciones o asistencias: conserva la matricula anterior y
+  sus relaciones historicas. La seccion destino debe ser distinta, pertenecer al mismo ciclo y
+  grado y tener cupo disponible.
