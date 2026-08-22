@@ -85,7 +85,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EST-009 | Asignacion de docentes a subareas de seccion | Debe | institutional-structure | Implemented | #173 | backend/tests/{unit/test_teaching_assignment_services.py,api/test_teaching_assignments_api.py} | Ya implementado por RF-ALC-003/RF-CIC-002 |
 | RF-EST-010 | Cobertura completa para la activacion del ciclo | Deberia | school-cycle | Not implemented | #174 | TBD | Regla de activacion |
 | RF-EST-011 | Mutabilidad de la estructura segun el estado del ciclo | Debe | school-cycle | Not implemented | #175 | TBD | Regla transversal |
-| RF-EST-012 | Desactivacion en lugar de eliminacion | Deberia | institutional-structure | Not implemented | #176 | TBD | Linea con historia |
+| RF-EST-012 | Desactivacion en lugar de eliminacion | Deberia | institutional-structure | Implemented | #176 | backend/tests/api/test_academics_catalog_api.py | Linea con historia |
 | RF-EST-013 | Independencia de la estructura entre ciclos | Debe | school-cycle | Not implemented | #177 | TBD | Versionado por ciclo |
 | RF-CAL-001 | Registro de la nota de unidad | Debe | academic-evaluation | Not implemented | #118 | TBD | Nucleo academico |
 | RF-CAL-002 | Escala y validacion de la nota | Debe | academic-evaluation | Not implemented | #119 | TBD | Regla central |
