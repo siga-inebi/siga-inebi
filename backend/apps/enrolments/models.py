@@ -5,6 +5,14 @@ from django.utils import timezone
 from apps.common.models import TimeStampedModel
 
 
+class StudentMovementQuerySet(models.QuerySet):
+    def delete(self):
+        raise RuntimeError("Los movimientos estudiantiles no pueden eliminarse.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Los movimientos estudiantiles no pueden modificarse.")
+
+
 class Enrolment(TimeStampedModel):
     class EnrolmentStatus(models.TextChoices):
         ACTIVE = "active", "Active"
@@ -94,3 +102,78 @@ class EnrolmentDocumentRequirement(TimeStampedModel):
 
     def delete(self, *args, **kwargs):
         raise RuntimeError("Enrolment document requirements cannot be deleted.")
+
+
+class StudentMovement(TimeStampedModel):
+    class MovementType(models.TextChoices):
+        SECTION_CHANGE = "section_change", "Cambio de seccion"
+        TRANSFER_IN = "transfer_in", "Traslado de ingreso"
+        TRANSFER_OUT = "transfer_out", "Traslado de egreso"
+
+    student = models.ForeignKey(
+        "students.Student",
+        on_delete=models.PROTECT,
+        related_name="movements",
+    )
+    movement_type = models.CharField(max_length=30, choices=MovementType.choices)
+    effective_on = models.DateField(default=timezone.localdate)
+    source_enrolment = models.ForeignKey(
+        Enrolment,
+        on_delete=models.PROTECT,
+        related_name="outgoing_movements",
+        null=True,
+        blank=True,
+    )
+    target_enrolment = models.ForeignKey(
+        Enrolment,
+        on_delete=models.PROTECT,
+        related_name="incoming_movements",
+        null=True,
+        blank=True,
+    )
+
+    objects = StudentMovementQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-effective_on", "-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        movement_type="section_change",
+                        source_enrolment__isnull=False,
+                        target_enrolment__isnull=False,
+                    )
+                    | Q(
+                        movement_type="transfer_in",
+                        source_enrolment__isnull=True,
+                        target_enrolment__isnull=False,
+                    )
+                    | Q(
+                        movement_type="transfer_out",
+                        source_enrolment__isnull=False,
+                        target_enrolment__isnull=True,
+                    )
+                ),
+                name="student_movement_valid_enrolment_shape",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(source_enrolment__isnull=True)
+                    | Q(target_enrolment__isnull=True)
+                    | ~Q(source_enrolment=models.F("target_enrolment"))
+                ),
+                name="student_movement_distinct_enrolments",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Los movimientos estudiantiles no pueden modificarse.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Los movimientos estudiantiles no pueden eliminarse.")
+
+    def __str__(self):
+        return f"{self.student} - {self.get_movement_type_display()}"

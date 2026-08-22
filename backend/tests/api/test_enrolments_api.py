@@ -1,11 +1,16 @@
 from datetime import date
 
 import pytest
+from django.test import Client
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
-from apps.enrolments.services import create_enrolment, enrolment_history
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
+from apps.enrolments.services import (
+    create_enrolment,
+    enrolment_history,
+    record_student_movement,
+)
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
 from tests.factories.students import StudentFactory
@@ -38,6 +43,46 @@ def _matriculation_payload(section, student):
         "section_id": str(section.public_id),
         "effective_on": "2026-02-01",
     }
+
+
+def test_student_movement_history_is_paginated_and_exposes_both_dates(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = Enrolment.objects.create(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.TRANSFER_OUT,
+        source_enrolment=enrolment,
+        effective_on=date(2026, 5, 10),
+        actor=auth_client.user,
+    )
+
+    response = auth_client.get(
+        reverse("student-movement-list"),
+        {"student_id": str(student.public_id)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    result = response.json()["results"][0]
+    assert result["public_id"] == str(movement.public_id)
+    assert result["movement_type"] == "transfer_out"
+    assert result["effective_on"] == "2026-05-10"
+    assert result["created_at"]
+    assert result["source_enrolment_id"] == str(enrolment.public_id)
+    assert result["target_enrolment_id"] is None
+
+
+def test_student_movement_history_requires_session_and_student(auth_client):
+    assert Client().get(reverse("student-movement-list")).status_code == 403
+    assert auth_client.get(reverse("student-movement-list")).status_code == 400
 
 
 def _reenrolment_payload(section, student):

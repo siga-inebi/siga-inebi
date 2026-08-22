@@ -2,22 +2,151 @@ from datetime import date
 
 import pytest
 
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 from apps.enrolments.services import (
     active_enrolments,
     change_section,
     create_enrolment,
     enrolment_history,
     matriculate_student,
+    record_student_movement,
     reenrol_student,
     section_occupancy,
     set_document_requirement,
 )
 from tests.factories.academic import AcademicCycleFactory, GradeFactory, SectionFactory
+from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
+
+
+def _movement_enrolments():
+    source_section = SectionFactory(name="A")
+    target_section = SectionFactory(
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        shift=source_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    source = Enrolment.objects.create(
+        student=student,
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 1, 15),
+        ends_on=date(2026, 3, 1),
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    target = Enrolment.objects.create(
+        student=student,
+        academic_cycle=target_section.academic_cycle,
+        grade=target_section.grade,
+        section=target_section,
+        effective_on=date(2026, 3, 1),
+    )
+    return student, source, target
+
+
+def test_record_student_movement_distinguishes_type_and_effective_date():
+    student, source, target = _movement_enrolments()
+    actor = UserFactory()
+
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+        source_enrolment=source,
+        target_enrolment=target,
+        effective_on=date(2026, 3, 1),
+        actor=actor,
+    )
+
+    assert movement.movement_type == StudentMovement.MovementType.SECTION_CHANGE
+    assert movement.effective_on == date(2026, 3, 1)
+    assert movement.created_at.date() != movement.effective_on
+    event = AuditEvent.objects.get(action="enrolments.student_movement.recorded")
+    assert event.actor == actor
+    assert event.context["movement_type"] == "section_change"
+    assert event.context["effective_on"] == "2026-03-01"
+
+
+@pytest.mark.parametrize(
+    ("movement_type", "use_source", "use_target"),
+    [
+        (StudentMovement.MovementType.TRANSFER_IN, False, True),
+        (StudentMovement.MovementType.TRANSFER_OUT, True, False),
+    ],
+)
+def test_record_student_movement_supports_explicit_transfer_direction(
+    movement_type, use_source, use_target
+):
+    student, source, target = _movement_enrolments()
+
+    movement = record_student_movement(
+        student=student,
+        movement_type=movement_type,
+        source_enrolment=source if use_source else None,
+        target_enrolment=target if use_target else None,
+        effective_on=date(2026, 3, 1),
+    )
+
+    assert movement.movement_type == movement_type
+
+
+def test_record_student_movement_rejects_invalid_shape_and_student():
+    student, source, target = _movement_enrolments()
+
+    with pytest.raises(DomainError, match="no corresponden"):
+        record_student_movement(
+            student=student,
+            movement_type=StudentMovement.MovementType.TRANSFER_IN,
+            source_enrolment=source,
+            target_enrolment=target,
+        )
+
+    with pytest.raises(DomainError, match="pertenecer al estudiante"):
+        record_student_movement(
+            student=StudentFactory(),
+            movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+            source_enrolment=source,
+            target_enrolment=target,
+        )
+
+    assert StudentMovement.objects.count() == 0
+
+
+def test_record_student_movement_rejects_date_before_source_enrolment():
+    student, source, target = _movement_enrolments()
+
+    with pytest.raises(DomainError, match="anterior a la matricula de origen"):
+        record_student_movement(
+            student=student,
+            movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+            source_enrolment=source,
+            target_enrolment=target,
+            effective_on=date(2026, 1, 14),
+        )
+
+
+def test_student_movement_is_immutable_by_instance_and_queryset():
+    student, source, target = _movement_enrolments()
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+        source_enrolment=source,
+        target_enrolment=target,
+    )
+
+    movement.movement_type = StudentMovement.MovementType.TRANSFER_OUT
+    with pytest.raises(RuntimeError, match="no pueden modificarse"):
+        movement.save()
+    with pytest.raises(RuntimeError, match="no pueden modificarse"):
+        StudentMovement.objects.filter(pk=movement.pk).update(effective_on=date(2026, 4, 1))
+    with pytest.raises(RuntimeError, match="no pueden eliminarse"):
+        StudentMovement.objects.filter(pk=movement.pk).delete()
 
 
 def test_create_enrolment_keeps_explicit_vigency_dates():

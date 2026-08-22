@@ -8,11 +8,13 @@ from apps.enrolments.api.views import (
     MatriculationCreateView,
     ReenrolmentCreateView,
     SectionOccupancyListView,
+    StudentMovementListView,
 )
 
 urlpatterns = [
     path("active/", ActiveEnrolmentListView.as_view(), name="active-enrolment-list"),
     path("history/", EnrolmentHistoryListView.as_view(), name="enrolment-history-list"),
+    path("movements/", StudentMovementListView.as_view(), name="student-movement-list"),
     path(
         "sections/occupancy/",
         SectionOccupancyListView.as_view(),

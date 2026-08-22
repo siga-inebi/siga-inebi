@@ -152,6 +152,21 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - La respuesta es paginada y constituye la fuente común de estudiantes habilitados para
   asistencia, evaluación de notas y horarios. No duplica reglas en esos consumidores.
 
+## Historial de movimientos estudiantiles
+
+- `GET /api/v1/enrolments/movements/?student_id={public_id}` devuelve el historial paginado del
+  estudiante y separa `section_change`, `transfer_in` y `transfer_out`.
+- Cada movimiento conserva `effective_on` como fecha oficial independiente de `created_at`, que
+  representa el momento real de registro en el sistema.
+- Las matrículas de origen y destino son referencias históricas: cambio de sección exige ambas,
+  traslado de ingreso solo destino y traslado de egreso solo origen.
+- Los movimientos son inmutables y no admiten borrado físico. Una corrección futura debe agregar
+  evidencia conforme a RF-MOV-008, no reescribir el asiento existente.
+- La consulta requiere sesión autenticada. Este contrato es de solo lectura; cada operación
+  académica concreta registra su movimiento desde el servicio de dominio correspondiente.
+- La ejecución anticipada de movimientos con fecha futura permanece como decisión pendiente: el
+  modelo puede representar la fecha, pero ningún endpoint aplica por adelantado sus efectos.
+
 ## Requisitos documentales de matrícula
 
 - `GET /api/v1/enrolments/{enrolment_id}/documents/` lista los requisitos documentales activos

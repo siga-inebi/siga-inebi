@@ -1,7 +1,33 @@
 from rest_framework import serializers
 
 from apps.academics.models import Section
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
+
+
+class StudentMovementSerializer(serializers.ModelSerializer):
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    source_enrolment_id = serializers.UUIDField(
+        source="source_enrolment.public_id", read_only=True, allow_null=True
+    )
+    target_enrolment_id = serializers.UUIDField(
+        source="target_enrolment.public_id", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = StudentMovement
+        fields = [
+            "public_id",
+            "student_id",
+            "movement_type",
+            "effective_on",
+            "source_enrolment_id",
+            "target_enrolment_id",
+            "created_at",
+        ]
+
+
+class StudentMovementQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
 
 
 class SectionOccupancySerializer(serializers.ModelSerializer):

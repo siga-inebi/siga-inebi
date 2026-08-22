@@ -210,9 +210,9 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-MAT-006 | Bloqueo de documentos oficiales por pendientes | Deberia | document-generation | Not implemented | #230 | TBD | Regla posterior |
 | RF-MAT-007 | Inscripcion activa como insumo de otras capacidades | Debe | enrollment-lifecycle | Not implemented | #231 | TBD | Regla transversal |
 | RF-MAT-008 | Historial de inscripciones | Debe | enrollment-lifecycle | Not implemented | #232 | TBD | Historia obligatoria |
-| RF-MOV-001 | Distincion entre cambio de seccion y traslado | Debe | enrollment-lifecycle | Not implemented | #233 | TBD | Regla de movilidad |
+| RF-MOV-001 | Distincion entre cambio de seccion y traslado | Debe | enrollment-lifecycle | In Progress | #233 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Base inmutable distingue cambio interno, traslado de ingreso y traslado de egreso; falta conectar cada operacion concreta |
 | RF-MOV-002 | Cambio de seccion sin perdida de informacion | Debe | enrollment-lifecycle | Not implemented | #234 | TBD | Historia obligatoria |
-| RF-MOV-003 | Fecha de efecto distinta de la fecha de registro | Debe | enrollment-lifecycle | Not implemented | #235 | TBD | Modelo temporal |
+| RF-MOV-003 | Fecha de efecto distinta de la fecha de registro | Debe | enrollment-lifecycle | In Progress | #235 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | StudentMovement conserva effective_on y created_at por separado; semantica de ejecucion futura pendiente |
 | RF-MOV-004 | Retiro del estudiante | Debe | enrollment-lifecycle | Not implemented | #236 | TBD | Regla de permanencia |
 | RF-MOV-005 | Revocacion de la credencial al cerrar la permanencia | Debe | attendance-capture | Not implemented | #237 | TBD | Cruza matricula y credencial |
 | RF-MOV-006 | Promocion y repitencia | Debe | enrollment-lifecycle | Not implemented | #238 | TBD | Cruza resultados |

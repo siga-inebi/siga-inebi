@@ -1,16 +1,18 @@
 from datetime import date, timedelta
 
 import pytest
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 from apps.enrolments.services import (
     active_enrolments,
     change_section,
     create_enrolment,
     enrolment_history,
     matriculate_student,
+    record_student_movement,
     reenrol_student,
     section_occupancy,
     set_document_requirement,
@@ -114,6 +116,55 @@ def test_change_section_keeps_history():
     assert enrolment.status == enrolment.EnrolmentStatus.COMPLETED
     assert replacement.section_id == second_section.id
     assert student.enrolments.count() == 2
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_student_movement_shape_is_enforced_by_postgresql():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = Enrolment.objects.create(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        StudentMovement.objects.create(
+            student=student,
+            movement_type=StudentMovement.MovementType.TRANSFER_IN,
+            source_enrolment=enrolment,
+            effective_on=date(2026, 2, 1),
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_student_movement_keeps_effective_and_recorded_dates_separate():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = Enrolment.objects.create(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2025, 1, 15),
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.TRANSFER_OUT,
+        source_enrolment=enrolment,
+        effective_on=date(2025, 10, 30),
+    )
+
+    assert movement.effective_on == date(2025, 10, 30)
+    assert movement.created_at.date() != movement.effective_on
 
 
 @pytest.mark.integration

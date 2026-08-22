@@ -7,7 +7,7 @@ from apps.academics.models import Section
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 
 # Las dos unicas formas en que una matricula es un duplicado (ver los
 # constraints del modelo). El mensaje se lee en la pantalla de matricula, asi que
@@ -20,6 +20,76 @@ DUPLICATE_ENROLMENT_MESSAGES = {
         "El estudiante ya estuvo inscrito en esa seccion. Repetir supone otro ciclo escolar."
     ),
 }
+
+
+def _validate_movement_enrolments(*, student, movement_type, source_enrolment, target_enrolment):
+    expected_shapes = {
+        StudentMovement.MovementType.SECTION_CHANGE: (True, True),
+        StudentMovement.MovementType.TRANSFER_IN: (False, True),
+        StudentMovement.MovementType.TRANSFER_OUT: (True, False),
+    }
+    if movement_type not in expected_shapes:
+        raise DomainError("Tipo de movimiento estudiantil no valido.")
+
+    expected_source, expected_target = expected_shapes[movement_type]
+    if (source_enrolment is not None) != expected_source or (
+        (target_enrolment is not None) != expected_target
+    ):
+        raise DomainError("Las matriculas no corresponden al tipo de movimiento.")
+
+    enrolments = (source_enrolment, target_enrolment)
+    if any(enrolment and enrolment.student_id != student.pk for enrolment in enrolments):
+        raise DomainError("Las matriculas del movimiento deben pertenecer al estudiante.")
+    if source_enrolment is not None and source_enrolment.pk == getattr(
+        target_enrolment, "pk", None
+    ):
+        raise DomainError("Las matriculas de origen y destino deben ser diferentes.")
+
+
+@transaction.atomic
+def record_student_movement(
+    *,
+    student,
+    movement_type,
+    source_enrolment=None,
+    target_enrolment=None,
+    effective_on=None,
+    actor=None,
+):
+    """Registra evidencia inmutable; ejecutar la operacion corresponde a su caso de uso."""
+    _validate_movement_enrolments(
+        student=student,
+        movement_type=movement_type,
+        source_enrolment=source_enrolment,
+        target_enrolment=target_enrolment,
+    )
+    effective_on = effective_on or timezone.localdate()
+    if source_enrolment is not None and effective_on < source_enrolment.effective_on:
+        raise DomainError(
+            "La fecha efectiva del movimiento no puede ser anterior a la matricula de origen."
+        )
+
+    movement = StudentMovement.objects.create(
+        student=student,
+        movement_type=movement_type,
+        source_enrolment=source_enrolment,
+        target_enrolment=target_enrolment,
+        effective_on=effective_on,
+    )
+    record_event(
+        actor=actor,
+        action="enrolments.student_movement.recorded",
+        resource="StudentMovement",
+        resource_identifier=str(movement.pk),
+        context={
+            "student_id": student.pk,
+            "movement_type": movement_type,
+            "effective_on": effective_on.isoformat(),
+            "source_enrolment_id": getattr(source_enrolment, "pk", None),
+            "target_enrolment_id": getattr(target_enrolment, "pk", None),
+        },
+    )
+    return movement
 
 
 def section_occupancy(*, academic_cycle=None, grade=None, section=None, include_inactive=False):

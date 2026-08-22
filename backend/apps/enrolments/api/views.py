@@ -17,6 +17,8 @@ from apps.enrolments.api.serializers import (
     ReenrolmentCreateSerializer,
     SectionOccupancyQuerySerializer,
     SectionOccupancySerializer,
+    StudentMovementQuerySerializer,
+    StudentMovementSerializer,
 )
 
 _ENROLMENT_WRITE_PERMISSIONS = ("enrollment_create", "enrollment_update")
@@ -141,6 +143,28 @@ class EnrolmentHistoryListView(GenericAPIView):
         student = queries.student_or_404(query.validated_data["student_id"])
         page = self.paginate_queryset(services.enrolment_history(student=student))
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
+
+
+class StudentMovementListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentMovementQuerySerializer
+
+    @extend_schema(
+        summary="Consultar movimientos del estudiante",
+        description=(
+            "Devuelve el historial inmutable y distingue cambios internos de seccion "
+            "y traslados de ingreso o egreso."
+        ),
+        parameters=[StudentMovementQuerySerializer],
+        responses={200: StudentMovementSerializer(many=True)},
+        tags=["enrolments"],
+    )
+    def get(self, request):
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        student = queries.student_or_404(query.validated_data["student_id"])
+        page = self.paginate_queryset(queries.student_movements(student=student))
+        return self.get_paginated_response(StudentMovementSerializer(page, many=True).data)
 
 
 class MatriculationCreateView(GenericAPIView):
