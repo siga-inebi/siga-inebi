@@ -145,7 +145,7 @@ def test_active_cycle_structure_changes_do_not_alter_previous_cycle_records():
         ends_on=date(2025, 10, 31),
         actor=actor,
     )
-    previous_grade = GradeFactory(level__institution=institution)
+    previous_grade = GradeFactory(institution=institution)
     previous_shift = ShiftFactory(campus__institution=institution)
     previous_section = create_section(
         academic_cycle=previous,
@@ -177,7 +177,7 @@ def test_active_cycle_structure_changes_do_not_alter_previous_cycle_records():
         ends_on=date(2026, 10, 31),
         actor=actor,
     )
-    active_grade = GradeFactory(level__institution=institution)
+    active_grade = GradeFactory(institution=institution)
     active_shift = ShiftFactory(campus__institution=institution)
     active_section = create_section(
         academic_cycle=active,
@@ -211,7 +211,8 @@ def test_active_cycle_structure_changes_do_not_alter_previous_cycle_records():
     assert previous.curriculum_plans.count() == 1
     assert previous.teaching_assignments.count() == 1
     assert previous_assignment.teacher_id == previous_teacher.person.pk
-    assert TeachingAssignment.objects.filter(academic_cycle=previous).get().pk == previous_assignment.pk
+    remaining_assignment = TeachingAssignment.objects.filter(academic_cycle=previous).get()
+    assert remaining_assignment.pk == previous_assignment.pk
 
 
 def test_created_sections_satisfy_cycle_activation_structure_check():
