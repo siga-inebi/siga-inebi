@@ -43,6 +43,30 @@ def test_catalog_endpoints_require_authentication(client, url_name):
     assert response.status_code in (401, 403)
 
 
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "url_name, build",
+    [
+        ("campus-detail", lambda institution: CampusFactory(institution=institution)),
+        ("level-detail", lambda institution: LevelFactory(institution=institution)),
+        ("grade-detail", lambda institution: GradeFactory(level__institution=institution)),
+        ("subject-detail", lambda institution: SubjectFactory(institution=institution)),
+    ],
+    ids=["campus", "level", "grade", "subject"],
+)
+def test_catalog_detail_endpoints_require_authentication(client, institution, url_name, build):
+    """
+    RF-EST-012: desactivar (DELETE) es la via de baja de estos elementos, y
+    comparte permission_classes con el resto del detalle, pero ningun test
+    lo confirmaba para estos cuatro -- ni siquiera via GET.
+    """
+    instance = build(institution)
+
+    response = client.get(reverse(url_name, args=[instance.public_id]))
+
+    assert response.status_code in (401, 403)
+
+
 # --------------------------------------------------------------------------- #
 # campuses
 # --------------------------------------------------------------------------- #
