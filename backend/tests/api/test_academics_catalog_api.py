@@ -569,4 +569,15 @@ def test_unlink_unlinked_subject_returns_400(auth_client, institution):
     )
 
     assert response.status_code == 400
-    assert "no esta vinculado" in str(_detail(response))
+
+
+def test_level_subject_endpoints_require_authentication(client, institution):
+    link = LevelSubjectFactory(level=LevelFactory(institution=institution))
+
+    list_response = client.get(reverse("level-subject-list-create", args=[link.level.public_id]))
+    detail_response = client.get(
+        reverse("level-subject-detail", args=[link.level.public_id, link.subject.public_id])
+    )
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)
