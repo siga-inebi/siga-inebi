@@ -75,7 +75,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CIC-006 | Conservacion de la informacion historica | Debe | school-cycle | In Progress | #131 | backend/tests/api/test_academics_api.py; backend/tests/integration/test_academics.py | Consulta historica de estructura y resumen de matricula; resultados de evaluacion pendientes de dominio |
 | RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Not implemented | #132 | TBD | Fase posterior |
 | RF-EST-001 | Catalogo de grados | Debe | institutional-structure | Not implemented | #165 | TBD | Nucleo fundacional |
-| RF-EST-002 | Jornadas del establecimiento | Debe | institutional-structure | Not implemented | #166 | TBD | Base de horarios y asistencia |
+| RF-EST-002 | Jornadas del establecimiento | Debe | institutional-structure | Implemented | #166 | backend/tests/api/test_academics_catalog_api.py | Base de horarios y asistencia |
 | RF-EST-003 | Subareas del ciclo | Debe | institutional-structure | Not implemented | #167 | TBD | Base curricular |
 | RF-EST-004 | Etiqueta de presentacion configurable | Podria | institutional-structure | Not implemented | #168 | TBD | Postergado |
 | RF-EST-005 | Plan de estudios por grado y ciclo | Debe | institutional-structure | Not implemented | #169 | TBD | Nucleo academico |
