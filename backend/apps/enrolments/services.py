@@ -27,6 +27,7 @@ def _validate_movement_enrolments(*, student, movement_type, source_enrolment, t
         StudentMovement.MovementType.SECTION_CHANGE: (True, True),
         StudentMovement.MovementType.TRANSFER_IN: (False, True),
         StudentMovement.MovementType.TRANSFER_OUT: (True, False),
+        StudentMovement.MovementType.WITHDRAWAL: (True, False),
     }
     if movement_type not in expected_shapes:
         raise DomainError("Tipo de movimiento estudiantil no valido.")
@@ -54,6 +55,7 @@ def record_student_movement(
     source_enrolment=None,
     target_enrolment=None,
     effective_on=None,
+    reason="",
     actor=None,
 ):
     """Registra evidencia inmutable; ejecutar la operacion corresponde a su caso de uso."""
@@ -63,6 +65,9 @@ def record_student_movement(
         source_enrolment=source_enrolment,
         target_enrolment=target_enrolment,
     )
+    reason = reason.strip()
+    if movement_type == StudentMovement.MovementType.WITHDRAWAL and not reason:
+        raise DomainError("La causa del retiro es obligatoria.")
     effective_on = effective_on or timezone.localdate()
     if source_enrolment is not None and effective_on < source_enrolment.effective_on:
         raise DomainError(
@@ -75,6 +80,7 @@ def record_student_movement(
         source_enrolment=source_enrolment,
         target_enrolment=target_enrolment,
         effective_on=effective_on,
+        reason=reason,
     )
     record_event(
         actor=actor,
@@ -87,6 +93,44 @@ def record_student_movement(
             "effective_on": effective_on.isoformat(),
             "source_enrolment_id": getattr(source_enrolment, "pk", None),
             "target_enrolment_id": getattr(target_enrolment, "pk", None),
+        },
+    )
+    return movement
+
+
+@transaction.atomic
+def withdraw_student(*, enrolment, reason, actor=None, effective_on=None):
+    require_cycle_academic_writes(
+        cycle=enrolment.academic_cycle,
+        operation="enrolment.withdraw_student",
+    )
+    if enrolment.status != Enrolment.EnrolmentStatus.ACTIVE:
+        raise DomainError("Solo una matricula activa puede retirarse.")
+
+    effective_on = effective_on or timezone.localdate()
+    movement = record_student_movement(
+        student=enrolment.student,
+        movement_type=StudentMovement.MovementType.WITHDRAWAL,
+        source_enrolment=enrolment,
+        effective_on=effective_on,
+        reason=reason,
+        actor=actor,
+    )
+    enrolment.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    enrolment.ends_on = effective_on
+    enrolment.save(update_fields=["status", "ends_on", "updated_at"])
+    student = enrolment.student
+    student.status = student.StudentStatus.WITHDRAWN
+    student.save(update_fields=["status", "updated_at"])
+    record_event(
+        actor=actor,
+        action="enrolments.student.withdrawn",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={
+            "enrolment_id": enrolment.pk,
+            "movement_id": movement.pk,
+            "effective_on": effective_on.isoformat(),
         },
     )
     return movement

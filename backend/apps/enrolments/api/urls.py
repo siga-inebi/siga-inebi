@@ -10,6 +10,7 @@ from apps.enrolments.api.views import (
     SectionChangeCreateView,
     SectionOccupancyListView,
     StudentMovementListView,
+    StudentWithdrawalCreateView,
 )
 
 urlpatterns = [
@@ -28,6 +29,11 @@ urlpatterns = [
         "<uuid:enrolment_id>/section-change/",
         SectionChangeCreateView.as_view(),
         name="enrolment-section-change",
+    ),
+    path(
+        "<uuid:enrolment_id>/withdrawal/",
+        StudentWithdrawalCreateView.as_view(),
+        name="student-withdrawal",
     ),
     path(
         "<uuid:enrolment_id>/documents/",

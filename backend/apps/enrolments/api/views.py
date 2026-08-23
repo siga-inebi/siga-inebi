@@ -20,6 +20,7 @@ from apps.enrolments.api.serializers import (
     SectionOccupancySerializer,
     StudentMovementQuerySerializer,
     StudentMovementSerializer,
+    StudentWithdrawalCreateSerializer,
 )
 
 _ENROLMENT_WRITE_PERMISSIONS = ("enrollment_create", "enrollment_update")
@@ -262,6 +263,34 @@ class SectionChangeCreateView(GenericAPIView):
             actor=request.user,
         )
         return Response(EnrolmentSerializer(replacement).data, status=status.HTTP_201_CREATED)
+
+
+class StudentWithdrawalCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentWithdrawalCreateSerializer
+
+    @extend_schema(
+        summary="Retirar estudiante",
+        description=(
+            "Procesa el retiro formal, cierra la matricula activa y excluye al estudiante "
+            "de las listas operativas sin eliminar su historial."
+        ),
+        request=StudentWithdrawalCreateSerializer,
+        responses={201: StudentMovementSerializer},
+        tags=["enrolments"],
+    )
+    def post(self, request, enrolment_id):
+        if not request.user.has_atomic_permission("enrollment_update"):
+            raise AuthorizationError("Actor lacks the required permission.")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        movement = services.withdraw_student(
+            enrolment=queries.enrolment_or_404(enrolment_id),
+            actor=request.user,
+            **serializer.validated_data,
+        )
+        return Response(StudentMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
 
 
 class EnrolmentDocumentRequirementListCreateView(GenericAPIView):

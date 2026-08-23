@@ -20,6 +20,7 @@ class StudentMovementSerializer(serializers.ModelSerializer):
             "student_id",
             "movement_type",
             "effective_on",
+            "reason",
             "source_enrolment_id",
             "target_enrolment_id",
             "created_at",
@@ -168,3 +169,12 @@ class ReenrolmentCreateSerializer(serializers.Serializer):
 class SectionChangeCreateSerializer(serializers.Serializer):
     new_section_id = serializers.UUIDField(help_text="Public ID de la seccion destino.")
     effective_on = serializers.DateField(help_text="Fecha efectiva del cambio.")
+
+
+class StudentWithdrawalCreateSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Causa formal del retiro.",
+    )
+    effective_on = serializers.DateField(help_text="Fecha efectiva del retiro.")

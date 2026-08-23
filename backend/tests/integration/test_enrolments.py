@@ -16,6 +16,7 @@ from apps.enrolments.services import (
     reenrol_student,
     section_occupancy,
     set_document_requirement,
+    withdraw_student,
 )
 from apps.evaluation.models import Grade as EvaluationGrade
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
@@ -185,6 +186,55 @@ def test_student_movement_keeps_effective_and_recorded_dates_separate():
 
     assert movement.effective_on == date(2025, 10, 30)
     assert movement.created_at.date() != movement.effective_on
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_withdrawal_removes_student_from_active_source_without_deleting_history():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    attendance = AttendanceEventFactory(student=student, shift=section.shift)
+
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="Retiro solicitado por responsable",
+        effective_on=date(2026, 6, 1),
+    )
+
+    assert list(active_enrolments(student=student)) == []
+    assert Enrolment.objects.filter(pk=enrolment.pk, status="withdrawn").exists()
+    assert StudentMovement.objects.filter(pk=movement.pk, reason__gt="").exists()
+    assert attendance.student.attendance_events.filter(pk=attendance.pk).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_postgresql_rejects_withdrawal_without_reason():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        StudentMovement.objects.create(
+            student=student,
+            movement_type=StudentMovement.MovementType.WITHDRAWAL,
+            source_enrolment=enrolment,
+            reason="",
+        )
 
 
 @pytest.mark.integration
