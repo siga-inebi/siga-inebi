@@ -15,8 +15,12 @@ from apps.enrolments.api.serializers import (
     MatriculationCreateSerializer,
     MatriculationSerializer,
     ReenrolmentCreateSerializer,
+    SectionChangeCreateSerializer,
     SectionOccupancyQuerySerializer,
     SectionOccupancySerializer,
+    StudentMovementQuerySerializer,
+    StudentMovementSerializer,
+    StudentWithdrawalCreateSerializer,
 )
 
 _ENROLMENT_WRITE_PERMISSIONS = ("enrollment_create", "enrollment_update")
@@ -143,6 +147,28 @@ class EnrolmentHistoryListView(GenericAPIView):
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
 
+class StudentMovementListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentMovementQuerySerializer
+
+    @extend_schema(
+        summary="Consultar movimientos del estudiante",
+        description=(
+            "Devuelve el historial inmutable y distingue cambios internos de seccion "
+            "y traslados de ingreso o egreso."
+        ),
+        parameters=[StudentMovementQuerySerializer],
+        responses={200: StudentMovementSerializer(many=True)},
+        tags=["enrolments"],
+    )
+    def get(self, request):
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        student = queries.student_or_404(query.validated_data["student_id"])
+        page = self.paginate_queryset(queries.student_movements(student=student))
+        return self.get_paginated_response(StudentMovementSerializer(page, many=True).data)
+
+
 class MatriculationCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = MatriculationCreateSerializer
@@ -207,6 +233,64 @@ class ReenrolmentCreateView(GenericAPIView):
             actor=request.user,
         )
         return Response(MatriculationSerializer(enrolment).data, status=status.HTTP_201_CREATED)
+
+
+class SectionChangeCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SectionChangeCreateSerializer
+
+    @extend_schema(
+        summary="Cambiar estudiante de seccion",
+        description=(
+            "Cierra la matricula vigente, crea su reemplazo en otra seccion del mismo "
+            "ciclo y grado y conserva ambas como historial enlazado por un movimiento."
+        ),
+        request=SectionChangeCreateSerializer,
+        responses={201: EnrolmentSerializer},
+        tags=["enrolments"],
+    )
+    def post(self, request, enrolment_id):
+        if not request.user.has_atomic_permission("enrollment_update"):
+            raise AuthorizationError("Actor lacks the required permission.")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        replacement = services.change_section(
+            enrolment=queries.enrolment_or_404(enrolment_id),
+            new_section=queries.section_or_404(payload["new_section_id"]),
+            effective_on=payload["effective_on"],
+            actor=request.user,
+        )
+        return Response(EnrolmentSerializer(replacement).data, status=status.HTTP_201_CREATED)
+
+
+class StudentWithdrawalCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentWithdrawalCreateSerializer
+
+    @extend_schema(
+        summary="Retirar estudiante",
+        description=(
+            "Procesa el retiro formal, cierra la matricula activa y excluye al estudiante "
+            "de las listas operativas sin eliminar su historial."
+        ),
+        request=StudentWithdrawalCreateSerializer,
+        responses={201: StudentMovementSerializer},
+        tags=["enrolments"],
+    )
+    def post(self, request, enrolment_id):
+        if not request.user.has_atomic_permission("enrollment_update"):
+            raise AuthorizationError("Actor lacks the required permission.")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        movement = services.withdraw_student(
+            enrolment=queries.enrolment_or_404(enrolment_id),
+            actor=request.user,
+            **serializer.validated_data,
+        )
+        return Response(StudentMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
 
 
 class EnrolmentDocumentRequirementListCreateView(GenericAPIView):

@@ -2,7 +2,7 @@
 
 from apps.academics.models import AcademicCycle, Grade, Section, Shift
 from apps.common.exceptions import ResourceNotFoundError
-from apps.enrolments.models import Enrolment
+from apps.enrolments.models import Enrolment, StudentMovement
 from apps.students.models import Student
 
 
@@ -35,3 +35,11 @@ def section_or_404(public_id):
 
 def enrolment_or_404(public_id):
     return _get(Enrolment.objects.all(), public_id, "Enrolment")
+
+
+def student_movements(*, student):
+    return StudentMovement.objects.filter(student=student).select_related(
+        "student",
+        "source_enrolment",
+        "target_enrolment",
+    )

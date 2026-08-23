@@ -1,21 +1,27 @@
 from datetime import date, timedelta
 
 import pytest
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 from apps.enrolments.services import (
     active_enrolments,
     change_section,
     create_enrolment,
     enrolment_history,
     matriculate_student,
+    record_student_movement,
     reenrol_student,
     section_occupancy,
     set_document_requirement,
+    withdraw_student,
 )
-from tests.factories.academic import AcademicCycleFactory, SectionFactory
+from apps.evaluation.models import Grade as EvaluationGrade
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.attendance import AttendanceEventFactory
+from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.students import StudentFactory
 
 
@@ -103,6 +109,16 @@ def test_change_section_keeps_history():
         grade=first_section.grade,
         section=first_section,
     )
+    attendance = AttendanceEventFactory(
+        student=student,
+        shift=first_section.shift,
+    )
+    grade = EvaluationGrade.objects.create(
+        enrolment=enrolment,
+        subject=SubjectFactory(institution=first_section.academic_cycle.institution),
+        evaluation_unit=EvaluationUnitFactory(academic_cycle=first_section.academic_cycle),
+        value=85,
+    )
 
     replacement = change_section(
         enrolment=enrolment,
@@ -114,6 +130,111 @@ def test_change_section_keeps_history():
     assert enrolment.status == enrolment.EnrolmentStatus.COMPLETED
     assert replacement.section_id == second_section.id
     assert student.enrolments.count() == 2
+    assert StudentMovement.objects.filter(
+        source_enrolment=enrolment,
+        target_enrolment=replacement,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+    ).exists()
+    assert EvaluationGrade.objects.get(pk=grade.pk).enrolment_id == enrolment.pk
+    assert attendance.student.attendance_events.filter(pk=attendance.pk).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_student_movement_shape_is_enforced_by_postgresql():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = Enrolment.objects.create(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        StudentMovement.objects.create(
+            student=student,
+            movement_type=StudentMovement.MovementType.TRANSFER_IN,
+            source_enrolment=enrolment,
+            effective_on=date(2026, 2, 1),
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_student_movement_keeps_effective_and_recorded_dates_separate():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = Enrolment.objects.create(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2025, 1, 15),
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.TRANSFER_OUT,
+        source_enrolment=enrolment,
+        effective_on=date(2025, 10, 30),
+    )
+
+    assert movement.effective_on == date(2025, 10, 30)
+    assert movement.created_at.date() != movement.effective_on
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_withdrawal_removes_student_from_active_source_without_deleting_history():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    attendance = AttendanceEventFactory(student=student, shift=section.shift)
+
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="Retiro solicitado por responsable",
+        effective_on=date(2026, 6, 1),
+    )
+
+    assert list(active_enrolments(student=student)) == []
+    assert Enrolment.objects.filter(pk=enrolment.pk, status="withdrawn").exists()
+    assert StudentMovement.objects.filter(pk=movement.pk, reason__gt="").exists()
+    assert attendance.student.attendance_events.filter(pk=attendance.pk).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_postgresql_rejects_withdrawal_without_reason():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        StudentMovement.objects.create(
+            student=student,
+            movement_type=StudentMovement.MovementType.WITHDRAWAL,
+            source_enrolment=enrolment,
+            reason="",
+        )
 
 
 @pytest.mark.integration

@@ -152,6 +152,21 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - La respuesta es paginada y constituye la fuente común de estudiantes habilitados para
   asistencia, evaluación de notas y horarios. No duplica reglas en esos consumidores.
 
+## Historial de movimientos estudiantiles
+
+- `GET /api/v1/enrolments/movements/?student_id={public_id}` devuelve el historial paginado del
+  estudiante y separa `section_change`, `transfer_in` y `transfer_out`.
+- Cada movimiento conserva `effective_on` como fecha oficial independiente de `created_at`, que
+  representa el momento real de registro en el sistema.
+- Las matrículas de origen y destino son referencias históricas: cambio de sección exige ambas,
+  traslado de ingreso solo destino y traslado de egreso solo origen.
+- Los movimientos son inmutables y no admiten borrado físico. Una corrección futura debe agregar
+  evidencia conforme a RF-MOV-008, no reescribir el asiento existente.
+- La consulta requiere sesión autenticada. Este contrato es de solo lectura; cada operación
+  académica concreta registra su movimiento desde el servicio de dominio correspondiente.
+- La ejecución anticipada de movimientos con fecha futura permanece como decisión pendiente: el
+  modelo puede representar la fecha, pero ningún endpoint aplica por adelantado sus efectos.
+
 ## Requisitos documentales de matrícula
 
 - `GET /api/v1/enrolments/{enrolment_id}/documents/` lista los requisitos documentales activos
@@ -263,3 +278,24 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   de programacion, salen como HTTP 500 y no son mensajes destinados a leerse.
 - `backend/tests/api/test_localization_messages.py` recorre `apps/` y falla si reaparece un mensaje
   visible en ingles, incluidos los mapas de `unique_violation_as`.
+
+## Cambio de seccion
+
+- `POST /api/v1/enrolments/{enrolment_id}/section-change/` exige `enrollment.update`, recibe
+  `new_section_id` y `effective_on`, cierra la matricula de origen y crea una nueva en la seccion
+  destino. Ambas quedan enlazadas por un movimiento `section_change` con la misma fecha efectiva.
+- El cambio no copia ni reasigna calificaciones o asistencias: conserva la matricula anterior y
+  sus relaciones historicas. La seccion destino debe ser distinta, pertenecer al mismo ciclo y
+  grado y tener cupo disponible.
+
+## Retiro del estudiante
+
+- `POST /api/v1/enrolments/{enrolment_id}/withdrawal/` exige `enrollment.update` y recibe
+  `reason` y `effective_on`. La causa es texto obligatorio mientras no exista un catalogo
+  institucional aprobado.
+- La operacion cambia la matricula y el expediente a `withdrawn`, fija `ends_on` y registra un
+  movimiento `withdrawal` inmutable. No desactiva ni elimina el expediente historico.
+- Un estudiante retirado deja de aparecer en `GET /api/v1/enrolments/active/` y, por tanto, en
+  las listas operativas que consumen esa fuente comun.
+- La causa se conserva en el movimiento, pero no se duplica en el contexto de auditoria para
+  reducir exposicion de texto potencialmente sensible.
