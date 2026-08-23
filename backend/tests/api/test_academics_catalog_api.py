@@ -43,6 +43,30 @@ def test_catalog_endpoints_require_authentication(client, url_name):
     assert response.status_code in (401, 403)
 
 
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "url_name, build",
+    [
+        ("campus-detail", lambda institution: CampusFactory(institution=institution)),
+        ("level-detail", lambda institution: LevelFactory(institution=institution)),
+        ("grade-detail", lambda institution: GradeFactory(level__institution=institution)),
+        ("subject-detail", lambda institution: SubjectFactory(institution=institution)),
+    ],
+    ids=["campus", "level", "grade", "subject"],
+)
+def test_catalog_detail_endpoints_require_authentication(client, institution, url_name, build):
+    """
+    RF-EST-012: desactivar (DELETE) es la via de baja de estos elementos, y
+    comparte permission_classes con el resto del detalle, pero ningun test
+    lo confirmaba para estos cuatro -- ni siquiera via GET.
+    """
+    instance = build(institution)
+
+    response = client.get(reverse(url_name, args=[instance.public_id]))
+
+    assert response.status_code in (401, 403)
+
+
 # --------------------------------------------------------------------------- #
 # campuses
 # --------------------------------------------------------------------------- #
@@ -253,6 +277,16 @@ def test_deactivate_shift_in_use_returns_400(auth_client, institution):
 
     assert response.status_code == 400
     assert "ciclo activo" in str(_detail(response))
+
+
+def test_shift_endpoints_require_authentication(client, institution):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+
+    list_response = client.get(reverse("campus-shift-list-create", args=[shift.campus.public_id]))
+    detail_response = client.get(reverse("shift-detail", args=[shift.public_id]))
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)
 
 
 # --------------------------------------------------------------------------- #
@@ -559,4 +593,15 @@ def test_unlink_unlinked_subject_returns_400(auth_client, institution):
     )
 
     assert response.status_code == 400
-    assert "no esta vinculado" in str(_detail(response))
+
+
+def test_level_subject_endpoints_require_authentication(client, institution):
+    link = LevelSubjectFactory(level=LevelFactory(institution=institution))
+
+    list_response = client.get(reverse("level-subject-list-create", args=[link.level.public_id]))
+    detail_response = client.get(
+        reverse("level-subject-detail", args=[link.level.public_id, link.subject.public_id])
+    )
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)

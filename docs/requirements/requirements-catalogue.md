@@ -75,17 +75,17 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CIC-006 | Conservacion de la informacion historica | Debe | school-cycle | In Progress | #131 | backend/tests/api/test_academics_api.py; backend/tests/integration/test_academics.py | Consulta historica de estructura y resumen de matricula; resultados de evaluacion pendientes de dominio |
 | RF-CIC-007 | Clonacion hacia el ciclo siguiente | Deberia | school-cycle | Not implemented | #132 | TBD | Fase posterior |
 | RF-EST-001 | Catalogo de grados | Debe | institutional-structure | Not implemented | #165 | TBD | Nucleo fundacional |
-| RF-EST-002 | Jornadas del establecimiento | Debe | institutional-structure | Not implemented | #166 | TBD | Base de horarios y asistencia |
+| RF-EST-002 | Jornadas del establecimiento | Debe | institutional-structure | Implemented | #166 | backend/tests/api/test_academics_catalog_api.py | Base de horarios y asistencia |
 | RF-EST-003 | Subareas del ciclo | Debe | institutional-structure | Not implemented | #167 | TBD | Base curricular |
 | RF-EST-004 | Etiqueta de presentacion configurable | Podria | institutional-structure | Not implemented | #168 | TBD | Postergado |
 | RF-EST-005 | Plan de estudios por grado y ciclo | Debe | institutional-structure | Not implemented | #169 | TBD | Nucleo academico |
-| RF-EST-006 | Carga horaria de la subarea | Deberia | institutional-structure | Not implemented | #170 | TBD | Cruza horario |
+| RF-EST-006 | Carga horaria de la subarea | Deberia | institutional-structure | Implemented | #170 | backend/tests/api/test_academics_catalog_api.py | Cruza horario |
 | RF-EST-007 | Secciones | Debe | institutional-structure | Not implemented | #171 | TBD | Nucleo fundacional |
 | RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Not implemented | #172 | TBD | Afecta matricula |
 | RF-EST-009 | Asignacion de docentes a subareas de seccion | Debe | institutional-structure | Implemented | #173 | backend/tests/{unit/test_teaching_assignment_services.py,api/test_teaching_assignments_api.py} | Ya implementado por RF-ALC-003/RF-CIC-002 |
 | RF-EST-010 | Cobertura completa para la activacion del ciclo | Deberia | school-cycle | Not implemented | #174 | TBD | Regla de activacion |
 | RF-EST-011 | Mutabilidad de la estructura segun el estado del ciclo | Debe | school-cycle | Not implemented | #175 | TBD | Regla transversal |
-| RF-EST-012 | Desactivacion en lugar de eliminacion | Deberia | institutional-structure | Not implemented | #176 | TBD | Linea con historia |
+| RF-EST-012 | Desactivacion en lugar de eliminacion | Deberia | institutional-structure | Implemented | #176 | backend/tests/api/test_academics_catalog_api.py | Linea con historia |
 | RF-EST-013 | Independencia de la estructura entre ciclos | Debe | school-cycle | Not implemented | #177 | TBD | Versionado por ciclo |
 | RF-CAL-001 | Registro de la nota de unidad | Debe | academic-evaluation | Not implemented | #118 | TBD | Nucleo academico |
 | RF-CAL-002 | Escala y validacion de la nota | Debe | academic-evaluation | Not implemented | #119 | TBD | Regla central |
