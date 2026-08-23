@@ -85,6 +85,71 @@ def test_student_movement_history_requires_session_and_student(auth_client):
     assert auth_client.get(reverse("student-movement-list")).status_code == 400
 
 
+def test_section_change_endpoint_requires_permission_and_preserves_history(auth_client):
+    source_section = SectionFactory(name="A")
+    target_section = SectionFactory(
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        shift=source_section.shift,
+        name="B",
+    )
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 2, 1),
+    )
+    url = reverse("enrolment-section-change", args=[enrolment.public_id])
+    payload = {"new_section_id": str(target_section.public_id), "effective_on": "2026-04-15"}
+
+    assert auth_client.post(url, payload, content_type="application/json").status_code == 403
+    assert StudentMovement.objects.count() == 0
+
+    _grant_enrolment_update(auth_client.user)
+    response = auth_client.post(url, payload, content_type="application/json")
+
+    assert response.status_code == 201
+    assert response.json()["section_id"] == str(target_section.public_id)
+    enrolment.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.COMPLETED
+    assert enrolment.ends_on == date(2026, 4, 15)
+    assert StudentMovement.objects.filter(
+        source_enrolment=enrolment,
+        target_enrolment__public_id=response.json()["public_id"],
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+    ).exists()
+
+
+def test_student_withdrawal_endpoint_requires_permission_and_cause(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    url = reverse("student-withdrawal", args=[enrolment.public_id])
+    payload = {"reason": "Cambio de residencia", "effective_on": "2026-05-20"}
+
+    assert Client().post(url, payload, content_type="application/json").status_code == 403
+    assert auth_client.post(url, payload, content_type="application/json").status_code == 403
+    _grant_enrolment_update(auth_client.user)
+    assert auth_client.post(url, {"reason": ""}, content_type="application/json").status_code == 400
+
+    response = auth_client.post(url, payload, content_type="application/json")
+
+    assert response.status_code == 201
+    assert response.json()["movement_type"] == "withdrawal"
+    assert response.json()["reason"] == "Cambio de residencia"
+    enrolment.refresh_from_db()
+    student.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.WITHDRAWN
+    assert student.status == student.StudentStatus.WITHDRAWN
+
+
 def _reenrolment_payload(section, student):
     return {
         "student_id": str(student.public_id),

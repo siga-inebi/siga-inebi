@@ -109,6 +109,7 @@ class StudentMovement(TimeStampedModel):
         SECTION_CHANGE = "section_change", "Cambio de seccion"
         TRANSFER_IN = "transfer_in", "Traslado de ingreso"
         TRANSFER_OUT = "transfer_out", "Traslado de egreso"
+        WITHDRAWAL = "withdrawal", "Retiro"
 
     student = models.ForeignKey(
         "students.Student",
@@ -117,6 +118,7 @@ class StudentMovement(TimeStampedModel):
     )
     movement_type = models.CharField(max_length=30, choices=MovementType.choices)
     effective_on = models.DateField(default=timezone.localdate)
+    reason = models.TextField(blank=True, default="")
     source_enrolment = models.ForeignKey(
         Enrolment,
         on_delete=models.PROTECT,
@@ -154,8 +156,17 @@ class StudentMovement(TimeStampedModel):
                         source_enrolment__isnull=False,
                         target_enrolment__isnull=True,
                     )
+                    | Q(
+                        movement_type="withdrawal",
+                        source_enrolment__isnull=False,
+                        target_enrolment__isnull=True,
+                    )
                 ),
                 name="student_movement_valid_enrolment_shape",
+            ),
+            models.CheckConstraint(
+                condition=~Q(movement_type="withdrawal") | ~Q(reason=""),
+                name="student_withdrawal_requires_reason",
             ),
             models.CheckConstraint(
                 condition=(
