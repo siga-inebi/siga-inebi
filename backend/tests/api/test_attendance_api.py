@@ -30,6 +30,7 @@ from tests.factories.attendance import (
     AttendanceEventFactory,
     ControlPointFactory,
     JornadaParametersFactory,
+    ManualRegistrationReasonFactory,
 )
 from tests.factories.identity import (
     PermissionFactory,
@@ -829,6 +830,74 @@ def test_control_points_list_returns_catalogue(auth_client):
     assert response.status_code == 200
     codes = {item["code"] for item in response.json()["results"]}
     assert control_point.code in codes
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-012 — registro manual autorizado
+# --------------------------------------------------------------------------- #
+
+
+def test_manual_registration_reasons_list_requires_authentication(client):
+    response = client.get(reverse("attendance-manual-registration-reason-list"))
+
+    assert response.status_code == 403
+
+
+def test_manual_registration_reasons_list_returns_catalogue(auth_client):
+    reason = ManualRegistrationReasonFactory()
+
+    response = auth_client.get(reverse("attendance-manual-registration-reason-list"))
+
+    assert response.status_code == 200
+    codes = {item["code"] for item in response.json()["results"]}
+    assert reason.code in codes
+
+
+def test_create_manual_attendance_event_requires_reason(auth_client):
+    _grant(auth_client.user, "attendance_record_manual")
+    student = StudentFactory()
+    shift = ShiftFactory()
+
+    response = auth_client.post(
+        reverse("attendance-event-list"),
+        _event_payload(
+            student, shift, movement_type=AttendanceEvent.MovementType.ENTRY, origin="manual"
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+
+
+def test_create_manual_attendance_event_stores_reason_and_operator(auth_client):
+    """
+    Escenario 1 (RF-ASI-012): GIVEN un estudiante que olvido su credencial,
+    WHEN un usuario con permiso elevado registra su ingreso indicando el
+    motivo, THEN el sistema crea un evento con origen manual, el motivo y la
+    identidad del autorizador.
+    """
+    _grant(auth_client.user, "attendance_record_manual")
+    student = StudentFactory()
+    shift = ShiftFactory()
+    reason = ManualRegistrationReasonFactory(name="Olvido su credencial")
+
+    response = auth_client.post(
+        reverse("attendance-event-list"),
+        _event_payload(
+            student,
+            shift,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin="manual",
+            manual_reason_id=str(reason.public_id),
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["origin"] == "manual"
+    assert data["manual_reason_id"] == str(reason.public_id)
+    assert data["operator_id"] == auth_client.user.pk
 
 
 # --------------------------------------------------------------------------- #

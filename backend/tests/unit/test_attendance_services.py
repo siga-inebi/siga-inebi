@@ -44,6 +44,7 @@ from tests.factories.attendance import (
     AttendanceEventFactory,
     ControlPointFactory,
     JornadaParametersFactory,
+    ManualRegistrationReasonFactory,
 )
 from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
@@ -1082,6 +1083,8 @@ def test_derive_day_statuses_agrees_with_deriving_each_pair_on_its_own():
         movement_type=AttendanceEvent.MovementType.ENTRY,
         origin=AttendanceEvent.Origin.MANUAL,
         captured_at=_at(days[0], 9, 0),
+        operator=UserFactory(),
+        manual_reason=ManualRegistrationReasonFactory(),
     )
     # A declared event loses to the scan above under RF-JOR-003 precedence.
     services.record_attendance_event(
@@ -1689,6 +1692,112 @@ def test_record_scan_batch_resend_of_confirmed_batch_is_a_no_op_success():
         "already_processed",
     ]
     assert AttendanceEvent.objects.count() == 2
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-012 — registro manual autorizado
+# --------------------------------------------------------------------------- #
+
+
+def test_record_attendance_event_manual_requires_operator():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    reason = ManualRegistrationReasonFactory()
+
+    with pytest.raises(DomainError):
+        services.record_attendance_event(
+            student=student,
+            shift=parameters.shift,
+            event_date=parameters.effective_from,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.MANUAL,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            operator=None,
+            manual_reason=reason,
+        )
+
+
+def test_record_attendance_event_manual_requires_reason():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.record_attendance_event(
+            student=student,
+            shift=parameters.shift,
+            event_date=parameters.effective_from,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.MANUAL,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            operator=operator,
+            manual_reason=None,
+        )
+
+
+def test_record_attendance_event_manual_rejects_inactive_reason():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    operator = UserFactory()
+    reason = ManualRegistrationReasonFactory(is_active=False)
+
+    with pytest.raises(DomainError):
+        services.record_attendance_event(
+            student=student,
+            shift=parameters.shift,
+            event_date=parameters.effective_from,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.MANUAL,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            operator=operator,
+            manual_reason=reason,
+        )
+
+
+def test_record_attendance_event_manual_stores_operator_and_reason():
+    """
+    Escenario 1 (RF-ASI-012): GIVEN un estudiante que olvido su credencial,
+    WHEN un usuario con permiso elevado registra su ingreso indicando el
+    motivo, THEN el sistema crea un evento con origen manual, el motivo y la
+    identidad del autorizador.
+    """
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    operator = UserFactory()
+    reason = ManualRegistrationReasonFactory(name="Olvido su credencial")
+
+    event = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.MANUAL,
+        captured_at=_at(parameters.effective_from, 7, 0),
+        operator=operator,
+        manual_reason=reason,
+    )
+
+    assert event.origin == AttendanceEvent.Origin.MANUAL
+    assert event.operator == operator
+    assert event.manual_reason == reason
+
+
+def test_record_attendance_event_declared_does_not_require_operator_or_reason():
+    """Manual's guard is scoped to manual origin only -- declared closures are unaffected."""
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    event = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 15, 0),
+    )
+
+    assert event.operator is None
+    assert event.manual_reason is None
 
 
 # --------------------------------------------------------------------------- #
