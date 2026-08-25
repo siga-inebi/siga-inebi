@@ -16,14 +16,14 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Max
 from django.utils import timezone
 
 from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import AuthorizationError, DomainError
-from apps.documents.field_catalog import FIELD_TAGS
+from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
 from apps.documents.models import (
     DocumentDownloadToken,
     DocumentRecord,
@@ -405,6 +405,7 @@ def _record_version(template):
             name=template.name,
             kind=template.kind,
             description=template.description,
+            content=template.content,
         )
 
 
@@ -416,6 +417,7 @@ def create_document_template(
     code,
     kind=DocumentTemplate.TemplateKind.OTHER,
     description="",
+    content="",
     actor=None,
     is_active=True,
 ):
@@ -428,6 +430,7 @@ def create_document_template(
     """
     name = _clean_name(name)
     code = _clean_code(code)
+    content = (content or "").strip()
 
     with unique_violation_as(_document_template_conflicts(code)):
         template = DocumentTemplate.objects.create(
@@ -436,6 +439,7 @@ def create_document_template(
             code=code,
             kind=kind,
             description=(description or "").strip(),
+            content=content,
             is_active=is_active,
         )
 
@@ -445,7 +449,7 @@ def create_document_template(
 
 
 @transaction.atomic
-def update_document_template(*, template, name=None, description=None, kind=None, actor=None):
+def update_document_template(*, template, name=None, description=None, kind=None, content=None, actor=None):
     """
     Update the descriptive attributes of a document template. The code is
     immutable. Any explicitly supplied field records a new version
@@ -455,6 +459,8 @@ def update_document_template(*, template, name=None, description=None, kind=None
         name = _clean_name(name)
     if description is not None:
         description = description.strip()
+    if content is not None:
+        content = content.strip()
 
     updated = _changed(
         template,
@@ -463,9 +469,10 @@ def update_document_template(*, template, name=None, description=None, kind=None
         name=name,
         description=description,
         kind=kind,
+        content=content,
     )
 
-    if any(value is not None for value in (name, description, kind)):
+    if any(value is not None for value in (name, description, kind, content)):
         _record_version(updated)
 
     return updated
@@ -529,6 +536,80 @@ def _pdf_text(value, *, limit):
     """
     escaped = str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
     return escaped.encode("utf-8")[:limit]
+
+
+def preview_document_template(*, template, payload=None, actor=None):
+    """Render a template preview using only the closed field-tag catalogue.
+
+    This keeps the preview deterministic and safe: only whitelisted markers are
+    allowed and the dataset is bounded to a closed, static catalog instead of
+    arbitrary template evaluation.
+    """
+    if template is None:
+        raise DomainError("Se requiere una plantilla para generar la vista previa.")
+
+    template_content = str(getattr(template, "content", "") or "")
+    mapping = dict(payload or {})
+    markers = re.findall(r"{{\s*([A-Za-z0-9_.-]+)\s*}}", template_content)
+    for marker in markers:
+        if marker not in FIELD_TAG_CODES:
+            raise DomainError(
+                "El marcador '{marker}' no esta permitido dentro del catalogo cerrado de "
+                "etiquetas de plantilla.".format(marker=marker)
+            )
+
+    rendered = template_content
+    for marker in markers:
+        rendered = rendered.replace(f"{{{{{marker}}}}}", str(mapping.get(marker, "")))
+
+    _audit(
+        actor,
+        "documents.template.previewed",
+        template,
+        marker_count=len(markers),
+        markers=markers,
+    )
+
+    return {
+        "content": rendered,
+        "markers": markers,
+        "marker_count": len(markers),
+    }
+
+
+def validate_document_checksum(*, document, payload):
+    """Verify a document payload against the stored checksum metadata."""
+    if document is None:
+        raise DomainError("Se requiere un registro de documento para validar la integridad.")
+    if payload is None:
+        raise DomainError("Se requiere el contenido del documento para validar la integridad.")
+
+    expected = document.checksum.strip()
+    actual = hashlib.sha256(payload).hexdigest()
+    if expected != actual:
+        raise DomainError("El checksum del documento no coincide con el contenido almacenado.")
+    return True
+
+
+def document_storage_usage_summary(*, institution=None):
+    """Summarize stored document usage from metadata only, without direct file access."""
+    queryset = DocumentRecord.objects.all()
+    if institution is not None:
+        scoped_queryset = queryset.filter(student__enrolments__academic_cycle__institution=institution)
+        if scoped_queryset.exists():
+            queryset = scoped_queryset.distinct()
+
+    total_files = queryset.count()
+    total_size_bytes = queryset.aggregate(total_size=models.Sum("size_bytes"))[
+        "total_size"
+    ] or 0
+    return {
+        "total_files": total_files,
+        "total_size_bytes": int(total_size_bytes),
+        "by_content_type": list(
+            queryset.values("content_type").annotate(count=models.Count("id"), size=models.Sum("size_bytes"))
+        ),
+    }
 
 
 def compile_generated_document(*, template, payload=None, persist=False, actor=None):

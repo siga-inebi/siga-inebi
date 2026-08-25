@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ from apps.documents.services import (
     create_document_template,
     deactivate_document_record,
     deactivate_document_template,
+    document_storage_usage_summary,
     ensure_document_access,
     ensure_official_document_issuance_allowed,
     ensure_official_document_issuance_permission,
@@ -24,6 +26,8 @@ from apps.documents.services import (
     list_document_types,
     list_field_tags,
     normalize_document_filename,
+    validate_document_checksum,
+    preview_document_template,
     record_document_read_audit,
     student_document_dossier,
     update_document_template,
@@ -254,6 +258,32 @@ def test_update_document_template_changes_name_and_description():
     assert template.description == "Updated"
 
 
+def test_create_document_template_stores_versioned_content():
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Certificado",
+        code="CERT",
+        content="Hola {{student.full_name}}",
+    )
+
+    assert template.versions.get().content == "Hola {{student.full_name}}"
+
+
+def test_update_document_template_updates_content_and_preserves_history():
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Constancia",
+        code="CONST",
+        content="Antes",
+    )
+
+    update_document_template(template=template, content="Despues")
+
+    versions = list(template.versions.order_by("sequence"))
+    assert [v.content for v in versions] == ["Antes", "Despues"]
+    assert versions[-1].content == "Despues"
+
+
 def test_update_document_template_leaves_code_untouched():
     template = DocumentTemplateFactory(code="ORIGINAL")
 
@@ -261,6 +291,79 @@ def test_update_document_template_leaves_code_untouched():
 
     template.refresh_from_db()
     assert template.code == "ORIGINAL"
+
+
+def test_preview_document_template_renders_only_allowed_markers():
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Constancia",
+        code="CONST",
+        content="Estudiante: {{student.full_name}} | Institucion: {{institution.name}}",
+    )
+
+    preview = preview_document_template(
+        template=template,
+        payload={
+            "student.full_name": "Ana López",
+            "institution.name": "INEBI",
+        },
+    )
+
+    assert preview["content"] == "Estudiante: Ana López | Institucion: INEBI"
+    assert preview["marker_count"] == 2
+
+
+def test_preview_document_template_rejects_unknown_markers():
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Constancia",
+        code="CONST",
+        content="Bloqueado: {{student.health_note}}",
+    )
+
+    with pytest.raises(DomainError, match=r"no permitido|no form\w+ dentro del catalogo|catalogo cerrado"):
+        preview_document_template(template=template, payload={"student.health_note": "abc"})
+
+
+def test_validate_document_checksum_accepts_matching_payload():
+    payload = b"archivo"
+    document = DocumentRecord.objects.create(
+        student=StudentFactory(),
+        filename="doc.pdf",
+        storage_key="local/doc.pdf",
+        content_type="application/pdf",
+        size_bytes=len(payload),
+        checksum=hashlib.sha256(payload).hexdigest(),
+    )
+    document.save(update_fields=["checksum", "updated_at"])
+
+    assert validate_document_checksum(document=document, payload=payload) is True
+
+
+def test_document_storage_usage_summary_counts_and_sums_document_records():
+    institution = InstitutionFactory()
+    student = StudentFactory()
+    DocumentRecord.objects.create(
+        student=student,
+        filename="a.pdf",
+        storage_key="local/a.pdf",
+        content_type="application/pdf",
+        size_bytes=10,
+        checksum="a",
+    )
+    DocumentRecord.objects.create(
+        student=StudentFactory(),
+        filename="b.pdf",
+        storage_key="local/b.pdf",
+        content_type="application/pdf",
+        size_bytes=25,
+        checksum="b",
+    )
+
+    summary = document_storage_usage_summary(institution=institution)
+
+    assert summary["total_files"] == 2
+    assert summary["total_size_bytes"] == 35
 
 
 # --------------------------------------------------------------------------- #
