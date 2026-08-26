@@ -103,6 +103,7 @@ class DocumentTemplate(TimeStampedModel):
     code = models.CharField(max_length=30)
     kind = models.CharField(max_length=20, choices=TemplateKind.choices, default=TemplateKind.OTHER)
     description = models.CharField(max_length=255, blank=True)
+    content = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["name"]
@@ -157,6 +158,7 @@ class DocumentTemplateVersion(TimeStampedModel):
     name = models.CharField(max_length=150)
     kind = models.CharField(max_length=20, choices=DocumentTemplate.TemplateKind.choices)
     description = models.CharField(max_length=255, blank=True)
+    content = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["-sequence"]
