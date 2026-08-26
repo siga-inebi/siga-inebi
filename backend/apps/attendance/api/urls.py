@@ -11,6 +11,7 @@ from apps.attendance.api.views import (
     ControlPointListView,
     JornadaClosureView,
     JornadaParametersListCreateView,
+    ManualRegistrationReasonListView,
     StudentCredentialIssueView,
     StudentCredentialResolutionView,
 )
@@ -65,6 +66,11 @@ urlpatterns = [
         "scan/",
         AttendanceScanView.as_view(),
         name="attendance-scan",
+    ),
+    path(
+        "manual-registration-reasons/",
+        ManualRegistrationReasonListView.as_view(),
+        name="attendance-manual-registration-reason-list",
     ),
     path(
         "credentials/",

@@ -6,6 +6,7 @@ from apps.attendance.models import (
     ControlPoint,
     DayStatus,
     JornadaParameters,
+    ManualRegistrationReason,
     StudentCredential,
 )
 
@@ -55,8 +56,9 @@ class AttendanceEventSerializer(serializers.ModelSerializer):
     control_point_id = serializers.UUIDField(
         source="control_point.public_id", read_only=True, allow_null=True
     )
-    operator_id = serializers.UUIDField(
-        source="operator.public_id", read_only=True, allow_null=True
+    operator_id = serializers.IntegerField(source="operator.pk", read_only=True, allow_null=True)
+    manual_reason_id = serializers.UUIDField(
+        source="manual_reason.public_id", read_only=True, allow_null=True
     )
 
     class Meta:
@@ -72,6 +74,7 @@ class AttendanceEventSerializer(serializers.ModelSerializer):
             "captured_at",
             "control_point_id",
             "operator_id",
+            "manual_reason_id",
             "client_event_id",
             "batch_id",
             "is_active",
@@ -91,6 +94,13 @@ class AttendanceEventCreateSerializer(serializers.Serializer):
         default=AttendanceEvent.Transmission.INDIVIDUAL,
     )
     captured_at = serializers.DateTimeField(help_text="Hora de captura del evento.")
+    manual_reason_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Public ID del motivo (ManualRegistrationReason). Obligatorio cuando "
+            "origin=manual; se ignora para los demas origenes."
+        ),
+    )
 
 
 class DayStatusQuerySerializer(serializers.Serializer):
@@ -183,6 +193,7 @@ class AttendancePercentageResultSerializer(serializers.Serializer):
     present_days = serializers.IntegerField()
     late_days = serializers.IntegerField()
     percentage = serializers.FloatField(allow_null=True)
+    regulatory_notice = serializers.CharField()
 
 
 class ControlPointSerializer(serializers.ModelSerializer):
@@ -191,6 +202,12 @@ class ControlPointSerializer(serializers.ModelSerializer):
     class Meta:
         model = ControlPoint
         fields = ["public_id", "name", "code", "campus_id", "is_active"]
+
+
+class ManualRegistrationReasonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ManualRegistrationReason
+        fields = ["public_id", "name", "code", "is_active"]
 
 
 class ScanCaptureItemSerializer(serializers.Serializer):

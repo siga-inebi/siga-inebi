@@ -72,6 +72,22 @@ class ControlPoint(TimeStampedModel):
         return f"{self.name} ({self.campus})"
 
 
+class ManualRegistrationReason(TimeStampedModel):
+    """
+    A configurable reason a manual attendance registration can cite
+    (RF-ASI-012). Deliberately minimal, same pattern as ``ControlPoint``:
+    just enough for an ``AttendanceEvent`` to reference why it was recorded
+    without a scan. Retiring one (``is_active=False``) never touches events
+    that already cite it (AGENTS.md #12).
+    """
+
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=30, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
 class AttendanceEvent(TimeStampedModel):
     """
     A single movement record for a student in a jornada (RF-JOR-002/003):
@@ -119,6 +135,13 @@ class AttendanceEvent(TimeStampedModel):
         "identity.UserAccount",
         on_delete=models.PROTECT,
         related_name="attendance_events_operated",
+        null=True,
+        blank=True,
+    )
+    manual_reason = models.ForeignKey(
+        ManualRegistrationReason,
+        on_delete=models.PROTECT,
+        related_name="attendance_events",
         null=True,
         blank=True,
     )
