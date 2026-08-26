@@ -227,16 +227,67 @@ def test_activate_cycle_reports_grade_without_curriculum_plan():
 def test_activate_cycle_accepts_available_complete_structure():
     prepared = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
     offering = GradeOfferingFactory(academic_cycle=prepared)
-    SectionFactory(academic_cycle=prepared, grade=offering.grade, shift=offering.shift)
+    section = SectionFactory(academic_cycle=prepared, grade=offering.grade, shift=offering.shift)
+    subject = SubjectFactory(institution=prepared.institution)
     CurriculumPlan.objects.create(
         academic_cycle=prepared,
         grade=offering.grade,
-        subject=SubjectFactory(institution=prepared.institution),
+        subject=subject,
+    )
+    TeachingAssignment.objects.create(
+        academic_cycle=prepared,
+        section=section,
+        subject=subject,
+        teacher=TeacherFactory().person,
+        starts_on=prepared.starts_on,
     )
 
     activated = activate_academic_cycle(cycle=prepared)
 
     assert activated.status == AcademicCycle.CycleStatus.ACTIVE
+
+
+def test_activate_cycle_reports_section_subject_without_teacher():
+    """RF-EST-010: every subarea of every configured section needs a current teacher."""
+    prepared = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    offering = GradeOfferingFactory(academic_cycle=prepared)
+    section = SectionFactory(academic_cycle=prepared, grade=offering.grade, shift=offering.shift)
+    subject = SubjectFactory(institution=prepared.institution)
+    CurriculumPlan.objects.create(
+        academic_cycle=prepared,
+        grade=offering.grade,
+        subject=subject,
+    )
+
+    with pytest.raises(DomainError, match=f"{subject.name}.*{section.name}"):
+        activate_academic_cycle(cycle=prepared)
+
+    prepared.refresh_from_db()
+    assert prepared.status == AcademicCycle.CycleStatus.DRAFT
+
+
+def test_activate_cycle_reports_subject_whose_only_teacher_assignment_has_ended():
+    """A closed (reassigned) teaching assignment does not count as current coverage."""
+    prepared = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    offering = GradeOfferingFactory(academic_cycle=prepared)
+    section = SectionFactory(academic_cycle=prepared, grade=offering.grade, shift=offering.shift)
+    subject = SubjectFactory(institution=prepared.institution)
+    CurriculumPlan.objects.create(
+        academic_cycle=prepared,
+        grade=offering.grade,
+        subject=subject,
+    )
+    TeachingAssignment.objects.create(
+        academic_cycle=prepared,
+        section=section,
+        subject=subject,
+        teacher=TeacherFactory().person,
+        starts_on=prepared.starts_on,
+        ends_on=prepared.starts_on + timedelta(days=30),
+    )
+
+    with pytest.raises(DomainError, match=f"{subject.name}.*{section.name}"):
+        activate_academic_cycle(cycle=prepared)
 
 
 def test_create_section_creates_offering_and_section_when_missing():

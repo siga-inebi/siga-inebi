@@ -253,22 +253,40 @@ def _academic_cycle_opening_gaps(cycle):
         return ["at least one grade offering"]
 
     gaps = []
-    grades_with_plan = set(
-        cycle.curriculum_plans.filter(is_active=True).values_list("grade_id", flat=True)
+    subjects_by_grade = {}
+    for plan in cycle.curriculum_plans.filter(is_active=True).select_related("subject"):
+        subjects_by_grade.setdefault(plan.grade_id, []).append(plan.subject)
+
+    # Current (ends_on is null) teaching assignments, keyed by the pair every
+    # subarea of a section must clear (RF-EST-010): no partial credit for a
+    # closed, superseded assignment.
+    assigned_pairs = set(
+        cycle.teaching_assignments.filter(ends_on__isnull=True).values_list(
+            "section_id", "subject_id"
+        )
     )
+
     reported_plan_gaps = set()
     for offering in offerings:
-        if not offering.sections.filter(is_active=True).exists():
+        active_sections = [section for section in offering.sections.all() if section.is_active]
+        if not active_sections:
             gaps.append(
                 f"faltan secciones del grado '{offering.grade.name}' en la jornada "
                 f"'{offering.shift.name}'"
             )
-        if (
-            offering.grade_id not in grades_with_plan
-            and offering.grade_id not in reported_plan_gaps
-        ):
-            gaps.append(f"falta el plan de estudios del grado '{offering.grade.name}'")
-            reported_plan_gaps.add(offering.grade_id)
+        subjects = subjects_by_grade.get(offering.grade_id)
+        if subjects is None:
+            if offering.grade_id not in reported_plan_gaps:
+                gaps.append(f"falta el plan de estudios del grado '{offering.grade.name}'")
+                reported_plan_gaps.add(offering.grade_id)
+            continue
+        for section in active_sections:
+            for subject in subjects:
+                if (section.id, subject.id) not in assigned_pairs:
+                    gaps.append(
+                        f"falta asignar docente para '{subject.name}' en la seccion "
+                        f"'{section.name}' del grado '{offering.grade.name}'"
+                    )
     return gaps
 
 
