@@ -1775,6 +1775,21 @@ def test_record_scan_batch_resend_of_confirmed_batch_is_a_no_op_success():
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-007 — origen y transmision como atributos independientes
+# --------------------------------------------------------------------------- #
+
+
+def test_record_scan_batch_keeps_origin_and_transmission_independent_and_distinguishable():
+    """
+    Escenario 1 (RF-ASI-007): GIVEN un operador que acumulo movimientos
+    escaneados en un lote, WHEN confirma el lote, THEN cada evento conserva
+    origen de escaneo y transmision por lote, AND en los reportes se
+    distingue de los movimientos de origen declarado.
+
+    ``origin`` y ``transmission`` son columnas separadas desde que existen
+    (RF-ASI-002); esta prueba cierra el requerimiento verificando que un
+    lote confirmado las guarda correctamente y que una consulta que agrupa
+    movimientos por origen no confunde un escaneo en lote con uno declarado.
 # RF-ASI-012 — registro manual autorizado
 # --------------------------------------------------------------------------- #
 
@@ -1910,6 +1925,45 @@ def test_record_scan_batch_preserves_scanned_captured_at_when_batch_confirms_lat
                 "shift": shift,
                 "control_point": control_point,
                 "movement_type": AttendanceEvent.MovementType.ENTRY,
+                "captured_at": _at(cycle.starts_on, 7, 0),
+                "client_event_id": "origin-batch-1",
+                "batch_id": "origin-batch",
+                "transmission": AttendanceEvent.Transmission.BATCH,
+            },
+            {
+                "student": student,
+                "shift": shift,
+                "control_point": control_point,
+                "movement_type": AttendanceEvent.MovementType.EXIT,
+                "captured_at": _at(cycle.starts_on, 15, 0),
+                "client_event_id": "origin-batch-2",
+                "batch_id": "origin-batch",
+                "transmission": AttendanceEvent.Transmission.BATCH,
+            },
+        ],
+        operator=operator,
+    )
+    for result in results:
+        assert result.event.origin == AttendanceEvent.Origin.SCAN
+        assert result.event.transmission == AttendanceEvent.Transmission.BATCH
+
+    declared_exit = services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(cycle.starts_on, 16, 0),
+    )
+
+    origins_by_id = {
+        event.pk: event.origin
+        for event in AttendanceEvent.objects.filter(
+            student=student, shift=shift, event_date=cycle.starts_on
+        )
+    }
+    assert origins_by_id.pop(declared_exit.pk) == AttendanceEvent.Origin.DECLARED
+    assert set(origins_by_id.values()) == {AttendanceEvent.Origin.SCAN}
                 "captured_at": scanned_at,
                 "client_event_id": "clock-authority-1",
                 "batch_id": "clock-authority-batch",
