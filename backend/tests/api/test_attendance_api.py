@@ -743,6 +743,44 @@ def test_scan_endpoint_creates_event_with_permission(auth_client):
     assert body[0]["event"]["control_point_id"] == str(control_point.public_id)
 
 
+def test_scan_endpoint_confirmation_shows_only_photo_name_grade_and_section(auth_client):
+    """
+    RF-ASI-003: la confirmacion trae exactamente foto, nombre completo, grado
+    y seccion -- nada de salud, calificaciones, contacto ni domicilio.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    item = _scan_item(student, parameters.shift, control_point, "confirmation-1", timezone.now())
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [item]}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    confirmation = response.json()[0]["confirmation"]
+    assert set(confirmation.keys()) == {
+        "student_id",
+        "full_name",
+        "grade_name",
+        "section_name",
+        "photo_url",
+    }
+    assert confirmation["student_id"] == str(student.public_id)
+    assert confirmation["full_name"] == f"{student.person.first_name} {student.person.last_name}"
+    assert confirmation["grade_name"] == section.offering.grade.name
+    assert confirmation["section_name"] == section.name
+
+
 def test_scan_endpoint_rejects_duplicate_and_reports_existing_captured_at(auth_client):
     _grant(auth_client.user, "attendance_scan")
     _grant(auth_client.user, "attendance_record_entry")
@@ -834,6 +872,7 @@ def test_scan_endpoint_reports_scanned_captured_at_distinct_from_server_created_
     dispositivo que escaneo.
     """
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
     parameters = JornadaParametersFactory()
     student = StudentFactory()
     _enrol(student, parameters.academic_cycle)
@@ -894,6 +933,7 @@ def test_manual_registration_reasons_list_returns_catalogue(auth_client):
 
 def test_create_manual_attendance_event_requires_reason(auth_client):
     _grant(auth_client.user, "attendance_record_manual")
+    _grant(auth_client.user, "attendance_record_entry")
     student = StudentFactory()
     shift = ShiftFactory()
 
@@ -916,6 +956,7 @@ def test_create_manual_attendance_event_stores_reason_and_operator(auth_client):
     identidad del autorizador.
     """
     _grant(auth_client.user, "attendance_record_manual")
+    _grant(auth_client.user, "attendance_record_entry")
     student = StudentFactory()
     shift = ShiftFactory()
     reason = ManualRegistrationReasonFactory(name="Olvido su credencial")

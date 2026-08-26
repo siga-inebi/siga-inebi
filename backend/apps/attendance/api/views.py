@@ -543,6 +543,7 @@ class AttendanceScanView(GenericAPIView):
                 "outcome": result.outcome,
                 "event": getattr(result, "event", None),
                 "duplicate_of": getattr(result, "duplicate_of", None),
+                "confirmation": getattr(result, "confirmation", None),
                 "reason": getattr(result, "reason", ""),
             }
             for result in (results_by_index[i] for i in range(len(raw_items)))

@@ -265,6 +265,20 @@ class ScanCaptureRequestSerializer(serializers.Serializer):
     items = ScanCaptureItemSerializer(many=True, allow_empty=False)
 
 
+class ScanConfirmationSerializer(serializers.Serializer):
+    """
+    RF-ASI-003: exclusively the fields the operator needs to confirm the
+    person in front of them. No health, academic, contact or address data
+    belongs here -- see ``services.ScanConfirmation``.
+    """
+
+    student_id = serializers.UUIDField(source="student.public_id")
+    full_name = serializers.CharField()
+    grade_name = serializers.CharField(allow_null=True)
+    section_name = serializers.CharField(allow_null=True)
+    photo_url = serializers.CharField(allow_null=True)
+
+
 class ScanCaptureItemResultSerializer(serializers.Serializer):
     client_event_id = serializers.CharField()
     outcome = serializers.ChoiceField(
@@ -272,6 +286,7 @@ class ScanCaptureItemResultSerializer(serializers.Serializer):
     )
     event = AttendanceEventSerializer(allow_null=True)
     duplicate_of = AttendanceEventSerializer(allow_null=True)
+    confirmation = ScanConfirmationSerializer(allow_null=True)
     reason = serializers.CharField(allow_blank=True)
 
 
