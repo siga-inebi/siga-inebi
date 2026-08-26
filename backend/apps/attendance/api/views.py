@@ -21,6 +21,7 @@ from rest_framework.response import Response
 from apps.attendance import queries, services
 from apps.audit.services import record_sensitive_read
 from apps.common.exceptions import AuthorizationError, DomainError
+from apps.identity import services as identity_services
 from apps.identity.scopes import authorized_student_queryset, can_access_student
 
 from .serializers import (
@@ -61,6 +62,7 @@ def _require_permission(request, codename):
 # replace this mapping; this skeleton exists only so RF-JOR-002/003 have
 # events to read (see tmp/attendance_basis.md).
 ORIGIN_PERMISSIONS = queries.origin_permissions()
+MOVEMENT_TYPE_PERMISSIONS = queries.movement_type_permissions()
 
 TAGS = ["attendance: jornada"]
 
@@ -150,9 +152,15 @@ class AttendanceEventListCreateView(GenericAPIView):
         serializer = AttendanceEventCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
-        codename = ORIGIN_PERMISSIONS[payload["origin"]]
-        if not request.user.has_atomic_permission(codename):
-            raise AuthorizationError("El actor no tiene el permiso requerido.")
+        identity_services.require_all_permissions(
+            actor=request.user,
+            permission_codenames=[
+                ORIGIN_PERMISSIONS[payload["origin"]],
+                MOVEMENT_TYPE_PERMISSIONS[payload["movement_type"]],
+            ],
+            denial_action="attendance.event.capture_denied",
+            denial_resource="AttendanceEvent",
+        )
         student = queries.student_for_payload(payload.pop("student_id"))
         shift = queries.shift_for_payload(payload.pop("shift_id"))
         event = services.record_attendance_event(
@@ -449,13 +457,22 @@ class AttendanceScanView(GenericAPIView):
         results_by_index = {}
         for index, raw_item in enumerate(raw_items):
             try:
+                identity_services.require_all_permissions(
+                    actor=request.user,
+                    permission_codenames=[
+                        ORIGIN_PERMISSIONS["scan"],
+                        MOVEMENT_TYPE_PERMISSIONS[raw_item["movement_type"]],
+                    ],
+                    denial_action="attendance.event.capture_denied",
+                    denial_resource="AttendanceEvent",
+                )
                 student = services.resolve_scan_subject(
                     credential_identifier=raw_item.get("credential_identifier", ""),
                     student_code=raw_item.get("student_code", ""),
                 )
                 shift = queries.shift_for_payload(raw_item["shift_id"])
                 control_point = queries.control_point_for_payload(raw_item["control_point_id"])
-            except DomainError as exc:
+            except (DomainError, AuthorizationError) as exc:
                 results_by_index[index] = services.RejectedScanItem(
                     client_event_id=raw_item["client_event_id"], reason=str(exc)
                 )

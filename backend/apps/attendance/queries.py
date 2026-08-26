@@ -75,6 +75,13 @@ def origin_permissions():
     }
 
 
+def movement_type_permissions():
+    return {
+        AttendanceEvent.MovementType.ENTRY: "attendance_record_entry",
+        AttendanceEvent.MovementType.EXIT: "attendance_record_exit",
+    }
+
+
 def no_event_error():
     return ResourceNotFoundError(
         "No se encontro movimiento de asistencia para los criterios indicados."

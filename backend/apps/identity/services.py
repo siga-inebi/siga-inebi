@@ -43,6 +43,30 @@ def _has_identity_permission(actor, codename):
     )
 
 
+def require_all_permissions(
+    *, actor, permission_codenames, denial_action, denial_resource="", denial_resource_identifier=""
+):
+    """
+    Composite authorization: ``actor`` must hold every codename in
+    ``permission_codenames``, not just one of them (RF-ASI-006 — a capture
+    attempt needs permission for both its movement type and its capture
+    mode). Missing any of them denies the whole attempt and records an
+    auditable rejection, never a silent failure: permission composition is
+    identity's concern, the caller only supplies which codenames apply and
+    where to file the denial.
+    """
+    if all(actor.has_atomic_permission(codename) for codename in permission_codenames):
+        return
+    record_event(
+        actor=actor,
+        action=denial_action,
+        resource=denial_resource,
+        resource_identifier=denial_resource_identifier,
+        context={"result": "denied", "permissions_required": list(permission_codenames)},
+    )
+    raise AuthorizationError("El actor no tiene los permisos requeridos para esta operacion.")
+
+
 def filter_queryset_by_scope(*, actor, codename, queryset, dimension, lookup, when=None):
     if dimension not in SCOPE_DIMENSIONS:
         raise DomainError("Dimension de alcance no soportada.")
