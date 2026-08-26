@@ -1064,6 +1064,13 @@ def list_present_students(
     return [entry for entry in roster if entry.entry_event is not None and entry.exit_event is None]
 
 
+ATTENDANCE_PERCENTAGE_REGULATORY_NOTICE = (
+    "Este porcentaje es un indicador informativo derivado de los movimientos "
+    "registrados; no sustituye los criterios reglamentarios oficiales para "
+    "evaluar la asistencia del estudiante."
+)
+
+
 @dataclass
 class AttendancePercentageResult:
     student: object
@@ -1074,6 +1081,7 @@ class AttendancePercentageResult:
     present_days: int
     late_days: int
     percentage: float | None
+    regulatory_notice: str = ATTENDANCE_PERCENTAGE_REGULATORY_NOTICE
 
 
 def compute_attendance_percentage(*, student, shift, as_of_date=None):
@@ -1083,6 +1091,11 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
     progress (no closure yet, no final status) doesn't count in either the
     numerator or the denominator. Nothing here is persisted — like
     ``DayStatus``, this is recomputed from events and parameters every time.
+
+    RF-JOR-011: every result — including the empty ones below, where there is
+    nothing yet to report — carries ``regulatory_notice`` so a consumer that
+    renders this into a report can never drop the disclaimer by only handling
+    the "has a number" branch.
     """
     as_of_date = as_of_date or timezone.localdate()
     academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=as_of_date)

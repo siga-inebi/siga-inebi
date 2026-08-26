@@ -7,6 +7,8 @@ RF-JOR-005 — contrato de alertas de inconsistencia generadas al registrar even
 RF-JOR-006 — recalculo ante cambios, disparado desde los mismos endpoints.
 RF-JOR-008 — contrato del endpoint de presencia en tiempo real.
 RF-JOR-009 — contrato del endpoint de porcentaje de asistencia del ciclo.
+RF-JOR-011 — el endpoint de porcentaje siempre incluye la advertencia
+reglamentaria.
 RF-ASI-001/002/004/010 — contrato del endpoint de captura por escaneo y del
 catalogo de puntos de control.
 RF-CRE-001 — contrato del endpoint de emision de credencial.
@@ -714,6 +716,7 @@ def test_percentage_returns_value_for_authorized_student(auth_client):
     assert data["elapsed_school_days"] == 1
     assert data["present_days"] == 1
     assert data["percentage"] == 100.0
+    assert data["regulatory_notice"]
 
 
 def test_scan_endpoint_creates_event_with_permission(auth_client):

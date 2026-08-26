@@ -7,6 +7,7 @@ RF-JOR-005 — deteccion de inconsistencias entre fuentes.
 RF-JOR-006 — recalculo ante cambios.
 RF-JOR-008 — consulta de presencia en tiempo real.
 RF-JOR-009 — porcentaje de asistencia del ciclo.
+RF-JOR-011 — advertencia sobre el uso reglamentario del indicador.
 RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
 idempotencia.
 RF-CRE-001 — emision de credencial con identificador opaco.
@@ -1369,6 +1370,85 @@ def test_compute_attendance_percentage_raises_when_student_not_enrolled_in_cycle
         services.compute_attendance_percentage(
             student=unrelated_student, shift=shift, as_of_date=cycle.starts_on
         )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-011 — advertencia sobre el uso reglamentario del indicador
+# --------------------------------------------------------------------------- #
+
+
+def test_compute_attendance_percentage_carries_the_regulatory_notice():
+    day = timezone.localdate() - timedelta(days=1)
+    cycle = AcademicCycleFactory(starts_on=day, ends_on=day + timedelta(days=200))
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=day,
+    )
+    shift = section.offering.shift
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=day,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=day,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(day, 7, 0),
+    )
+
+    result = services.compute_attendance_percentage(student=student, shift=shift, as_of_date=day)
+
+    assert result.regulatory_notice == services.ATTENDANCE_PERCENTAGE_REGULATORY_NOTICE
+
+
+def test_compute_attendance_percentage_carries_the_regulatory_notice_even_when_no_days_elapsed():
+    """
+    The report can't omit the disclaimer just because there is nothing to
+    report yet — a reader who sees "0%" or a blank indicator needs the same
+    warning about its informative, non-regulatory character.
+    """
+    tomorrow = timezone.localdate() + timedelta(days=1)
+    cycle = AcademicCycleFactory(starts_on=tomorrow, ends_on=tomorrow + timedelta(days=60))
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=tomorrow,
+    )
+    shift = section.offering.shift
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=tomorrow,
+    )
+
+    result = services.compute_attendance_percentage(
+        student=student, shift=shift, as_of_date=tomorrow
+    )
+
+    assert result.elapsed_school_days == 0
+    assert result.regulatory_notice == services.ATTENDANCE_PERCENTAGE_REGULATORY_NOTICE
 
 
 # --------------------------------------------------------------------------- #
