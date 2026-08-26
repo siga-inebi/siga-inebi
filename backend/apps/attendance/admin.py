@@ -5,6 +5,7 @@ from apps.attendance.models import (
     AttendanceEvent,
     ControlPoint,
     JornadaParameters,
+    ManualRegistrationReason,
     StudentCredential,
 )
 
@@ -21,6 +22,11 @@ class ControlPointAdmin(admin.ModelAdmin):
     list_filter = ["campus"]
 
 
+@admin.register(ManualRegistrationReason)
+class ManualRegistrationReasonAdmin(admin.ModelAdmin):
+    list_display = ["name", "code", "is_active"]
+
+
 @admin.register(AttendanceEvent)
 class AttendanceEventAdmin(admin.ModelAdmin):
     list_display = [
@@ -31,6 +37,7 @@ class AttendanceEventAdmin(admin.ModelAdmin):
         "origin",
         "control_point",
         "operator",
+        "manual_reason",
         "captured_at",
     ]
     list_filter = ["shift", "movement_type", "origin"]
