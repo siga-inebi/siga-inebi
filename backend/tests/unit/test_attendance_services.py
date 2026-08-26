@@ -1772,6 +1772,54 @@ def test_record_scan_batch_resend_of_confirmed_batch_is_a_no_op_success():
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-008 — autoridad del reloj y hora de captura
+# --------------------------------------------------------------------------- #
+
+
+def test_record_scan_batch_preserves_scanned_captured_at_when_batch_confirms_later():
+    """
+    Escenario 1 (RF-ASI-008): GIVEN un movimiento escaneado a las 12:20 dentro
+    de un lote abierto, WHEN el operador confirma el lote a las 12:35, THEN
+    el evento conserva 12:20 como hora de captura, AND registra 12:35 como
+    hora de registro.
+
+    ``created_at`` (``auto_now_add``) es la autoridad del reloj: se toma del
+    servidor en el instante real de la escritura (la confirmacion), nunca del
+    dispositivo. ``captured_at`` es el dato del escaneo individual, provisto
+    por el item, y ninguna operacion de lote lo sustituye por la hora de
+    confirmacion.
+    """
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+    scanned_at = _at(cycle.starts_on, 12, 20)
+
+    before_confirmation = timezone.now()
+    results = services.record_scan_batch(
+        items=[
+            {
+                "student": student,
+                "shift": shift,
+                "control_point": control_point,
+                "movement_type": AttendanceEvent.MovementType.ENTRY,
+                "captured_at": scanned_at,
+                "client_event_id": "clock-authority-1",
+                "batch_id": "clock-authority-batch",
+            }
+        ],
+        operator=operator,
+    )
+    after_confirmation = timezone.now()
+
+    event = results[0].event
+    assert event.captured_at == scanned_at
+    assert before_confirmation <= event.created_at <= after_confirmation
+    assert event.created_at != event.captured_at
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-001 — emision de credencial con identificador opaco
 # --------------------------------------------------------------------------- #
 

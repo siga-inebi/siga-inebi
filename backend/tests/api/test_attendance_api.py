@@ -818,6 +818,35 @@ def test_scan_batch_endpoint_reports_mixed_outcomes_per_item(auth_client):
     assert outcomes == ["created", "rejected"]
 
 
+def test_scan_endpoint_reports_scanned_captured_at_distinct_from_server_created_at(auth_client):
+    """
+    RF-ASI-008: la hora de captura que llega en el item del escaneo se
+    conserva tal cual en la respuesta; la hora de registro (``created_at``)
+    es la del servidor al momento de procesar la solicitud, no la del
+    dispositivo que escaneo.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    _enrol(student, parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    scanned_at = timezone.make_aware(datetime.combine(parameters.effective_from, time(12, 20)))
+
+    before_request = timezone.now()
+    response = auth_client.post(
+        reverse("attendance-scan"),
+        {"items": [_scan_item(student, parameters.shift, control_point, "clock-1", scanned_at)]},
+        content_type="application/json",
+    )
+    after_request = timezone.now()
+
+    assert response.status_code == 200
+    event = response.json()[0]["event"]
+    assert event["captured_at"] == scanned_at.isoformat()
+    reported_created_at = datetime.fromisoformat(event["created_at"])
+    assert before_request <= reported_created_at <= after_request
+
+
 def test_control_points_list_requires_authentication(client):
     response = client.get(reverse("attendance-control-point-list"))
 
