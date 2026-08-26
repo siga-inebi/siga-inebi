@@ -228,11 +228,29 @@ def record_attendance_event(
 
 
 @dataclass
+class ScanConfirmation:
+    """
+    RF-ASI-003: exactly what the operator needs to verify the person in
+    front of them is who the scan says -- photo, full name, grade and
+    section. Deliberately excludes everything else the student record
+    carries (health, grades, family contact, address): those belong to
+    the expediente, not to this confirmation screen.
+    """
+
+    student: object
+    full_name: str
+    grade_name: str | None
+    section_name: str | None
+    photo_url: str | None
+
+
+@dataclass
 class ScanCaptureResult:
     client_event_id: str
     outcome: str  # "created" | "duplicate_suppressed" | "already_processed"
     event: AttendanceEvent
     duplicate_of: AttendanceEvent | None = None
+    confirmation: ScanConfirmation | None = None
 
 
 @dataclass
@@ -240,6 +258,19 @@ class RejectedScanItem:
     client_event_id: str
     outcome: str = "rejected"
     reason: str = ""
+
+
+def resolve_scan_confirmation(*, student, shift, event_date):
+    """RF-ASI-003: build the confirmation snapshot for a resolved scan subject."""
+    enrolment = _active_enrolment_for(student=student, shift=shift, event_date=event_date)
+    grade = enrolment.section.offering.grade if enrolment is not None else None
+    return ScanConfirmation(
+        student=student,
+        full_name=f"{student.person.first_name} {student.person.last_name}".strip(),
+        grade_name=grade.name if grade is not None else None,
+        section_name=enrolment.section.name if enrolment is not None else None,
+        photo_url=student.photo.url if student.photo else None,
+    )
 
 
 @transaction.atomic
@@ -282,7 +313,12 @@ def record_scan_movement(
         existing = AttendanceEvent.objects.filter(client_event_id=client_event_id).first()
         if existing is not None:
             return ScanCaptureResult(
-                client_event_id=client_event_id, outcome="already_processed", event=existing
+                client_event_id=client_event_id,
+                outcome="already_processed",
+                event=existing,
+                confirmation=resolve_scan_confirmation(
+                    student=student, shift=shift, event_date=existing.event_date
+                ),
             )
 
     event_date = timezone.localtime(captured_at).date()
@@ -325,6 +361,9 @@ def record_scan_movement(
             outcome="duplicate_suppressed",
             event=duplicate,
             duplicate_of=duplicate,
+            confirmation=resolve_scan_confirmation(
+                student=student, shift=shift, event_date=event_date
+            ),
         )
 
     with unique_violation_as(
@@ -373,7 +412,12 @@ def record_scan_movement(
             reason=RecalculationReason.LATE_EVENT,
             actor=actor or operator,
         )
-    return ScanCaptureResult(client_event_id=client_event_id, outcome="created", event=event)
+    return ScanCaptureResult(
+        client_event_id=client_event_id,
+        outcome="created",
+        event=event,
+        confirmation=resolve_scan_confirmation(student=student, shift=shift, event_date=event_date),
+    )
 
 
 def record_scan_batch(*, items, operator, actor=None):

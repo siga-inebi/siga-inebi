@@ -19,6 +19,7 @@ All in isolation from the API layer.
 from datetime import datetime, time, timedelta
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
 from apps.attendance import services
@@ -1790,6 +1791,62 @@ def test_record_scan_batch_keeps_origin_and_transmission_independent_and_disting
     (RF-ASI-002); esta prueba cierra el requerimiento verificando que un
     lote confirmado las guarda correctamente y que una consulta que agrupa
     movimientos por origen no confunde un escaneo en lote con uno declarado.
+    """
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    results = services.record_scan_batch(
+        items=[
+            {
+                "student": student,
+                "shift": shift,
+                "control_point": control_point,
+                "movement_type": AttendanceEvent.MovementType.ENTRY,
+                "captured_at": _at(cycle.starts_on, 7, 0),
+                "client_event_id": "origin-batch-1",
+                "batch_id": "origin-batch",
+                "transmission": AttendanceEvent.Transmission.BATCH,
+            },
+            {
+                "student": student,
+                "shift": shift,
+                "control_point": control_point,
+                "movement_type": AttendanceEvent.MovementType.EXIT,
+                "captured_at": _at(cycle.starts_on, 15, 0),
+                "client_event_id": "origin-batch-2",
+                "batch_id": "origin-batch",
+                "transmission": AttendanceEvent.Transmission.BATCH,
+            },
+        ],
+        operator=operator,
+    )
+    for result in results:
+        assert result.event.origin == AttendanceEvent.Origin.SCAN
+        assert result.event.transmission == AttendanceEvent.Transmission.BATCH
+
+    declared_exit = services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(cycle.starts_on, 16, 0),
+    )
+
+    origins_by_id = {
+        event.pk: event.origin
+        for event in AttendanceEvent.objects.filter(
+            student=student, shift=shift, event_date=cycle.starts_on
+        )
+    }
+    assert origins_by_id.pop(declared_exit.pk) == AttendanceEvent.Origin.DECLARED
+    assert set(origins_by_id.values()) == {AttendanceEvent.Origin.SCAN}
+
+
+# --------------------------------------------------------------------------- #
 # RF-ASI-012 — registro manual autorizado
 # --------------------------------------------------------------------------- #
 
@@ -1893,6 +1950,9 @@ def test_record_attendance_event_declared_does_not_require_operator_or_reason():
 
     assert event.operator is None
     assert event.manual_reason is None
+
+
+# --------------------------------------------------------------------------- #
 # RF-ASI-008 — autoridad del reloj y hora de captura
 # --------------------------------------------------------------------------- #
 
@@ -1925,45 +1985,6 @@ def test_record_scan_batch_preserves_scanned_captured_at_when_batch_confirms_lat
                 "shift": shift,
                 "control_point": control_point,
                 "movement_type": AttendanceEvent.MovementType.ENTRY,
-                "captured_at": _at(cycle.starts_on, 7, 0),
-                "client_event_id": "origin-batch-1",
-                "batch_id": "origin-batch",
-                "transmission": AttendanceEvent.Transmission.BATCH,
-            },
-            {
-                "student": student,
-                "shift": shift,
-                "control_point": control_point,
-                "movement_type": AttendanceEvent.MovementType.EXIT,
-                "captured_at": _at(cycle.starts_on, 15, 0),
-                "client_event_id": "origin-batch-2",
-                "batch_id": "origin-batch",
-                "transmission": AttendanceEvent.Transmission.BATCH,
-            },
-        ],
-        operator=operator,
-    )
-    for result in results:
-        assert result.event.origin == AttendanceEvent.Origin.SCAN
-        assert result.event.transmission == AttendanceEvent.Transmission.BATCH
-
-    declared_exit = services.record_attendance_event(
-        student=student,
-        shift=shift,
-        event_date=cycle.starts_on,
-        movement_type=AttendanceEvent.MovementType.EXIT,
-        origin=AttendanceEvent.Origin.DECLARED,
-        captured_at=_at(cycle.starts_on, 16, 0),
-    )
-
-    origins_by_id = {
-        event.pk: event.origin
-        for event in AttendanceEvent.objects.filter(
-            student=student, shift=shift, event_date=cycle.starts_on
-        )
-    }
-    assert origins_by_id.pop(declared_exit.pk) == AttendanceEvent.Origin.DECLARED
-    assert set(origins_by_id.values()) == {AttendanceEvent.Origin.SCAN}
                 "captured_at": scanned_at,
                 "client_event_id": "clock-authority-1",
                 "batch_id": "clock-authority-batch",
@@ -1977,6 +1998,72 @@ def test_record_scan_batch_preserves_scanned_captured_at_when_batch_confirms_lat
     assert event.captured_at == scanned_at
     assert before_confirmation <= event.created_at <= after_confirmation
     assert event.created_at != event.captured_at
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-003 — confirmacion visual del portador
+# --------------------------------------------------------------------------- #
+
+
+def test_record_scan_batch_confirmation_includes_photo_name_grade_and_section():
+    """
+    Escenario 1 (RF-ASI-003): WHEN el operador escanea una credencial
+    vigente, THEN el sistema muestra fotografia, nombre completo y grado y
+    seccion del estudiante.
+    """
+    cycle = AcademicCycleFactory()
+    student, section, shift = _enrolled_student(cycle)
+    student.photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
+    student.save(update_fields=["photo"])
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+
+    results = services.record_scan_batch(
+        items=[
+            {
+                "student": student,
+                "shift": shift,
+                "control_point": control_point,
+                "movement_type": AttendanceEvent.MovementType.ENTRY,
+                "captured_at": _at(cycle.starts_on, 7, 0),
+                "client_event_id": "confirmation-1",
+            }
+        ],
+        operator=operator,
+    )
+
+    confirmation = results[0].confirmation
+    assert confirmation.full_name == f"{student.person.first_name} {student.person.last_name}"
+    assert confirmation.grade_name == section.offering.grade.name
+    assert confirmation.section_name == section.name
+    assert confirmation.photo_url is not None and "photo" in confirmation.photo_url
+
+
+def test_record_scan_batch_confirmation_has_no_grade_or_section_without_active_enrolment():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    operator = UserFactory()
+
+    results = services.record_scan_batch(
+        items=[
+            {
+                "student": student,
+                "shift": parameters.shift,
+                "control_point": control_point,
+                "movement_type": AttendanceEvent.MovementType.ENTRY,
+                "captured_at": _at(parameters.effective_from, 7, 0),
+                "client_event_id": "confirmation-no-enrolment",
+            }
+        ],
+        operator=operator,
+    )
+
+    confirmation = results[0].confirmation
+    assert confirmation.grade_name is None
+    assert confirmation.section_name is None
+    assert confirmation.photo_url is None
 
 
 # --------------------------------------------------------------------------- #
