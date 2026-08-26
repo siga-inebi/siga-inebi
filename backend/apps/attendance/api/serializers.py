@@ -183,6 +183,7 @@ class AttendancePercentageResultSerializer(serializers.Serializer):
     present_days = serializers.IntegerField()
     late_days = serializers.IntegerField()
     percentage = serializers.FloatField(allow_null=True)
+    regulatory_notice = serializers.CharField()
 
 
 class ControlPointSerializer(serializers.ModelSerializer):
