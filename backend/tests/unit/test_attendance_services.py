@@ -7,6 +7,7 @@ RF-JOR-005 — deteccion de inconsistencias entre fuentes.
 RF-JOR-006 — recalculo ante cambios.
 RF-JOR-008 — consulta de presencia en tiempo real.
 RF-JOR-009 — porcentaje de asistencia del ciclo.
+RF-JOR-011 — advertencia sobre el uso reglamentario del indicador.
 RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
 idempotencia.
 RF-CRE-001 — emision de credencial con identificador opaco.
@@ -44,6 +45,7 @@ from tests.factories.attendance import (
     AttendanceEventFactory,
     ControlPointFactory,
     JornadaParametersFactory,
+    ManualRegistrationReasonFactory,
 )
 from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
@@ -1082,6 +1084,8 @@ def test_derive_day_statuses_agrees_with_deriving_each_pair_on_its_own():
         movement_type=AttendanceEvent.MovementType.ENTRY,
         origin=AttendanceEvent.Origin.MANUAL,
         captured_at=_at(days[0], 9, 0),
+        operator=UserFactory(),
+        manual_reason=ManualRegistrationReasonFactory(),
     )
     # A declared event loses to the scan above under RF-JOR-003 precedence.
     services.record_attendance_event(
@@ -1369,6 +1373,85 @@ def test_compute_attendance_percentage_raises_when_student_not_enrolled_in_cycle
         services.compute_attendance_percentage(
             student=unrelated_student, shift=shift, as_of_date=cycle.starts_on
         )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-011 — advertencia sobre el uso reglamentario del indicador
+# --------------------------------------------------------------------------- #
+
+
+def test_compute_attendance_percentage_carries_the_regulatory_notice():
+    day = timezone.localdate() - timedelta(days=1)
+    cycle = AcademicCycleFactory(starts_on=day, ends_on=day + timedelta(days=200))
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=day,
+    )
+    shift = section.offering.shift
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=day,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=day,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(day, 7, 0),
+    )
+
+    result = services.compute_attendance_percentage(student=student, shift=shift, as_of_date=day)
+
+    assert result.regulatory_notice == services.ATTENDANCE_PERCENTAGE_REGULATORY_NOTICE
+
+
+def test_compute_attendance_percentage_carries_the_regulatory_notice_even_when_no_days_elapsed():
+    """
+    The report can't omit the disclaimer just because there is nothing to
+    report yet — a reader who sees "0%" or a blank indicator needs the same
+    warning about its informative, non-regulatory character.
+    """
+    tomorrow = timezone.localdate() + timedelta(days=1)
+    cycle = AcademicCycleFactory(starts_on=tomorrow, ends_on=tomorrow + timedelta(days=60))
+    section = SectionFactory(academic_cycle=cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=tomorrow,
+    )
+    shift = section.offering.shift
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5, 6, 7],
+        effective_from=tomorrow,
+    )
+
+    result = services.compute_attendance_percentage(
+        student=student, shift=shift, as_of_date=tomorrow
+    )
+
+    assert result.elapsed_school_days == 0
+    assert result.regulatory_notice == services.ATTENDANCE_PERCENTAGE_REGULATORY_NOTICE
 
 
 # --------------------------------------------------------------------------- #
@@ -1707,13 +1790,134 @@ def test_record_scan_batch_keeps_origin_and_transmission_independent_and_disting
     (RF-ASI-002); esta prueba cierra el requerimiento verificando que un
     lote confirmado las guarda correctamente y que una consulta que agrupa
     movimientos por origen no confunde un escaneo en lote con uno declarado.
+# RF-ASI-012 — registro manual autorizado
+# --------------------------------------------------------------------------- #
+
+
+def test_record_attendance_event_manual_requires_operator():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    reason = ManualRegistrationReasonFactory()
+
+    with pytest.raises(DomainError):
+        services.record_attendance_event(
+            student=student,
+            shift=parameters.shift,
+            event_date=parameters.effective_from,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.MANUAL,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            operator=None,
+            manual_reason=reason,
+        )
+
+
+def test_record_attendance_event_manual_requires_reason():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.record_attendance_event(
+            student=student,
+            shift=parameters.shift,
+            event_date=parameters.effective_from,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.MANUAL,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            operator=operator,
+            manual_reason=None,
+        )
+
+
+def test_record_attendance_event_manual_rejects_inactive_reason():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    operator = UserFactory()
+    reason = ManualRegistrationReasonFactory(is_active=False)
+
+    with pytest.raises(DomainError):
+        services.record_attendance_event(
+            student=student,
+            shift=parameters.shift,
+            event_date=parameters.effective_from,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.MANUAL,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            operator=operator,
+            manual_reason=reason,
+        )
+
+
+def test_record_attendance_event_manual_stores_operator_and_reason():
+    """
+    Escenario 1 (RF-ASI-012): GIVEN un estudiante que olvido su credencial,
+    WHEN un usuario con permiso elevado registra su ingreso indicando el
+    motivo, THEN el sistema crea un evento con origen manual, el motivo y la
+    identidad del autorizador.
+    """
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    operator = UserFactory()
+    reason = ManualRegistrationReasonFactory(name="Olvido su credencial")
+
+    event = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.MANUAL,
+        captured_at=_at(parameters.effective_from, 7, 0),
+        operator=operator,
+        manual_reason=reason,
+    )
+
+    assert event.origin == AttendanceEvent.Origin.MANUAL
+    assert event.operator == operator
+    assert event.manual_reason == reason
+
+
+def test_record_attendance_event_declared_does_not_require_operator_or_reason():
+    """Manual's guard is scoped to manual origin only -- declared closures are unaffected."""
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    event = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 15, 0),
+    )
+
+    assert event.operator is None
+    assert event.manual_reason is None
+# RF-ASI-008 — autoridad del reloj y hora de captura
+# --------------------------------------------------------------------------- #
+
+
+def test_record_scan_batch_preserves_scanned_captured_at_when_batch_confirms_later():
+    """
+    Escenario 1 (RF-ASI-008): GIVEN un movimiento escaneado a las 12:20 dentro
+    de un lote abierto, WHEN el operador confirma el lote a las 12:35, THEN
+    el evento conserva 12:20 como hora de captura, AND registra 12:35 como
+    hora de registro.
+
+    ``created_at`` (``auto_now_add``) es la autoridad del reloj: se toma del
+    servidor en el instante real de la escritura (la confirmacion), nunca del
+    dispositivo. ``captured_at`` es el dato del escaneo individual, provisto
+    por el item, y ninguna operacion de lote lo sustituye por la hora de
+    confirmacion.
     """
     cycle = AcademicCycleFactory()
     student, section, shift = _enrolled_student(cycle)
     control_point = ControlPointFactory(campus=shift.campus)
     operator = UserFactory()
     _configure_jornada(shift=shift, cycle=cycle)
+    scanned_at = _at(cycle.starts_on, 12, 20)
 
+    before_confirmation = timezone.now()
     results = services.record_scan_batch(
         items=[
             {
@@ -1760,6 +1964,19 @@ def test_record_scan_batch_keeps_origin_and_transmission_independent_and_disting
     }
     assert origins_by_id.pop(declared_exit.pk) == AttendanceEvent.Origin.DECLARED
     assert set(origins_by_id.values()) == {AttendanceEvent.Origin.SCAN}
+                "captured_at": scanned_at,
+                "client_event_id": "clock-authority-1",
+                "batch_id": "clock-authority-batch",
+            }
+        ],
+        operator=operator,
+    )
+    after_confirmation = timezone.now()
+
+    event = results[0].event
+    assert event.captured_at == scanned_at
+    assert before_confirmation <= event.created_at <= after_confirmation
+    assert event.created_at != event.captured_at
 
 
 # --------------------------------------------------------------------------- #
