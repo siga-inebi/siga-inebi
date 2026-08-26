@@ -10,7 +10,13 @@ from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
-from apps.identity.services import assign_role, create_account, disable_account, protect_system_role
+from apps.identity.services import (
+    assign_role,
+    create_account,
+    disable_account,
+    protect_system_role,
+    require_all_permissions,
+)
 from apps.students.services import (
     change_primary_student_guardian_relation,
     create_student_guardian_relation,
@@ -787,3 +793,68 @@ def test_rf_alc_005_administrative_write_denied_in_closed_cycle_but_read_allowed
 
     # Lectura permitida
     assert user.has_scoped_permission("student_view_basic", scope={"section": section}) is True
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-006 — autorizacion por tipo de movimiento y modo de captura
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_require_all_permissions_allows_when_every_codename_is_present():
+    permission = PermissionFactory(codename="attendance_record_entry")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    require_all_permissions(
+        actor=assignment.user,
+        permission_codenames=["attendance_record_entry"],
+        denial_action="attendance.event.capture_denied",
+        denial_resource="AttendanceEvent",
+    )
+
+    assert not AuditEvent.objects.filter(action="attendance.event.capture_denied").exists()
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_rf_asi_006_operator_without_exit_permission_is_denied_and_audited():
+    """
+    Escenario 1 (RF-ASI-006): GIVEN un usuario cuyo rol permite registrar
+    ingresos pero no egresos, WHEN intenta registrar un egreso, THEN el
+    sistema rechaza la operacion y deja constancia del intento.
+    """
+    permission = PermissionFactory(codename="attendance_record_entry")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    with pytest.raises(AuthorizationError):
+        require_all_permissions(
+            actor=assignment.user,
+            permission_codenames=["attendance_scan", "attendance_record_exit"],
+            denial_action="attendance.event.capture_denied",
+            denial_resource="AttendanceEvent",
+        )
+
+    assert AuditEvent.objects.filter(action="attendance.event.capture_denied").exists()
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_rf_asi_006_support_role_without_declared_close_permission_is_denied_and_audited():
+    """
+    Escenario 2 (RF-ASI-006): GIVEN un usuario de un rol de apoyo sin permiso
+    de cierre declarado, WHEN intenta declarar el cierre de una seccion,
+    THEN el sistema rechaza la operacion y deja constancia del intento.
+    """
+    support_permission = PermissionFactory(codename="student_view_basic")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[support_permission]))
+
+    with pytest.raises(AuthorizationError):
+        require_all_permissions(
+            actor=assignment.user,
+            permission_codenames=["attendance_declared_close", "attendance_record_exit"],
+            denial_action="attendance.event.capture_denied",
+            denial_resource="AttendanceEvent",
+        )
+
+    assert AuditEvent.objects.filter(action="attendance.event.capture_denied").exists()

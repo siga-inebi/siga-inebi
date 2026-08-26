@@ -158,6 +158,7 @@ def test_create_attendance_event_requires_matching_origin_permission(auth_client
 
 def test_create_attendance_event_with_permission(auth_client):
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_exit")
     student = StudentFactory()
     shift = ShiftFactory()
 
@@ -383,6 +384,7 @@ def test_declared_exit_without_entry_creates_inconsistency_alert_visible_via_ale
     la declaracion.
     """
     _grant(auth_client.user, "attendance_declared_close")
+    _grant(auth_client.user, "attendance_record_exit")
     parameters = JornadaParametersFactory()
     section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
     student = StudentFactory()
@@ -428,6 +430,7 @@ def test_declared_exit_without_entry_creates_inconsistency_alert_visible_via_ale
 
 def test_creating_a_past_dated_event_triggers_recalculation_reconciling_existing_alert(auth_client):
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_exit")
     today = timezone.localdate()
     yesterday = today - timedelta(days=1)
     cycle = AcademicCycleFactory(
@@ -722,6 +725,7 @@ def test_percentage_returns_value_for_authorized_student(auth_client):
 
 def test_scan_endpoint_creates_event_with_permission(auth_client):
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
     parameters = JornadaParametersFactory()
     student = StudentFactory()
     _enrol(student, parameters.academic_cycle)
@@ -741,6 +745,7 @@ def test_scan_endpoint_creates_event_with_permission(auth_client):
 
 def test_scan_endpoint_rejects_duplicate_and_reports_existing_captured_at(auth_client):
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
     parameters = JornadaParametersFactory(duplicate_suppression_minutes=10)
     student = StudentFactory()
     _enrol(student, parameters.academic_cycle)
@@ -775,6 +780,7 @@ def test_scan_endpoint_rejects_duplicate_and_reports_existing_captured_at(auth_c
 
 def test_scan_endpoint_resend_with_same_client_event_id_is_idempotent(auth_client):
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
     parameters = JornadaParametersFactory()
     student = StudentFactory()
     _enrol(student, parameters.academic_cycle)
@@ -793,6 +799,7 @@ def test_scan_endpoint_resend_with_same_client_event_id_is_idempotent(auth_clien
 
 def test_scan_batch_endpoint_reports_mixed_outcomes_per_item(auth_client):
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
     parameters = JornadaParametersFactory()
     student = StudentFactory()
     _enrol(student, parameters.academic_cycle)
@@ -1106,6 +1113,7 @@ def test_resolve_credential_requires_authentication(client):
 
 def test_scan_with_a_credential_identifier_creates_the_event(auth_client):
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
     parameters = JornadaParametersFactory()
     student, credential = _issued_credential(cycle=parameters.academic_cycle)
     control_point = ControlPointFactory(campus=parameters.shift.campus)
@@ -1125,6 +1133,7 @@ def test_scan_with_a_credential_identifier_creates_the_event(auth_client):
 
 def test_scan_with_an_unknown_credential_rejects_only_that_item(auth_client):
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
     parameters = JornadaParametersFactory()
     student, credential = _issued_credential(cycle=parameters.academic_cycle)
     control_point = ControlPointFactory(campus=parameters.shift.campus)
@@ -1178,6 +1187,7 @@ def test_scan_by_student_code_of_a_withdrawn_student_is_rejected(auth_client):
     lote: el companero que si esta inscrito registra su movimiento.
     """
     _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
     parameters = JornadaParametersFactory()
     control_point = ControlPointFactory(campus=parameters.shift.campus)
     withdrawn = StudentFactory()
