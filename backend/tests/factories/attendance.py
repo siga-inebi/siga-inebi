@@ -8,6 +8,7 @@ from apps.attendance.models import (
     AttendanceEvent,
     ControlPoint,
     JornadaParameters,
+    ManualRegistrationReason,
     StudentCredential,
 )
 from tests.factories.academic import AcademicCycleFactory, CampusFactory, ShiftFactory
@@ -50,6 +51,14 @@ class ControlPointFactory(factory.django.DjangoModelFactory):
     campus = factory.SubFactory(CampusFactory)
     name = factory.Sequence(lambda n: f"Punto de control {n}")
     code = factory.Sequence(lambda n: f"CP{n}")
+
+
+class ManualRegistrationReasonFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = ManualRegistrationReason
+
+    name = factory.Sequence(lambda n: f"Motivo {n}")
+    code = factory.Sequence(lambda n: f"MOT{n}")
 
 
 class AttendanceAlertFactory(factory.django.DjangoModelFactory):

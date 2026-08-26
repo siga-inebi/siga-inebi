@@ -22,6 +22,7 @@ class DocumentTemplateSerializer(serializers.ModelSerializer):
             "code",
             "kind",
             "description",
+            "content",
             "is_active",
             "header",
         ]
@@ -40,12 +41,14 @@ class DocumentTemplateCreateSerializer(serializers.Serializer):
         help_text="Tipo de plantilla: certificado, reporte u otro.",
     )
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    content = serializers.CharField(required=False, allow_blank=True, help_text="Contenido base de la plantilla con marcadores cerrados.")
 
 
 class DocumentTemplateUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150, required=False)
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     kind = serializers.ChoiceField(choices=DocumentTemplate.TemplateKind.choices, required=False)
+    content = serializers.CharField(required=False, allow_blank=True, help_text="Nuevo contenido de la plantilla antes de publicar.")
 
 
 class FieldTagSerializer(serializers.Serializer):
@@ -62,7 +65,7 @@ class DocumentTemplateTypeSerializer(serializers.Serializer):
 class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = DocumentTemplateVersion
-        fields = ["public_id", "sequence", "name", "kind", "description", "created_at"]
+        fields = ["public_id", "sequence", "name", "kind", "description", "content", "created_at"]
 
 
 class OfficialDocumentEligibilityQuerySerializer(serializers.Serializer):
@@ -75,3 +78,18 @@ class OfficialDocumentEligibilityResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Codigos de los documentos obligatorios pendientes que bloquean la emision.",
     )
+
+
+class DocumentTemplatePreviewSerializer(serializers.Serializer):
+    payload = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        default=dict,
+        help_text="Mapa de marcadores permitidos a valores a interpolar.",
+    )
+
+
+class DocumentTemplatePreviewResponseSerializer(serializers.Serializer):
+    content = serializers.CharField()
+    markers = serializers.ListField(child=serializers.CharField())
+    marker_count = serializers.IntegerField()

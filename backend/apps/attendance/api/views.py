@@ -41,6 +41,7 @@ from .serializers import (
     JornadaClosureResultSerializer,
     JornadaParametersCreateSerializer,
     JornadaParametersSerializer,
+    ManualRegistrationReasonSerializer,
     PresentStudentSerializer,
     ScanCaptureItemResultSerializer,
     ScanCaptureRequestSerializer,
@@ -163,8 +164,20 @@ class AttendanceEventListCreateView(GenericAPIView):
         )
         student = queries.student_for_payload(payload.pop("student_id"))
         shift = queries.shift_for_payload(payload.pop("shift_id"))
+        is_manual = payload["origin"] == "manual"
+        manual_reason_id = payload.pop("manual_reason_id", None)
+        manual_reason = (
+            queries.manual_reason_for_payload(manual_reason_id)
+            if is_manual and manual_reason_id
+            else None
+        )
         event = services.record_attendance_event(
-            student=student, shift=shift, actor=request.user, **payload
+            student=student,
+            shift=shift,
+            actor=request.user,
+            operator=request.user if is_manual else None,
+            manual_reason=manual_reason,
+            **payload,
         )
         return Response(AttendanceEventSerializer(event).data, status=status.HTTP_201_CREATED)
 
@@ -421,6 +434,31 @@ class ControlPointListView(GenericAPIView):
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
         return self.get_paginated_response(ControlPointSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar motivos de registro manual",
+        description=(
+            "Catalogo configurable de motivos para un registro manual (RF-ASI-012). "
+            "Alta y edicion por Django admin."
+        ),
+        tags=TAGS,
+        responses={200: ManualRegistrationReasonSerializer(many=True)},
+    ),
+)
+class ManualRegistrationReasonListView(GenericAPIView):
+    """Read-only reference catalogue consumed by the manual-registration form."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ManualRegistrationReasonSerializer
+
+    def get_queryset(self):
+        return queries.manual_registration_reasons()
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(ManualRegistrationReasonSerializer(page, many=True).data)
 
 
 @extend_schema_view(

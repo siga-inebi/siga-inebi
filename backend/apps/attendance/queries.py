@@ -1,7 +1,13 @@
 """Read-side queries and reference resolution for attendance."""
 
 from apps.academics.models import AcademicCycle, Grade, Section, Shift
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, ControlPoint, JornadaParameters
+from apps.attendance.models import (
+    AttendanceAlert,
+    AttendanceEvent,
+    ControlPoint,
+    JornadaParameters,
+    ManualRegistrationReason,
+)
 from apps.common.exceptions import DomainError, ResourceNotFoundError
 from apps.students.models import Student
 
@@ -22,6 +28,10 @@ def attendance_alerts(*, students):
 
 def control_points():
     return ControlPoint.objects.select_related("campus").all()
+
+
+def manual_registration_reasons():
+    return ManualRegistrationReason.objects.all()
 
 
 def _payload_get(queryset, public_id, label):
@@ -53,6 +63,10 @@ def academic_cycle_for_payload(public_id):
 
 def control_point_for_payload(public_id):
     return _payload_get(ControlPoint.objects.all(), public_id, "el punto de control")
+
+
+def manual_reason_for_payload(public_id):
+    return _payload_get(ManualRegistrationReason.objects.all(), public_id, "el motivo")
 
 
 def student_by_code(student_code):
