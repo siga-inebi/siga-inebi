@@ -7,6 +7,8 @@ RF-JOR-005 — contrato de alertas de inconsistencia generadas al registrar even
 RF-JOR-006 — recalculo ante cambios, disparado desde los mismos endpoints.
 RF-JOR-008 — contrato del endpoint de presencia en tiempo real.
 RF-JOR-009 — contrato del endpoint de porcentaje de asistencia del ciclo.
+RF-JOR-011 — el endpoint de porcentaje siempre incluye la advertencia
+reglamentaria.
 RF-ASI-001/002/004/010 — contrato del endpoint de captura por escaneo y del
 catalogo de puntos de control.
 RF-CRE-001 — contrato del endpoint de emision de credencial.
@@ -30,6 +32,7 @@ from tests.factories.attendance import (
     AttendanceEventFactory,
     ControlPointFactory,
     JornadaParametersFactory,
+    ManualRegistrationReasonFactory,
 )
 from tests.factories.identity import (
     PermissionFactory,
@@ -714,6 +717,7 @@ def test_percentage_returns_value_for_authorized_student(auth_client):
     assert data["elapsed_school_days"] == 1
     assert data["present_days"] == 1
     assert data["percentage"] == 100.0
+    assert data["regulatory_notice"]
 
 
 def test_scan_endpoint_creates_event_with_permission(auth_client):
@@ -815,6 +819,35 @@ def test_scan_batch_endpoint_reports_mixed_outcomes_per_item(auth_client):
     assert outcomes == ["created", "rejected"]
 
 
+def test_scan_endpoint_reports_scanned_captured_at_distinct_from_server_created_at(auth_client):
+    """
+    RF-ASI-008: la hora de captura que llega en el item del escaneo se
+    conserva tal cual en la respuesta; la hora de registro (``created_at``)
+    es la del servidor al momento de procesar la solicitud, no la del
+    dispositivo que escaneo.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    _enrol(student, parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    scanned_at = timezone.make_aware(datetime.combine(parameters.effective_from, time(12, 20)))
+
+    before_request = timezone.now()
+    response = auth_client.post(
+        reverse("attendance-scan"),
+        {"items": [_scan_item(student, parameters.shift, control_point, "clock-1", scanned_at)]},
+        content_type="application/json",
+    )
+    after_request = timezone.now()
+
+    assert response.status_code == 200
+    event = response.json()[0]["event"]
+    assert event["captured_at"] == scanned_at.isoformat()
+    reported_created_at = datetime.fromisoformat(event["created_at"])
+    assert before_request <= reported_created_at <= after_request
+
+
 def test_control_points_list_requires_authentication(client):
     response = client.get(reverse("attendance-control-point-list"))
 
@@ -829,6 +862,74 @@ def test_control_points_list_returns_catalogue(auth_client):
     assert response.status_code == 200
     codes = {item["code"] for item in response.json()["results"]}
     assert control_point.code in codes
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-012 — registro manual autorizado
+# --------------------------------------------------------------------------- #
+
+
+def test_manual_registration_reasons_list_requires_authentication(client):
+    response = client.get(reverse("attendance-manual-registration-reason-list"))
+
+    assert response.status_code == 403
+
+
+def test_manual_registration_reasons_list_returns_catalogue(auth_client):
+    reason = ManualRegistrationReasonFactory()
+
+    response = auth_client.get(reverse("attendance-manual-registration-reason-list"))
+
+    assert response.status_code == 200
+    codes = {item["code"] for item in response.json()["results"]}
+    assert reason.code in codes
+
+
+def test_create_manual_attendance_event_requires_reason(auth_client):
+    _grant(auth_client.user, "attendance_record_manual")
+    student = StudentFactory()
+    shift = ShiftFactory()
+
+    response = auth_client.post(
+        reverse("attendance-event-list"),
+        _event_payload(
+            student, shift, movement_type=AttendanceEvent.MovementType.ENTRY, origin="manual"
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+
+
+def test_create_manual_attendance_event_stores_reason_and_operator(auth_client):
+    """
+    Escenario 1 (RF-ASI-012): GIVEN un estudiante que olvido su credencial,
+    WHEN un usuario con permiso elevado registra su ingreso indicando el
+    motivo, THEN el sistema crea un evento con origen manual, el motivo y la
+    identidad del autorizador.
+    """
+    _grant(auth_client.user, "attendance_record_manual")
+    student = StudentFactory()
+    shift = ShiftFactory()
+    reason = ManualRegistrationReasonFactory(name="Olvido su credencial")
+
+    response = auth_client.post(
+        reverse("attendance-event-list"),
+        _event_payload(
+            student,
+            shift,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin="manual",
+            manual_reason_id=str(reason.public_id),
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["origin"] == "manual"
+    assert data["manual_reason_id"] == str(reason.public_id)
+    assert data["operator_id"] == auth_client.user.pk
 
 
 # --------------------------------------------------------------------------- #

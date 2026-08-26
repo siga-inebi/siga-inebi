@@ -153,15 +153,30 @@ def record_attendance_event(
     origin,
     captured_at,
     transmission=AttendanceEvent.Transmission.INDIVIDUAL,
+    operator=None,
+    manual_reason=None,
     actor=None,
 ):
     """
     Store a new attendance event. Never mutates or replaces an existing one:
     conflicting events for the same student/shift/date/movement all coexist,
     and RF-JOR-003's precedence rule decides which one is used later.
+
+    RF-ASI-012: a manual registration (no scan involved) must name who
+    authorized it and why, from the configurable reason catalog -- both
+    required here, at the service boundary, not only by the view's
+    permission check, for the same defense-in-depth reason RF-ASI-001
+    checks the scan operator in ``record_scan_movement`` instead of trusting
+    the caller.
     """
     _require_active(student, "el estudiante")
     _require_active(shift, "la jornada")
+    if origin == AttendanceEvent.Origin.MANUAL:
+        if operator is None:
+            raise DomainError("Un registro manual debe identificar quien lo autorizo.")
+        if manual_reason is None:
+            raise DomainError("Un registro manual debe indicar un motivo de la lista configurable.")
+        _require_active(manual_reason, "el motivo")
 
     event = AttendanceEvent.objects.create(
         student=student,
@@ -171,6 +186,8 @@ def record_attendance_event(
         origin=origin,
         transmission=transmission,
         captured_at=captured_at,
+        operator=operator,
+        manual_reason=manual_reason,
     )
     record_event(
         actor=actor,
@@ -184,6 +201,12 @@ def record_attendance_event(
             "movement_type": movement_type,
             "origin": origin,
             "transmission": transmission,
+            **({"operator_id": operator.pk} if operator is not None else {}),
+            **(
+                {"manual_reason_id": str(manual_reason.public_id)}
+                if manual_reason is not None
+                else {}
+            ),
         },
     )
     _flag_declared_exit_without_entry(event=event, actor=actor)
@@ -1064,6 +1087,13 @@ def list_present_students(
     return [entry for entry in roster if entry.entry_event is not None and entry.exit_event is None]
 
 
+ATTENDANCE_PERCENTAGE_REGULATORY_NOTICE = (
+    "Este porcentaje es un indicador informativo derivado de los movimientos "
+    "registrados; no sustituye los criterios reglamentarios oficiales para "
+    "evaluar la asistencia del estudiante."
+)
+
+
 @dataclass
 class AttendancePercentageResult:
     student: object
@@ -1074,6 +1104,7 @@ class AttendancePercentageResult:
     present_days: int
     late_days: int
     percentage: float | None
+    regulatory_notice: str = ATTENDANCE_PERCENTAGE_REGULATORY_NOTICE
 
 
 def compute_attendance_percentage(*, student, shift, as_of_date=None):
@@ -1083,6 +1114,11 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
     progress (no closure yet, no final status) doesn't count in either the
     numerator or the denominator. Nothing here is persisted — like
     ``DayStatus``, this is recomputed from events and parameters every time.
+
+    RF-JOR-011: every result — including the empty ones below, where there is
+    nothing yet to report — carries ``regulatory_notice`` so a consumer that
+    renders this into a report can never drop the disclaimer by only handling
+    the "has a number" branch.
     """
     as_of_date = as_of_date or timezone.localdate()
     academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=as_of_date)
