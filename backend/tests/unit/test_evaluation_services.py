@@ -702,6 +702,94 @@ class TestRegisterUnitGrade:
             )
 
 
+class TestGradeCorrection:
+    """Tests for RF-CAL-005: Corrección de notas registradas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_correction_with_open_window_is_accepted_and_audited(self):
+        """
+        Scenario: Corrección con la ventana abierta
+        GIVEN una nota registrada y una ventana de captura abierta
+        WHEN el docente la corrige
+        THEN el sistema acepta el cambio y registra en bitácora el valor anterior y el nuevo
+        """
+        from apps.audit.models import AuditEvent
+
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=70
+        )
+        corrected = register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=90
+        )
+
+        assert corrected.value == 90
+
+        event = AuditEvent.objects.filter(action="evaluation.grade_updated").latest("created_at")
+        assert event.context["changes"] == {"value": {"before": 70, "after": 90}}
+
+    def test_correction_with_closed_window_and_no_grant_is_rejected(self):
+        """
+        Scenario: Corrección con la ventana cerrada y sin brecha
+        GIVEN una nota de una unidad cerrada, sin brecha excepcional vigente
+        WHEN el docente intenta corregirla
+        THEN el sistema rechaza la operación
+        """
+        cycle = AcademicCycleFactory()
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        # A grade already registered before the window closed.
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=70)
+
+        with pytest.raises(DomainError, match="ventana de captura"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=90,
+            )
+
+        assert (
+            Grade.objects.get(enrolment=enrolment, subject=subject, evaluation_unit=unit).value
+            == 70
+        )
+
+
 class TestGradeScale:
     """Tests for RF-CAL-002: Escala y validación de la nota."""
 

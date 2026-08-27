@@ -720,6 +720,123 @@ class TestGradeAPI:
         assert response.status_code == 404
 
 
+class TestGradeCorrectionAPI:
+    """Tests for RF-CAL-005: Corrección de notas registradas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_correction_with_open_window_is_accepted_and_audited_api(
+        self, auth_client, institution
+    ):
+        """
+        Scenario: Corrección con la ventana abierta
+        GIVEN una nota registrada y una ventana de captura abierta
+        WHEN el docente la corrige
+        THEN el sistema acepta el cambio y registra en bitácora el valor anterior y el nuevo
+        """
+        from apps.audit.models import AuditEvent
+
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(unit.public_id),
+            },
+        )
+        payload = {
+            "enrolment": enrolment.public_id,
+            "subject": subject.public_id,
+            "teacher": teacher.public_id,
+            "value": 70,
+        }
+        first = auth_client.post(url, payload, content_type="application/json")
+        assert first.status_code == 201
+
+        payload["value"] = 90
+        second = auth_client.post(url, payload, content_type="application/json")
+
+        assert second.status_code == 201
+        assert second.json()["value"] == 90
+
+        event = AuditEvent.objects.filter(action="evaluation.grade_updated").latest("created_at")
+        assert event.context["changes"] == {"value": {"before": 70, "after": 90}}
+
+    def test_correction_with_closed_window_and_no_grant_is_rejected_api(
+        self, auth_client, institution
+    ):
+        """
+        Scenario: Corrección con la ventana cerrada y sin brecha
+        GIVEN una nota de una unidad cerrada, sin brecha excepcional vigente
+        WHEN el docente intenta corregirla
+        THEN el sistema rechaza la operación
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=70)
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
+                "value": 90,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "esta cerrada" in response.json()["error"]["detail"].lower()
+        assert (
+            Grade.objects.get(enrolment=enrolment, subject=subject, evaluation_unit=unit).value
+            == 70
+        )
+
+
 class TestGradeAuthorizationAPI:
     """Tests for RF-CAL-006: Alcance del docente sobre las notas."""
 

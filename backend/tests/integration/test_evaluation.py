@@ -18,7 +18,7 @@ from django.utils import timezone
 from apps.academics.models import AcademicCycle
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
-from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.models import EvaluationUnit, Grade
 from apps.evaluation.services import (
     create_evaluation_unit,
     get_current_average,
@@ -503,6 +503,106 @@ class TestRegisterUnitGradeIntegration:
         assert event.context["subject_id"] == str(subject.public_id)
         assert event.context["unit_id"] == str(unit.public_id)
         assert event.context["value"] == 85
+
+
+class TestGradeCorrectionIntegration:
+    """Integration tests for RF-CAL-005: Corrección de notas registradas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_correction_with_open_window_records_before_and_after_in_bitacora(self):
+        """
+        Scenario: Corrección con la ventana abierta (cross-domain)
+        GIVEN una nota registrada y una ventana de captura abierta
+        WHEN el docente la corrige
+        THEN el sistema acepta el cambio y registra en bitácora el valor anterior y el nuevo
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=65
+        )
+        corrected = register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=95
+        )
+
+        from apps.audit.models import AuditEvent
+        from apps.audit.services import list_audit_events
+
+        event = list_audit_events(action="evaluation.grade_updated").latest("created_at")
+        assert event.resource_identifier == str(corrected.pk)
+        assert event.context["changes"] == {"value": {"before": 65, "after": 95}}
+        assert AuditEvent.objects.filter(action="evaluation.grade_registered").exists()
+
+    def test_correction_with_closed_window_requires_active_grant(self):
+        """
+        Scenario: Corrección con la ventana cerrada y sin brecha (cross-domain)
+        GIVEN una nota de una unidad cerrada, sin brecha excepcional vigente
+        WHEN el docente intenta corregirla
+        THEN el sistema rechaza la operación
+        AND una brecha excepcional vigente permite la corrección
+        """
+        cycle = AcademicCycleFactory()
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=65)
+
+        with pytest.raises(DomainError, match="ventana de captura"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=95,
+            )
+
+        grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="Correccion autorizada por direccion tras el cierre.",
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        corrected = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=95,
+        )
+        assert corrected.value == 95
 
 
 class TestGradeScaleIntegration:
