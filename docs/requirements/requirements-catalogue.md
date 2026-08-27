@@ -225,7 +225,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | RNF-AUD-001 | Los eventos de movimiento son inmutables; las correcciones agregan, no sobrescriben | Debe | audit-compliance | Not implemented | #264 | TBD | Asistencia |
 | RNF-AUD-002 | Todo cambio de parametros queda en bitacora con responsable y vigencia | Debe | audit-compliance | Not implemented | #265 | TBD | Transversal |
-| RNF-AUD-003 | Auditoria de lectura, no solo de escritura, en notas de salud y documentos del expediente | Debe | audit-compliance | Not implemented | #266 | TBD | Dato sensible |
+| RNF-AUD-003 | Auditoria de lectura, no solo de escritura, en notas de salud y documentos del expediente | Debe | audit-compliance | Implemented | #266 | backend/tests/api/{test_student_health_notes_api.py,test_student_observations_api.py} | Dato sensible; notas de salud y observaciones ya auditaban list_read, se completo detail_read con prueba. Lectura de documentos del expediente tiene el mecanismo listo (`ensure_document_access`) pero sin endpoint que lo invoque todavia (gap de RF-DOC-005/009, fuera de este ticket) |
 | RNF-CAP-001 | Dimensionamiento sobre la matricula real del establecimiento; toda meta se mide contra 1 vCPU y 2 GB | Debe | platform | Not implemented | #267 | TBD | Pendiente confirmar matricula |
 | RNF-CAP-002 | Crecimiento de almacenamiento estimado en 2 GB por ciclo, con umbral configurable y advertencia | Debe | file-storage | Not implemented | #268 | TBD | Planeacion storage |
 | RNF-COM-001 | Operacion en telefonos de gama baja y navegadores vigentes, con acceso a camara para el escaneo | Debe | frontend-platform | Not implemented | #269 | TBD | UX y compatibilidad |
