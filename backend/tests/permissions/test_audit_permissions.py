@@ -10,6 +10,7 @@ from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError
 from apps.identity.models import Role
+from apps.identity.scopes import authorized_student_queryset
 from apps.identity.services import create_role
 from tests.factories.identity import (
     PermissionFactory,
@@ -17,6 +18,7 @@ from tests.factories.identity import (
     RoleFactory,
     UserFactory,
 )
+from tests.factories.students import GuardianFactory, StudentFactory
 
 pytestmark = [pytest.mark.permissions, pytest.mark.django_db]
 
@@ -80,3 +82,44 @@ def test_audit_event_cannot_be_deleted_even_by_the_highest_privilege_actor():
         AuditEvent.objects.filter(pk=event.pk).delete()
 
     assert AuditEvent.objects.filter(pk=event.pk).exists()
+
+
+def test_guardian_without_a_student_association_is_denied_and_audited():
+    """
+    RF-BIT-004, Escenario 1: "GIVEN un encargado sin asociacion con un
+    estudiante, WHEN intenta acceder a la informacion de ese estudiante,
+    THEN el sistema deniega la operacion y crea un asiento del intento."
+
+    ``authorized_student_queryset`` is the single choke point every
+    student-scoped view (directly, or via ``can_access_student``) goes
+    through, so auditing there covers this scenario without duplicating the
+    audit call at every view.
+    """
+    permission = PermissionFactory(codename="student_view_basic")
+    guardian = GuardianFactory()
+    user = UserFactory(person=guardian.person)
+    RoleAssignmentFactory(
+        user=user, role=RoleFactory(permissions=[permission]), identity_scope=False
+    )
+    StudentFactory()  # exists, but this guardian has no relation to it
+
+    with pytest.raises(AuthorizationError):
+        authorized_student_queryset(user=user, codename="student_view_basic")
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "identity.authorization.denied"
+    assert event.actor_id == user.id
+    assert event.context["result"] == "denied"
+    assert event.context["reason"] == "missing_scope"
+
+
+def test_actor_without_the_permission_is_denied_and_audited():
+    user = UserFactory()
+
+    with pytest.raises(AuthorizationError):
+        authorized_student_queryset(user=user, codename="student_view_basic")
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "identity.authorization.denied"
+    assert event.actor_id == user.id
+    assert event.context["reason"] == "missing_permission"
