@@ -945,6 +945,64 @@ class TestFinalGradeRoundingIntegration:
         assert final["final_grade"] == 60
 
 
+class TestSubjectApprovalIntegration:
+    """Integration tests for RF-RES-003: Aprobación de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_correction_recalculates_approval_consistently(self):
+        """
+        Scenario: Coherencia entre boleta y estado (cross-domain)
+        GIVEN una nota final calculada
+        WHEN se presenta en la boleta y se evalúa la aprobación
+        THEN ambas operaciones usan el mismo valor redondeado
+        AND una correccion de la nota (RF-CAL-005) recalcula ambas de forma consistente
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=59,
+        )
+        result = get_final_subject_grade(enrolment, subject)
+        assert result["final_grade"] == 59
+        assert result["approved"] is False
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=60,
+        )
+        result = get_final_subject_grade(enrolment, subject)
+        assert result["final_grade"] == 60
+        assert result["approved"] is True
+
+
 class TestGradeVisibilityIntegration:
     """Integration tests for RF-CAL-007: Visibilidad de las notas."""
 

@@ -13,6 +13,7 @@ RF-CAL-005: Correccion de notas registradas
 RF-EVC-007: Estados de la unidad
 RF-RES-001: Nota final de la subarea
 RF-RES-002: Punto unico de redondeo
+RF-RES-003: Aprobacion de la subarea
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -42,6 +43,12 @@ from apps.evaluation.models import (
     Grade,
 )
 from apps.people.models import Person
+
+# RF-RES-003: minimum final grade for a subarea to be approved, per the
+# Reglamento de Evaluacion de los Aprendizajes. Deliberately a Python
+# constant, not a field on EvaluationGlobalConfig/CycleEvaluationConfig: the
+# requirement is explicit that no institution may configure it away.
+SUBJECT_APPROVAL_THRESHOLD = 60
 
 
 def _unit_conflicts(*, number: int) -> dict:
@@ -615,12 +622,22 @@ def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
     approval check, the boleta) must read, so the displayed value and the
     value compared against the approval threshold can never disagree.
 
+    RF-RES-003: ``approved`` is derived from that same ``final_grade`` in
+    this one place, against the fixed SUBJECT_APPROVAL_THRESHOLD -- never
+    recomputed from a fresh average elsewhere, so it can't drift from what
+    was shown to the user.
+
     Returns:
         Same shape as get_current_average (``average``, ``graded_units``,
-        ``pending_units``, ``total_units``), plus ``final_grade``: the
-        rounded final grade (int), or None if no unit is graded yet.
+        ``pending_units``, ``total_units``), plus ``final_grade`` (rounded
+        final grade, int, or None if no unit is graded yet) and ``approved``
+        (bool, or None when ``final_grade`` is None).
     """
     result = get_current_average(enrolment, subject)
     average = result["average"]
-    result["final_grade"] = _round_half_up(average) if average is not None else None
+    final_grade = _round_half_up(average) if average is not None else None
+    result["final_grade"] = final_grade
+    result["approved"] = (
+        final_grade >= SUBJECT_APPROVAL_THRESHOLD if final_grade is not None else None
+    )
     return result

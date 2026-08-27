@@ -1741,6 +1741,90 @@ class TestFinalGradeRoundingAPI:
         assert data["final_grade"] == 60
 
 
+class TestSubjectApprovalAPI:
+    """Tests for RF-RES-003: Aprobación de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _register_final_grade(self, auth_client, cycle, institution, *, value):
+        unit = EvaluationUnitFactory(academic_cycle=cycle, number=1)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+        auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
+                "value": value,
+            },
+            content_type="application/json",
+        )
+        return enrolment, subject
+
+    def test_final_grade_at_threshold_is_approved_api(self, auth_client, institution):
+        """
+        Scenario: Nota final en el umbral
+        GIVEN un estudiante con nota final de exactamente sesenta en una subárea
+        WHEN se determina su condición
+        THEN la subárea queda aprobada
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        enrolment, subject = self._register_final_grade(auth_client, cycle, institution, value=60)
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["final_grade"] == 60
+        assert data["approved"] is True
+
+    def test_final_grade_below_threshold_is_not_approved_api(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        enrolment, subject = self._register_final_grade(auth_client, cycle, institution, value=59)
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        assert response.json()["approved"] is False
+
+
 class TestEnrolmentGradesAPI:
     """Tests for RF-CAL-007: Visibilidad de las notas."""
 
