@@ -20,6 +20,7 @@ from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit, Grade
 from apps.evaluation.services import (
+    close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
     get_effective_unit_count,
@@ -278,6 +279,82 @@ class TestRecoveryWindowIntegration:
         assert event.resource_identifier == str(unit.pk)
         assert event.context["recovery_starts_on"] == "2026-03-10"
         assert event.context["recovery_ends_on"] == "2026-03-20"
+
+
+class TestCloseEvaluationUnitIntegration:
+    """Integration tests for RF-EVC-007: Estados de la unidad."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _expired_unit(self, cycle):
+        yesterday = timezone.localdate() - timedelta(days=1)
+        return create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+
+    def test_close_unit_then_correction_requires_active_grant(self):
+        """
+        Scenario: Cierre de una unidad (cross-domain)
+        GIVEN una unidad con su ventana de captura vencida
+        WHEN un usuario autorizado la cierra
+        THEN el sistema registra el cambio de estado en la bitácora
+        AND las notas de esa unidad dejan de admitir modificación salvo brecha excepcional
+        """
+        from apps.audit.models import AuditEvent
+        from tests.factories.identity import UserFactory
+
+        cycle = AcademicCycleFactory()
+        unit = self._expired_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=70)
+
+        director = UserFactory()
+        close_evaluation_unit(unit, actor=director)
+
+        assert AuditEvent.objects.filter(
+            action="evaluation.unit_closed", actor=director
+        ).exists()
+
+        with pytest.raises(DomainError, match="ventana de captura"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=90,
+            )
+
+        grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="Correccion autorizada por direccion tras el cierre.",
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        corrected = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=90,
+        )
+        assert corrected.value == 90
 
 
 class TestCaptureExceptionGrantIntegration:

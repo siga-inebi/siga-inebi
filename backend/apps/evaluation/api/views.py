@@ -33,6 +33,7 @@ from apps.evaluation.api.serializers import (
     RecoveryWindowSerializer,
 )
 from apps.evaluation.services import (
+    close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
     get_effective_unit_count,
@@ -160,6 +161,58 @@ class EvaluationUnitRecoveryWindowView(APIView):
             recovery_starts_on=serializer.validated_data["recovery_starts_on"],
             recovery_ends_on=serializer.validated_data["recovery_ends_on"],
         )
+
+        return Response(
+            EvaluationUnitSerializer(unit).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        summary="Cerrar una unidad de evaluacion",
+        description=(
+            "Una unidad cerrada deja de admitir captura o correccion de notas salvo "
+            "brecha excepcional vigente (RF-EVC-007)."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: EvaluationUnitSerializer},
+    ),
+)
+class EvaluationUnitCloseView(APIView):
+    """
+    Close an evaluation unit (RF-EVC-007).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    PATCH {base}/close/
+    """
+
+    def check_director_permission(self):
+        """
+        Verify user has director role and evaluation.configure_units permission.
+        TODO: implement once permission model is complete.
+        """
+        # TODO: check for role=director and permission=evaluation.configure_units
+        return bool(self.request.user and self.request.user.is_authenticated)
+
+    def patch(self, request, *args, **kwargs):
+        if not self.check_director_permission():
+            raise AuthorizationError(
+                "Permission denied. Only directors can configure evaluation units."
+            )
+
+        cycle_public_id = kwargs.get("cycle_public_id")
+        unit_public_id = kwargs.get("unit_public_id")
+
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
+
+        unit = close_evaluation_unit(unit, actor=request.user)
 
         return Response(
             EvaluationUnitSerializer(unit).data,

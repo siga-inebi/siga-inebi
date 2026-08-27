@@ -10,6 +10,7 @@ RF-CAL-001: Registro de la nota de unidad
 RF-CAL-002: Escala y validacion de la nota
 RF-CAL-003: Distincion entre sin calificar y cero
 RF-CAL-005: Correccion de notas registradas
+RF-EVC-007: Estados de la unidad
 RF-RES-001: Nota final de la subarea
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
@@ -232,8 +233,9 @@ def validate_capture_allowed(
 ) -> None:
     """
     Validate that a teacher may capture grades for a subject in a unit, either
-    because the capture window is open (RF-EVC-002) or because an active
-    exceptional grant authorizes it (RF-EVC-004).
+    because the capture window is open and the unit is not closed (RF-EVC-002,
+    RF-EVC-007), or because an active exceptional grant authorizes it
+    (RF-EVC-004).
 
     Args:
         evaluation_unit: Unit the grade belongs to.
@@ -242,10 +244,11 @@ def validate_capture_allowed(
         on_datetime: Instant to validate against (default: now).
 
     Raises:
-        DomainError: If the window is closed and no active grant covers it.
+        DomainError: If the window is closed, or the unit itself is closed,
+            and no active grant covers it.
     """
     at = on_datetime or timezone.now()
-    if evaluation_unit.is_capture_window_open(at.date()):
+    if evaluation_unit.is_capture_window_open(at.date()) and not evaluation_unit.is_closed:
         return
     if has_active_capture_exception(evaluation_unit, subject, teacher, at=at):
         return
@@ -420,6 +423,36 @@ def create_evaluation_unit(
         capture_starts_on=str(capture_starts_on),
         capture_ends_on=str(capture_ends_on),
     )
+
+    return unit
+
+
+def close_evaluation_unit(unit: EvaluationUnit, actor=None) -> EvaluationUnit:
+    """
+    Close an evaluation unit (RF-EVC-007).
+
+    A closed unit's results are definitive: register_unit_grade rejects any
+    further capture or correction for it unless an exceptional grant
+    (RF-EVC-004) covers the teacher and subject. The transition itself is
+    recorded in the bitacora with the responsible user and the moment.
+
+    Args:
+        unit: EvaluationUnit to close.
+        actor: User performing the action (for audit trail).
+
+    Returns:
+        EvaluationUnit: The closed unit.
+
+    Raises:
+        DomainError: If the unit is already closed.
+    """
+    if unit.is_closed:
+        raise DomainError(f"La unidad '{unit.name}' ya esta cerrada.")
+
+    unit.status = EvaluationUnit.UnitStatus.CLOSED
+    unit.save(update_fields=["status", "updated_at"])
+
+    _audit(actor, "evaluation.unit_closed", unit, unit_id=str(unit.public_id))
 
     return unit
 
