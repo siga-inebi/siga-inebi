@@ -507,6 +507,7 @@ class AttendanceScanView(GenericAPIView):
                 student = services.resolve_scan_subject(
                     credential_identifier=raw_item.get("credential_identifier", ""),
                     student_code=raw_item.get("student_code", ""),
+                    actor=request.user,
                 )
                 shift = queries.shift_for_payload(raw_item["shift_id"])
                 control_point = queries.control_point_for_payload(raw_item["control_point_id"])
@@ -606,7 +607,8 @@ class StudentCredentialResolutionView(GenericAPIView):
         serializer = CredentialResolutionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         resolution = services.resolve_credential(
-            opaque_identifier=serializer.validated_data["opaque_identifier"]
+            opaque_identifier=serializer.validated_data["opaque_identifier"],
+            actor=request.user,
         )
         record_sensitive_read(
             actor=request.user,
