@@ -93,6 +93,34 @@ def test_two_jornadas_with_different_schedules_evaluate_independently():
     assert afternoon_params.entry_limit_time == time(13, 30)
 
 
+def test_set_jornada_parameters_is_audited_with_actor_and_vigencia():
+    """
+    RNF-AUD-002, camino feliz: un cambio de parametros de jornada queda en
+    bitacora con el responsable y la fecha desde la que rige (vigencia).
+    """
+    campus = CampusFactory()
+    cycle = AcademicCycleFactory(institution=campus.institution)
+    shift = ShiftFactory(campus=campus)
+    actor = UserFactory()
+
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(13, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+        actor=actor,
+    )
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.jornada_parameters.set"
+    assert event.actor_id == actor.id
+    assert event.context["effective_from"] == str(cycle.starts_on)
+
+
 def test_set_jornada_parameters_never_mutates_prior_versions():
     parameters = JornadaParametersFactory(entry_limit_time=time(7, 0))
 

@@ -224,7 +224,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | ID | Descripcion original | Prioridad | Dominio | Estado de implementacion | Issue relacionado | Pruebas relacionadas | Observaciones |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | RNF-AUD-001 | Los eventos de movimiento son inmutables; las correcciones agregan, no sobrescriben | Debe | audit-compliance | Not implemented | #264 | TBD | Asistencia |
-| RNF-AUD-002 | Todo cambio de parametros queda en bitacora con responsable y vigencia | Debe | audit-compliance | Not implemented | #265 | TBD | Transversal |
+| RNF-AUD-002 | Todo cambio de parametros queda en bitacora con responsable y vigencia | Debe | audit-compliance | Implemented | #265 | backend/tests/unit/test_attendance_services.py; backend/tests/unit/test_reporting_services.py | Transversal; ticket de verificacion -- `JornadaParameters` y `AbsenceThresholdParameters` (los unicos dos modelos `*Parameters`) ya auditaban actor y vigencia, ahora con prueba explicita |
 | RNF-AUD-003 | Auditoria de lectura, no solo de escritura, en notas de salud y documentos del expediente | Debe | audit-compliance | Not implemented | #266 | TBD | Dato sensible |
 | RNF-CAP-001 | Dimensionamiento sobre la matricula real del establecimiento; toda meta se mide contra 1 vCPU y 2 GB | Debe | platform | Not implemented | #267 | TBD | Pendiente confirmar matricula |
 | RNF-CAP-002 | Crecimiento de almacenamiento estimado en 2 GB por ciclo, con umbral configurable y advertencia | Debe | file-storage | Not implemented | #268 | TBD | Planeacion storage |
