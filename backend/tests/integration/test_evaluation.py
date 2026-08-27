@@ -798,3 +798,62 @@ class TestFinalSubjectGradeIntegration:
 
         assert result["average"] == 60
         assert result["pending_units"] == 0
+
+
+class TestGradeVisibilityIntegration:
+    """Integration tests for RF-CAL-007: Visibilidad de las notas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def test_guardian_reads_only_their_students_grades_across_domains(self):
+        """
+        Scenario: Encargado consulta el portal (cross-domain)
+        GIVEN un encargado con un estudiante asociado
+        WHEN consulta las notas en su portal
+        THEN el sistema presenta únicamente las de ese estudiante
+        """
+        from apps.identity.scopes import can_access_student
+        from apps.students.services import create_student_guardian_relation
+        from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+        from tests.factories.identity import UserFactory as IdentityUserFactory
+        from tests.factories.students import GuardianFactory
+
+        cycle = AcademicCycleFactory()
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+
+        enrolment = self._enrolment(cycle)
+        other_enrolment = self._enrolment(cycle)
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=88)
+        Grade.objects.create(
+            enrolment=other_enrolment, subject=subject, evaluation_unit=unit, value=42
+        )
+
+        guardian = GuardianFactory()
+        user = IdentityUserFactory(person=guardian.person)
+        permission = PermissionFactory(codename="student_view_basic")
+        RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+        create_student_guardian_relation(
+            student=enrolment.student, guardian=guardian, relationship_label="Padre"
+        )
+
+        assert can_access_student(
+            user=user, codename="student_view_basic", student=enrolment.student
+        )
+        assert not can_access_student(
+            user=user, codename="student_view_basic", student=other_enrolment.student
+        )
+
+        from apps.evaluation.queries import grades_for_enrolment
+
+        visible = list(grades_for_enrolment(enrolment))
+        assert len(visible) == 1
+        assert visible[0].value == 88

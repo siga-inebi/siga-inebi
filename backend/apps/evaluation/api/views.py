@@ -44,7 +44,9 @@ from apps.evaluation.services import (
     set_recovery_window,
     update_global_evaluation_config,
 )
-from apps.identity.scopes import teaching_assignment_queryset
+from apps.identity.scopes import can_access_student, teaching_assignment_queryset
+
+STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 TAGS = ["evaluation: configuration"]
 
@@ -527,3 +529,49 @@ class FinalSubjectGradeView(APIView):
         )
 
         return Response(get_final_subject_grade(enrolment, subject))
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar las notas de un estudiante (portal de encargado)",
+        description=(
+            "Devuelve unicamente las notas del estudiante de la matricula indicada. "
+            "El sistema nunca expone listados comparativos de la seccion (RF-CAL-007)."
+        ),
+        tags=TAGS,
+        responses={200: GradeSerializer(many=True)},
+    ),
+)
+class EnrolmentGradesView(APIView):
+    """
+    All registered grades for one enrolment, scoped to the caller's own
+    associations (RF-CAL-007).
+
+    A guardian sees only the students with a current association
+    (guardian_student_queryset, via authorized_student_queryset); anyone
+    without an effective scope over this student is denied.
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/grades/
+    """
+
+    def get(self, request, *args, **kwargs):
+        cycle_public_id = kwargs.get("cycle_public_id")
+        enrolment_id = kwargs.get("enrolment_id")
+
+        enrolment = queries.enrolment_or_none(
+            cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
+        )
+        if enrolment is None:
+            raise ResourceNotFoundError("Enrolment not found.")
+
+        if not can_access_student(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=enrolment.student
+        ):
+            raise AuthorizationError(
+                "Permission denied. No hay una asociacion vigente con este estudiante."
+            )
+
+        grades = queries.grades_for_enrolment(enrolment)
+        return Response(GradeSerializer(grades, many=True).data)

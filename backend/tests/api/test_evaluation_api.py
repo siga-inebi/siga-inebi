@@ -26,11 +26,17 @@ from django.utils import timezone
 from apps.academics.models import TeachingAssignment
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
+from apps.students.services import create_student_guardian_relation
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.evaluation import EvaluationUnitFactory
-from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    UserFactory,
+)
 from tests.factories.people import PersonFactory
-from tests.factories.students import StudentFactory
+from tests.factories.students import GuardianFactory, StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -1455,6 +1461,110 @@ class TestFinalSubjectGradeAPI:
                     "cycle_public_id": str(cycle.public_id),
                     "enrolment_id": "00000000-0000-0000-0000-000000000000",
                     "subject_id": subject.public_id,
+                },
+            )
+        )
+
+        assert response.status_code == 404
+
+
+class TestEnrolmentGradesAPI:
+    """Tests for RF-CAL-007: Visibilidad de las notas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _guardian_user(self, *, student):
+        guardian = GuardianFactory()
+        user = UserFactory(person=guardian.person)
+        permission = PermissionFactory(codename="student_view_basic")
+        RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+        create_student_guardian_relation(
+            student=student, guardian=guardian, relationship_label="Madre"
+        )
+        return user
+
+    def test_guardian_sees_only_associated_student_grades(self, client, institution):
+        """
+        Scenario: Encargado consulta el portal
+        GIVEN un encargado con un estudiante asociado
+        WHEN consulta las notas en su portal
+        THEN el sistema presenta únicamente las de ese estudiante
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        subject = SubjectFactory(institution=institution)
+
+        enrolment = self._enrolment(cycle)
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=88)
+
+        other_enrolment = self._enrolment(cycle)
+        Grade.objects.create(
+            enrolment=other_enrolment, subject=subject, evaluation_unit=unit, value=42
+        )
+
+        user = self._guardian_user(student=enrolment.student)
+        client.force_login(user)
+
+        response = client.get(
+            reverse(
+                "enrolment-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": str(enrolment.public_id),
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["value"] == 88
+
+    def test_guardian_without_association_is_denied(self, client, institution):
+        """
+        A guardian without a current association to the enrolment's student
+        must not be able to read that student's grades.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        subject = SubjectFactory(institution=institution)
+
+        enrolment = self._enrolment(cycle)
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=88)
+
+        unrelated_student = StudentFactory()
+        user = self._guardian_user(student=unrelated_student)
+        client.force_login(user)
+
+        response = client.get(
+            reverse(
+                "enrolment-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": str(enrolment.public_id),
+                },
+            )
+        )
+
+        assert response.status_code == 403
+
+    def test_enrolment_not_found_returns_404_for_grades(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "enrolment-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": "00000000-0000-0000-0000-000000000000",
                 },
             )
         )
