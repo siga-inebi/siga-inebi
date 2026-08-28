@@ -41,14 +41,22 @@ class DocumentTemplateCreateSerializer(serializers.Serializer):
         help_text="Tipo de plantilla: certificado, reporte u otro.",
     )
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    content = serializers.CharField(required=False, allow_blank=True, help_text="Contenido base de la plantilla con marcadores cerrados.")
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Contenido base de la plantilla con marcadores cerrados.",
+    )
 
 
 class DocumentTemplateUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150, required=False)
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     kind = serializers.ChoiceField(choices=DocumentTemplate.TemplateKind.choices, required=False)
-    content = serializers.CharField(required=False, allow_blank=True, help_text="Nuevo contenido de la plantilla antes de publicar.")
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Nuevo contenido de la plantilla antes de publicar.",
+    )
 
 
 class FieldTagSerializer(serializers.Serializer):

@@ -26,11 +26,11 @@ from apps.documents.services import (
     list_document_types,
     list_field_tags,
     normalize_document_filename,
-    validate_document_checksum,
     preview_document_template,
     record_document_read_audit,
     student_document_dossier,
     update_document_template,
+    validate_document_checksum,
     validate_document_download_token,
     validate_document_upload,
 )
@@ -321,7 +321,9 @@ def test_preview_document_template_rejects_unknown_markers():
         content="Bloqueado: {{student.health_note}}",
     )
 
-    with pytest.raises(DomainError, match=r"no permitido|no form\w+ dentro del catalogo|catalogo cerrado"):
+    with pytest.raises(
+        DomainError, match=r"no permitido|no form\w+ dentro del catalogo|catalogo cerrado"
+    ):
         preview_document_template(template=template, payload={"student.health_note": "abc"})
 
 
