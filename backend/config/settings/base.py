@@ -90,6 +90,21 @@ ACCOUNT_ACTIVATION_TTL_MINUTES = env_int("ACCOUNT_ACTIVATION_TTL_MINUTES", 15)
 ACCOUNT_ACTIVATION_MAX_ATTEMPTS = env_int("ACCOUNT_ACTIVATION_MAX_ATTEMPTS", 3)
 DOCUMENT_MAX_UPLOAD_SIZE_BYTES = env_int("DOCUMENT_MAX_UPLOAD_SIZE_BYTES", 10 * 1024 * 1024)
 
+# RNF-REN-004: el trabajador drena la cola de RNF-REN-003 con concurrencia de
+# uno y dentro de una ventana horaria configurable. La ventana se lee en la
+# hora local del establecimiento (RNF-LOC-001), porque es el reloj en el que
+# esta escrita la jornada escolar; el valor por defecto empieza despues del
+# cierre de jornada y termina antes de la entrada, de modo que el trabajador
+# no compita por el host mientras el porton escanea (RNF-REN-001). Una ventana
+# con inicio y fin iguales no tiene borde de cierre: drena todo el dia.
+WORKER_WINDOW_START = env("WORKER_WINDOW_START", "19:00")
+WORKER_WINDOW_END = env("WORKER_WINDOW_END", "05:00")
+WORKER_POLL_SECONDS = env_int("WORKER_POLL_SECONDS", 5)
+# La concurrencia de uno se sostiene con un bloqueo de asesoria de PostgreSQL,
+# que identifica al trabajador por este numero. Es configurable para que dos
+# despliegues sobre un mismo cluster no se bloqueen entre si.
+WORKER_CONCURRENCY_LOCK_ID = env_int("WORKER_CONCURRENCY_LOCK_ID", 8801)
+
 DATABASE_ENGINE = env("DATABASE_ENGINE", "postgresql")
 SQLITE_PATH = env("SQLITE_PATH", "db.sqlite3")
 

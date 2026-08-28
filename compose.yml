@@ -58,6 +58,37 @@ services:
     networks:
       - app_net
 
+  # RNF-REN-004: un solo proceso trabajador, con la ventana horaria fuera del
+  # horario de escaneo. `replicas` no reemplaza al bloqueo de asesoria que el
+  # comando toma en la base de datos: declara la intencion aqui, y el bloqueo
+  # la sostiene aunque alguien levante el servicio a mano.
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "manage.py", "run_worker"]
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_ENGINE: postgresql
+      DATABASE_NAME: ${POSTGRES_DB:-siga_inebi}
+      DATABASE_USER: ${POSTGRES_USER:-siga_inebi}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-siga_inebi_dev_password}
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      TIME_ZONE: ${TIME_ZONE:-America/Guatemala}
+      TZ: ${TIME_ZONE:-America/Guatemala}
+      WORKER_WINDOW_START: ${WORKER_WINDOW_START:-19:00}
+      WORKER_WINDOW_END: ${WORKER_WINDOW_END:-05:00}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+    depends_on:
+      backend:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    networks:
+      - app_net
+
   frontend:
     build:
       context: ./frontend

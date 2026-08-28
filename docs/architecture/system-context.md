@@ -25,7 +25,10 @@ SIGA-INEBI centraliza informacion academica, administrativa y operativa del esta
 - Institucion unica inicial.
 - Zona horaria local del establecimiento, fijada explicitamente en el servidor y en la base de datos mediante `TIME_ZONE`; ver `docs/architecture/database-strategy.md`.
 - Uso en escritorio y telefonos de gama baja.
-- Operacion critica durante jornada escolar.
+- Operacion critica durante jornada escolar. El trabajo diferido (RNF-REN-003) se drena fuera
+  de ese horario: el proceso trabajador corre con concurrencia de uno y dentro de una ventana
+  configurable en hora local (`WORKER_WINDOW_START` y `WORKER_WINDOW_END`, RNF-REN-004), para
+  no competir por el host mientras el porton escanea.
 - Escaneo QR requiere camara en contexto seguro.
 
 ## Fronteras de confianza

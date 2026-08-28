@@ -55,7 +55,8 @@ puerta de enlace sobre un cambio que la base de datos ya confirmo. Ese trabajo s
 - El nombre de la tarea se resuelve al encolar, asi que un nombre inexistente falla en la peticion
   que lo escribio y no horas despues en la bitacora del worker.
 
-Quien drena la cola es el proceso trabajador de RNF-REN-004.
+Quien drena la cola es el proceso trabajador de RNF-REN-004: `python manage.py run_worker`,
+con concurrencia de uno y dentro de una ventana horaria configurable en hora local.
 
 ## Seguridad
 
