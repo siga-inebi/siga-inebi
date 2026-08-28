@@ -5,6 +5,7 @@ RF-JOR-003 — precedencia entre eventos.
 RF-JOR-004 — cierre de jornada.
 RF-JOR-005 — deteccion de inconsistencias entre fuentes.
 RF-JOR-006 — recalculo ante cambios.
+RNF-REN-003 — ese recalculo sale de la peticion sincrona y se encola.
 RF-JOR-008 — consulta de presencia en tiempo real.
 RF-JOR-009 — porcentaje de asistencia del ciclo.
 RF-JOR-011 — advertencia sobre el uso reglamentario del indicador.
@@ -32,7 +33,8 @@ from apps.attendance.models import (
     StudentCredential,
 )
 from apps.audit.models import AuditEvent
-from apps.common.models import DomainError
+from apps.common import jobs
+from apps.common.models import DomainError, Job
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import active_enrolments, create_enrolment
 from tests.factories.academic import (
@@ -915,6 +917,85 @@ def test_recalculate_day_always_records_audit_event_even_when_nothing_changes():
     )
 
     assert AuditEvent.objects.filter(action="attendance.day.recalculated").exists()
+
+
+def test_setting_jornada_parameters_enqueues_the_reconciliation_instead_of_running_it():
+    """
+    RNF-REN-003: the reconciliation is sized by the calendar, so the POST that
+    versions the parameters must not carry it. What the request leaves behind
+    is a job row naming the work and the arguments to do it with.
+    """
+    cycle = AcademicCycleFactory()
+    _student, _section, shift = _enrolled_student(cycle)
+
+    parameters = services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+
+    job = Job.objects.get(task=services.RECALCULATE_PARAMETERS_CHANGE_TASK)
+    assert job.status == Job.Status.QUEUED
+    assert job.payload["shift_id"] == shift.pk
+    assert job.payload["academic_cycle_id"] == cycle.pk
+    assert job.payload["effective_from"] == parameters.effective_from.isoformat()
+    assert not AuditEvent.objects.filter(action="attendance.day.recalculated").exists()
+
+
+def test_the_enqueued_reconciliation_supersedes_the_stale_alert_when_it_runs():
+    """
+    The other half of RNF-REN-003: deferring the work must not lose it. Once
+    the worker drains the job, the alert a parameter change staled is
+    superseded exactly as it was when the request did the work inline.
+    """
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(
+        starts_on=today - timedelta(days=60), ends_on=today + timedelta(days=60)
+    )
+    student, _section, shift = _enrolled_student(cycle)
+    for hour in (7, 15):
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=today,
+            movement_type=(
+                AttendanceEvent.MovementType.ENTRY
+                if hour == 7
+                else AttendanceEvent.MovementType.EXIT
+            ),
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=_at(today, hour, 0),
+        )
+    stale_alert = AttendanceAlertFactory(
+        student=student,
+        shift=shift,
+        event_date=today,
+        alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
+    )
+
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=today,
+    )
+    stale_alert.refresh_from_db()
+    assert stale_alert.is_active is True
+
+    job = jobs.run_job(jobs.claim_next_job())
+
+    assert job.status == Job.Status.SUCCEEDED
+    stale_alert.refresh_from_db()
+    assert stale_alert.is_active is False
 
 
 def test_recalculate_days_for_parameters_change_only_touches_days_on_or_after_effective_from():

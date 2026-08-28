@@ -35,10 +35,16 @@ from apps.audit.services import record_event
 from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
+from apps.common.jobs import enqueue
 from apps.common.opaque import generate_opaque_identifier
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import active_enrolments
 from apps.students.models import Student
+
+# RNF-REN-003: the task name `apps/attendance/tasks.py` registers. It lives
+# here, next to the service that enqueues it, so that module can import it
+# without the import running back the other way.
+RECALCULATE_PARAMETERS_CHANGE_TASK = "attendance.recalculate_parameters_change"
 
 ORIGIN_PRECEDENCE = {
     AttendanceEvent.Origin.SCAN: 0,
@@ -106,8 +112,22 @@ def set_jornada_parameters(
             "effective_from": str(effective_from),
         },
     )
-    recalculate_days_for_parameters_change(
-        shift=shift, academic_cycle=academic_cycle, effective_from=effective_from, actor=actor
+    # RNF-REN-003: the reconciliation this triggers is sized by the calendar,
+    # not by the request — every day from `effective_from` to today, for every
+    # student holding an alert. A cycle configured mid-year makes that hundreds
+    # of days in one POST, so it leaves the request as a job. The row is
+    # written inside this `transaction.atomic`, so a parameters version that
+    # never commits never leaves a reconciliation behind either.
+    enqueue(
+        task=RECALCULATE_PARAMETERS_CHANGE_TASK,
+        payload={
+            # Primary keys, not `public_id`: the payload is internal to the
+            # deployment that wrote it and never crosses the API boundary.
+            "shift_id": shift.pk,
+            "academic_cycle_id": academic_cycle.pk,
+            "effective_from": effective_from.isoformat(),
+            "actor_id": actor.pk if actor is not None else None,
+        },
     )
     return parameters
 
