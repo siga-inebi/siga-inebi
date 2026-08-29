@@ -6,6 +6,17 @@ from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
 
+
+class DocumentRecordQuerySet(models.QuerySet):
+    """Preserve document metadata and history: bulk delete is prohibited."""
+
+    def delete(self):
+        raise RuntimeError("Document records cannot be deleted.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Document records cannot be modified.")
+
+
 # Vida de un enlace de descarga (RF-DOC-005).
 DOWNLOAD_TOKEN_LIFETIME = timedelta(minutes=5)
 
@@ -28,6 +39,8 @@ class DocumentRecord(TimeStampedModel):
     The storage byte content stays outside the database, while the metadata and
     lineage remain auditable and linked to the student's dossier history.
     """
+
+    objects = DocumentRecordQuerySet.as_manager()
 
     class StorageStatus(models.TextChoices):
         ACTIVE = "active", "Active"

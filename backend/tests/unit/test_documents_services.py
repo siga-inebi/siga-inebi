@@ -450,6 +450,21 @@ def test_document_record_delete_is_blocked_to_preserve_history():
         record.delete()
 
 
+def test_document_record_queryset_delete_is_blocked_to_preserve_history():
+    student = StudentFactory()
+    DocumentRecord.objects.create(
+        student=student,
+        filename="medical-proof.pdf",
+        storage_key="local/medical-proof.pdf",
+        content_type="application/pdf",
+        size_bytes=64,
+        checksum="zzz999",
+    )
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        DocumentRecord.objects.filter(student=student).delete()
+
+
 def test_document_record_links_cannot_be_reassigned_after_creation():
     student = StudentFactory()
     enrolment = _enrolment()
