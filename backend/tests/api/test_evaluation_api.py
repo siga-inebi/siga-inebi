@@ -33,6 +33,7 @@ from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
     RoleFactory,
+    ScopeGrantFactory,
     UserFactory,
 )
 from tests.factories.people import PersonFactory
@@ -55,6 +56,17 @@ def _grant_grade_write(user, *, section, subject, academic_cycle):
         teacher=user.person,
         starts_on=academic_cycle.starts_on,
     )
+
+
+def _grant_evaluation_configuration(user, *, institution):
+    """Grant the evaluation configuration permission with institution scope."""
+    permission = PermissionFactory(codename="evaluation_configure_units")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[permission]),
+        identity_scope=False,
+    )
+    ScopeGrantFactory(assignment=assignment, institution=institution)
 
 
 class TestEvaluationUnitAPI:
@@ -370,6 +382,7 @@ class TestEvaluationUnitCloseAPI:
             capture_starts_on=yesterday - timedelta(days=30),
             capture_ends_on=yesterday,
         )
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
 
         response = auth_client.patch(
             reverse(
@@ -391,9 +404,51 @@ class TestEvaluationUnitCloseAPI:
             action="evaluation.unit_closed", actor=auth_client.user
         ).exists()
 
-    def test_closed_unit_rejects_grade_correction_without_grant_api(
-        self, auth_client, institution
-    ):
+    def test_close_unit_requires_configuration_permission(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        unit.refresh_from_db()
+        assert unit.status == EvaluationUnit.UnitStatus.OPEN
+
+    def test_close_unit_requires_institution_scope(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        permission = PermissionFactory(codename="evaluation_configure_units")
+        RoleAssignmentFactory(
+            user=auth_client.user,
+            role=RoleFactory(permissions=[permission]),
+            identity_scope=False,
+        )
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        unit.refresh_from_db()
+        assert unit.status == EvaluationUnit.UnitStatus.OPEN
+
+    def test_closed_unit_rejects_grade_correction_without_grant_api(self, auth_client, institution):
         """
         AND las notas de esa unidad dejan de admitir modificación salvo brecha excepcional
         """
@@ -404,6 +459,7 @@ class TestEvaluationUnitCloseAPI:
             capture_starts_on=yesterday - timedelta(days=30),
             capture_ends_on=yesterday,
         )
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
         enrolment = self._enrolment(cycle)
         subject = SubjectFactory(institution=institution)
         teacher = PersonFactory()
@@ -447,6 +503,7 @@ class TestEvaluationUnitCloseAPI:
     def test_reject_closing_an_already_closed_unit_api(self, auth_client, institution):
         cycle = AcademicCycleFactory(institution=institution)
         unit = EvaluationUnitFactory(academic_cycle=cycle)
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
 
         url = reverse(
             "evaluation-unit-close",

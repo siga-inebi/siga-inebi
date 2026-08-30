@@ -47,6 +47,7 @@ from apps.evaluation.services import (
 )
 from apps.identity.scopes import can_access_student, teaching_assignment_queryset
 
+EVALUATION_CONFIGURE_PERMISSION = "evaluation_configure_units"
 STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 TAGS = ["evaluation: configuration"]
@@ -189,20 +190,19 @@ class EvaluationUnitCloseView(APIView):
     PATCH {base}/close/
     """
 
-    def check_director_permission(self):
-        """
-        Verify user has director role and evaluation.configure_units permission.
-        TODO: implement once permission model is complete.
-        """
-        # TODO: check for role=director and permission=evaluation.configure_units
-        return bool(self.request.user and self.request.user.is_authenticated)
+    def check_configuration_permission(self, unit):
+        """Require the atomic permission and an effective institution scope."""
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        return user.has_scoped_permission(
+            EVALUATION_CONFIGURE_PERMISSION,
+            scope={"institution": unit.academic_cycle.institution},
+        )
 
     def patch(self, request, *args, **kwargs):
-        if not self.check_director_permission():
-            raise AuthorizationError(
-                "Permission denied. Only directors can configure evaluation units."
-            )
-
         cycle_public_id = kwargs.get("cycle_public_id")
         unit_public_id = kwargs.get("unit_public_id")
 
@@ -211,6 +211,11 @@ class EvaluationUnitCloseView(APIView):
         )
         if unit is None:
             raise ResourceNotFoundError("Evaluation unit not found.")
+
+        if not self.check_configuration_permission(unit):
+            raise AuthorizationError(
+                "Permission denied. The actor needs evaluation configuration permission and scope."
+            )
 
         unit = close_evaluation_unit(unit, actor=request.user)
 
