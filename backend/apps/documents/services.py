@@ -449,7 +449,9 @@ def create_document_template(
 
 
 @transaction.atomic
-def update_document_template(*, template, name=None, description=None, kind=None, content=None, actor=None):
+def update_document_template(
+    *, template, name=None, description=None, kind=None, content=None, actor=None
+):
     """
     Update the descriptive attributes of a document template. The code is
     immutable. Any explicitly supplied field records a new version
@@ -554,8 +556,8 @@ def preview_document_template(*, template, payload=None, actor=None):
     for marker in markers:
         if marker not in FIELD_TAG_CODES:
             raise DomainError(
-                "El marcador '{marker}' no esta permitido dentro del catalogo cerrado de "
-                "etiquetas de plantilla.".format(marker=marker)
+                f"El marcador '{marker}' no esta permitido dentro del catalogo cerrado de "
+                "etiquetas de plantilla."
             )
 
     rendered = template_content
@@ -595,19 +597,21 @@ def document_storage_usage_summary(*, institution=None):
     """Summarize stored document usage from metadata only, without direct file access."""
     queryset = DocumentRecord.objects.all()
     if institution is not None:
-        scoped_queryset = queryset.filter(student__enrolments__academic_cycle__institution=institution)
+        scoped_queryset = queryset.filter(
+            student__enrolments__academic_cycle__institution=institution
+        )
         if scoped_queryset.exists():
             queryset = scoped_queryset.distinct()
 
     total_files = queryset.count()
-    total_size_bytes = queryset.aggregate(total_size=models.Sum("size_bytes"))[
-        "total_size"
-    ] or 0
+    total_size_bytes = queryset.aggregate(total_size=models.Sum("size_bytes"))["total_size"] or 0
     return {
         "total_files": total_files,
         "total_size_bytes": int(total_size_bytes),
         "by_content_type": list(
-            queryset.values("content_type").annotate(count=models.Count("id"), size=models.Sum("size_bytes"))
+            queryset.values("content_type").annotate(
+                count=models.Count("id"), size=models.Sum("size_bytes")
+            )
         ),
     }
 
