@@ -88,6 +88,22 @@ class ManualRegistrationReason(TimeStampedModel):
         return self.name
 
 
+class AttendanceEventQuerySet(models.QuerySet):
+    """
+    ``QuerySet.delete()``/``update()`` run a direct SQL statement and never
+    call the model's own ``delete()``/``save()`` overrides below, so the
+    instance-level guard on its own would not stop a bulk
+    ``AttendanceEvent.objects.filter(...).delete()`` (RNF-AUD-001, same gap
+    class already closed for ``apps.audit.models.AuditEvent`` in RF-BIT-005).
+    """
+
+    def delete(self):
+        raise RuntimeError("Attendance events cannot be deleted.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Attendance events cannot be modified.")
+
+
 class AttendanceEvent(TimeStampedModel):
     """
     A single movement record for a student in a jornada (RF-JOR-002/003):
@@ -95,7 +111,11 @@ class AttendanceEvent(TimeStampedModel):
 
     Events are never deleted or overwritten, even when a later event
     supersedes them for precedence purposes (AGENTS.md #12) — a superseded
-    event stays stored and queryable.
+    event stays stored and queryable. RNF-AUD-001: corrections must add a new
+    row (see ``resolve_prevailing_event``'s precedence rule and
+    ``record_scan_movement``'s duplicate rejection, both of which already
+    never touch an existing row) rather than editing this one, so both the
+    instance and the queryset reject any attempt to do so after creation.
     """
 
     class MovementType(models.TextChoices):
@@ -148,6 +168,8 @@ class AttendanceEvent(TimeStampedModel):
     client_event_id = models.CharField(max_length=100, blank=True, default="")
     batch_id = models.CharField(max_length=100, blank=True, default="")
 
+    objects = AttendanceEventQuerySet.as_manager()
+
     class Meta:
         ordering = ["-captured_at"]
         constraints = [
@@ -166,6 +188,14 @@ class AttendanceEvent(TimeStampedModel):
 
     def __str__(self):
         return f"{self.student} {self.movement_type} ({self.origin}) {self.captured_at}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Attendance events cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Attendance events cannot be deleted.")
 
 
 class AttendanceAlert(TimeStampedModel):
