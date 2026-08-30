@@ -33,6 +33,7 @@ from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
     RoleFactory,
+    ScopeGrantFactory,
     UserFactory,
 )
 from tests.factories.people import PersonFactory
@@ -55,6 +56,17 @@ def _grant_grade_write(user, *, section, subject, academic_cycle):
         teacher=user.person,
         starts_on=academic_cycle.starts_on,
     )
+
+
+def _grant_evaluation_configuration(user, *, institution):
+    """Grant the evaluation configuration permission with institution scope."""
+    permission = PermissionFactory(codename="evaluation_configure_units")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[permission]),
+        identity_scope=False,
+    )
+    ScopeGrantFactory(assignment=assignment, institution=institution)
 
 
 class TestEvaluationUnitAPI:
@@ -339,6 +351,186 @@ class TestRecoveryWindowAPI:
                 "recovery_starts_on": "2026-03-10",
                 "recovery_ends_on": "2026-03-20",
             },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+
+
+class TestEvaluationUnitCloseAPI:
+    """Tests for PATCH close endpoint (RF-EVC-007)."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def test_close_unit_success(self, auth_client, institution):
+        """
+        Scenario: Cierre de una unidad
+        PATCH /api/v1/academics/cycles/{cycle_id}/evaluation-units/{unit_id}/close/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "closed"
+
+        from apps.audit.models import AuditEvent
+
+        assert AuditEvent.objects.filter(
+            action="evaluation.unit_closed", actor=auth_client.user
+        ).exists()
+
+    def test_close_unit_requires_configuration_permission(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        unit.refresh_from_db()
+        assert unit.status == EvaluationUnit.UnitStatus.OPEN
+
+    def test_close_unit_requires_institution_scope(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        permission = PermissionFactory(codename="evaluation_configure_units")
+        RoleAssignmentFactory(
+            user=auth_client.user,
+            role=RoleFactory(permissions=[permission]),
+            identity_scope=False,
+        )
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        unit.refresh_from_db()
+        assert unit.status == EvaluationUnit.UnitStatus.OPEN
+
+    def test_closed_unit_rejects_grade_correction_without_grant_api(self, auth_client, institution):
+        """
+        AND las notas de esa unidad dejan de admitir modificación salvo brecha excepcional
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=70)
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        close_response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+        assert close_response.status_code == 200
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
+                "value": 90,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "esta cerrada" in response.json()["error"]["detail"].lower()
+
+    def test_reject_closing_an_already_closed_unit_api(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+
+        url = reverse(
+            "evaluation-unit-close",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(unit.public_id),
+            },
+        )
+        first = auth_client.patch(url, content_type="application/json")
+        assert first.status_code == 200
+
+        second = auth_client.patch(url, content_type="application/json")
+        assert second.status_code == 400
+
+    def test_unit_not_found_returns_404_for_close(self, auth_client, institution):
+        import uuid
+
+        cycle = AcademicCycleFactory(institution=institution)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(uuid.uuid4()),
+                },
+            ),
             content_type="application/json",
         )
 

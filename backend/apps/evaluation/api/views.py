@@ -33,6 +33,7 @@ from apps.evaluation.api.serializers import (
     RecoveryWindowSerializer,
 )
 from apps.evaluation.services import (
+    close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
     get_effective_unit_count,
@@ -46,6 +47,7 @@ from apps.evaluation.services import (
 )
 from apps.identity.scopes import can_access_student, teaching_assignment_queryset
 
+EVALUATION_CONFIGURE_PERMISSION = "evaluation_configure_units"
 STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 TAGS = ["evaluation: configuration"]
@@ -160,6 +162,62 @@ class EvaluationUnitRecoveryWindowView(APIView):
             recovery_starts_on=serializer.validated_data["recovery_starts_on"],
             recovery_ends_on=serializer.validated_data["recovery_ends_on"],
         )
+
+        return Response(
+            EvaluationUnitSerializer(unit).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        summary="Cerrar una unidad de evaluacion",
+        description=(
+            "Una unidad cerrada deja de admitir captura o correccion de notas salvo "
+            "brecha excepcional vigente (RF-EVC-007)."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: EvaluationUnitSerializer},
+    ),
+)
+class EvaluationUnitCloseView(APIView):
+    """
+    Close an evaluation unit (RF-EVC-007).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    PATCH {base}/close/
+    """
+
+    def check_configuration_permission(self, unit):
+        """Require the atomic permission and an effective institution scope."""
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        return user.has_scoped_permission(
+            EVALUATION_CONFIGURE_PERMISSION,
+            scope={"institution": unit.academic_cycle.institution},
+        )
+
+    def patch(self, request, *args, **kwargs):
+        cycle_public_id = kwargs.get("cycle_public_id")
+        unit_public_id = kwargs.get("unit_public_id")
+
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
+
+        if not self.check_configuration_permission(unit):
+            raise AuthorizationError(
+                "Permission denied. The actor needs evaluation configuration permission and scope."
+            )
+
+        unit = close_evaluation_unit(unit, actor=request.user)
 
         return Response(
             EvaluationUnitSerializer(unit).data,

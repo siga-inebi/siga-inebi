@@ -30,6 +30,7 @@ from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit, Grade
 from apps.evaluation.services import (
+    close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
     get_effective_unit_count,
@@ -45,7 +46,8 @@ from apps.evaluation.services import (
     validate_recovery_window_open,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
-from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.evaluation import CaptureExceptionGrantFactory, EvaluationUnitFactory
+from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
@@ -287,6 +289,108 @@ class TestCaptureWindowValidation:
                 capture_starts_on=date(2026, 3, 1),
                 capture_ends_on=date(2026, 1, 1),
             )
+
+
+class TestCloseEvaluationUnit:
+    """Tests for RF-EVC-007: Estados de la unidad."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _expired_unit(self, cycle):
+        yesterday = timezone.localdate() - timedelta(days=1)
+        return create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+
+    def test_close_unit_records_actor_and_moment_in_bitacora(self):
+        """
+        Scenario: Cierre de una unidad
+        GIVEN una unidad con su ventana de captura vencida
+        WHEN un usuario autorizado la cierra
+        THEN el sistema registra el cambio de estado en la bitácora
+        """
+        from apps.audit.models import AuditEvent
+
+        cycle = AcademicCycleFactory()
+        unit = self._expired_unit(cycle)
+        actor = UserFactory()
+
+        closed = close_evaluation_unit(unit, actor=actor)
+
+        assert closed.status == EvaluationUnit.UnitStatus.CLOSED
+        assert closed.is_closed
+
+        event = AuditEvent.objects.get(action="evaluation.unit_closed")
+        assert event.resource_identifier == str(unit.pk)
+        assert event.actor_id == actor.pk
+
+    def test_closed_unit_rejects_grade_capture_without_grant(self):
+        """
+        Scenario: Cierre de una unidad (continuacion)
+        AND las notas de esa unidad dejan de admitir modificación salvo brecha excepcional
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._expired_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=70)
+
+        close_evaluation_unit(unit)
+
+        with pytest.raises(DomainError, match="ventana de captura"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=90,
+            )
+
+    def test_closed_unit_allows_capture_with_active_grant(self):
+        """
+        A closed unit still admits capture when an exceptional grant covers
+        the teacher and subject (RF-EVC-004).
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._expired_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        close_evaluation_unit(unit)
+        CaptureExceptionGrantFactory(evaluation_unit=unit, subject=subject, teacher=teacher)
+
+        grade = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=90,
+        )
+
+        assert grade.value == 90
+
+    def test_reject_closing_an_already_closed_unit(self):
+        cycle = AcademicCycleFactory()
+        unit = self._expired_unit(cycle)
+        close_evaluation_unit(unit)
+
+        with pytest.raises(DomainError, match="ya esta cerrada"):
+            close_evaluation_unit(unit)
 
 
 class TestRecoveryWindow:

@@ -8,6 +8,7 @@ from django.urls import path
 
 from apps.evaluation.api.views import (
     CaptureExceptionGrantListCreateView,
+    EvaluationUnitCloseView,
     EvaluationUnitListCreateView,
     EvaluationUnitRecoveryWindowView,
     GradeListCreateView,
@@ -19,6 +20,11 @@ urlpatterns = [
         "<uuid:unit_public_id>/recovery-window/",
         EvaluationUnitRecoveryWindowView.as_view(),
         name="evaluation-unit-recovery-window",
+    ),
+    path(
+        "<uuid:unit_public_id>/close/",
+        EvaluationUnitCloseView.as_view(),
+        name="evaluation-unit-close",
     ),
     path(
         "<uuid:unit_public_id>/capture-exceptions/",
