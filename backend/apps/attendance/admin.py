@@ -59,6 +59,6 @@ class StudentCredentialAdmin(admin.ModelAdmin):
     would turn it into a place to harvest usable passes.
     """
 
-    list_display = ["student", "status", "issued_at", "is_active"]
+    list_display = ["student", "status", "issued_at", "revoked_by", "is_active"]
     list_filter = ["status"]
     date_hierarchy = "issued_at"

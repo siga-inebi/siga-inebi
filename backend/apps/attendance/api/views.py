@@ -37,6 +37,8 @@ from .serializers import (
     CredentialPrintContentSerializer,
     CredentialResolutionRequestSerializer,
     CredentialResolutionSerializer,
+    CredentialRevocationRequestSerializer,
+    CredentialRevocationResultSerializer,
     DayStatusQuerySerializer,
     DayStatusResultSerializer,
     JornadaClosureRequestSerializer,
@@ -621,6 +623,42 @@ class CredentialPrintContentView(GenericAPIView):
             )
         content = services.resolve_credential_print_content(student=student)
         return Response(CredentialPrintContentSerializer(content).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Revocar credencial",
+        description=(
+            "Revoca de inmediato la credencial vigente del estudiante, indicando "
+            "el motivo (RF-CRE-003). Una credencial revocada queda inutilizable "
+            "para registrar movimientos."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialRevocationRequestSerializer,
+        responses={200: CredentialRevocationResultSerializer},
+    ),
+)
+class CredentialRevocationView(GenericAPIView):
+    """RF-CRE-003 contract: revoke a student's active credential."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialRevocationResultSerializer
+
+    def post(self, request):
+        serializer = CredentialRevocationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        credential = services.revoke_credential(
+            student=student, reason=payload["reason"], actor=request.user
+        )
+        return Response(CredentialRevocationResultSerializer(credential).data)
 
 
 @extend_schema_view(

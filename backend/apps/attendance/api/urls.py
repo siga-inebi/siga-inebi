@@ -10,6 +10,7 @@ from apps.attendance.api.views import (
     AttendanceScanView,
     ControlPointListView,
     CredentialPrintContentView,
+    CredentialRevocationView,
     JornadaClosureView,
     JornadaParametersListCreateView,
     ManualRegistrationReasonListView,
@@ -82,6 +83,11 @@ urlpatterns = [
         "credentials/print-content/",
         CredentialPrintContentView.as_view(),
         name="attendance-credential-print-content",
+    ),
+    path(
+        "credentials/revoke/",
+        CredentialRevocationView.as_view(),
+        name="attendance-credential-revoke",
     ),
     path(
         "credentials/resolve/",

@@ -1377,6 +1377,41 @@ def resolve_credential_print_content(*, student):
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-003 — vigencia y revocacion
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def revoke_credential(*, student, reason, actor):
+    """RF-CRE-003: revoke the active credential without deleting its history."""
+    if not reason:
+        raise DomainError("La revocacion debe indicar un motivo.")
+    if actor is None:
+        raise DomainError("La revocacion debe identificar quien la autorizo.")
+
+    credential = StudentCredential.objects.filter(
+        student=student, status=StudentCredential.Status.ACTIVE, is_active=True
+    ).first()
+    if credential is None:
+        raise DomainError(f"El estudiante '{student}' no tiene una credencial vigente.")
+
+    credential.status = StudentCredential.Status.REVOKED
+    credential.revocation_reason = reason
+    credential.revoked_by = actor
+    credential.save(
+        update_fields=["status", "revocation_reason", "revoked_by", "updated_at"]
+    )
+    record_event(
+        actor=actor,
+        action="attendance.credential.revoked",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={"student_id": str(student.public_id), "reason": reason},
+    )
+    return credential
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — resolucion de identificador
 # --------------------------------------------------------------------------- #
 

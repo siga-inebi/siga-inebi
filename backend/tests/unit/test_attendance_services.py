@@ -2358,6 +2358,63 @@ def test_resolve_credential_print_content_rejects_a_revoked_credential():
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-003 — vigencia y revocacion
+# --------------------------------------------------------------------------- #
+
+
+def test_revoke_credential_records_reason_and_revoker_and_rejects_reuse():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    issued = services.issue_credential(student=student)
+    actor = UserFactory()
+
+    revoked = services.revoke_credential(student=student, reason="Extravío", actor=actor)
+
+    assert revoked.pk == issued.pk
+    assert revoked.status == StudentCredential.Status.REVOKED
+    assert revoked.revocation_reason == "Extravío"
+    assert revoked.revoked_by == actor
+    with pytest.raises(DomainError, match="revocada"):
+        services.resolve_credential(opaque_identifier=issued.opaque_identifier)
+
+
+def test_revoke_credential_requires_a_reason():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+
+    with pytest.raises(DomainError, match="motivo"):
+        services.revoke_credential(student=student, reason="", actor=UserFactory())
+
+
+def test_revoke_credential_requires_an_actor():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    services.issue_credential(student=student)
+
+    with pytest.raises(DomainError, match="autorizo"):
+        services.revoke_credential(student=student, reason="Extravío", actor=None)
+
+
+def test_revoke_credential_without_an_active_one_is_rejected():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+
+    with pytest.raises(DomainError, match="credencial vigente"):
+        services.revoke_credential(student=student, reason="Extravío", actor=UserFactory())
+
+
+def test_revoke_credential_twice_is_rejected_the_second_time():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    services.issue_credential(student=student)
+    actor = UserFactory()
+    services.revoke_credential(student=student, reason="Extravío", actor=actor)
+
+    with pytest.raises(DomainError, match="credencial vigente"):
+        services.revoke_credential(student=student, reason="Duplicada", actor=actor)
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — resolucion de identificador
 # --------------------------------------------------------------------------- #
 
