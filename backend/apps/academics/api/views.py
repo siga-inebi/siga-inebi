@@ -34,6 +34,8 @@ from .serializers import (
     ClassScheduleBlockCreateSerializer,
     ClassScheduleBlockSerializer,
     ClassScheduleBlockUpdateSerializer,
+    ClassSessionCreateSerializer,
+    ClassSessionSerializer,
     CurriculumPlanCreateSerializer,
     CurriculumPlanSerializer,
     CurriculumPlanUpdateSerializer,
@@ -867,6 +869,75 @@ class SectionDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDe
 
     def deactivate(self, request, section):
         services.deactivate_section(section=section, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
+# class sessions ("sesiones de clase") -- RF-HOR-003
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar sesiones de clase de una seccion",
+        tags=CATALOGUE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: ClassSessionSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Agendar sesion de clase",
+        description=(
+            "El bloque de horario debe pertenecer a la misma jornada que la seccion. "
+            "El docente se deriva de la asignacion vigente (RF-HOR-004), no se captura aqui."
+        ),
+        tags=CATALOGUE,
+        request=ClassSessionCreateSerializer,
+        responses={201: ClassSessionSerializer},
+    ),
+)
+class SectionClassSessionListCreateView(CatalogueListCreateView):
+    list_serializer = ClassSessionSerializer
+    create_serializer = ClassSessionCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        return queries.class_sessions(
+            queries.section_or_404(self.institution, public_id),
+            include_inactive=_include_inactive(request),
+        )
+
+    def create(self, request, payload, public_id):
+        section = queries.section_or_404(self.institution, public_id)
+        subject = queries.subject_for_payload(payload["subject_id"])
+        schedule_block = queries.class_schedule_block_for_payload(
+            self.institution, payload["schedule_block_id"]
+        )
+        return services.create_class_session(
+            academic_cycle=section.academic_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=schedule_block,
+            day_of_week=payload["day_of_week"],
+            actor=request.user,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar sesion de clase", tags=CATALOGUE, responses={200: ClassSessionSerializer}
+    ),
+    delete=extend_schema(
+        summary="Desactivar sesion de clase",
+        tags=CATALOGUE,
+        responses={204: None},
+    ),
+)
+class ClassSessionDetailView(RetrieveMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = ClassSessionSerializer
+
+    def get_object(self, public_id):
+        return queries.class_session_or_404(self.institution, public_id)
+
+    def deactivate(self, request, session):
+        services.deactivate_class_session(session=session, actor=request.user)
 
 
 # --------------------------------------------------------------------------- #

@@ -19,6 +19,7 @@ from .views import (
     CampusNextCodeView,
     CampusShiftListCreateView,
     ClassScheduleBlockDetailView,
+    ClassSessionDetailView,
     CurriculumPlanDetailView,
     CurriculumPlanListCreateView,
     GradeDetailView,
@@ -30,6 +31,7 @@ from .views import (
     LevelNextCodeView,
     LevelSubjectDetailView,
     LevelSubjectListCreateView,
+    SectionClassSessionListCreateView,
     SectionDetailView,
     SectionListCreateView,
     ShiftClassScheduleBlockListCreateView,
@@ -148,6 +150,16 @@ urlpatterns = [
     path("subjects/<uuid:public_id>/", SubjectDetailView.as_view(), name="subject-detail"),
     path("sections/", SectionListCreateView.as_view(), name="section-list-create"),
     path("sections/<uuid:public_id>/", SectionDetailView.as_view(), name="section-detail"),
+    path(
+        "sections/<uuid:public_id>/class-sessions/",
+        SectionClassSessionListCreateView.as_view(),
+        name="section-class-session-list-create",
+    ),
+    path(
+        "class-sessions/<uuid:public_id>/",
+        ClassSessionDetailView.as_view(),
+        name="class-session-detail",
+    ),
     path(
         "curriculum-plans/",
         CurriculumPlanListCreateView.as_view(),

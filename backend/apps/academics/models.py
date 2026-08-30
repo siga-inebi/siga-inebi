@@ -446,3 +446,48 @@ class ClassScheduleBlock(TimeStampedModel):
 
     def __str__(self):
         return f"{self.name} ({self.shift})"
+
+
+class ClassSession(TimeStampedModel):
+    """
+    Scheduled class session (RF-HOR-003): a subject taught to a section on a
+    given day of the week, in a specific block of the schedule grid.
+
+    The teacher is deliberately NOT stored here: RF-HOR-004 derives it from
+    the current ``TeachingAssignment`` for (academic_cycle, section,
+    subject). Conflict detection between sessions (same section or classroom
+    in the same block, RF-HOR-005) is out of scope here; the only guard at
+    this layer is against registering the exact same session twice.
+    """
+
+    class Weekday(models.IntegerChoices):
+        # ISO weekday, matching apps.attendance.JornadaParameters.school_days.
+        MONDAY = 1, "Monday"
+        TUESDAY = 2, "Tuesday"
+        WEDNESDAY = 3, "Wednesday"
+        THURSDAY = 4, "Thursday"
+        FRIDAY = 5, "Friday"
+        SATURDAY = 6, "Saturday"
+        SUNDAY = 7, "Sunday"
+
+    academic_cycle = models.ForeignKey(
+        AcademicCycle, on_delete=models.CASCADE, related_name="class_sessions"
+    )
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="class_sessions")
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="class_sessions")
+    schedule_block = models.ForeignKey(
+        ClassScheduleBlock, on_delete=models.PROTECT, related_name="class_sessions"
+    )
+    day_of_week = models.PositiveSmallIntegerField(choices=Weekday.choices)
+
+    class Meta:
+        ordering = ["day_of_week", "schedule_block__number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["section", "subject", "day_of_week", "schedule_block"],
+                name="unique_class_session_registration",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.subject} - {self.section} ({self.get_day_of_week_display()})"

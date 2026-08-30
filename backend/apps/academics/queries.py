@@ -6,6 +6,7 @@ from apps.academics.models import (
     AcademicCycle,
     Campus,
     ClassScheduleBlock,
+    ClassSession,
     CurriculumPlan,
     Grade,
     GradeOffering,
@@ -99,6 +100,14 @@ def class_schedule_block_or_404(institution, public_id):
     )
 
 
+def class_schedule_block_for_payload(institution, public_id):
+    return _get_payload(
+        ClassScheduleBlock.objects.filter(shift__campus__institution=institution),
+        public_id,
+        "Class schedule block",
+    )
+
+
 def levels_all(institution):
     return (
         Level.objects.filter(institution=institution)
@@ -186,6 +195,29 @@ def section_or_404(institution, public_id):
 
 def section_for_payload(public_id):
     return _get_payload(Section.objects.all(), public_id, "Section")
+
+
+_CLASS_SESSION_RELATED = (
+    "section__offering__grade__level",
+    "section__offering__shift__campus",
+    "subject",
+    "schedule_block",
+)
+
+
+def class_sessions(section, *, include_inactive=False):
+    queryset = ClassSession.objects.filter(section=section).select_related(*_CLASS_SESSION_RELATED)
+    return _filter_active(queryset, include_inactive=include_inactive)
+
+
+def class_session_or_404(institution, public_id):
+    return _get(
+        ClassSession.objects.filter(
+            section__offering__academic_cycle__institution=institution
+        ).select_related(*_CLASS_SESSION_RELATED),
+        public_id,
+        "Class session",
+    )
 
 
 _CURRICULUM_PLAN_RELATED = ("academic_cycle", "grade__level", "subject")

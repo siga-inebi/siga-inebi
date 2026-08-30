@@ -7,6 +7,7 @@ from apps.academics.models import (
     AcademicCycle,
     Campus,
     ClassScheduleBlock,
+    ClassSession,
     Grade,
     GradeOffering,
     Institution,
@@ -174,3 +175,24 @@ def _build_offering(cycle, grade, shift):
         shift=shift,
     )
     return offering
+
+
+class ClassSessionFactory(factory.django.DjangoModelFactory):
+    """
+    Defaults build a section, subject and schedule block that all share the
+    same shift and institution -- callers only need to override what makes
+    their scenario distinct.
+    """
+
+    class Meta:
+        model = ClassSession
+
+    section = factory.SubFactory(SectionFactory)
+    academic_cycle = factory.LazyAttribute(lambda obj: obj.section.academic_cycle)
+    subject = factory.LazyAttribute(
+        lambda obj: SubjectFactory(institution=obj.section.offering.institution)
+    )
+    schedule_block = factory.LazyAttribute(
+        lambda obj: ClassScheduleBlockFactory(shift=obj.section.offering.shift)
+    )
+    day_of_week = ClassSession.Weekday.MONDAY
