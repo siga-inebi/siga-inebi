@@ -2,6 +2,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, TeachingAssignment
+from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError
 from apps.identity.models import ScopeGrant
 from apps.students.models import Student
@@ -117,14 +118,31 @@ def effective_student_queryset(*, user, codename, queryset=None, when=None):
 def authorized_student_queryset(*, user, codename, queryset=None, when=None):
     """Resolve a student queryset or deny when permission or scope is missing."""
     if not user.has_atomic_permission(codename, when=when):
+        _audit_student_access_denied(user=user, codename=codename, reason="missing_permission")
         raise AuthorizationError("El actor no tiene el permiso requerido.")
     guardian_students = guardian_student_queryset(user=user)
     teacher_students = teacher_student_queryset(user=user, when=when)
     has_administrative_scope = has_effective_scope_grant(user=user, codename=codename, when=when)
     has_derived_scope = guardian_students.exists() or teacher_students.exists()
     if not has_administrative_scope and not has_derived_scope:
+        _audit_student_access_denied(user=user, codename=codename, reason="missing_scope")
         raise AuthorizationError("El actor no tiene un alcance vigente asignado.")
     return effective_student_queryset(user=user, codename=codename, queryset=queryset, when=when)
+
+
+def _audit_student_access_denied(*, user, codename, reason):
+    """
+    RF-BIT-004: this is the single choke point every student-scoped view goes
+    through (directly or via ``can_access_student``), so auditing here covers
+    the "encargado sin asociacion" scenario without duplicating the call at
+    every view that resolves a student.
+    """
+    record_event(
+        actor=user,
+        action="identity.authorization.denied",
+        resource="Student",
+        context={"result": "denied", "reason": reason, "permission": codename},
+    )
 
 
 def can_access_student(*, user, codename, student, when=None):
