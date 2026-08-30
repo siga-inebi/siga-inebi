@@ -342,3 +342,24 @@ class CredentialResolutionSerializer(serializers.Serializer):
     section_id = serializers.UUIDField(source="enrolment.section.public_id")
     academic_cycle_id = serializers.UUIDField(source="enrolment.academic_cycle.public_id")
     credential_status = serializers.CharField(source="credential.status")
+
+
+class CredentialPrintContentQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+
+
+class CredentialPrintContentSerializer(serializers.Serializer):
+    """
+    RF-CRE-002 response: exactly what the printed/digital credential shows.
+
+    Deliberately excludes everything else the student record carries (health,
+    address, family contact) -- the field list itself is the boundary.
+    """
+
+    student_id = serializers.UUIDField(source="student.public_id")
+    full_name = serializers.CharField()
+    grade_name = serializers.CharField()
+    section_name = serializers.CharField()
+    academic_cycle_name = serializers.CharField()
+    institution_name = serializers.CharField()
+    photo_url = serializers.CharField(allow_null=True)

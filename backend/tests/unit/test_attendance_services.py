@@ -47,6 +47,7 @@ from tests.factories.attendance import (
     ControlPointFactory,
     JornadaParametersFactory,
     ManualRegistrationReasonFactory,
+    StudentCredentialFactory,
 )
 from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
@@ -2299,6 +2300,61 @@ def test_a_colliding_identifier_is_regenerated_instead_of_failing():
     )
 
     assert credential.opaque_identifier == "a-free-identifier"
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-002 — contenido visible de la credencial
+# --------------------------------------------------------------------------- #
+
+
+def test_resolve_credential_print_content_returns_name_photo_grade_section_cycle_institution():
+    """
+    Escenario 1 (RF-CRE-002): GIVEN un estudiante con credencial vigente, WHEN
+    un usuario autorizado genera el material imprimible, THEN el documento
+    incluye nombre, fotografia, grado y seccion, ciclo e institucion, AND no
+    incluye informacion de salud ni datos de contacto de la familia.
+    """
+    cycle = AcademicCycleFactory()
+    student, section, _shift = _enrolled_student(cycle)
+    student.photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
+    student.save(update_fields=["photo"])
+    services.issue_credential(student=student)
+
+    content = services.resolve_credential_print_content(student=student)
+
+    assert content.full_name == f"{student.person.first_name} {student.person.last_name}"
+    assert content.grade_name == section.offering.grade.name
+    assert content.section_name == section.name
+    assert content.academic_cycle_name == cycle.name
+    assert content.institution_name == cycle.institution.name
+    assert content.photo_url is not None and "photo" in content.photo_url
+
+
+def test_resolve_credential_print_content_requires_an_active_credential():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+
+    with pytest.raises(DomainError, match="no tiene una credencial vigente"):
+        services.resolve_credential_print_content(student=student)
+
+
+def test_resolve_credential_print_content_requires_active_enrolment():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    services.issue_credential(student=student)
+    student.enrolments.update(status=Enrolment.EnrolmentStatus.WITHDRAWN)
+
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.resolve_credential_print_content(student=student)
+
+
+def test_resolve_credential_print_content_rejects_a_revoked_credential():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    StudentCredentialFactory(student=student, status=StudentCredential.Status.REVOKED)
+
+    with pytest.raises(DomainError, match="no tiene una credencial vigente"):
+        services.resolve_credential_print_content(student=student)
 
 
 # --------------------------------------------------------------------------- #

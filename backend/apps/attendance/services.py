@@ -1328,6 +1328,55 @@ def issue_credential(
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-002 — contenido visible de la credencial
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class CredentialPrintContent:
+    """
+    RF-CRE-002: exactly what the printed/digital credential material shows --
+    name, photo, grade, section, academic cycle and institution. Deliberately
+    excludes everything else the student record carries (health, address,
+    family contact), same boundary ``ScanConfirmation`` draws for the
+    scan-confirmation screen (RF-ASI-003) -- a different requirement with a
+    different field list, so it gets its own dataclass rather than reusing
+    that one.
+    """
+
+    student: object
+    full_name: str
+    grade_name: str
+    section_name: str
+    academic_cycle_name: str
+    institution_name: str
+    photo_url: str | None
+
+
+def resolve_credential_print_content(*, student):
+    """RF-CRE-002: build the printable material for a student's active credential."""
+    credential = StudentCredential.objects.filter(
+        student=student, status=StudentCredential.Status.ACTIVE, is_active=True
+    ).first()
+    if credential is None:
+        raise DomainError(f"El estudiante '{student}' no tiene una credencial vigente.")
+
+    enrolment = active_enrolments(student=student).first()
+    if enrolment is None:
+        raise DomainError(f"El estudiante '{student}' no tiene inscripcion activa.")
+
+    return CredentialPrintContent(
+        student=student,
+        full_name=f"{student.person.first_name} {student.person.last_name}".strip(),
+        grade_name=enrolment.grade.name,
+        section_name=enrolment.section.name,
+        academic_cycle_name=enrolment.academic_cycle.name,
+        institution_name=enrolment.academic_cycle.institution.name,
+        photo_url=student.photo.url if student.photo else None,
+    )
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — resolucion de identificador
 # --------------------------------------------------------------------------- #
 

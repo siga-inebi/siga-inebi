@@ -9,6 +9,7 @@ from apps.attendance.api.views import (
     AttendancePresenceListView,
     AttendanceScanView,
     ControlPointListView,
+    CredentialPrintContentView,
     JornadaClosureView,
     JornadaParametersListCreateView,
     ManualRegistrationReasonListView,
@@ -76,6 +77,11 @@ urlpatterns = [
         "credentials/",
         StudentCredentialIssueView.as_view(),
         name="attendance-credential-issue",
+    ),
+    path(
+        "credentials/print-content/",
+        CredentialPrintContentView.as_view(),
+        name="attendance-credential-print-content",
     ),
     path(
         "credentials/resolve/",

@@ -1070,6 +1070,71 @@ def test_issue_credential_requires_authentication(client):
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-002 — contrato del endpoint de contenido imprimible de la credencial
+# --------------------------------------------------------------------------- #
+
+
+def _print_content_url(student):
+    return f"{reverse('attendance-credential-print-content')}?student_id={student.public_id}"
+
+
+def test_credential_print_content_requires_authentication(client):
+    student = StudentFactory()
+
+    response = client.get(_print_content_url(student))
+
+    assert response.status_code == 403
+
+
+def test_credential_print_content_requires_permission_and_student_scope(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+
+    response = auth_client.get(_print_content_url(student))
+
+    assert response.status_code == 403
+
+
+def test_credential_print_content_returns_exactly_the_allowed_fields(auth_client):
+    """
+    RF-CRE-002: la respuesta trae nombre, foto, grado, seccion, ciclo e
+    institucion -- nada de salud, calificaciones, contacto ni domicilio.
+    """
+    student = StudentFactory()
+    section = _enrol(student)
+    services.issue_credential(student=student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.get(_print_content_url(student))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body.keys()) == {
+        "student_id",
+        "full_name",
+        "grade_name",
+        "section_name",
+        "academic_cycle_name",
+        "institution_name",
+        "photo_url",
+    }
+    assert body["student_id"] == str(student.public_id)
+    assert body["grade_name"] == section.offering.grade.name
+    assert body["section_name"] == section.name
+
+
+def test_credential_print_content_without_an_active_credential_is_a_bad_request(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.get(_print_content_url(student))
+
+    assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — contrato del endpoint de resolucion de identificador
 # --------------------------------------------------------------------------- #
 

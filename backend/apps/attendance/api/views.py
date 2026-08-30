@@ -33,6 +33,8 @@ from .serializers import (
     AttendancePercentageResultSerializer,
     AttendancePresenceQuerySerializer,
     ControlPointSerializer,
+    CredentialPrintContentQuerySerializer,
+    CredentialPrintContentSerializer,
     CredentialResolutionRequestSerializer,
     CredentialResolutionSerializer,
     DayStatusQuerySerializer,
@@ -586,6 +588,39 @@ class StudentCredentialIssueView(GenericAPIView):
             StudentCredentialSerializer(credential).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Contenido imprimible de la credencial",
+        description=(
+            "Nombre completo, fotografia, grado, seccion, ciclo escolar e "
+            "institucion para el material imprimible de la credencial "
+            "(RF-CRE-002). No incluye salud, contacto de familia ni domicilio."
+        ),
+        tags=CREDENTIAL_TAGS,
+        parameters=[CredentialPrintContentQuerySerializer],
+        responses={200: CredentialPrintContentSerializer},
+    ),
+)
+class CredentialPrintContentView(GenericAPIView):
+    """RF-CRE-002 contract: exactly what the printed credential material shows."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialPrintContentSerializer
+
+    def get(self, request):
+        query = CredentialPrintContentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        student = queries.student_for_payload(query.validated_data["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        content = services.resolve_credential_print_content(student=student)
+        return Response(CredentialPrintContentSerializer(content).data)
 
 
 @extend_schema_view(
