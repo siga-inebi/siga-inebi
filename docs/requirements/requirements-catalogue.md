@@ -223,6 +223,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 
 | ID | Descripcion original | Prioridad | Dominio | Estado de implementacion | Issue relacionado | Pruebas relacionadas | Observaciones |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| RNF-AUD-001 | Los eventos de movimiento son inmutables; las correcciones agregan, no sobrescriben | Debe | audit-compliance | Not implemented | #264 | TBD | Asistencia |
+| RNF-AUD-002 | Todo cambio de parametros queda en bitacora con responsable y vigencia | Debe | audit-compliance | Implemented | #265 | backend/tests/unit/test_attendance_services.py; backend/tests/unit/test_reporting_services.py | Transversal; ticket de verificacion -- `JornadaParameters` y `AbsenceThresholdParameters` (los unicos dos modelos `*Parameters`) ya auditaban actor y vigencia, ahora con prueba explicita |
 | RNF-AUD-001 | Los eventos de movimiento son inmutables; las correcciones agregan, no sobrescriben | Debe | audit-compliance | Implemented | #264 | backend/tests/unit/test_attendance_services.py | Asistencia; guardia de instancia y de queryset agregados a `AttendanceEvent`, mismo contrato que `AuditEvent` |
 | RNF-AUD-002 | Todo cambio de parametros queda en bitacora con responsable y vigencia | Debe | audit-compliance | Not implemented | #265 | TBD | Transversal |
 | RNF-AUD-003 | Auditoria de lectura, no solo de escritura, en notas de salud y documentos del expediente | Debe | audit-compliance | Not implemented | #266 | TBD | Dato sensible |
