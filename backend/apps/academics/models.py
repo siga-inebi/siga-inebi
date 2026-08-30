@@ -491,3 +491,26 @@ class ClassSession(TimeStampedModel):
 
     def __str__(self):
         return f"{self.subject} - {self.section} ({self.get_day_of_week_display()})"
+
+    @property
+    def current_teacher(self):
+        """
+        RF-HOR-004: the teacher responsible for this session, derived from
+        the section's current teaching assignment for this subject -- never
+        captured on the session itself, and never cached: a reassignment is
+        reflected on the very next read.
+
+        ``None`` when no current assignment exists yet (a session may be
+        scheduled before the teacher for that subarea is assigned).
+        """
+        assignment = (
+            TeachingAssignment.objects.filter(
+                academic_cycle=self.academic_cycle,
+                section=self.section,
+                subject=self.subject,
+                ends_on__isnull=True,
+            )
+            .select_related("teacher")
+            .first()
+        )
+        return assignment.teacher if assignment else None

@@ -205,6 +205,22 @@ def test_create_class_session_api_creates_session(auth_client, institution):
     assert body["day_of_week"] == 1
     assert body["subject"]["public_id"] == str(subject.public_id)
     assert body["schedule_block"]["public_id"] == str(block.public_id)
+    assert body["teacher_id"] is None  # sin asignacion vigente todavia (RF-HOR-004)
+
+
+def test_class_session_api_exposes_the_current_teacher(auth_client, institution):
+    """RF-HOR-004: el docente se deriva de la asignacion vigente, se muestra en la sesion."""
+    cycle = AcademicCycleFactory(institution=institution)
+    section = SectionFactory(academic_cycle=cycle)
+    session = ClassSessionFactory(section=section)
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=cycle, section=section, subject=session.subject, teacher=teacher.person
+    )
+
+    response = auth_client.get(reverse("class-session-detail", args=[session.public_id]))
+
+    assert response.json()["teacher_id"] == str(teacher.public_id)
 
 
 def test_create_class_session_api_rejects_block_from_another_shift(auth_client, institution):
