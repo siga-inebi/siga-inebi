@@ -62,3 +62,17 @@ def enrolment_or_none(*, cycle_public_id, enrolment_id):
 
 def subject_or_none(public_id):
     return Subject.objects.filter(public_id=public_id, is_active=True).first()
+
+
+def grades_for_enrolment(enrolment):
+    """
+    All registered grades for one enrolment, across subjects and units
+    (RF-CAL-007). Scoped to a single enrolment on purpose: this backs the
+    student/guardian portal, which must never expose a section-wide,
+    comparative listing.
+    """
+    return (
+        Grade.objects.filter(enrolment=enrolment, is_active=True)
+        .select_related("subject", "evaluation_unit")
+        .order_by("evaluation_unit__number", "subject__name")
+    )

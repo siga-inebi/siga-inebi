@@ -9,7 +9,11 @@ RF-EVC-005: Configuracion global heredable
 RF-CAL-001: Registro de la nota de unidad
 RF-CAL-002: Escala y validacion de la nota
 RF-CAL-003: Distincion entre sin calificar y cero
+RF-CAL-005: Correccion de notas registradas
+RF-EVC-007: Estados de la unidad
 RF-RES-001: Nota final de la subarea
+RF-RES-002: Punto unico de redondeo
+RF-RES-003: Aprobacion de la subarea
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -19,12 +23,13 @@ would leave a window for two concurrent requests to both pass the check.
 """
 
 from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db.models import Avg
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, Subject
-from apps.audit.services import record_event
+from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
 from apps.enrolments.models import Enrolment
@@ -38,6 +43,12 @@ from apps.evaluation.models import (
     Grade,
 )
 from apps.people.models import Person
+
+# RF-RES-003: minimum final grade for a subarea to be approved, per the
+# Reglamento de Evaluacion de los Aprendizajes. Deliberately a Python
+# constant, not a field on EvaluationGlobalConfig/CycleEvaluationConfig: the
+# requirement is explicit that no institution may configure it away.
+SUBJECT_APPROVAL_THRESHOLD = 60
 
 
 def _unit_conflicts(*, number: int) -> dict:
@@ -53,7 +64,7 @@ def _unit_conflicts(*, number: int) -> dict:
     }
 
 
-def _audit(actor, action, instance, **context):
+def _audit(actor, action, instance, *, changes=None, **context):
     """Record audit event for domain service action."""
     record_event(
         actor=actor,
@@ -61,6 +72,7 @@ def _audit(actor, action, instance, **context):
         resource=type(instance).__name__,
         resource_identifier=str(instance.pk),
         context=context,
+        changes=changes,
     )
 
 
@@ -230,8 +242,9 @@ def validate_capture_allowed(
 ) -> None:
     """
     Validate that a teacher may capture grades for a subject in a unit, either
-    because the capture window is open (RF-EVC-002) or because an active
-    exceptional grant authorizes it (RF-EVC-004).
+    because the capture window is open and the unit is not closed (RF-EVC-002,
+    RF-EVC-007), or because an active exceptional grant authorizes it
+    (RF-EVC-004).
 
     Args:
         evaluation_unit: Unit the grade belongs to.
@@ -240,10 +253,11 @@ def validate_capture_allowed(
         on_datetime: Instant to validate against (default: now).
 
     Raises:
-        DomainError: If the window is closed and no active grant covers it.
+        DomainError: If the window is closed, or the unit itself is closed,
+            and no active grant covers it.
     """
     at = on_datetime or timezone.now()
-    if evaluation_unit.is_capture_window_open(at.date()):
+    if evaluation_unit.is_capture_window_open(at.date()) and not evaluation_unit.is_closed:
         return
     if has_active_capture_exception(evaluation_unit, subject, teacher, at=at):
         return
@@ -422,6 +436,36 @@ def create_evaluation_unit(
     return unit
 
 
+def close_evaluation_unit(unit: EvaluationUnit, actor=None) -> EvaluationUnit:
+    """
+    Close an evaluation unit (RF-EVC-007).
+
+    A closed unit's results are definitive: register_unit_grade rejects any
+    further capture or correction for it unless an exceptional grant
+    (RF-EVC-004) covers the teacher and subject. The transition itself is
+    recorded in the bitacora with the responsible user and the moment.
+
+    Args:
+        unit: EvaluationUnit to close.
+        actor: User performing the action (for audit trail).
+
+    Returns:
+        EvaluationUnit: The closed unit.
+
+    Raises:
+        DomainError: If the unit is already closed.
+    """
+    if unit.is_closed:
+        raise DomainError(f"La unidad '{unit.name}' ya esta cerrada.")
+
+    unit.status = EvaluationUnit.UnitStatus.CLOSED
+    unit.save(update_fields=["status", "updated_at"])
+
+    _audit(actor, "evaluation.unit_closed", unit, unit_id=str(unit.public_id))
+
+    return unit
+
+
 def register_unit_grade(
     enrolment: Enrolment,
     subject: Subject,
@@ -440,6 +484,13 @@ def register_unit_grade(
     evaluation_unit) updates the existing grade instead of creating a
     duplicate: it is the single consolidated value for that combination, not
     a new entry.
+
+    Correcting an already-registered grade (RF-CAL-005) goes through this
+    same path: validate_capture_allowed already rejects the correction once
+    the capture window is closed unless an exceptional grant covers the
+    teacher and subject. When the grade already existed, the audit event
+    additionally carries `changes` with the value before and after, read via
+    diff_fields before the row is mutated.
 
     Args:
         enrolment: Ties the grade to the student, section and cycle.
@@ -471,6 +522,11 @@ def register_unit_grade(
 
     validate_capture_allowed(evaluation_unit, subject, teacher)
 
+    existing = Grade.objects.filter(
+        enrolment=enrolment, subject=subject, evaluation_unit=evaluation_unit
+    ).first()
+    changes = diff_fields(existing, value=value) if existing else None
+
     grade, created = Grade.objects.update_or_create(
         enrolment=enrolment,
         subject=subject,
@@ -482,6 +538,7 @@ def register_unit_grade(
         actor,
         "evaluation.grade_registered" if created else "evaluation.grade_updated",
         grade,
+        changes=changes,
         enrolment_id=str(enrolment.public_id),
         subject_id=str(subject.public_id),
         unit_id=str(evaluation_unit.public_id),
@@ -531,6 +588,20 @@ def get_current_average(enrolment: Enrolment, subject: Subject) -> dict:
     }
 
 
+def _round_half_up(value) -> int:
+    """
+    Round to the nearest integer, ties rounding up (RF-RES-002).
+
+    Python's builtin ``round()`` uses banker's rounding (ties to even), not
+    the "mitad hacia arriba" the requirement demands (59.5 -> 60, never 59
+    or 58). ``Decimal`` is built from ``str(value)`` rather than from the
+    float/Decimal directly: constructing a Decimal straight from a float
+    would bake in its binary floating-point error before rounding even
+    starts.
+    """
+    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
 def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
     """
     Final grade of a subarea, as the average of its unit grades (RF-RES-001).
@@ -540,12 +611,33 @@ def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
     right now and recalculates on every correction, so it stays correct with
     no extra bookkeeping. It is exposed under its own name and endpoint
     because "resultado" is its own bounded concept in the domain map, and
-    later requirements (freezing the result once the cycle closes, the
-    single-rounding-point rule, promotion) will need to diverge from the
-    plain running average without touching RF-CAL-003's own contract.
+    later requirements (freezing the result once the cycle closes,
+    promotion) will need to diverge from the plain running average without
+    touching RF-CAL-003's own contract.
+
+    RF-RES-002: rounding happens exactly once, here, on the final result --
+    never on ``average`` (RF-CAL-003's own, unrounded, in-progress figure)
+    and never a second time anywhere else. ``final_grade`` is the single
+    number every other computation that needs "the" final grade (RF-RES-003's
+    approval check, the boleta) must read, so the displayed value and the
+    value compared against the approval threshold can never disagree.
+
+    RF-RES-003: ``approved`` is derived from that same ``final_grade`` in
+    this one place, against the fixed SUBJECT_APPROVAL_THRESHOLD -- never
+    recomputed from a fresh average elsewhere, so it can't drift from what
+    was shown to the user.
 
     Returns:
-        Same shape as get_current_average: ``average`` (None if no unit is
-        graded yet), ``graded_units``, ``pending_units`` and ``total_units``.
+        Same shape as get_current_average (``average``, ``graded_units``,
+        ``pending_units``, ``total_units``), plus ``final_grade`` (rounded
+        final grade, int, or None if no unit is graded yet) and ``approved``
+        (bool, or None when ``final_grade`` is None).
     """
-    return get_current_average(enrolment, subject)
+    result = get_current_average(enrolment, subject)
+    average = result["average"]
+    final_grade = _round_half_up(average) if average is not None else None
+    result["final_grade"] = final_grade
+    result["approved"] = (
+        final_grade >= SUBJECT_APPROVAL_THRESHOLD if final_grade is not None else None
+    )
+    return result
