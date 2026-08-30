@@ -5,6 +5,7 @@ from apps.academics.models import Campus, Grade, Level, Subject
 from tests.factories.academic import (
     AcademicCycleFactory,
     CampusFactory,
+    ClassroomFactory,
     ClassScheduleBlockFactory,
     GradeFactory,
     GradeOfferingFactory,
@@ -285,6 +286,117 @@ def test_shift_endpoints_require_authentication(client, institution):
 
     list_response = client.get(reverse("campus-shift-list-create", args=[shift.campus.public_id]))
     detail_response = client.get(reverse("shift-detail", args=[shift.public_id]))
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# classrooms (per campus) -- RF-AUL-001
+# --------------------------------------------------------------------------- #
+
+
+def test_create_classroom_under_its_campus(auth_client, institution):
+    """Escenario 1 (#99): registrar un aula."""
+    campus = CampusFactory(institution=institution)
+
+    response = auth_client.post(
+        reverse("campus-classroom-list-create", args=[campus.public_id]),
+        {"name": "Aula 101", "code": "a-101", "location": "Edificio A, 1er nivel"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["code"] == "A-101"
+    assert body["location"] == "Edificio A, 1er nivel"
+    assert body["campus"]["code"] == campus.code
+
+
+def test_create_classroom_rejects_duplicate_code_in_same_campus(auth_client, institution):
+    """Escenario 2 (#99): rechazo por codigo duplicado en el mismo campus."""
+    campus = CampusFactory(institution=institution)
+    ClassroomFactory(campus=campus, code="A-101")
+
+    response = auth_client.post(
+        reverse("campus-classroom-list-create", args=[campus.public_id]),
+        {"name": "Otra aula", "code": "A-101"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "already exists" in str(_detail(response))
+
+
+def test_create_classroom_allows_same_code_in_a_different_campus(auth_client, institution):
+    ClassroomFactory(campus=CampusFactory(institution=institution), code="A-101")
+    other_campus = CampusFactory(institution=institution)
+
+    response = auth_client.post(
+        reverse("campus-classroom-list-create", args=[other_campus.public_id]),
+        {"name": "Aula 101", "code": "A-101"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+
+
+def test_list_classrooms_is_scoped_to_the_campus(auth_client, institution):
+    campus = CampusFactory(institution=institution)
+    ClassroomFactory(campus=campus, code="A-101")
+    ClassroomFactory(campus=CampusFactory(institution=institution), code="A-201")
+
+    response = auth_client.get(reverse("campus-classroom-list-create", args=[campus.public_id]))
+
+    assert [item["code"] for item in _items(response)] == ["A-101"]
+
+
+def test_create_classroom_under_unknown_campus_returns_404(auth_client, institution):
+    response = auth_client.post(
+        reverse("campus-classroom-list-create", args=[MISSING_UUID]),
+        {"name": "Aula 101", "code": "A-101"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 404
+
+
+def test_classroom_detail_roundtrip(auth_client, institution):
+    classroom = ClassroomFactory(
+        campus=CampusFactory(institution=institution), name="Aula 101", location="Edificio A"
+    )
+
+    read = auth_client.get(reverse("classroom-detail", args=[classroom.public_id]))
+    renamed = auth_client.patch(
+        reverse("classroom-detail", args=[classroom.public_id]),
+        {"name": "Aula Norte", "location": "Edificio B"},
+        content_type="application/json",
+    )
+    removed = auth_client.delete(reverse("classroom-detail", args=[classroom.public_id]))
+
+    assert read.json()["name"] == "Aula 101"
+    assert renamed.json()["name"] == "Aula Norte"
+    assert renamed.json()["location"] == "Edificio B"
+    assert removed.status_code == 204
+    classroom.refresh_from_db()
+    assert classroom.is_active is False
+
+
+def test_classroom_detail_of_another_institution_returns_404(auth_client, institution):
+    foreign = ClassroomFactory()
+
+    response = auth_client.get(reverse("classroom-detail", args=[foreign.public_id]))
+
+    assert response.status_code == 404
+
+
+def test_classroom_endpoints_require_authentication(client, institution):
+    classroom = ClassroomFactory(campus=CampusFactory(institution=institution))
+
+    list_response = client.get(
+        reverse("campus-classroom-list-create", args=[classroom.campus.public_id])
+    )
+    detail_response = client.get(reverse("classroom-detail", args=[classroom.public_id]))
 
     assert list_response.status_code in (401, 403)
     assert detail_response.status_code in (401, 403)

@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    Classroom,
     ClassScheduleBlock,
     ClassSchedulePublication,
     ClassSession,
@@ -181,6 +182,46 @@ class ShiftCreateSerializer(serializers.Serializer):
 
 class ShiftUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, required=False)
+
+
+# --------------------------------------------------------------------------- #
+# classrooms ("aulas")
+# --------------------------------------------------------------------------- #
+
+
+class ClassroomSerializer(serializers.ModelSerializer):
+    campus = CampusRefSerializer(read_only=True)
+
+    class Meta:
+        model = Classroom
+        fields = ["public_id", "name", "code", "location", "is_active", "campus"]
+
+
+class ClassroomRefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Classroom
+        fields = ["public_id", "name", "code"]
+
+
+class ClassroomCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=150, help_text='Ej. "Aula 101", "Laboratorio de Ciencias".'
+    )
+    code = serializers.CharField(
+        max_length=30,
+        help_text="Codigo unico dentro de la sede. Se normaliza a mayusculas.",
+    )
+    location = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text='Ubicacion dentro del campus, ej. "Edificio A, 2do nivel".',
+    )
+
+
+class ClassroomUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150, required=False)
+    location = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 
 # --------------------------------------------------------------------------- #

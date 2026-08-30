@@ -134,6 +134,37 @@ class Shift(TimeStampedModel):
         return self.campus.institution
 
 
+class Classroom(TimeStampedModel):
+    """
+    Physical room the institution can schedule a class session into --
+    "aula", "laboratorio" or "recinto" (RF-AUL-001).
+    """
+
+    campus = models.ForeignKey(Campus, on_delete=models.CASCADE, related_name="classrooms")
+    name = models.CharField(max_length=150)
+    code = models.CharField(max_length=30)
+    location = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text='Ubicacion dentro del campus, ej. "Edificio A, 2do nivel".',
+    )
+
+    class Meta:
+        ordering = ["campus__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campus", "code"], name="unique_classroom_code_per_campus"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} - {self.campus.name}"
+
+    @property
+    def institution(self):
+        return self.campus.institution
+
+
 class Level(TimeStampedModel):
     """
     Educational level ("nivel"): preprimaria, primaria, basico, diversificado.

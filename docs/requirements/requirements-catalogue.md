@@ -127,7 +127,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PLA-005 | Versiones de la plantilla | Podria | document-generation | Implemented | #252 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Historial inmutable via DocumentTemplateVersion; snapshot automatico en creacion y en cada update con cambios |
 | RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | Not implemented | #253 | TBD | UX posterior |
 | RF-PLA-007 | Plantilla activa por tipo | Debe | document-generation | Implemented | #254 | backend/apps/documents/models.py; backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Regla central |
-| RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Not implemented | #99 | TBD | Fase posterior |
+| RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Implemented | #99 | TBD | Adelantado desde S12: desbloquea la mitad de aula de RF-HOR-005 (#198) |
 | RF-AUL-002 | Aula habitual de la seccion | Deberia | institutional-structure | Not implemented | #100 | TBD | Fase posterior |
 | RF-AUL-003 | Sesiones sin aula asignada | Deberia | institutional-structure | Not implemented | #101 | TBD | Fase posterior |
 | RF-AUL-004 | Capacidad del aula como advertencia | Podria | institutional-structure | Not implemented | #102 | TBD | Fase posterior |

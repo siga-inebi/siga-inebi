@@ -6,6 +6,7 @@ from django.utils import timezone
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    Classroom,
     ClassScheduleBlock,
     ClassSession,
     Grade,
@@ -59,6 +60,18 @@ class ShiftFactory(factory.django.DjangoModelFactory):
     campus = factory.SubFactory(CampusFactory)
     name = factory.Sequence(lambda n: f"Shift {n}")
     code = factory.Sequence(lambda n: f"SH{n}")
+
+
+class ClassroomFactory(factory.django.DjangoModelFactory):
+    """A classroom always belongs to a campus (RF-AUL-001)."""
+
+    class Meta:
+        model = Classroom
+
+    campus = factory.SubFactory(CampusFactory)
+    name = factory.Sequence(lambda n: f"Classroom {n}")
+    code = factory.Sequence(lambda n: f"AUL{n}")
+    location = ""
 
 
 class ClassScheduleBlockFactory(factory.django.DjangoModelFactory):

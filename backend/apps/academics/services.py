@@ -30,6 +30,7 @@ from apps.academics.cycle_policies import (
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    Classroom,
     ClassScheduleBlock,
     ClassSchedulePublication,
     ClassSession,
@@ -655,6 +656,58 @@ def deactivate_shift(*, shift, actor=None):
     shift.save(update_fields=["is_active", "updated_at"])
     _audit(actor, "academics.shift.deactivated", shift, code=shift.code)
     return shift
+
+
+# --------------------------------------------------------------------------- #
+# classrooms ("aulas") -- RF-AUL-001
+# --------------------------------------------------------------------------- #
+
+
+def create_classroom(*, campus, name, code, location="", actor=None):
+    """
+    Register a classroom, lab or venue for a campus (RF-AUL-001).
+
+    Rules:
+    - Campus must be active.
+    - Code is unique per campus, so two campuses may both have "A-101".
+    """
+    _require_active(campus, "el campus")
+    name = _clean_name(name)
+    code = _clean_code(code)
+
+    conflicts = {
+        "unique_classroom_code_per_campus": (
+            f"Classroom code '{code}' already exists for campus '{campus.name}'."
+        )
+    }
+    with unique_violation_as(conflicts):
+        classroom = Classroom.objects.create(
+            campus=campus, name=name, code=code, location=(location or "").strip()
+        )
+
+    _audit(actor, "academics.classroom.created", classroom, campus_id=campus.pk, code=code)
+    return classroom
+
+
+def update_classroom(*, classroom, name=None, location=None, actor=None):
+    """Rename and/or relocate a classroom. The code is immutable."""
+    changes = {}
+    if name is not None:
+        changes["name"] = _clean_name(name)
+    if location is not None:
+        changes["location"] = location.strip()
+    if not changes:
+        return classroom
+    return _changed(classroom, actor, "academics.classroom.updated", **changes)
+
+
+def deactivate_classroom(*, classroom, actor=None):
+    if not classroom.is_active:
+        return classroom
+    classroom.is_active = False
+    classroom.save(update_fields=["is_active", "updated_at"])
+    _audit(actor, "academics.classroom.deactivated", classroom, code=classroom.code)
+    return classroom
 
 
 # --------------------------------------------------------------------------- #

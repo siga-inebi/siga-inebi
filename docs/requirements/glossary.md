@@ -4,6 +4,7 @@
 | --- | --- |
 | Alcance | Restriccion contextual obligatoria que acompana permiso. |
 | Asignacion docente | Relacion vigente entre docente, subarea, seccion y ciclo. |
+| Aula | Recinto, laboratorio o salon fisico del establecimiento, catalogado por sede. |
 | Auditoria | Registro verificable de acciones o lecturas sensibles. |
 | Bloque de horario | Periodo con hora de inicio y fin dentro de la rejilla de una jornada. |
 | Captura mediada | Registro de asistencia realizado por operador autorizado, no por autoservicio estudiantil. |
