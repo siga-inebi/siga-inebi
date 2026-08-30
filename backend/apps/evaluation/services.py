@@ -9,6 +9,7 @@ RF-EVC-005: Configuracion global heredable
 RF-CAL-001: Registro de la nota de unidad
 RF-CAL-002: Escala y validacion de la nota
 RF-CAL-003: Distincion entre sin calificar y cero
+RF-CAL-005: Correccion de notas registradas
 RF-RES-001: Nota final de la subarea
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
@@ -24,7 +25,7 @@ from django.db.models import Avg
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, Subject
-from apps.audit.services import record_event
+from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
 from apps.enrolments.models import Enrolment
@@ -53,7 +54,7 @@ def _unit_conflicts(*, number: int) -> dict:
     }
 
 
-def _audit(actor, action, instance, **context):
+def _audit(actor, action, instance, *, changes=None, **context):
     """Record audit event for domain service action."""
     record_event(
         actor=actor,
@@ -61,6 +62,7 @@ def _audit(actor, action, instance, **context):
         resource=type(instance).__name__,
         resource_identifier=str(instance.pk),
         context=context,
+        changes=changes,
     )
 
 
@@ -441,6 +443,13 @@ def register_unit_grade(
     duplicate: it is the single consolidated value for that combination, not
     a new entry.
 
+    Correcting an already-registered grade (RF-CAL-005) goes through this
+    same path: validate_capture_allowed already rejects the correction once
+    the capture window is closed unless an exceptional grant covers the
+    teacher and subject. When the grade already existed, the audit event
+    additionally carries `changes` with the value before and after, read via
+    diff_fields before the row is mutated.
+
     Args:
         enrolment: Ties the grade to the student, section and cycle.
         subject: Subarea the grade belongs to.
@@ -471,6 +480,11 @@ def register_unit_grade(
 
     validate_capture_allowed(evaluation_unit, subject, teacher)
 
+    existing = Grade.objects.filter(
+        enrolment=enrolment, subject=subject, evaluation_unit=evaluation_unit
+    ).first()
+    changes = diff_fields(existing, value=value) if existing else None
+
     grade, created = Grade.objects.update_or_create(
         enrolment=enrolment,
         subject=subject,
@@ -482,6 +496,7 @@ def register_unit_grade(
         actor,
         "evaluation.grade_registered" if created else "evaluation.grade_updated",
         grade,
+        changes=changes,
         enrolment_id=str(enrolment.public_id),
         subject_id=str(subject.public_id),
         unit_id=str(evaluation_unit.public_id),
