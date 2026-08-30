@@ -1575,8 +1575,13 @@ def create_class_session(
     - Subject must belong to the cycle's institution.
     - The block must belong to the same shift as the section (a session
       cannot borrow a block from another jornada).
-    - No conflict detection here (RF-HOR-005, #198): only the exact same
-      registration twice is rejected.
+    - The exact same registration twice is rejected (unique constraint).
+    - A section cannot attend two different sessions at once: an active
+      session with a different subject already occupying the same
+      (section, day_of_week, schedule_block) is a conflict (RF-HOR-005,
+      #198). The classroom half of that requirement is out of scope here --
+      apps.academics has no classroom concept yet (blocked on RF-AUL-001,
+      #99) -- and the issue stays open until it does.
     """
     require_cycle_academic_writes(cycle=academic_cycle, operation="class_session.create")
 
@@ -1586,6 +1591,19 @@ def create_class_session(
         raise DomainError("El curso debe pertenecer a la institucion del ciclo escolar.")
     if schedule_block.shift_id != section.offering.shift_id:
         raise DomainError("El bloque de horario debe pertenecer a la misma jornada que la seccion.")
+    if (
+        ClassSession.objects.filter(
+            section=section,
+            day_of_week=day_of_week,
+            schedule_block=schedule_block,
+            is_active=True,
+        )
+        .exclude(subject=subject)
+        .exists()
+    ):
+        raise DomainError(
+            "La seccion ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
+        )
 
     with unique_violation_as(_class_session_conflicts()):
         session = ClassSession.objects.create(
