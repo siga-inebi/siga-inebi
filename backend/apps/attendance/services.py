@@ -1339,7 +1339,26 @@ class CredentialResolution:
     enrolment: object
 
 
-def resolve_credential(*, opaque_identifier):
+def _audit_scan_rejection(*, actor, reason, resource, resource_identifier="", student=None):
+    """
+    RNF-SEG-003: every rejected scan/resolution attempt is auditable, even
+    though the rejection message itself stays deliberately vague about the
+    student (see ``resolve_credential``'s docstring) -- the audit trail is
+    internal, not part of the response a caller can probe.
+    """
+    context = {"result": "denied", "reason": reason}
+    if student is not None:
+        context["student_id"] = student.pk
+    record_event(
+        actor=actor,
+        action="attendance.credential.resolution_rejected",
+        resource=resource,
+        resource_identifier=resource_identifier,
+        context=context,
+    )
+
+
+def resolve_credential(*, opaque_identifier, actor=None):
     """
     The student behind an opaque identifier (RF-CRE-006).
 
@@ -1358,19 +1377,36 @@ def resolve_credential(*, opaque_identifier):
         .first()
     )
     if credential is None:
+        _audit_scan_rejection(
+            actor=actor, reason="unrecognized_credential", resource="StudentCredential"
+        )
         raise DomainError("La credencial no es reconocida.")
     if credential.status != StudentCredential.Status.ACTIVE or not credential.is_active:
+        _audit_scan_rejection(
+            actor=actor,
+            reason="revoked_credential",
+            resource="StudentCredential",
+            resource_identifier=str(credential.pk),
+            student=credential.student,
+        )
         raise DomainError("La credencial fue revocada.")
 
     enrolment = active_enrolments(student=credential.student).first()
     if enrolment is None:
+        _audit_scan_rejection(
+            actor=actor,
+            reason="no_active_enrolment",
+            resource="StudentCredential",
+            resource_identifier=str(credential.pk),
+            student=credential.student,
+        )
         raise DomainError("El portador de la credencial no tiene inscripcion activa.")
     return CredentialResolution(
         credential=credential, student=credential.student, enrolment=enrolment
     )
 
 
-def resolve_scan_subject(*, credential_identifier="", student_code=""):
+def resolve_scan_subject(*, credential_identifier="", student_code="", actor=None):
     """
     The student a captured item refers to, whichever way it was identified.
 
@@ -1394,11 +1430,19 @@ def resolve_scan_subject(*, credential_identifier="", student_code=""):
     requirement has taken.
     """
     if credential_identifier:
-        return resolve_credential(opaque_identifier=credential_identifier).student
+        return resolve_credential(opaque_identifier=credential_identifier, actor=actor).student
     try:
         student = Student.objects.get(student_code=student_code, is_active=True)
     except Student.DoesNotExist as exc:
+        _audit_scan_rejection(actor=actor, reason="unregistered_student_code", resource="Student")
         raise DomainError(f"No existe estudiante con codigo '{student_code}'.") from exc
     if not _is_enrolled(student):
+        _audit_scan_rejection(
+            actor=actor,
+            reason="no_active_enrolment",
+            resource="Student",
+            resource_identifier=str(student.pk),
+            student=student,
+        )
         raise DomainError(f"El estudiante con codigo '{student_code}' no tiene inscripcion activa.")
     return student
