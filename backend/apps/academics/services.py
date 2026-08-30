@@ -31,6 +31,7 @@ from apps.academics.models import (
     AcademicCycle,
     Campus,
     ClassScheduleBlock,
+    ClassSession,
     CurriculumPlan,
     Grade,
     GradeOffering,
@@ -1547,3 +1548,77 @@ def reassign_teaching_assignment(*, assignment, teacher, ends_on, actor=None):
         starts_on=new_starts_on.isoformat(),
     )
     return successor
+
+
+# --------------------------------------------------------------------------- #
+# class sessions ("sesiones de clase") -- RF-HOR-003
+# --------------------------------------------------------------------------- #
+
+
+def _class_session_conflicts():
+    return {
+        "unique_class_session_registration": (
+            "Esta sesion ya esta registrada para esa seccion, subarea, dia y bloque."
+        ),
+    }
+
+
+def create_class_session(
+    *, academic_cycle, section, subject, schedule_block, day_of_week, actor=None
+):
+    """
+    Schedule a class session (RF-HOR-003): a subject taught to a section on a
+    day of the week, in a block of the schedule grid.
+
+    Rules:
+    - Section must belong to the academic cycle.
+    - Subject must belong to the cycle's institution.
+    - The block must belong to the same shift as the section (a session
+      cannot borrow a block from another jornada).
+    - No conflict detection here (RF-HOR-005, #198): only the exact same
+      registration twice is rejected.
+    """
+    require_cycle_academic_writes(cycle=academic_cycle, operation="class_session.create")
+
+    if section.offering.academic_cycle_id != academic_cycle.id:
+        raise DomainError("La seccion debe pertenecer al ciclo escolar.")
+    if subject.institution_id != academic_cycle.institution_id:
+        raise DomainError("El curso debe pertenecer a la institucion del ciclo escolar.")
+    if schedule_block.shift_id != section.offering.shift_id:
+        raise DomainError("El bloque de horario debe pertenecer a la misma jornada que la seccion.")
+
+    with unique_violation_as(_class_session_conflicts()):
+        session = ClassSession.objects.create(
+            academic_cycle=academic_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=schedule_block,
+            day_of_week=day_of_week,
+        )
+
+    _audit(
+        actor,
+        "academics.class_session.created",
+        session,
+        academic_cycle_id=academic_cycle.pk,
+        section_id=section.pk,
+        subject_id=subject.pk,
+        schedule_block_id=schedule_block.pk,
+        day_of_week=day_of_week,
+    )
+    return session
+
+
+def deactivate_class_session(*, session, actor=None):
+    if not session.is_active:
+        return session
+    session.is_active = False
+    session.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "academics.class_session.deactivated",
+        session,
+        section_id=session.section_id,
+        subject_id=session.subject_id,
+    )
+    return session

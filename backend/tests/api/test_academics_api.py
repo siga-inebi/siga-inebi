@@ -8,6 +8,8 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassScheduleBlockFactory,
+    ClassSessionFactory,
     GradeFactory,
     GradeOfferingFactory,
     SectionFactory,
@@ -181,6 +183,86 @@ def test_section_endpoints_require_authentication(client, institution):
 
     assert client.get(reverse("section-list-create")).status_code == 403
     assert client.get(reverse("section-detail", args=[section.public_id])).status_code == 403
+
+
+def test_create_class_session_api_creates_session(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    subject = SubjectFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(subject.public_id),
+            "schedule_block_id": str(block.public_id),
+            "day_of_week": 1,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["day_of_week"] == 1
+    assert body["subject"]["public_id"] == str(subject.public_id)
+    assert body["schedule_block"]["public_id"] == str(block.public_id)
+
+
+def test_create_class_session_api_rejects_block_from_another_shift(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    subject = SubjectFactory(institution=institution)
+    other_shift = ShiftFactory(campus__institution=institution)
+    other_shift_block = ClassScheduleBlockFactory(shift=other_shift)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(subject.public_id),
+            "schedule_block_id": str(other_shift_block.public_id),
+            "day_of_week": 1,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "misma jornada" in response.json()["error"]["detail"]
+
+
+def test_list_class_sessions_is_scoped_to_the_section(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    ClassSessionFactory(section=section)
+    ClassSessionFactory()  # a session of another section entirely
+
+    response = auth_client.get(
+        reverse("section-class-session-list-create", args=[section.public_id])
+    )
+
+    assert len(response.json()["results"]) == 1
+
+
+def test_class_session_detail_roundtrip(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    session = ClassSessionFactory(section=section)
+
+    read = auth_client.get(reverse("class-session-detail", args=[session.public_id]))
+    removed = auth_client.delete(reverse("class-session-detail", args=[session.public_id]))
+
+    assert read.status_code == 200
+    assert removed.status_code == 204
+    session.refresh_from_db()
+    assert session.is_active is False
+
+
+def test_class_session_endpoints_require_authentication(client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    session = ClassSessionFactory(section=section)
+
+    list_response = client.get(
+        reverse("section-class-session-list-create", args=[section.public_id])
+    )
+    detail_response = client.get(reverse("class-session-detail", args=[session.public_id]))
+
+    assert list_response.status_code == 403
+    assert detail_response.status_code == 403
 
 
 def test_create_curriculum_plan_api_contract(auth_client, institution):

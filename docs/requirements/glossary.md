@@ -25,4 +25,5 @@
 | QR opaco | Codigo que resuelve identificador sin exponer datos personales. |
 | Rejilla horaria | Conjunto ordenado de bloques de horario definidos para una jornada. |
 | Rol | Agrupacion configurable de permisos atomicos. |
+| Sesion de clase | Subarea agendada para una seccion en un dia de la semana y un bloque de horario especifico. |
 | Trazabilidad | Capacidad de seguir relacion entre requerimiento, decision, codigo, pruebas y cambios. |

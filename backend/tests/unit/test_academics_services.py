@@ -10,9 +10,11 @@ from apps.academics.services import (
     close_academic_cycle,
     create_academic_cycle,
     create_class_schedule_block,
+    create_class_session,
     create_curriculum_plan,
     create_section,
     deactivate_class_schedule_block,
+    deactivate_class_session,
     deactivate_curriculum_plan,
     deactivate_section,
     update_class_schedule_block,
@@ -25,6 +27,7 @@ from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
     ClassScheduleBlockFactory,
+    ClassSessionFactory,
     GradeFactory,
     GradeOfferingFactory,
     InstitutionFactory,
@@ -633,4 +636,90 @@ def test_deactivate_class_schedule_block_is_idempotent():
     assert deactivated.is_active is False
 
     again = deactivate_class_schedule_block(block=deactivated)
+    assert again.is_active is False
+
+
+# --------------------------------------------------------------------------- #
+# class sessions (RF-HOR-003)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_class_session_registers_requested_session():
+    """Escenario 1 (#196): agendar una sesion valida."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    session = create_class_session(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    assert session.section_id == section.pk
+    assert session.subject_id == subject.pk
+    assert session.schedule_block_id == block.pk
+    assert session.day_of_week == 1
+
+
+def test_create_class_session_rejects_block_from_a_different_shift():
+    """Escenario 2 (#196): el bloque debe pertenecer a la jornada de la seccion."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    other_shift_block = ClassScheduleBlockFactory()
+
+    with pytest.raises(DomainError, match="misma jornada"):
+        create_class_session(
+            academic_cycle=section.academic_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=other_shift_block,
+            day_of_week=1,
+        )
+
+    assert section.class_sessions.count() == 0
+
+
+def test_create_class_session_rejects_section_from_a_different_cycle():
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    other_cycle = AcademicCycleFactory(
+        institution=section.offering.institution,
+        starts_on=date(section.academic_cycle.starts_on.year + 1, 1, 1),
+        status=AcademicCycle.CycleStatus.DRAFT,
+    )
+
+    with pytest.raises(DomainError, match="ciclo escolar"):
+        create_class_session(
+            academic_cycle=other_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=block,
+            day_of_week=1,
+        )
+
+
+def test_create_class_session_rejects_exact_duplicate_registration():
+    session = ClassSessionFactory()
+
+    with pytest.raises(DomainError, match="ya esta registrada"):
+        create_class_session(
+            academic_cycle=session.academic_cycle,
+            section=session.section,
+            subject=session.subject,
+            schedule_block=session.schedule_block,
+            day_of_week=session.day_of_week,
+        )
+
+
+def test_deactivate_class_session_is_idempotent():
+    session = ClassSessionFactory()
+
+    deactivated = deactivate_class_session(session=session)
+    assert deactivated.is_active is False
+
+    again = deactivate_class_session(session=deactivated)
     assert again.is_active is False
