@@ -286,8 +286,7 @@ class StudentCredential(TimeStampedModel):
 
     Credentials are never deleted or rewritten: reposition (RF-CRE-004) issues a
     new row and revocation (RF-CRE-003) flips ``status`` on the old one, so the
-    student's credential history stays queryable (AGENTS.md #12). The revocation
-    reason and revoking actor belong to RF-CRE-003 and are not modelled yet.
+    student's credential history stays queryable (AGENTS.md #12).
     """
 
     class Status(models.TextChoices):
@@ -300,6 +299,14 @@ class StudentCredential(TimeStampedModel):
     opaque_identifier = models.CharField(max_length=64)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     issued_at = models.DateTimeField()
+    revocation_reason = models.CharField(max_length=255, blank=True, default="")
+    revoked_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="credentials_revoked",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         ordering = ["-issued_at"]

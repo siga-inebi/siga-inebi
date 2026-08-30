@@ -319,6 +319,40 @@ class StudentCredentialIssueSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
 
 
+class CredentialRevocationRequestSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+    reason = serializers.CharField(
+        max_length=255, help_text="Motivo de la revocacion (extravio, retiro, etc.)."
+    )
+
+
+class CredentialRevocationResultSerializer(serializers.ModelSerializer):
+    """
+    RF-CRE-003 revocation response: confirms the credential is revoked, with
+    its reason and who revoked it. Deliberately omits ``opaque_identifier`` --
+    see ``StudentCredentialSerializer``'s docstring on why a token should
+    never be echoed back outside the one response that issues it.
+    """
+
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    revoked_by_id = serializers.IntegerField(
+        source="revoked_by.pk", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = StudentCredential
+        fields = [
+            "public_id",
+            "student_id",
+            "status",
+            "revocation_reason",
+            "revoked_by_id",
+            "issued_at",
+            "is_active",
+            "updated_at",
+        ]
+
+
 class CredentialResolutionRequestSerializer(serializers.Serializer):
     opaque_identifier = serializers.CharField(
         max_length=64, help_text="Identificador opaco leido del codigo QR."

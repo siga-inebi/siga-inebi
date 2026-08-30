@@ -1135,6 +1135,66 @@ def test_credential_print_content_without_an_active_credential_is_a_bad_request(
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-003 — contrato de revocacion de credencial
+# --------------------------------------------------------------------------- #
+
+
+def _revoke_credential(client, student, reason="Extravío"):
+    return client.post(
+        reverse("attendance-credential-revoke"),
+        {"student_id": str(student.public_id), "reason": reason},
+        content_type="application/json",
+    )
+
+
+def test_revoke_credential_requires_authentication(client):
+    assert _revoke_credential(client, StudentFactory()).status_code == 403
+
+
+def test_revoke_credential_requires_permission_and_student_scope(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+
+    assert _revoke_credential(auth_client, student).status_code == 403
+
+
+def test_revoke_credential_records_reason_and_revoker(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = _revoke_credential(auth_client, student, reason="Extravío reportado por tutor")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == StudentCredential.Status.REVOKED
+    assert body["revocation_reason"] == "Extravío reportado por tutor"
+    assert body["revoked_by_id"] == auth_client.user.pk
+    assert "opaque_identifier" not in body
+
+
+def test_revoke_credential_requires_a_reason(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = _revoke_credential(auth_client, student, reason="")
+
+    assert response.status_code == 400
+
+
+def test_revoke_credential_without_an_active_one_is_a_bad_request(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    assert _revoke_credential(auth_client, student).status_code == 400
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — contrato del endpoint de resolucion de identificador
 # --------------------------------------------------------------------------- #
 
