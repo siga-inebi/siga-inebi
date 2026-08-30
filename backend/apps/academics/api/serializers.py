@@ -4,6 +4,7 @@ from apps.academics.models import (
     AcademicCycle,
     Campus,
     ClassScheduleBlock,
+    ClassSession,
     CurriculumPlan,
     Grade,
     GradeOffering,
@@ -184,6 +185,12 @@ class ShiftUpdateSerializer(serializers.Serializer):
 # --------------------------------------------------------------------------- #
 # schedule blocks ("rejilla de bloques")
 # --------------------------------------------------------------------------- #
+
+
+class ClassScheduleBlockRefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClassScheduleBlock
+        fields = ["public_id", "number", "name", "starts_on", "ends_on"]
 
 
 class ClassScheduleBlockSerializer(serializers.ModelSerializer):
@@ -397,6 +404,36 @@ class SectionCreateSerializer(serializers.Serializer):
 class SectionUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=50, required=False)
     capacity = serializers.IntegerField(min_value=0, required=False)
+
+
+# --------------------------------------------------------------------------- #
+# class sessions ("sesiones de clase") -- RF-HOR-003
+# --------------------------------------------------------------------------- #
+
+
+class ClassSessionSerializer(serializers.ModelSerializer):
+    subject = SubjectRefSerializer(read_only=True)
+    schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
+    day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
+
+    class Meta:
+        model = ClassSession
+        fields = [
+            "public_id",
+            "day_of_week",
+            "day_of_week_display",
+            "is_active",
+            "subject",
+            "schedule_block",
+        ]
+
+
+class ClassSessionCreateSerializer(serializers.Serializer):
+    subject_id = serializers.UUIDField(help_text="Public ID de la subarea.")
+    schedule_block_id = serializers.UUIDField(help_text="Public ID del bloque de horario.")
+    day_of_week = serializers.ChoiceField(
+        choices=ClassSession.Weekday.choices, help_text="Dia ISO: 1=lunes .. 7=domingo."
+    )
 
 
 # --------------------------------------------------------------------------- #
