@@ -1204,3 +1204,177 @@ class TestGetFinalSubjectGrade:
         )
 
         assert get_final_subject_grade(enrolment, subject)["average"] == 80
+
+
+class TestFinalGradeRounding:
+    """Tests for RF-RES-002: Punto único de redondeo."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_half_fraction_rounds_up(self):
+        """
+        Scenario: Fracción exacta de un medio
+        GIVEN un estudiante cuyo promedio de unidades es 59.5
+        WHEN se calcula su nota final
+        THEN el resultado es 60
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        for unit, value in zip(units, (59, 60), strict=True):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=value,
+            )
+
+        result = get_final_subject_grade(enrolment, subject)
+
+        assert result["average"] == 59.5
+        assert result["final_grade"] == 60
+
+    def test_current_average_stays_unrounded(self):
+        """
+        RF-CAL-003's own get_current_average must not be touched by the
+        single-rounding-point rule: only the final-grade boundary rounds.
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        for unit, value in zip(units, (59, 60), strict=True):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=value,
+            )
+
+        result = get_current_average(enrolment, subject)
+
+        assert result["average"] == 59.5
+        assert "final_grade" not in result
+
+    def test_final_grade_is_none_when_nothing_graded(self):
+        cycle = AcademicCycleFactory()
+        self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+
+        result = get_final_subject_grade(enrolment, subject)
+
+        assert result["average"] is None
+        assert result["final_grade"] is None
+
+
+class TestSubjectApproval:
+    """Tests for RF-RES-003: Aprobación de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def _final_grade_for(self, cycle, value):
+        enrolment = self._enrolment(cycle)
+        unit = self._units(cycle, 1)[0]
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=value,
+        )
+        return get_final_subject_grade(enrolment, subject)
+
+    def test_final_grade_at_threshold_is_approved(self):
+        """
+        Scenario: Nota final en el umbral
+        GIVEN un estudiante con nota final de exactamente sesenta en una subárea
+        WHEN se determina su condición
+        THEN la subárea queda aprobada
+        """
+        cycle = AcademicCycleFactory()
+
+        result = self._final_grade_for(cycle, 60)
+
+        assert result["final_grade"] == 60
+        assert result["approved"] is True
+
+    def test_final_grade_below_threshold_is_not_approved(self):
+        cycle = AcademicCycleFactory()
+
+        result = self._final_grade_for(cycle, 59)
+
+        assert result["final_grade"] == 59
+        assert result["approved"] is False
+
+    def test_approved_is_none_when_nothing_graded(self):
+        cycle = AcademicCycleFactory()
+        self._units(cycle, 1)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+
+        result = get_final_subject_grade(enrolment, subject)
+
+        assert result["final_grade"] is None
+        assert result["approved"] is None

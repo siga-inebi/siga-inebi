@@ -327,9 +327,7 @@ class TestCloseEvaluationUnitIntegration:
         director = UserFactory()
         close_evaluation_unit(unit, actor=director)
 
-        assert AuditEvent.objects.filter(
-            action="evaluation.unit_closed", actor=director
-        ).exists()
+        assert AuditEvent.objects.filter(action="evaluation.unit_closed", actor=director).exists()
 
         with pytest.raises(DomainError, match="ventana de captura"):
             register_unit_grade(
@@ -875,6 +873,132 @@ class TestFinalSubjectGradeIntegration:
 
         assert result["average"] == 60
         assert result["pending_units"] == 0
+
+
+class TestFinalGradeRoundingIntegration:
+    """Integration tests for RF-RES-002: Punto único de redondeo."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_half_fraction_rounds_up_across_domains(self):
+        """
+        Scenario: Fracción exacta de un medio (cross-domain)
+        GIVEN un estudiante cuyo promedio de unidades es 59.5
+        WHEN se calcula su nota final
+        THEN el resultado es 60
+        AND get_current_average (RF-CAL-003) sigue reportando el valor sin redondear
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=59,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=60,
+        )
+
+        current = get_current_average(enrolment, subject)
+        final = get_final_subject_grade(enrolment, subject)
+
+        assert current["average"] == 59.5
+        assert final["average"] == 59.5
+        assert final["final_grade"] == 60
+
+
+class TestSubjectApprovalIntegration:
+    """Integration tests for RF-RES-003: Aprobación de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_correction_recalculates_approval_consistently(self):
+        """
+        Scenario: Coherencia entre boleta y estado (cross-domain)
+        GIVEN una nota final calculada
+        WHEN se presenta en la boleta y se evalúa la aprobación
+        THEN ambas operaciones usan el mismo valor redondeado
+        AND una correccion de la nota (RF-CAL-005) recalcula ambas de forma consistente
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=59,
+        )
+        result = get_final_subject_grade(enrolment, subject)
+        assert result["final_grade"] == 59
+        assert result["approved"] is False
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=60,
+        )
+        result = get_final_subject_grade(enrolment, subject)
+        assert result["final_grade"] == 60
+        assert result["approved"] is True
 
 
 class TestGradeVisibilityIntegration:

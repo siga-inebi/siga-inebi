@@ -12,6 +12,8 @@ RF-CAL-003: Distincion entre sin calificar y cero
 RF-CAL-005: Correccion de notas registradas
 RF-EVC-007: Estados de la unidad
 RF-RES-001: Nota final de la subarea
+RF-RES-002: Punto unico de redondeo
+RF-RES-003: Aprobacion de la subarea
 
 All invariants and business rules live here, never in views or serializers (AGENTS.md #8).
 
@@ -21,6 +23,7 @@ would leave a window for two concurrent requests to both pass the check.
 """
 
 from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db.models import Avg
 from django.utils import timezone
@@ -40,6 +43,12 @@ from apps.evaluation.models import (
     Grade,
 )
 from apps.people.models import Person
+
+# RF-RES-003: minimum final grade for a subarea to be approved, per the
+# Reglamento de Evaluacion de los Aprendizajes. Deliberately a Python
+# constant, not a field on EvaluationGlobalConfig/CycleEvaluationConfig: the
+# requirement is explicit that no institution may configure it away.
+SUBJECT_APPROVAL_THRESHOLD = 60
 
 
 def _unit_conflicts(*, number: int) -> dict:
@@ -579,6 +588,20 @@ def get_current_average(enrolment: Enrolment, subject: Subject) -> dict:
     }
 
 
+def _round_half_up(value) -> int:
+    """
+    Round to the nearest integer, ties rounding up (RF-RES-002).
+
+    Python's builtin ``round()`` uses banker's rounding (ties to even), not
+    the "mitad hacia arriba" the requirement demands (59.5 -> 60, never 59
+    or 58). ``Decimal`` is built from ``str(value)`` rather than from the
+    float/Decimal directly: constructing a Decimal straight from a float
+    would bake in its binary floating-point error before rounding even
+    starts.
+    """
+    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
 def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
     """
     Final grade of a subarea, as the average of its unit grades (RF-RES-001).
@@ -588,12 +611,33 @@ def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
     right now and recalculates on every correction, so it stays correct with
     no extra bookkeeping. It is exposed under its own name and endpoint
     because "resultado" is its own bounded concept in the domain map, and
-    later requirements (freezing the result once the cycle closes, the
-    single-rounding-point rule, promotion) will need to diverge from the
-    plain running average without touching RF-CAL-003's own contract.
+    later requirements (freezing the result once the cycle closes,
+    promotion) will need to diverge from the plain running average without
+    touching RF-CAL-003's own contract.
+
+    RF-RES-002: rounding happens exactly once, here, on the final result --
+    never on ``average`` (RF-CAL-003's own, unrounded, in-progress figure)
+    and never a second time anywhere else. ``final_grade`` is the single
+    number every other computation that needs "the" final grade (RF-RES-003's
+    approval check, the boleta) must read, so the displayed value and the
+    value compared against the approval threshold can never disagree.
+
+    RF-RES-003: ``approved`` is derived from that same ``final_grade`` in
+    this one place, against the fixed SUBJECT_APPROVAL_THRESHOLD -- never
+    recomputed from a fresh average elsewhere, so it can't drift from what
+    was shown to the user.
 
     Returns:
-        Same shape as get_current_average: ``average`` (None if no unit is
-        graded yet), ``graded_units``, ``pending_units`` and ``total_units``.
+        Same shape as get_current_average (``average``, ``graded_units``,
+        ``pending_units``, ``total_units``), plus ``final_grade`` (rounded
+        final grade, int, or None if no unit is graded yet) and ``approved``
+        (bool, or None when ``final_grade`` is None).
     """
-    return get_current_average(enrolment, subject)
+    result = get_current_average(enrolment, subject)
+    average = result["average"]
+    final_grade = _round_half_up(average) if average is not None else None
+    result["final_grade"] = final_grade
+    result["approved"] = (
+        final_grade >= SUBJECT_APPROVAL_THRESHOLD if final_grade is not None else None
+    )
+    return result
