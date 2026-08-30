@@ -34,6 +34,7 @@ from .serializers import (
     ClassScheduleBlockCreateSerializer,
     ClassScheduleBlockSerializer,
     ClassScheduleBlockUpdateSerializer,
+    ClassSchedulePublicationSerializer,
     ClassSessionCreateSerializer,
     ClassSessionSerializer,
     CurriculumPlanCreateSerializer,
@@ -938,6 +939,43 @@ class ClassSessionDetailView(RetrieveMixin, DeactivateMixin, CatalogueDetailView
 
     def deactivate(self, request, session):
         services.deactivate_class_session(session=session, actor=request.user)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar estado de publicacion del horario",
+        tags=CATALOGUE,
+        responses={200: ClassSchedulePublicationSerializer},
+    ),
+    post=extend_schema(
+        summary="Publicar el horario del ciclo",
+        tags=CATALOGUE,
+        request=None,
+        responses={200: ClassSchedulePublicationSerializer},
+    ),
+    delete=extend_schema(
+        summary="Despublicar el horario del ciclo (volver a borrador)",
+        tags=CATALOGUE,
+        responses={200: ClassSchedulePublicationSerializer},
+    ),
+)
+class ClassSchedulePublicationView(CatalogueView):
+    """RF-HOR-009: publicar/despublicar el horario. Sin filtrado por rol (RF-HOR-010, #203)."""
+
+    def get(self, request, public_id):
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        publication = queries.class_schedule_publication(cycle)
+        return Response(ClassSchedulePublicationSerializer(publication).data)
+
+    def post(self, request, public_id):
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        publication = services.publish_class_schedule(academic_cycle=cycle, actor=request.user)
+        return Response(ClassSchedulePublicationSerializer(publication).data)
+
+    def delete(self, request, public_id):
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        publication = services.unpublish_class_schedule(academic_cycle=cycle, actor=request.user)
+        return Response(ClassSchedulePublicationSerializer(publication).data)
 
 
 # --------------------------------------------------------------------------- #

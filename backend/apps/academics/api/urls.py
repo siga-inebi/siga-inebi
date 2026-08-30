@@ -18,6 +18,7 @@ from .views import (
     CampusNextCodeView,
     CampusShiftListCreateView,
     ClassScheduleBlockDetailView,
+    ClassSchedulePublicationView,
     ClassSessionDetailView,
     CurriculumPlanDetailView,
     CurriculumPlanListCreateView,
@@ -65,6 +66,11 @@ urlpatterns = [
         "cycles/<uuid:public_id>/close/",
         AcademicCycleCloseView.as_view(),
         name="academic-cycle-close",
+    ),
+    path(
+        "cycles/<uuid:public_id>/schedule-publication/",
+        ClassSchedulePublicationView.as_view(),
+        name="class-schedule-publication",
     ),
     path(
         "cycles/<uuid:cycle_public_id>/evaluation-units/",

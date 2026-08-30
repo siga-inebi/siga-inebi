@@ -4,6 +4,7 @@ from apps.academics.models import (
     AcademicCycle,
     Campus,
     ClassScheduleBlock,
+    ClassSchedulePublication,
     ClassSession,
     CurriculumPlan,
     Grade,
@@ -441,6 +442,20 @@ class ClassSessionCreateSerializer(serializers.Serializer):
     day_of_week = serializers.ChoiceField(
         choices=ClassSession.Weekday.choices, help_text="Dia ISO: 1=lunes .. 7=domingo."
     )
+
+
+# --------------------------------------------------------------------------- #
+# class schedule publication -- RF-HOR-009
+# --------------------------------------------------------------------------- #
+
+
+class ClassSchedulePublicationSerializer(serializers.ModelSerializer):
+    academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
+    is_published = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = ClassSchedulePublication
+        fields = ["academic_cycle_id", "is_published", "published_at"]
 
 
 # --------------------------------------------------------------------------- #
