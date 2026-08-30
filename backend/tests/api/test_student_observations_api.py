@@ -71,6 +71,23 @@ def test_sensitive_permissions_without_student_scope_are_denied(client_user):
 
 @pytest.mark.api
 @pytest.mark.django_db
+def test_reading_an_observation_detail_is_audited(client_user):
+    """RNF-AUD-003: reading one observation, not just listing them, is audited too."""
+    client, user = client_user
+    observation = StudentObservationFactory()
+    grant(user, observation.student, "student_view_sensitive", "student_edit_basic")
+
+    response = client.get(reverse("student-observation-detail", args=[observation.public_id]))
+
+    assert response.status_code == 200
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "students.observation.detail_read"
+    assert event.context["student_id"] == observation.student_id
+    assert event.actor_id == user.id
+
+
+@pytest.mark.api
+@pytest.mark.django_db
 def test_observation_soft_delete_requires_edit_and_preserves_history(client_user):
     client, user = client_user
     observation = StudentObservationFactory()

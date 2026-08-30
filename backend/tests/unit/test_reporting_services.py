@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from apps.attendance import services as attendance_services
 from apps.attendance.models import AttendanceAlert
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from apps.reporting import services as reporting_services
@@ -193,6 +194,35 @@ def test_sync_attendance_alerts_does_not_duplicate_already_projected_alert():
 # --------------------------------------------------------------------------- #
 # RF-JOR-007 — ausencias frecuentes
 # --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# RNF-AUD-002 -- auditoria de cambio de parametros
+# --------------------------------------------------------------------------- #
+
+
+def test_set_absence_threshold_parameters_is_audited_with_actor_and_vigencia():
+    """
+    RNF-AUD-002, camino feliz: un cambio del umbral de ausencias frecuentes
+    queda en bitacora con el responsable y la fecha desde la que rige.
+    """
+    cycle = AcademicCycleFactory()
+    _student, _section, shift = _enrolled_student(cycle)
+    actor = UserFactory()
+
+    reporting_services.set_absence_threshold_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        max_absences=3,
+        lookback_days=3,
+        effective_from=cycle.starts_on,
+        actor=actor,
+    )
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "reporting.absence_threshold.set"
+    assert event.actor_id == actor.id
+    assert event.context["effective_from"] == str(cycle.starts_on)
 
 
 def test_frequent_absences_over_threshold_generates_alert():
