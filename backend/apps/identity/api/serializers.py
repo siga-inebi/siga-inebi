@@ -1,8 +1,14 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from apps.academics.api.serializers import (
+    ClassScheduleBlockRefSerializer,
+    SectionRefSerializer,
+    SubjectRefSerializer,
+)
 from apps.academics.models import (
     AcademicCycle,
+    ClassSession,
     Grade,
     Institution,
     Section,
@@ -203,3 +209,29 @@ class AccountDisableSerializer(serializers.Serializer):
         default="",
         help_text="Motivo declarado de la desactivacion (RF-BIT-002).",
     )
+
+
+class MyClassSessionSerializer(serializers.ModelSerializer):
+    """RF-HOR-010: one row of the caller's own weekly schedule."""
+
+    section = SectionRefSerializer(read_only=True)
+    subject = SubjectRefSerializer(read_only=True)
+    schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
+    day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
+    teacher_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClassSession
+        fields = [
+            "public_id",
+            "day_of_week",
+            "day_of_week_display",
+            "section",
+            "subject",
+            "schedule_block",
+            "teacher_id",
+        ]
+
+    def get_teacher_id(self, obj):
+        teacher = obj.current_teacher
+        return str(teacher.teacher_profile.public_id) if teacher else None

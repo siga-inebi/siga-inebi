@@ -14,6 +14,7 @@ from django.utils.crypto import constant_time_compare
 
 from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError, DomainError
+from apps.identity import scopes
 from apps.identity.atomic_permissions import ATOMIC_PERMISSION_CODENAMES
 from apps.identity.models import ActivationChallenge, Role, RoleAssignment, ScopeGrant
 
@@ -892,3 +893,35 @@ def change_password(*, user, current_password, new_password, request=None):
         context={"result": "success"},
     )
     return user
+
+
+def my_weekly_schedule(*, actor):
+    """
+    RF-HOR-010: the caller's own weekly schedule -- sessions they teach or
+    sessions of their wards' sections, published cycles only (RF-HOR-009).
+
+    Denied for an account that is neither a teacher nor an active guardian:
+    there is no delegated-scope angle here (unlike student records), so no
+    atomic permission gates this -- only the account's own identity does.
+    """
+    if not scopes.has_own_schedule_scope(user=actor):
+        record_event(
+            actor=actor,
+            action="identity.my_schedule.read_denied",
+            resource="ClassSession",
+            resource_identifier=str(actor.pk),
+            context={"result": "denied", "reason": "no_teacher_or_guardian_scope"},
+        )
+        raise AuthorizationError(
+            "La cuenta no esta vinculada a un docente ni a un encargado activo."
+        )
+
+    queryset = scopes.my_weekly_schedule_queryset(user=actor)
+    record_event(
+        actor=actor,
+        action="identity.my_schedule.read",
+        resource="ClassSession",
+        resource_identifier=str(actor.pk),
+        context={"result": "success"},
+    )
+    return queryset

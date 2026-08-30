@@ -141,8 +141,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-HOR-006 | Deteccion de cruces al asignar docentes | Deberia | institutional-structure | Not implemented | #199 | TBD | Posterior si no entra horario |
 | RF-HOR-007 | Verificacion de la carga horaria | Deberia | institutional-structure | Not implemented | #200 | TBD | Posterior |
 | RF-HOR-008 | Vigencia del horario | Deberia | institutional-structure | Not implemented | #201 | TBD | Posterior |
-| RF-HOR-009 | Publicacion y visibilidad | Debe | institutional-structure | Partially implemented | #202 | TBD | Consulta controlada. Estado de publicacion listo; filtrado por rol (docente/estudiante/encargado) es RF-HOR-010 (#203) |
-| RF-HOR-010 | Consulta del horario segun el alcance | Debe | identity-access | Not implemented | #203 | TBD | Cruza auth |
+| RF-HOR-009 | Publicacion y visibilidad | Debe | institutional-structure | Implemented | #202 | TBD | Consulta controlada. Estado de publicacion (#202) + filtrado por rol (#203) juntos completan el criterio |
+| RF-HOR-010 | Consulta del horario segun el alcance | Debe | identity-access | Implemented | #203 | TBD | Cruza auth |
 | RF-HOR-011 | Clonacion del horario | Podria | institutional-structure | Not implemented | #204 | TBD | Posterior |
 | RF-BIT-001 | Registro de operaciones de escritura | Debe | audit-compliance | Implemented | #111 | backend/tests/unit/test_audit_services.py; backend/tests/api/test_audit_api.py; backend/tests/permissions/test_audit_permissions.py; backend/tests/integration/test_audit.py | Transversal; auditoria de escrituras verificada en las ~65 funciones de escritura del backend, unico hueco real cerrado en authenticate_account |
 | RF-BIT-002 | Contenido del asiento | Debe | audit-compliance | Not implemented | #112 | TBD | Modelo obligatorio |

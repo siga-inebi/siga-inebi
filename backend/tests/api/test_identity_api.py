@@ -6,8 +6,13 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.academics.services import create_teaching_assignment
-from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from apps.academics.services import create_teaching_assignment, publish_class_schedule
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    ClassSessionFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -171,3 +176,50 @@ def test_api_rejection_for_write_operation_on_closed_cycle():
         format="json",
     )
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+# --------------------------------------------------------------------------- #
+# my weekly schedule (RF-HOR-010)
+# --------------------------------------------------------------------------- #
+
+
+def test_my_weekly_schedule_api_returns_the_teachers_own_sessions(institution):
+    teacher = TeacherFactory()
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    subject = SubjectFactory(institution=institution)
+    session = ClassSessionFactory(section=section, subject=subject)
+    publish_class_schedule(academic_cycle=section.academic_cycle)
+    create_teaching_assignment(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher.person,
+    )
+    user = UserFactory(person=teacher.person)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.get(reverse("identity-my-schedule"))
+
+    assert response.status_code == status.HTTP_200_OK
+    results = response.json()["results"]
+    assert [row["public_id"] for row in results] == [str(session.public_id)]
+    assert results[0]["teacher_id"] == str(teacher.public_id)
+
+
+def test_my_weekly_schedule_api_rejects_an_account_without_scope():
+    user = UserFactory()
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.get(reverse("identity-my-schedule"))
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_my_weekly_schedule_api_requires_authentication():
+    client = APIClient()
+
+    response = client.get(reverse("identity-my-schedule"))
+
+    assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
