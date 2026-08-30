@@ -2396,6 +2396,61 @@ def test_the_scan_subject_resolves_from_either_a_credential_or_a_student_code():
 
 
 # --------------------------------------------------------------------------- #
+# RNF-SEG-003 -- registro de intentos de escaneo rechazados
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unrecognized_credential_is_audited_without_naming_any_student():
+    """
+    RNF-SEG-003, camino feliz: un codigo invalido queda registrado en la
+    bitacora. La respuesta al operador sigue sin nombrar a nadie (verificado
+    arriba); el asiento interno tampoco puede, porque en este caso el sistema
+    mismo no sabe de quien se trataba.
+    """
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_credential(opaque_identifier="not-a-real-token", actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.actor_id == operator.id
+    assert event.context["reason"] == "unrecognized_credential"
+    assert "student_id" not in event.context
+
+
+def test_a_revoked_credential_rejection_is_audited_with_the_student():
+    """RNF-SEG-003: "credencial no vigente" -- el sistema si sabe de quien, y lo registra."""
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+    credential.status = StudentCredential.Status.REVOKED
+    credential.save(update_fields=["status"])
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_credential(opaque_identifier=credential.opaque_identifier, actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.context["reason"] == "revoked_credential"
+    assert event.context["student_id"] == student.pk
+
+
+def test_an_unregistered_student_code_rejection_is_audited():
+    """RNF-SEG-003: "estudiante no registrado" via el codigo de respaldo."""
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST", actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.actor_id == operator.id
+    assert event.context["reason"] == "unregistered_student_code"
+
+
+# --------------------------------------------------------------------------- #
 # Consistencia entre las dos vias de identificacion del sujeto escaneado
 # --------------------------------------------------------------------------- #
 

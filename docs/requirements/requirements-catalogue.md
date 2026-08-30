@@ -255,7 +255,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RNF-RES-003 | Verificacion periodica de integridad de los archivos almacenados | Debe | file-storage | Not implemented | #291 | TBD | Checksum |
 | RNF-SEG-001 | Cookie de sesion con HttpOnly, Secure y SameSite | Debe | identity-access | Not implemented | #292 | TBD | Seguridad web |
 | RNF-SEG-002 | TLS obligatorio; sin contexto seguro no hay acceso a la camara | Debe | security-compliance | Not implemented | #293 | TBD | Camara y transporte |
-| RNF-SEG-003 | Los intentos rechazados se registran como eventos auditables | Debe | audit-compliance | Not implemented | #294 | TBD | Seguridad |
+| RNF-SEG-003 | Los intentos rechazados se registran como eventos auditables | Debe | audit-compliance | Implemented | #294 | backend/tests/unit/test_attendance_services.py | Seguridad; credencial no reconocida/revocada, estudiante no registrado/sin inscripcion activa, ahora auditados en `resolve_credential`/`resolve_scan_subject`. Buildable esta semana gracias a RF-CRE-001/006 |
 | RNF-SEG-004 | Sin evaluacion de codigo en plantillas: sustitucion de marcadores contra un catalogo cerrado | Debe | document-generation | Not implemented | #295 | TBD | Seguridad |
 | RNF-SEG-005 | Las descargas se resuelven con enlaces de vigencia breve atados al portador; sin rutas directas a archivos | Debe | document-management | Not implemented | #296 | TBD | Seguridad |
 | RNF-SEG-006 | Limitacion de tasa en las consultas publicas sin autenticacion | Debe | document-generation | Not implemented | #297 | TBD | Verificacion publica |
