@@ -93,6 +93,34 @@ def test_two_jornadas_with_different_schedules_evaluate_independently():
     assert afternoon_params.entry_limit_time == time(13, 30)
 
 
+def test_set_jornada_parameters_is_audited_with_actor_and_vigencia():
+    """
+    RNF-AUD-002, camino feliz: un cambio de parametros de jornada queda en
+    bitacora con el responsable y la fecha desde la que rige (vigencia).
+    """
+    campus = CampusFactory()
+    cycle = AcademicCycleFactory(institution=campus.institution)
+    shift = ShiftFactory(campus=campus)
+    actor = UserFactory()
+
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(13, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+        actor=actor,
+    )
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.jornada_parameters.set"
+    assert event.actor_id == actor.id
+    assert event.context["effective_from"] == str(cycle.starts_on)
+
+
 def test_set_jornada_parameters_never_mutates_prior_versions():
     parameters = JornadaParametersFactory(entry_limit_time=time(7, 0))
 
@@ -312,6 +340,90 @@ def test_record_attendance_event_rejects_inactive_student():
             origin=AttendanceEvent.Origin.SCAN,
             captured_at=_at(parameters.effective_from, 7, 0),
         )
+
+
+# --------------------------------------------------------------------------- #
+# RNF-AUD-001 — inmutabilidad de eventos de movimiento
+# --------------------------------------------------------------------------- #
+
+
+def test_attendance_event_cannot_be_modified_or_deleted():
+    """
+    RNF-AUD-001, camino feliz e inverso: un evento ya creado no puede
+    modificarse ni eliminarse por instancia, sin importar quien lo intente --
+    mismo contrato que ``AuditEvent`` (RF-BIT-005).
+    """
+    event = AttendanceEventFactory()
+
+    with pytest.raises(RuntimeError):
+        event.delete()
+
+    with pytest.raises(RuntimeError):
+        event.movement_type = AttendanceEvent.MovementType.ENTRY
+        event.save()
+
+
+def test_attendance_event_cannot_be_bulk_deleted_or_updated_via_queryset():
+    """
+    RNF-AUD-001: ``QuerySet.delete()``/``update()`` run SQL directo y no
+    pasan por los overrides de instancia, asi que el guardia de instancia no
+    basta por si solo -- una operacion masiva por el manager tambien debe
+    rechazarse.
+    """
+    event = AttendanceEventFactory()
+
+    with pytest.raises(RuntimeError):
+        AttendanceEvent.objects.all().delete()
+
+    with pytest.raises(RuntimeError):
+        AttendanceEvent.objects.all().update(movement_type=AttendanceEvent.MovementType.ENTRY)
+
+    event.refresh_from_db()
+    assert event.movement_type == AttendanceEvent.MovementType.EXIT
+
+
+def test_a_correction_adds_a_new_event_instead_of_overwriting_the_original():
+    """
+    RNF-AUD-001: "las correcciones agregan, no sobrescriben" -- ya
+    garantizado por ``record_attendance_event`` (nunca actualiza un evento
+    existente) y ``resolve_prevailing_event`` (decide por precedencia sin
+    tocar los eventos que pierden). Este test prueba el flujo real, no solo
+    el guardia del modelo: dos eventos en conflicto para la misma
+    jornada/movimiento coexisten, y el original sigue intacto y consultable.
+    """
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    original = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    correction = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 5),
+    )
+
+    assert AttendanceEvent.objects.filter(pk=original.pk).exists()
+    assert AttendanceEvent.objects.filter(pk=correction.pk).exists()
+    assert original.pk != correction.pk
+
+    prevailing = services.resolve_prevailing_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+    assert prevailing == correction
+    original.refresh_from_db()
+    assert original.origin == AttendanceEvent.Origin.DECLARED
 
 
 # --------------------------------------------------------------------------- #
@@ -2281,6 +2393,61 @@ def test_the_scan_subject_resolves_from_either_a_credential_or_a_student_code():
         services.resolve_scan_subject(credential_identifier="unknown-token")
     with pytest.raises(DomainError, match="No existe estudiante"):
         services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST")
+
+
+# --------------------------------------------------------------------------- #
+# RNF-SEG-003 -- registro de intentos de escaneo rechazados
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unrecognized_credential_is_audited_without_naming_any_student():
+    """
+    RNF-SEG-003, camino feliz: un codigo invalido queda registrado en la
+    bitacora. La respuesta al operador sigue sin nombrar a nadie (verificado
+    arriba); el asiento interno tampoco puede, porque en este caso el sistema
+    mismo no sabe de quien se trataba.
+    """
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_credential(opaque_identifier="not-a-real-token", actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.actor_id == operator.id
+    assert event.context["reason"] == "unrecognized_credential"
+    assert "student_id" not in event.context
+
+
+def test_a_revoked_credential_rejection_is_audited_with_the_student():
+    """RNF-SEG-003: "credencial no vigente" -- el sistema si sabe de quien, y lo registra."""
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+    credential.status = StudentCredential.Status.REVOKED
+    credential.save(update_fields=["status"])
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_credential(opaque_identifier=credential.opaque_identifier, actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.context["reason"] == "revoked_credential"
+    assert event.context["student_id"] == student.pk
+
+
+def test_an_unregistered_student_code_rejection_is_audited():
+    """RNF-SEG-003: "estudiante no registrado" via el codigo de respaldo."""
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST", actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.actor_id == operator.id
+    assert event.context["reason"] == "unregistered_student_code"
 
 
 # --------------------------------------------------------------------------- #

@@ -3,6 +3,7 @@ from django.urls import include, path
 from apps.evaluation.api.views import (
     CurrentAverageView,
     CycleEvaluationConfigView,
+    EnrolmentGradesView,
     EvaluationGlobalConfigView,
     FinalSubjectGradeView,
 )
@@ -75,6 +76,11 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/evaluation-config/",
         CycleEvaluationConfigView.as_view(),
         name="cycle-evaluation-config",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/grades/",
+        EnrolmentGradesView.as_view(),
+        name="enrolment-grades",
     ),
     path(
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/current-average/",
