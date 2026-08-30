@@ -100,6 +100,12 @@ def classroom_or_404(institution, public_id):
     )
 
 
+def classroom_for_payload(institution, public_id):
+    return _get_payload(
+        Classroom.objects.filter(campus__institution=institution), public_id, "Classroom"
+    )
+
+
 def class_schedule_blocks(shift, *, include_inactive=False):
     return _filter_active(
         ClassScheduleBlock.objects.filter(shift=shift).select_related("shift__campus"),
@@ -219,6 +225,7 @@ _CLASS_SESSION_RELATED = (
     "section__offering__shift__campus",
     "subject",
     "schedule_block",
+    "classroom",
 )
 
 
