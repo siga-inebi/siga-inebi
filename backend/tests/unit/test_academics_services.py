@@ -715,6 +715,56 @@ def test_create_class_session_rejects_exact_duplicate_registration():
         )
 
 
+def test_create_class_session_rejects_section_double_booked_in_the_same_slot():
+    """Escenario 1 (#198): cruce por seccion en el mismo dia y bloque."""
+    session = ClassSessionFactory()
+    other_subject = SubjectFactory(institution=session.section.offering.institution)
+
+    with pytest.raises(DomainError, match="cruce de horario"):
+        create_class_session(
+            academic_cycle=session.academic_cycle,
+            section=session.section,
+            subject=other_subject,
+            schedule_block=session.schedule_block,
+            day_of_week=session.day_of_week,
+        )
+
+    assert session.section.class_sessions.count() == 1
+
+
+def test_create_class_session_allows_same_section_in_a_different_block():
+    session = ClassSessionFactory()
+    other_subject = SubjectFactory(institution=session.section.offering.institution)
+    other_block = ClassScheduleBlockFactory(shift=session.section.offering.shift, number=99)
+
+    new_session = create_class_session(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=other_subject,
+        schedule_block=other_block,
+        day_of_week=session.day_of_week,
+    )
+
+    assert new_session.section.class_sessions.count() == 2
+
+
+def test_create_class_session_ignores_a_deactivated_session_in_the_same_slot():
+    """A soft-deleted session no longer occupies its slot."""
+    session = ClassSessionFactory()
+    other_subject = SubjectFactory(institution=session.section.offering.institution)
+    deactivate_class_session(session=session)
+
+    new_session = create_class_session(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=other_subject,
+        schedule_block=session.schedule_block,
+        day_of_week=session.day_of_week,
+    )
+
+    assert new_session.pk != session.pk
+
+
 def test_deactivate_class_session_is_idempotent():
     session = ClassSessionFactory()
 

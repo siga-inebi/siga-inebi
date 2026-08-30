@@ -137,7 +137,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-HOR-002 | Los horarios de porton no se definen aqui | Debe | attendance-governance | Implemented | #195 | TBD | Limite de dominio |
 | RF-HOR-003 | La sesion de clase | Debe | institutional-structure | Implemented | #196 | TBD | Entidad horario |
 | RF-HOR-004 | El docente se deriva de la asignacion | Debe | institutional-structure | Implemented | #197 | TBD | Invariante |
-| RF-HOR-005 | Deteccion de cruces | Debe | institutional-structure | Not implemented | #198 | TBD | Regla central |
+| RF-HOR-005 | Deteccion de cruces | Debe | institutional-structure | Partially implemented | #198 | TBD | Regla central. Cruce por seccion listo; cruce por aula bloqueado en RF-AUL-001 (#99, no existe modulo de aulas) |
 | RF-HOR-006 | Deteccion de cruces al asignar docentes | Deberia | institutional-structure | Not implemented | #199 | TBD | Posterior si no entra horario |
 | RF-HOR-007 | Verificacion de la carga horaria | Deberia | institutional-structure | Not implemented | #200 | TBD | Posterior |
 | RF-HOR-008 | Vigencia del horario | Deberia | institutional-structure | Not implemented | #201 | TBD | Posterior |
