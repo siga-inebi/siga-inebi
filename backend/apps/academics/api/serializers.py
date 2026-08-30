@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    ClassScheduleBlock,
     CurriculumPlan,
     Grade,
     GradeOffering,
@@ -178,6 +179,34 @@ class ShiftCreateSerializer(serializers.Serializer):
 
 class ShiftUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, required=False)
+
+
+# --------------------------------------------------------------------------- #
+# schedule blocks ("rejilla de bloques")
+# --------------------------------------------------------------------------- #
+
+
+class ClassScheduleBlockSerializer(serializers.ModelSerializer):
+    shift = ShiftRefSerializer(read_only=True)
+
+    class Meta:
+        model = ClassScheduleBlock
+        fields = ["public_id", "number", "name", "starts_on", "ends_on", "is_active", "shift"]
+
+
+class ClassScheduleBlockCreateSerializer(serializers.Serializer):
+    number = serializers.IntegerField(
+        min_value=1, help_text="Orden del bloque dentro de la jornada."
+    )
+    name = serializers.CharField(max_length=100, help_text='Ej. "Bloque 1", "Recreo".')
+    starts_on = serializers.TimeField(help_text="Hora de inicio del bloque.")
+    ends_on = serializers.TimeField(help_text="Hora de fin del bloque.")
+
+
+class ClassScheduleBlockUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, required=False)
+    starts_on = serializers.TimeField(required=False)
+    ends_on = serializers.TimeField(required=False)
 
 
 # --------------------------------------------------------------------------- #

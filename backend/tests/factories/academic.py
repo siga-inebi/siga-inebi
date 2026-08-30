@@ -1,9 +1,12 @@
+from datetime import time
+
 import factory
 from django.utils import timezone
 
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    ClassScheduleBlock,
     Grade,
     GradeOffering,
     Institution,
@@ -55,6 +58,20 @@ class ShiftFactory(factory.django.DjangoModelFactory):
     campus = factory.SubFactory(CampusFactory)
     name = factory.Sequence(lambda n: f"Shift {n}")
     code = factory.Sequence(lambda n: f"SH{n}")
+
+
+class ClassScheduleBlockFactory(factory.django.DjangoModelFactory):
+    """A single 07:00-07:45 block (RF-HOR-001). Override times for a second
+    block on the same shift -- the default would collide with itself."""
+
+    class Meta:
+        model = ClassScheduleBlock
+
+    shift = factory.SubFactory(ShiftFactory)
+    number = factory.Sequence(lambda n: n + 1)
+    name = factory.Sequence(lambda n: f"Bloque {n + 1}")
+    starts_on = time(7, 0)
+    ends_on = time(7, 45)
 
 
 class LevelFactory(factory.django.DjangoModelFactory):

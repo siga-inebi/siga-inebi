@@ -133,7 +133,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-AUL-004 | Capacidad del aula como advertencia | Podria | institutional-structure | Not implemented | #102 | TBD | Fase posterior |
 | RF-AUL-005 | Aulas fuera de servicio | Podria | institutional-structure | Not implemented | #103 | TBD | Fase posterior |
 | RF-AUL-006 | Conservacion de las aulas con historial | Podria | institutional-structure | Not implemented | #104 | TBD | Historia |
-| RF-HOR-001 | Rejilla de bloques por jornada | Debe | institutional-structure | Not implemented | #194 | TBD | Base horarios |
+| RF-HOR-001 | Rejilla de bloques por jornada | Debe | institutional-structure | Implemented | #194 | TBD | Base horarios |
 | RF-HOR-002 | Los horarios de porton no se definen aqui | Debe | attendance-governance | Not implemented | #195 | TBD | Limite de dominio |
 | RF-HOR-003 | La sesion de clase | Debe | institutional-structure | Not implemented | #196 | TBD | Entidad horario |
 | RF-HOR-004 | El docente se deriva de la asignacion | Debe | institutional-structure | Not implemented | #197 | TBD | Invariante |

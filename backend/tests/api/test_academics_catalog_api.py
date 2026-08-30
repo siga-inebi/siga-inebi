@@ -5,6 +5,7 @@ from apps.academics.models import Campus, Grade, Level, Subject
 from tests.factories.academic import (
     AcademicCycleFactory,
     CampusFactory,
+    ClassScheduleBlockFactory,
     GradeFactory,
     GradeOfferingFactory,
     LevelFactory,
@@ -284,6 +285,103 @@ def test_shift_endpoints_require_authentication(client, institution):
 
     list_response = client.get(reverse("campus-shift-list-create", args=[shift.campus.public_id]))
     detail_response = client.get(reverse("shift-detail", args=[shift.public_id]))
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# schedule blocks (per shift) -- RF-HOR-001
+# --------------------------------------------------------------------------- #
+
+
+def test_create_schedule_block_under_its_shift(auth_client, institution):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+
+    response = auth_client.post(
+        reverse("shift-schedule-block-list-create", args=[shift.public_id]),
+        {"number": 1, "name": "Bloque 1", "starts_on": "07:00:00", "ends_on": "07:45:00"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["number"] == 1
+    assert response.json()["starts_on"] == "07:00:00"
+    assert response.json()["shift"]["public_id"] == str(shift.public_id)
+
+
+def test_create_schedule_block_rejects_overlap_with_400(auth_client, institution):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+    ClassScheduleBlockFactory(shift=shift, number=1)
+
+    response = auth_client.post(
+        reverse("shift-schedule-block-list-create", args=[shift.public_id]),
+        {"number": 2, "name": "Bloque 2", "starts_on": "07:30:00", "ends_on": "08:15:00"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "se solapa" in str(_detail(response))
+
+
+def test_list_schedule_blocks_is_scoped_to_the_shift_and_ordered_by_number(
+    auth_client, institution
+):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+    ClassScheduleBlockFactory(shift=shift, number=2, starts_on="08:00", ends_on="08:45")
+    ClassScheduleBlockFactory(shift=shift, number=1, starts_on="07:00", ends_on="07:45")
+    ClassScheduleBlockFactory(shift=ShiftFactory(campus=CampusFactory(institution=institution)))
+
+    response = auth_client.get(reverse("shift-schedule-block-list-create", args=[shift.public_id]))
+
+    assert [item["number"] for item in _items(response)] == [1, 2]
+
+
+def test_create_schedule_block_under_unknown_shift_returns_404(auth_client, institution):
+    response = auth_client.post(
+        reverse("shift-schedule-block-list-create", args=[MISSING_UUID]),
+        {"number": 1, "name": "Bloque 1", "starts_on": "07:00:00", "ends_on": "07:45:00"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 404
+
+
+def test_schedule_block_detail_roundtrip(auth_client, institution):
+    campus = CampusFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=ShiftFactory(campus=campus))
+
+    read = auth_client.get(reverse("schedule-block-detail", args=[block.public_id]))
+    renamed = auth_client.patch(
+        reverse("schedule-block-detail", args=[block.public_id]),
+        {"name": "Primera hora"},
+        content_type="application/json",
+    )
+    removed = auth_client.delete(reverse("schedule-block-detail", args=[block.public_id]))
+
+    assert read.json()["name"] == block.name
+    assert renamed.json()["name"] == "Primera hora"
+    assert removed.status_code == 204
+    block.refresh_from_db()
+    assert block.is_active is False
+
+
+def test_schedule_block_detail_of_another_institution_returns_404(auth_client, institution):
+    foreign = ClassScheduleBlockFactory()
+
+    response = auth_client.get(reverse("schedule-block-detail", args=[foreign.public_id]))
+
+    assert response.status_code == 404
+
+
+def test_schedule_block_endpoints_require_authentication(client, institution):
+    campus = CampusFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=ShiftFactory(campus=campus))
+
+    list_response = client.get(
+        reverse("shift-schedule-block-list-create", args=[block.shift.public_id])
+    )
+    detail_response = client.get(reverse("schedule-block-detail", args=[block.public_id]))
 
     assert list_response.status_code in (401, 403)
     assert detail_response.status_code in (401, 403)

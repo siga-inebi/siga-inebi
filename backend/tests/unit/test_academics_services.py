@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 import pytest
 from django.utils import timezone
@@ -9,10 +9,13 @@ from apps.academics.services import (
     clone_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_class_schedule_block,
     create_curriculum_plan,
     create_section,
+    deactivate_class_schedule_block,
     deactivate_curriculum_plan,
     deactivate_section,
+    update_class_schedule_block,
     update_curriculum_plan,
     update_section,
 )
@@ -21,6 +24,7 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassScheduleBlockFactory,
     GradeFactory,
     GradeOfferingFactory,
     InstitutionFactory,
@@ -518,3 +522,115 @@ def test_deactivate_curriculum_plan_rejects_when_cycle_is_active():
 
     with pytest.raises(DomainError, match="en preparacion"):
         deactivate_curriculum_plan(plan=plan)
+
+
+# --------------------------------------------------------------------------- #
+# class schedule blocks (RF-HOR-001)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_class_schedule_block_registers_requested_block():
+    """Escenario 1 (#194): registro de un bloque valido dentro de la jornada."""
+    shift = ShiftFactory()
+
+    block = create_class_schedule_block(
+        shift=shift, number=1, name="Bloque 1", starts_on=time(7, 0), ends_on=time(7, 45)
+    )
+
+    assert block.shift_id == shift.pk
+    assert block.number == 1
+    assert block.starts_on == time(7, 0)
+    assert block.ends_on == time(7, 45)
+
+
+def test_create_class_schedule_block_rejects_overlapping_block():
+    """Escenario 2 (#194): rechazo por bloques solapados en la misma jornada."""
+    shift = ShiftFactory()
+    existing = ClassScheduleBlockFactory(
+        shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45)
+    )
+
+    with pytest.raises(DomainError, match="se solapa"):
+        create_class_schedule_block(
+            shift=shift, number=2, name="Bloque 2", starts_on=time(7, 30), ends_on=time(8, 15)
+        )
+
+    assert shift.schedule_blocks.count() == 1
+    existing.refresh_from_db()
+    assert existing.starts_on == time(7, 0)
+
+
+def test_create_class_schedule_block_allows_adjacent_block():
+    """A block that starts exactly when the previous one ends does not overlap."""
+    shift = ShiftFactory()
+    ClassScheduleBlockFactory(shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45))
+
+    block = create_class_schedule_block(
+        shift=shift, number=2, name="Bloque 2", starts_on=time(7, 45), ends_on=time(8, 30)
+    )
+
+    assert block.starts_on == time(7, 45)
+
+
+def test_create_class_schedule_block_rejects_invalid_times():
+    shift = ShiftFactory()
+
+    with pytest.raises(DomainError, match="anterior a la hora de fin"):
+        create_class_schedule_block(
+            shift=shift, number=1, name="Bloque 1", starts_on=time(8, 0), ends_on=time(7, 0)
+        )
+
+
+def test_create_class_schedule_block_rejects_duplicate_number():
+    shift = ShiftFactory()
+    ClassScheduleBlockFactory(shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45))
+
+    with pytest.raises(DomainError, match="Schedule block number 1"):
+        create_class_schedule_block(
+            shift=shift, number=1, name="Otro bloque", starts_on=time(9, 0), ends_on=time(9, 45)
+        )
+
+
+def test_create_class_schedule_block_rejects_when_shift_inactive():
+    shift = ShiftFactory(is_active=False)
+
+    with pytest.raises(DomainError, match="la jornada"):
+        create_class_schedule_block(
+            shift=shift, number=1, name="Bloque 1", starts_on=time(7, 0), ends_on=time(7, 45)
+        )
+
+
+def test_update_class_schedule_block_rejects_overlap_with_other_block():
+    shift = ShiftFactory()
+    ClassScheduleBlockFactory(shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45))
+    second = ClassScheduleBlockFactory(
+        shift=shift, number=2, starts_on=time(8, 0), ends_on=time(8, 45)
+    )
+
+    with pytest.raises(DomainError, match="se solapa"):
+        update_class_schedule_block(block=second, starts_on=time(7, 30))
+
+    second.refresh_from_db()
+    assert second.starts_on == time(8, 0)
+
+
+def test_update_class_schedule_block_allows_retiming_without_collision():
+    shift = ShiftFactory()
+    block = ClassScheduleBlockFactory(
+        shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45)
+    )
+
+    updated = update_class_schedule_block(block=block, name="Bloque renombrado", ends_on=time(8, 0))
+
+    assert updated.name == "Bloque renombrado"
+    assert updated.ends_on == time(8, 0)
+
+
+def test_deactivate_class_schedule_block_is_idempotent():
+    block = ClassScheduleBlockFactory()
+
+    deactivated = deactivate_class_schedule_block(block=block)
+    assert deactivated.is_active is False
+
+    again = deactivate_class_schedule_block(block=deactivated)
+    assert again.is_active is False

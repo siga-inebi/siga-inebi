@@ -406,3 +406,43 @@ class TeachingAssignment(TimeStampedModel):
                 ],
             ),
         ]
+
+
+class ClassScheduleBlock(TimeStampedModel):
+    """
+    Period of the class-schedule grid for one shift ("bloque de la rejilla
+    horaria"), RF-HOR-001.
+
+    Scoped to ``Shift``, not ``AcademicCycle``: the grid of period times
+    (e.g. "Bloque 1: 07:00-07:45") is structural to the shift and does not
+    change per cycle, the same way ``Shift`` itself carries no cycle FK.
+    Class sessions (RF-HOR-003) will reference these blocks every cycle
+    instead of the grid being rebuilt.
+
+    No native PostgreSQL range type exists for ``time`` (only date, integer,
+    numeric and timestamp ranges), so the no-overlap invariant enforced at
+    the database level for date ranges elsewhere in this file cannot be an
+    ``ExclusionConstraint`` here; it is enforced in ``services.py`` instead,
+    under a row lock on the shift's existing blocks.
+    """
+
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE, related_name="schedule_blocks")
+    number = models.PositiveSmallIntegerField(help_text="Order within the shift: 1, 2, 3, etc.")
+    name = models.CharField(max_length=100, help_text='Display name: "Bloque 1", "Recreo", etc.')
+    starts_on = models.TimeField(help_text="Start time of the block.")
+    ends_on = models.TimeField(help_text="End time of the block.")
+
+    class Meta:
+        ordering = ["shift", "number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shift", "number"], name="unique_schedule_block_number_per_shift"
+            ),
+            models.CheckConstraint(
+                condition=Q(starts_on__lt=F("ends_on")),
+                name="class_schedule_block_valid_times",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.shift})"
