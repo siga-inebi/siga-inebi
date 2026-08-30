@@ -18,6 +18,7 @@ from .views import (
     CampusListCreateView,
     CampusNextCodeView,
     CampusShiftListCreateView,
+    ClassScheduleBlockDetailView,
     CurriculumPlanDetailView,
     CurriculumPlanListCreateView,
     GradeDetailView,
@@ -31,6 +32,7 @@ from .views import (
     LevelSubjectListCreateView,
     SectionDetailView,
     SectionListCreateView,
+    ShiftClassScheduleBlockListCreateView,
     ShiftDetailView,
     SubjectDetailView,
     SubjectListCreateView,
@@ -107,6 +109,16 @@ urlpatterns = [
         name="campus-shift-list-create",
     ),
     path("shifts/<uuid:public_id>/", ShiftDetailView.as_view(), name="shift-detail"),
+    path(
+        "shifts/<uuid:public_id>/schedule-blocks/",
+        ShiftClassScheduleBlockListCreateView.as_view(),
+        name="shift-schedule-block-list-create",
+    ),
+    path(
+        "schedule-blocks/<uuid:public_id>/",
+        ClassScheduleBlockDetailView.as_view(),
+        name="schedule-block-detail",
+    ),
     # academic structure: niveles, grados y cursos
     path("levels/", LevelListCreateView.as_view(), name="level-list-create"),
     path("levels/next-code/", LevelNextCodeView.as_view(), name="level-next-code"),

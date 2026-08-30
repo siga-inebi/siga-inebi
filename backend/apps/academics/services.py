@@ -30,6 +30,7 @@ from apps.academics.cycle_policies import (
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    ClassScheduleBlock,
     CurriculumPlan,
     Grade,
     GradeOffering,
@@ -652,6 +653,111 @@ def deactivate_shift(*, shift, actor=None):
     shift.save(update_fields=["is_active", "updated_at"])
     _audit(actor, "academics.shift.deactivated", shift, code=shift.code)
     return shift
+
+
+# --------------------------------------------------------------------------- #
+# schedule blocks ("rejilla de bloques") -- RF-HOR-001
+# --------------------------------------------------------------------------- #
+
+
+def _schedule_block_conflicts(number):
+    return {
+        "unique_schedule_block_number_per_shift": (
+            f"Schedule block number {number} already exists for this shift."
+        ),
+    }
+
+
+def _validate_block_times(starts_on, ends_on):
+    if starts_on is None or ends_on is None:
+        raise DomainError("Se requiere hora de inicio y hora de fin del bloque.")
+    if starts_on >= ends_on:
+        raise DomainError("La hora de inicio del bloque debe ser anterior a la hora de fin.")
+
+
+def _require_no_schedule_block_overlap(*, shift, starts_on, ends_on, exclude_pk=None):
+    """
+    No native PostgreSQL range type exists for ``time`` (see the model
+    docstring), so this invariant cannot be an ``ExclusionConstraint`` like
+    its date-range counterparts. ``select_for_update`` locks the shift's
+    existing blocks for the rest of the transaction so two concurrent
+    requests cannot both pass the check.
+    """
+    existing = ClassScheduleBlock.objects.select_for_update().filter(shift=shift)
+    if exclude_pk is not None:
+        existing = existing.exclude(pk=exclude_pk)
+    for block in existing:
+        if starts_on < block.ends_on and block.starts_on < ends_on:
+            raise DomainError(
+                f"El bloque se solapa con '{block.name}' ({block.starts_on}-{block.ends_on})."
+            )
+
+
+def create_class_schedule_block(*, shift, number, name, starts_on, ends_on, actor=None):
+    """
+    Register a period block in a shift's schedule grid (RF-HOR-001).
+
+    Rules:
+    - Shift must be active.
+    - starts_on must be strictly before ends_on.
+    - Block number is unique within the shift.
+    - Blocks within the same shift cannot overlap in time.
+    """
+    _require_active(shift, "la jornada")
+    name = _clean_name(name)
+    _validate_block_times(starts_on, ends_on)
+
+    with unique_violation_as(_schedule_block_conflicts(number)):
+        _require_no_schedule_block_overlap(shift=shift, starts_on=starts_on, ends_on=ends_on)
+        block = ClassScheduleBlock.objects.create(
+            shift=shift, number=number, name=name, starts_on=starts_on, ends_on=ends_on
+        )
+
+    _audit(
+        actor,
+        "academics.schedule_block.created",
+        block,
+        shift_id=shift.pk,
+        number=number,
+        starts_on=str(starts_on),
+        ends_on=str(ends_on),
+    )
+    return block
+
+
+def update_class_schedule_block(*, block, name=None, starts_on=None, ends_on=None, actor=None):
+    """Rename and/or retime a schedule block. Number and shift are immutable."""
+    new_starts_on = block.starts_on if starts_on is None else starts_on
+    new_ends_on = block.ends_on if ends_on is None else ends_on
+    if starts_on is not None or ends_on is not None:
+        _validate_block_times(new_starts_on, new_ends_on)
+        with transaction.atomic():
+            _require_no_schedule_block_overlap(
+                shift=block.shift,
+                starts_on=new_starts_on,
+                ends_on=new_ends_on,
+                exclude_pk=block.pk,
+            )
+
+    changes = {}
+    if name is not None:
+        changes["name"] = _clean_name(name)
+    if starts_on is not None:
+        changes["starts_on"] = new_starts_on
+    if ends_on is not None:
+        changes["ends_on"] = new_ends_on
+    if not changes:
+        return block
+    return _changed(block, actor, "academics.schedule_block.updated", **changes)
+
+
+def deactivate_class_schedule_block(*, block, actor=None):
+    if not block.is_active:
+        return block
+    block.is_active = False
+    block.save(update_fields=["is_active", "updated_at"])
+    _audit(actor, "academics.schedule_block.deactivated", block, shift_id=block.shift_id)
+    return block
 
 
 # --------------------------------------------------------------------------- #
