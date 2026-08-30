@@ -34,6 +34,29 @@ excepciones. El sobre de error se conserva como `error.status_code` y `error.det
 404 y 403, `detail` mantiene la forma `{"detail": "..."}` usada por DRF; asi el traslado de una
 consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 
+## Trabajo diferido (RNF-REN-003)
+
+Una peticion sincrona tiene un solo presupuesto: el tiempo de espera del servidor web. El trabajo
+cuyo tamano lo decide el dato y no la peticion — un lote de documentos, un recorrido por todos los
+dias de un ciclo — no tiene cota, asi que tarde o temprano lo cruza y el operador ve un error de
+puerta de enlace sobre un cambio que la base de datos ya confirmo. Ese trabajo se encola.
+
+- Los servicios encolan con `apps.common.jobs.enqueue(task=..., payload=...)`, **dentro** de la
+  misma transaccion que el cambio de dominio. Esa es la razon de que la cola sea una tabla y no un
+  intermediario: el trabajo aparece si y solo si el cambio que lo necesita confirma. Usar
+  `transaction.on_commit` renunciaria justamente a esa garantia.
+- El manejador vive en `apps/<domain>/tasks.py` y se registra con el decorador
+  `apps.common.jobs.task("<dominio>.<nombre>")`. `AppConfig.ready` importa ese modulo, porque el
+  nombre escrito en una fila tiene que encontrar manejador cuando el worker la lea.
+- El manejador es el borde delgado entre un `payload` JSON y un servicio: rehidrata argumentos y
+  llama al servicio. No lleva reglas propias.
+- El `payload` es JSON, nunca un invocable serializado: el nombre de la tarea mas datos planos
+  hacen que la version que corra sea la desplegada, no la que encolo.
+- El nombre de la tarea se resuelve al encolar, asi que un nombre inexistente falla en la peticion
+  que lo escribio y no horas despues en la bitacora del worker.
+
+Quien drena la cola es el proceso trabajador de RNF-REN-004.
+
 ## Seguridad
 
 - Sesion via cookie segura para frontend web.
