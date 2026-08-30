@@ -304,6 +304,39 @@ def test_class_session_endpoints_require_authentication(client, institution):
     assert detail_response.status_code == 403
 
 
+def test_class_schedule_publication_api_lifecycle(auth_client, institution):
+    """RF-HOR-009: consultar, publicar y despublicar el horario del ciclo."""
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    url = reverse("class-schedule-publication", args=[cycle.public_id])
+
+    initial = auth_client.get(url)
+    published = auth_client.post(url)
+    unpublished = auth_client.delete(url)
+
+    assert initial.json()["is_published"] is False
+    assert published.status_code == 200
+    assert published.json()["is_published"] is True
+    assert published.json()["published_at"] is not None
+    assert unpublished.json()["is_published"] is False
+
+
+def test_class_schedule_publication_api_rejects_closed_cycle(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+
+    response = auth_client.post(reverse("class-schedule-publication", args=[cycle.public_id]))
+
+    assert response.status_code == 400
+    assert "no admite cambios academicos" in response.json()["error"]["detail"]
+
+
+def test_class_schedule_publication_endpoint_requires_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+
+    response = client.get(reverse("class-schedule-publication", args=[cycle.public_id]))
+
+    assert response.status_code == 403
+
+
 def test_create_curriculum_plan_api_contract(auth_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)

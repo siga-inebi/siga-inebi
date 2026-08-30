@@ -31,6 +31,7 @@ from apps.academics.models import (
     AcademicCycle,
     Campus,
     ClassScheduleBlock,
+    ClassSchedulePublication,
     ClassSession,
     CurriculumPlan,
     Grade,
@@ -1640,3 +1641,46 @@ def deactivate_class_session(*, session, actor=None):
         subject_id=session.subject_id,
     )
     return session
+
+
+# --------------------------------------------------------------------------- #
+# class schedule publication -- RF-HOR-009
+# --------------------------------------------------------------------------- #
+
+
+def publish_class_schedule(*, academic_cycle, actor=None):
+    """
+    Publish the cycle's class schedule (RF-HOR-009).
+
+    Idempotent: publishing an already-published schedule just refreshes
+    ``published_at``. Who gets to see it once published (docentes,
+    estudiantes, encargados) is a query-time concern (RF-HOR-010, #203).
+    """
+    require_cycle_academic_writes(cycle=academic_cycle, operation="class_schedule.publish")
+    publication, _ = ClassSchedulePublication.objects.get_or_create(academic_cycle=academic_cycle)
+    publication.published_at = timezone.now()
+    publication.save(update_fields=["published_at", "updated_at"])
+    _audit(
+        actor,
+        "academics.class_schedule.published",
+        publication,
+        academic_cycle_id=academic_cycle.pk,
+    )
+    return publication
+
+
+def unpublish_class_schedule(*, academic_cycle, actor=None):
+    """Revert the cycle's schedule to draft. A no-op if never published."""
+    require_cycle_academic_writes(cycle=academic_cycle, operation="class_schedule.unpublish")
+    publication, _ = ClassSchedulePublication.objects.get_or_create(academic_cycle=academic_cycle)
+    if publication.published_at is None:
+        return publication
+    publication.published_at = None
+    publication.save(update_fields=["published_at", "updated_at"])
+    _audit(
+        actor,
+        "academics.class_schedule.unpublished",
+        publication,
+        academic_cycle_id=academic_cycle.pk,
+    )
+    return publication

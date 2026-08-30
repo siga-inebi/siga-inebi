@@ -17,6 +17,8 @@ from apps.academics.services import (
     deactivate_class_session,
     deactivate_curriculum_plan,
     deactivate_section,
+    publish_class_schedule,
+    unpublish_class_schedule,
     update_class_schedule_block,
     update_curriculum_plan,
     update_section,
@@ -816,3 +818,61 @@ def test_class_session_current_teacher_ignores_a_closed_assignment():
     )
 
     assert session.current_teacher is None
+
+
+# --------------------------------------------------------------------------- #
+# class schedule publication (RF-HOR-009)
+# --------------------------------------------------------------------------- #
+
+
+def test_publish_class_schedule_marks_it_published():
+    """Escenario 1 (#202): publicar el horario del ciclo."""
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+
+    publication = publish_class_schedule(academic_cycle=cycle)
+
+    assert publication.is_published is True
+    assert publication.published_at is not None
+
+
+def test_publish_class_schedule_rejects_closed_cycle():
+    """Escenario 2 (#202): rechazo por ciclo cerrado."""
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+
+    with pytest.raises(DomainError, match="no admite cambios academicos"):
+        publish_class_schedule(academic_cycle=cycle)
+
+
+def test_publish_class_schedule_is_idempotent():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    first = publish_class_schedule(academic_cycle=cycle)
+
+    second = publish_class_schedule(academic_cycle=cycle)
+
+    assert second.pk == first.pk
+    assert second.is_published is True
+
+
+def test_unpublish_class_schedule_reverts_to_draft():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    publish_class_schedule(academic_cycle=cycle)
+
+    publication = unpublish_class_schedule(academic_cycle=cycle)
+
+    assert publication.is_published is False
+    assert publication.published_at is None
+
+
+def test_unpublish_class_schedule_is_a_no_op_when_never_published():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+
+    publication = unpublish_class_schedule(academic_cycle=cycle)
+
+    assert publication.is_published is False
+
+
+def test_unpublish_class_schedule_rejects_closed_cycle():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+
+    with pytest.raises(DomainError, match="no admite cambios academicos"):
+        unpublish_class_schedule(academic_cycle=cycle)
