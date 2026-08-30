@@ -31,6 +31,9 @@ from .serializers import (
     CampusCreateSerializer,
     CampusSerializer,
     CampusUpdateSerializer,
+    ClassScheduleBlockCreateSerializer,
+    ClassScheduleBlockSerializer,
+    ClassScheduleBlockUpdateSerializer,
     CurriculumPlanCreateSerializer,
     CurriculumPlanSerializer,
     CurriculumPlanUpdateSerializer,
@@ -421,6 +424,76 @@ class ShiftDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDeta
 
     def deactivate(self, request, shift):
         services.deactivate_shift(shift=shift, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
+# schedule blocks ("rejilla de bloques") -- RF-HOR-001
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar bloques de la rejilla horaria",
+        tags=CATALOGUE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: ClassScheduleBlockSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar bloque de la rejilla horaria",
+        description="Se rechaza si el bloque se solapa con otro ya registrado en la jornada.",
+        tags=CATALOGUE,
+        request=ClassScheduleBlockCreateSerializer,
+        responses={201: ClassScheduleBlockSerializer},
+    ),
+)
+class ShiftClassScheduleBlockListCreateView(CatalogueListCreateView):
+    list_serializer = ClassScheduleBlockSerializer
+    create_serializer = ClassScheduleBlockCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        return queries.class_schedule_blocks(
+            queries.shift_or_404(self.institution, public_id),
+            include_inactive=_include_inactive(request),
+        )
+
+    def create(self, request, payload, public_id):
+        shift = queries.shift_or_404(self.institution, public_id)
+        return services.create_class_schedule_block(shift=shift, actor=request.user, **payload)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar bloque de la rejilla horaria",
+        tags=CATALOGUE,
+        responses={200: ClassScheduleBlockSerializer},
+    ),
+    patch=extend_schema(
+        summary="Actualizar bloque de la rejilla horaria",
+        description="Renombra y/o reprograma el bloque. Numero y jornada son inmutables.",
+        tags=CATALOGUE,
+        request=ClassScheduleBlockUpdateSerializer,
+        responses={200: ClassScheduleBlockSerializer},
+    ),
+    delete=extend_schema(
+        summary="Desactivar bloque de la rejilla horaria",
+        tags=CATALOGUE,
+        responses={204: None},
+    ),
+)
+class ClassScheduleBlockDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView
+):
+    detail_serializer = ClassScheduleBlockSerializer
+    update_serializer = ClassScheduleBlockUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.class_schedule_block_or_404(self.institution, public_id)
+
+    def update(self, request, block, payload):
+        services.update_class_schedule_block(block=block, actor=request.user, **payload)
+
+    def deactivate(self, request, block):
+        services.deactivate_class_schedule_block(block=block, actor=request.user)
 
 
 # --------------------------------------------------------------------------- #
