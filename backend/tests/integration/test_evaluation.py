@@ -327,9 +327,7 @@ class TestCloseEvaluationUnitIntegration:
         director = UserFactory()
         close_evaluation_unit(unit, actor=director)
 
-        assert AuditEvent.objects.filter(
-            action="evaluation.unit_closed", actor=director
-        ).exists()
+        assert AuditEvent.objects.filter(action="evaluation.unit_closed", actor=director).exists()
 
         with pytest.raises(DomainError, match="ventana de captura"):
             register_unit_grade(
