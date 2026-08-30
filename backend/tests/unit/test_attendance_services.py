@@ -343,6 +343,90 @@ def test_record_attendance_event_rejects_inactive_student():
 
 
 # --------------------------------------------------------------------------- #
+# RNF-AUD-001 — inmutabilidad de eventos de movimiento
+# --------------------------------------------------------------------------- #
+
+
+def test_attendance_event_cannot_be_modified_or_deleted():
+    """
+    RNF-AUD-001, camino feliz e inverso: un evento ya creado no puede
+    modificarse ni eliminarse por instancia, sin importar quien lo intente --
+    mismo contrato que ``AuditEvent`` (RF-BIT-005).
+    """
+    event = AttendanceEventFactory()
+
+    with pytest.raises(RuntimeError):
+        event.delete()
+
+    with pytest.raises(RuntimeError):
+        event.movement_type = AttendanceEvent.MovementType.ENTRY
+        event.save()
+
+
+def test_attendance_event_cannot_be_bulk_deleted_or_updated_via_queryset():
+    """
+    RNF-AUD-001: ``QuerySet.delete()``/``update()`` run SQL directo y no
+    pasan por los overrides de instancia, asi que el guardia de instancia no
+    basta por si solo -- una operacion masiva por el manager tambien debe
+    rechazarse.
+    """
+    event = AttendanceEventFactory()
+
+    with pytest.raises(RuntimeError):
+        AttendanceEvent.objects.all().delete()
+
+    with pytest.raises(RuntimeError):
+        AttendanceEvent.objects.all().update(movement_type=AttendanceEvent.MovementType.ENTRY)
+
+    event.refresh_from_db()
+    assert event.movement_type == AttendanceEvent.MovementType.EXIT
+
+
+def test_a_correction_adds_a_new_event_instead_of_overwriting_the_original():
+    """
+    RNF-AUD-001: "las correcciones agregan, no sobrescriben" -- ya
+    garantizado por ``record_attendance_event`` (nunca actualiza un evento
+    existente) y ``resolve_prevailing_event`` (decide por precedencia sin
+    tocar los eventos que pierden). Este test prueba el flujo real, no solo
+    el guardia del modelo: dos eventos en conflicto para la misma
+    jornada/movimiento coexisten, y el original sigue intacto y consultable.
+    """
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    original = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    correction = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 5),
+    )
+
+    assert AttendanceEvent.objects.filter(pk=original.pk).exists()
+    assert AttendanceEvent.objects.filter(pk=correction.pk).exists()
+    assert original.pk != correction.pk
+
+    prevailing = services.resolve_prevailing_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+    assert prevailing == correction
+    original.refresh_from_db()
+    assert original.origin == AttendanceEvent.Origin.DECLARED
+
+
+# --------------------------------------------------------------------------- #
 # RF-JOR-002 — derivacion del estado diario
 # --------------------------------------------------------------------------- #
 
