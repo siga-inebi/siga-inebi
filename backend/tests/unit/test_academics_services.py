@@ -723,3 +723,46 @@ def test_deactivate_class_session_is_idempotent():
 
     again = deactivate_class_session(session=deactivated)
     assert again.is_active is False
+
+
+# --------------------------------------------------------------------------- #
+# derived teacher on class sessions (RF-HOR-004)
+# --------------------------------------------------------------------------- #
+
+
+def test_class_session_current_teacher_matches_the_current_assignment():
+    """Escenario 1 (#197): el docente se deriva de la asignacion vigente."""
+    session = ClassSessionFactory()
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=session.subject,
+        teacher=teacher.person,
+        starts_on=session.academic_cycle.starts_on,
+    )
+
+    assert session.current_teacher == teacher.person
+
+
+def test_class_session_current_teacher_is_none_without_a_current_assignment():
+    """Escenario 2 (#197): sin asignacion vigente, el docente derivado es nulo."""
+    session = ClassSessionFactory()
+
+    assert session.current_teacher is None
+
+
+def test_class_session_current_teacher_ignores_a_closed_assignment():
+    """A reassigned (closed) assignment does not count as current coverage."""
+    session = ClassSessionFactory()
+    former_teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=session.subject,
+        teacher=former_teacher.person,
+        starts_on=session.academic_cycle.starts_on,
+        ends_on=session.academic_cycle.starts_on + timedelta(days=30),
+    )
+
+    assert session.current_teacher is None

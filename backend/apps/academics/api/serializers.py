@@ -415,6 +415,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
     subject = SubjectRefSerializer(read_only=True)
     schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
     day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
+    teacher_id = serializers.SerializerMethodField()
 
     class Meta:
         model = ClassSession
@@ -425,7 +426,13 @@ class ClassSessionSerializer(serializers.ModelSerializer):
             "is_active",
             "subject",
             "schedule_block",
+            "teacher_id",
         ]
+
+    def get_teacher_id(self, obj):
+        """RF-HOR-004: derived from the current teaching assignment, not stored."""
+        teacher = obj.current_teacher
+        return str(teacher.teacher_profile.public_id) if teacher else None
 
 
 class ClassSessionCreateSerializer(serializers.Serializer):
