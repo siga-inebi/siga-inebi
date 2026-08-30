@@ -18,8 +18,9 @@ from django.utils import timezone
 from apps.academics.models import AcademicCycle
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
-from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.models import EvaluationUnit, Grade
 from apps.evaluation.services import (
+    close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
     get_effective_unit_count,
@@ -280,6 +281,80 @@ class TestRecoveryWindowIntegration:
         assert event.context["recovery_ends_on"] == "2026-03-20"
 
 
+class TestCloseEvaluationUnitIntegration:
+    """Integration tests for RF-EVC-007: Estados de la unidad."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _expired_unit(self, cycle):
+        yesterday = timezone.localdate() - timedelta(days=1)
+        return create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+
+    def test_close_unit_then_correction_requires_active_grant(self):
+        """
+        Scenario: Cierre de una unidad (cross-domain)
+        GIVEN una unidad con su ventana de captura vencida
+        WHEN un usuario autorizado la cierra
+        THEN el sistema registra el cambio de estado en la bitácora
+        AND las notas de esa unidad dejan de admitir modificación salvo brecha excepcional
+        """
+        from apps.audit.models import AuditEvent
+        from tests.factories.identity import UserFactory
+
+        cycle = AcademicCycleFactory()
+        unit = self._expired_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=70)
+
+        director = UserFactory()
+        close_evaluation_unit(unit, actor=director)
+
+        assert AuditEvent.objects.filter(action="evaluation.unit_closed", actor=director).exists()
+
+        with pytest.raises(DomainError, match="ventana de captura"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=90,
+            )
+
+        grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="Correccion autorizada por direccion tras el cierre.",
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        corrected = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=90,
+        )
+        assert corrected.value == 90
+
+
 class TestCaptureExceptionGrantIntegration:
     """Integration tests for RF-EVC-004: Brecha excepcional autorizada."""
 
@@ -505,6 +580,106 @@ class TestRegisterUnitGradeIntegration:
         assert event.context["value"] == 85
 
 
+class TestGradeCorrectionIntegration:
+    """Integration tests for RF-CAL-005: Corrección de notas registradas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_correction_with_open_window_records_before_and_after_in_bitacora(self):
+        """
+        Scenario: Corrección con la ventana abierta (cross-domain)
+        GIVEN una nota registrada y una ventana de captura abierta
+        WHEN el docente la corrige
+        THEN el sistema acepta el cambio y registra en bitácora el valor anterior y el nuevo
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=65
+        )
+        corrected = register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=95
+        )
+
+        from apps.audit.models import AuditEvent
+        from apps.audit.services import list_audit_events
+
+        event = list_audit_events(action="evaluation.grade_updated").latest("created_at")
+        assert event.resource_identifier == str(corrected.pk)
+        assert event.context["changes"] == {"value": {"before": 65, "after": 95}}
+        assert AuditEvent.objects.filter(action="evaluation.grade_registered").exists()
+
+    def test_correction_with_closed_window_requires_active_grant(self):
+        """
+        Scenario: Corrección con la ventana cerrada y sin brecha (cross-domain)
+        GIVEN una nota de una unidad cerrada, sin brecha excepcional vigente
+        WHEN el docente intenta corregirla
+        THEN el sistema rechaza la operación
+        AND una brecha excepcional vigente permite la corrección
+        """
+        cycle = AcademicCycleFactory()
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=65)
+
+        with pytest.raises(DomainError, match="ventana de captura"):
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=95,
+            )
+
+        grant_capture_exception(
+            evaluation_unit=unit,
+            subject=subject,
+            teacher=teacher,
+            reason="Correccion autorizada por direccion tras el cierre.",
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        corrected = register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=95,
+        )
+        assert corrected.value == 95
+
+
 class TestGradeScaleIntegration:
     """Integration tests for RF-CAL-002: Escala y validación de la nota."""
 
@@ -698,3 +873,188 @@ class TestFinalSubjectGradeIntegration:
 
         assert result["average"] == 60
         assert result["pending_units"] == 0
+
+
+class TestFinalGradeRoundingIntegration:
+    """Integration tests for RF-RES-002: Punto único de redondeo."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                create_evaluation_unit(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    name=f"Unit {i + 1}",
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_half_fraction_rounds_up_across_domains(self):
+        """
+        Scenario: Fracción exacta de un medio (cross-domain)
+        GIVEN un estudiante cuyo promedio de unidades es 59.5
+        WHEN se calcula su nota final
+        THEN el resultado es 60
+        AND get_current_average (RF-CAL-003) sigue reportando el valor sin redondear
+        """
+        cycle = AcademicCycleFactory()
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[0],
+            teacher=teacher,
+            value=59,
+        )
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=units[1],
+            teacher=teacher,
+            value=60,
+        )
+
+        current = get_current_average(enrolment, subject)
+        final = get_final_subject_grade(enrolment, subject)
+
+        assert current["average"] == 59.5
+        assert final["average"] == 59.5
+        assert final["final_grade"] == 60
+
+
+class TestSubjectApprovalIntegration:
+    """Integration tests for RF-RES-003: Aprobación de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_correction_recalculates_approval_consistently(self):
+        """
+        Scenario: Coherencia entre boleta y estado (cross-domain)
+        GIVEN una nota final calculada
+        WHEN se presenta en la boleta y se evalúa la aprobación
+        THEN ambas operaciones usan el mismo valor redondeado
+        AND una correccion de la nota (RF-CAL-005) recalcula ambas de forma consistente
+        """
+        cycle = AcademicCycleFactory()
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=59,
+        )
+        result = get_final_subject_grade(enrolment, subject)
+        assert result["final_grade"] == 59
+        assert result["approved"] is False
+
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=60,
+        )
+        result = get_final_subject_grade(enrolment, subject)
+        assert result["final_grade"] == 60
+        assert result["approved"] is True
+
+
+class TestGradeVisibilityIntegration:
+    """Integration tests for RF-CAL-007: Visibilidad de las notas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def test_guardian_reads_only_their_students_grades_across_domains(self):
+        """
+        Scenario: Encargado consulta el portal (cross-domain)
+        GIVEN un encargado con un estudiante asociado
+        WHEN consulta las notas en su portal
+        THEN el sistema presenta únicamente las de ese estudiante
+        """
+        from apps.identity.scopes import can_access_student
+        from apps.students.services import create_student_guardian_relation
+        from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+        from tests.factories.identity import UserFactory as IdentityUserFactory
+        from tests.factories.students import GuardianFactory
+
+        cycle = AcademicCycleFactory()
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        subject = SubjectFactory(institution=cycle.institution)
+
+        enrolment = self._enrolment(cycle)
+        other_enrolment = self._enrolment(cycle)
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=88)
+        Grade.objects.create(
+            enrolment=other_enrolment, subject=subject, evaluation_unit=unit, value=42
+        )
+
+        guardian = GuardianFactory()
+        user = IdentityUserFactory(person=guardian.person)
+        permission = PermissionFactory(codename="student_view_basic")
+        RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+        create_student_guardian_relation(
+            student=enrolment.student, guardian=guardian, relationship_label="Padre"
+        )
+
+        assert can_access_student(
+            user=user, codename="student_view_basic", student=enrolment.student
+        )
+        assert not can_access_student(
+            user=user, codename="student_view_basic", student=other_enrolment.student
+        )
+
+        from apps.evaluation.queries import grades_for_enrolment
+
+        visible = list(grades_for_enrolment(enrolment))
+        assert len(visible) == 1
+        assert visible[0].value == 88

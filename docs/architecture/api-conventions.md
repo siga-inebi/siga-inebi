@@ -57,6 +57,7 @@ puerta de enlace sobre un cambio que la base de datos ya confirmo. Ese trabajo s
 
 Quien drena la cola es el proceso trabajador de RNF-REN-004: `python manage.py run_worker`,
 con concurrencia de uno y dentro de una ventana horaria configurable en hora local.
+Quien drena la cola es el proceso trabajador de RNF-REN-004.
 
 ## Seguridad
 

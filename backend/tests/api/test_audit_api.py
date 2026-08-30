@@ -18,7 +18,7 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
-from tests.factories.students import StudentFactory
+from tests.factories.students import GuardianFactory, StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -133,6 +133,30 @@ def test_reading_a_students_family_contacts_via_the_api_is_audited(auth_client):
     assert event.action == "students.emergency_contacts.read"
     assert event.context["student_id"] == student.pk
     assert event.actor_id == auth_client.user.id
+
+
+def test_a_guardian_without_a_student_association_is_denied_and_audited(client):
+    """
+    RF-BIT-004, Escenario 1, through the real HTTP contract: a guardian who
+    holds the read permission but has no relation to any student hits the
+    student detail endpoint and gets denied, and the attempt is audited.
+    """
+    permission = PermissionFactory(codename="student_view_basic")
+    guardian = GuardianFactory()
+    user = UserFactory(person=guardian.person, password="demo-pass-123")
+    RoleAssignmentFactory(
+        user=user, role=RoleFactory(permissions=[permission]), identity_scope=False
+    )
+    unrelated_student = StudentFactory()
+    client.force_login(user)
+
+    response = client.get(reverse("student-detail", args=[unrelated_student.pk]))
+
+    assert response.status_code == 403
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "identity.authorization.denied"
+    assert event.actor_id == user.id
+    assert event.context["reason"] == "missing_scope"
 
 
 def test_disabling_the_actor_does_not_alter_their_past_audit_events(auth_client, institution):

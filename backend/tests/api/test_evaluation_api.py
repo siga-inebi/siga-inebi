@@ -26,11 +26,18 @@ from django.utils import timezone
 from apps.academics.models import TeachingAssignment
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
+from apps.students.services import create_student_guardian_relation
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.evaluation import EvaluationUnitFactory
-from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+    UserFactory,
+)
 from tests.factories.people import PersonFactory
-from tests.factories.students import StudentFactory
+from tests.factories.students import GuardianFactory, StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -49,6 +56,17 @@ def _grant_grade_write(user, *, section, subject, academic_cycle):
         teacher=user.person,
         starts_on=academic_cycle.starts_on,
     )
+
+
+def _grant_evaluation_configuration(user, *, institution):
+    """Grant the evaluation configuration permission with institution scope."""
+    permission = PermissionFactory(codename="evaluation_configure_units")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[permission]),
+        identity_scope=False,
+    )
+    ScopeGrantFactory(assignment=assignment, institution=institution)
 
 
 class TestEvaluationUnitAPI:
@@ -333,6 +351,186 @@ class TestRecoveryWindowAPI:
                 "recovery_starts_on": "2026-03-10",
                 "recovery_ends_on": "2026-03-20",
             },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+
+
+class TestEvaluationUnitCloseAPI:
+    """Tests for PATCH close endpoint (RF-EVC-007)."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def test_close_unit_success(self, auth_client, institution):
+        """
+        Scenario: Cierre de una unidad
+        PATCH /api/v1/academics/cycles/{cycle_id}/evaluation-units/{unit_id}/close/
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "closed"
+
+        from apps.audit.models import AuditEvent
+
+        assert AuditEvent.objects.filter(
+            action="evaluation.unit_closed", actor=auth_client.user
+        ).exists()
+
+    def test_close_unit_requires_configuration_permission(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        unit.refresh_from_db()
+        assert unit.status == EvaluationUnit.UnitStatus.OPEN
+
+    def test_close_unit_requires_institution_scope(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        permission = PermissionFactory(codename="evaluation_configure_units")
+        RoleAssignmentFactory(
+            user=auth_client.user,
+            role=RoleFactory(permissions=[permission]),
+            identity_scope=False,
+        )
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        unit.refresh_from_db()
+        assert unit.status == EvaluationUnit.UnitStatus.OPEN
+
+    def test_closed_unit_rejects_grade_correction_without_grant_api(self, auth_client, institution):
+        """
+        AND las notas de esa unidad dejan de admitir modificación salvo brecha excepcional
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=70)
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        close_response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            content_type="application/json",
+        )
+        assert close_response.status_code == 200
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
+                "value": 90,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "esta cerrada" in response.json()["error"]["detail"].lower()
+
+    def test_reject_closing_an_already_closed_unit_api(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+
+        url = reverse(
+            "evaluation-unit-close",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(unit.public_id),
+            },
+        )
+        first = auth_client.patch(url, content_type="application/json")
+        assert first.status_code == 200
+
+        second = auth_client.patch(url, content_type="application/json")
+        assert second.status_code == 400
+
+    def test_unit_not_found_returns_404_for_close(self, auth_client, institution):
+        import uuid
+
+        cycle = AcademicCycleFactory(institution=institution)
+
+        response = auth_client.patch(
+            reverse(
+                "evaluation-unit-close",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(uuid.uuid4()),
+                },
+            ),
             content_type="application/json",
         )
 
@@ -718,6 +916,123 @@ class TestGradeAPI:
         )
 
         assert response.status_code == 404
+
+
+class TestGradeCorrectionAPI:
+    """Tests for RF-CAL-005: Corrección de notas registradas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _open_unit(self, cycle):
+        today = timezone.localdate()
+        return EvaluationUnitFactory(
+            academic_cycle=cycle,
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+    def test_correction_with_open_window_is_accepted_and_audited_api(
+        self, auth_client, institution
+    ):
+        """
+        Scenario: Corrección con la ventana abierta
+        GIVEN una nota registrada y una ventana de captura abierta
+        WHEN el docente la corrige
+        THEN el sistema acepta el cambio y registra en bitácora el valor anterior y el nuevo
+        """
+        from apps.audit.models import AuditEvent
+
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = self._open_unit(cycle)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        url = reverse(
+            "evaluation-unit-grades",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(unit.public_id),
+            },
+        )
+        payload = {
+            "enrolment": enrolment.public_id,
+            "subject": subject.public_id,
+            "teacher": teacher.public_id,
+            "value": 70,
+        }
+        first = auth_client.post(url, payload, content_type="application/json")
+        assert first.status_code == 201
+
+        payload["value"] = 90
+        second = auth_client.post(url, payload, content_type="application/json")
+
+        assert second.status_code == 201
+        assert second.json()["value"] == 90
+
+        event = AuditEvent.objects.filter(action="evaluation.grade_updated").latest("created_at")
+        assert event.context["changes"] == {"value": {"before": 70, "after": 90}}
+
+    def test_correction_with_closed_window_and_no_grant_is_rejected_api(
+        self, auth_client, institution
+    ):
+        """
+        Scenario: Corrección con la ventana cerrada y sin brecha
+        GIVEN una nota de una unidad cerrada, sin brecha excepcional vigente
+        WHEN el docente intenta corregirla
+        THEN el sistema rechaza la operación
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        yesterday = timezone.localdate() - timedelta(days=1)
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            starts_on=yesterday - timedelta(days=30),
+            ends_on=yesterday,
+            capture_starts_on=yesterday - timedelta(days=30),
+            capture_ends_on=yesterday,
+        )
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=70)
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
+                "value": 90,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "esta cerrada" in response.json()["error"]["detail"].lower()
+        assert (
+            Grade.objects.get(enrolment=enrolment, subject=subject, evaluation_unit=unit).value
+            == 70
+        )
 
 
 class TestGradeAuthorizationAPI:
@@ -1338,6 +1653,275 @@ class TestFinalSubjectGradeAPI:
                     "cycle_public_id": str(cycle.public_id),
                     "enrolment_id": "00000000-0000-0000-0000-000000000000",
                     "subject_id": subject.public_id,
+                },
+            )
+        )
+
+        assert response.status_code == 404
+
+
+class TestFinalGradeRoundingAPI:
+    """Tests for RF-RES-002: Punto único de redondeo."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _units(self, cycle, count):
+        today = timezone.localdate()
+        units = []
+        for i in range(count):
+            starts = today + timedelta(days=i * 70)
+            units.append(
+                EvaluationUnitFactory(
+                    academic_cycle=cycle,
+                    number=i + 1,
+                    starts_on=starts,
+                    ends_on=starts + timedelta(days=60),
+                    capture_starts_on=today - timedelta(days=5),
+                    capture_ends_on=today + timedelta(days=5),
+                )
+            )
+        return units
+
+    def test_half_fraction_rounds_up_api(self, auth_client, institution):
+        """
+        Scenario: Fracción exacta de un medio
+        GIVEN un estudiante cuyo promedio de unidades es 59.5
+        WHEN se calcula su nota final
+        THEN el resultado es 60
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        units = self._units(cycle, 2)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+
+        for unit, value in zip(units, (59, 60), strict=True):
+            auth_client.post(
+                reverse(
+                    "evaluation-unit-grades",
+                    kwargs={
+                        "cycle_public_id": str(cycle.public_id),
+                        "unit_public_id": str(unit.public_id),
+                    },
+                ),
+                {
+                    "enrolment": enrolment.public_id,
+                    "subject": subject.public_id,
+                    "teacher": teacher.public_id,
+                    "value": value,
+                },
+                content_type="application/json",
+            )
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average"] == 59.5
+        assert data["final_grade"] == 60
+
+
+class TestSubjectApprovalAPI:
+    """Tests for RF-RES-003: Aprobación de la subárea."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _register_final_grade(self, auth_client, cycle, institution, *, value):
+        unit = EvaluationUnitFactory(academic_cycle=cycle, number=1)
+        enrolment = self._enrolment(cycle)
+        subject = SubjectFactory(institution=institution)
+        teacher = PersonFactory()
+        _grant_grade_write(
+            auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
+        )
+        auth_client.post(
+            reverse(
+                "evaluation-unit-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            ),
+            {
+                "enrolment": enrolment.public_id,
+                "subject": subject.public_id,
+                "teacher": teacher.public_id,
+                "value": value,
+            },
+            content_type="application/json",
+        )
+        return enrolment, subject
+
+    def test_final_grade_at_threshold_is_approved_api(self, auth_client, institution):
+        """
+        Scenario: Nota final en el umbral
+        GIVEN un estudiante con nota final de exactamente sesenta en una subárea
+        WHEN se determina su condición
+        THEN la subárea queda aprobada
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        enrolment, subject = self._register_final_grade(auth_client, cycle, institution, value=60)
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["final_grade"] == 60
+        assert data["approved"] is True
+
+    def test_final_grade_below_threshold_is_not_approved_api(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        enrolment, subject = self._register_final_grade(auth_client, cycle, institution, value=59)
+
+        response = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": enrolment.public_id,
+                    "subject_id": subject.public_id,
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        assert response.json()["approved"] is False
+
+
+class TestEnrolmentGradesAPI:
+    """Tests for RF-CAL-007: Visibilidad de las notas."""
+
+    def _enrolment(self, cycle):
+        section = SectionFactory(academic_cycle=cycle)
+        student = StudentFactory()
+        return create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+    def _guardian_user(self, *, student):
+        guardian = GuardianFactory()
+        user = UserFactory(person=guardian.person)
+        permission = PermissionFactory(codename="student_view_basic")
+        RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+        create_student_guardian_relation(
+            student=student, guardian=guardian, relationship_label="Madre"
+        )
+        return user
+
+    def test_guardian_sees_only_associated_student_grades(self, client, institution):
+        """
+        Scenario: Encargado consulta el portal
+        GIVEN un encargado con un estudiante asociado
+        WHEN consulta las notas en su portal
+        THEN el sistema presenta únicamente las de ese estudiante
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        subject = SubjectFactory(institution=institution)
+
+        enrolment = self._enrolment(cycle)
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=88)
+
+        other_enrolment = self._enrolment(cycle)
+        Grade.objects.create(
+            enrolment=other_enrolment, subject=subject, evaluation_unit=unit, value=42
+        )
+
+        user = self._guardian_user(student=enrolment.student)
+        client.force_login(user)
+
+        response = client.get(
+            reverse(
+                "enrolment-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": str(enrolment.public_id),
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["value"] == 88
+
+    def test_guardian_without_association_is_denied(self, client, institution):
+        """
+        A guardian without a current association to the enrolment's student
+        must not be able to read that student's grades.
+        """
+        cycle = AcademicCycleFactory(institution=institution)
+        unit = EvaluationUnitFactory(academic_cycle=cycle)
+        subject = SubjectFactory(institution=institution)
+
+        enrolment = self._enrolment(cycle)
+        Grade.objects.create(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=88)
+
+        unrelated_student = StudentFactory()
+        user = self._guardian_user(student=unrelated_student)
+        client.force_login(user)
+
+        response = client.get(
+            reverse(
+                "enrolment-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": str(enrolment.public_id),
+                },
+            )
+        )
+
+        assert response.status_code == 403
+
+    def test_enrolment_not_found_returns_404_for_grades(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "enrolment-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": "00000000-0000-0000-0000-000000000000",
                 },
             )
         )
