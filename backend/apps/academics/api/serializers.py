@@ -369,6 +369,15 @@ class LevelSubjectUpdateSerializer(serializers.Serializer):
 # --------------------------------------------------------------------------- #
 
 
+class SectionRefSerializer(serializers.ModelSerializer):
+    grade = GradeRefSerializer(source="offering.grade", read_only=True)
+    shift = ShiftRefSerializer(source="offering.shift", read_only=True)
+
+    class Meta:
+        model = Section
+        fields = ["public_id", "name", "grade", "shift"]
+
+
 class SectionSerializer(serializers.ModelSerializer):
     academic_cycle_id = serializers.UUIDField(
         source="offering.academic_cycle.public_id", read_only=True

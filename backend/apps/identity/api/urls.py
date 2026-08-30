@@ -7,6 +7,7 @@ from apps.identity.api.views import (
     AccountProvisionView,
     ActivationChallengeReissueView,
     AtomicPermissionListView,
+    MyWeeklyScheduleView,
     RoleAssignmentCreateView,
     RoleAssignmentRevokeView,
     RoleDetailView,
@@ -15,6 +16,7 @@ from apps.identity.api.views import (
 
 urlpatterns = [
     path("permissions/", AtomicPermissionListView.as_view(), name="identity-permission-list"),
+    path("me/schedule/", MyWeeklyScheduleView.as_view(), name="identity-my-schedule"),
     path("roles/", RoleListCreateView.as_view(), name="identity-role-list-create"),
     path("roles/<uuid:role_id>/", RoleDetailView.as_view(), name="identity-role-detail"),
     path(
