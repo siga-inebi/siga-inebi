@@ -465,6 +465,7 @@ class SectionUpdateSerializer(serializers.Serializer):
 class ClassSessionSerializer(serializers.ModelSerializer):
     subject = SubjectRefSerializer(read_only=True)
     schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
+    classroom = ClassroomRefSerializer(read_only=True)
     day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
     teacher_id = serializers.SerializerMethodField()
 
@@ -477,6 +478,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
             "is_active",
             "subject",
             "schedule_block",
+            "classroom",
             "teacher_id",
         ]
 
@@ -488,6 +490,11 @@ class ClassSessionSerializer(serializers.ModelSerializer):
 
 class ClassSessionCreateSerializer(serializers.Serializer):
     subject_id = serializers.UUIDField(help_text="Public ID de la subarea.")
+    classroom_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Public ID del aula. Opcional (ej. educacion fisica al aire libre).",
+    )
     schedule_block_id = serializers.UUIDField(help_text="Public ID del bloque de horario.")
     day_of_week = serializers.ChoiceField(
         choices=ClassSession.Weekday.choices, help_text="Dia ISO: 1=lunes .. 7=domingo."

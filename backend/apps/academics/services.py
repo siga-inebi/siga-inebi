@@ -1618,7 +1618,7 @@ def _class_session_conflicts():
 
 
 def create_class_session(
-    *, academic_cycle, section, subject, schedule_block, day_of_week, actor=None
+    *, academic_cycle, section, subject, schedule_block, day_of_week, classroom=None, actor=None
 ):
     """
     Schedule a class session (RF-HOR-003): a subject taught to a section on a
@@ -1629,13 +1629,16 @@ def create_class_session(
     - Subject must belong to the cycle's institution.
     - The block must belong to the same shift as the section (a session
       cannot borrow a block from another jornada).
+    - Classroom is optional (not every session needs one, e.g. outdoor PE);
+      when given, it must belong to the section's campus.
     - The exact same registration twice is rejected (unique constraint).
     - A section cannot attend two different sessions at once: an active
       session with a different subject already occupying the same
-      (section, day_of_week, schedule_block) is a conflict (RF-HOR-005,
-      #198). The classroom half of that requirement is out of scope here --
-      apps.academics has no classroom concept yet (blocked on RF-AUL-001,
-      #99) -- and the issue stays open until it does.
+      (section, day_of_week, schedule_block) is a conflict (RF-HOR-005).
+    - A classroom cannot host two sessions at once either: an active
+      session -- any section, any subject -- already occupying the same
+      (classroom, day_of_week, schedule_block) is a conflict, checked only
+      when a classroom is given.
     """
     require_cycle_academic_writes(cycle=academic_cycle, operation="class_session.create")
 
@@ -1645,6 +1648,8 @@ def create_class_session(
         raise DomainError("El curso debe pertenecer a la institucion del ciclo escolar.")
     if schedule_block.shift_id != section.offering.shift_id:
         raise DomainError("El bloque de horario debe pertenecer a la misma jornada que la seccion.")
+    if classroom is not None and classroom.campus_id != section.offering.shift.campus_id:
+        raise DomainError("El aula debe pertenecer a la misma sede que la seccion.")
     if (
         ClassSession.objects.filter(
             section=section,
@@ -1658,6 +1663,18 @@ def create_class_session(
         raise DomainError(
             "La seccion ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
         )
+    if (
+        classroom is not None
+        and ClassSession.objects.filter(
+            classroom=classroom,
+            day_of_week=day_of_week,
+            schedule_block=schedule_block,
+            is_active=True,
+        ).exists()
+    ):
+        raise DomainError(
+            "El aula ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
+        )
 
     with unique_violation_as(_class_session_conflicts()):
         session = ClassSession.objects.create(
@@ -1665,6 +1682,7 @@ def create_class_session(
             section=section,
             subject=subject,
             schedule_block=schedule_block,
+            classroom=classroom,
             day_of_week=day_of_week,
         )
 
@@ -1676,6 +1694,7 @@ def create_class_session(
         section_id=section.pk,
         subject_id=subject.pk,
         schedule_block_id=schedule_block.pk,
+        classroom_id=classroom.pk if classroom else None,
         day_of_week=day_of_week,
     )
     return session

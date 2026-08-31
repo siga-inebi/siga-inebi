@@ -486,10 +486,8 @@ class ClassSession(TimeStampedModel):
 
     The teacher is deliberately NOT stored here: RF-HOR-004 derives it from
     the current ``TeachingAssignment`` for (academic_cycle, section,
-    subject). RF-HOR-005 rejects a section double-booked in the same day and
-    block (enforced in ``services.create_class_session``); the classroom
-    half of that requirement is blocked on RF-AUL-001 (#99) -- there is no
-    classroom concept in this app yet.
+    subject). RF-HOR-005 rejects a section or a classroom double-booked in
+    the same day and block (enforced in ``services.create_class_session``).
     """
 
     class Weekday(models.IntegerChoices):
@@ -509,6 +507,14 @@ class ClassSession(TimeStampedModel):
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="class_sessions")
     schedule_block = models.ForeignKey(
         ClassScheduleBlock, on_delete=models.PROTECT, related_name="class_sessions"
+    )
+    classroom = models.ForeignKey(
+        Classroom,
+        on_delete=models.PROTECT,
+        related_name="class_sessions",
+        null=True,
+        blank=True,
+        help_text="Opcional: no toda sesion necesita un aula especifica (ej. educacion fisica).",
     )
     day_of_week = models.PositiveSmallIntegerField(choices=Weekday.choices)
 

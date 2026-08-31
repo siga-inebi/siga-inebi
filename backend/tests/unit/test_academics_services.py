@@ -28,6 +28,7 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassroomFactory,
     ClassScheduleBlockFactory,
     ClassSessionFactory,
     GradeFactory,
@@ -765,6 +766,90 @@ def test_create_class_session_ignores_a_deactivated_session_in_the_same_slot():
     )
 
     assert new_session.pk != session.pk
+
+
+def test_create_class_session_accepts_an_optional_classroom():
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    classroom = ClassroomFactory(campus=section.offering.shift.campus)
+
+    session = create_class_session(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        classroom=classroom,
+        day_of_week=1,
+    )
+
+    assert session.classroom_id == classroom.pk
+
+
+def test_create_class_session_rejects_classroom_from_a_different_campus():
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    foreign_classroom = ClassroomFactory()
+
+    with pytest.raises(DomainError, match="misma sede"):
+        create_class_session(
+            academic_cycle=section.academic_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=block,
+            classroom=foreign_classroom,
+            day_of_week=1,
+        )
+
+
+def test_create_class_session_rejects_classroom_double_booked_in_the_same_slot():
+    """Escenario 3 (#198): cruce por aula, secciones distintas."""
+    session = ClassSessionFactory()
+    classroom = ClassroomFactory(campus=session.section.offering.shift.campus)
+    session.classroom = classroom
+    session.save(update_fields=["classroom", "updated_at"])
+
+    other_section = SectionFactory(
+        academic_cycle=session.academic_cycle, shift=session.section.offering.shift
+    )
+    other_subject = SubjectFactory(institution=session.section.offering.institution)
+    other_block = ClassScheduleBlockFactory(shift=session.section.offering.shift, number=99)
+    ClassSessionFactory(
+        section=session.section, subject=other_subject, schedule_block=other_block
+    )  # ruido: otra sesion en la misma seccion, otro bloque, no debe interferir
+
+    with pytest.raises(DomainError, match="El aula ya tiene otra sesion"):
+        create_class_session(
+            academic_cycle=session.academic_cycle,
+            section=other_section,
+            subject=other_subject,
+            schedule_block=session.schedule_block,
+            classroom=classroom,
+            day_of_week=session.day_of_week,
+        )
+
+
+def test_create_class_session_allows_two_sections_without_a_classroom_in_the_same_slot():
+    """Sin aula asignada, no hay cruce que detectar entre dos secciones distintas."""
+    section_a = SectionFactory()
+    block = ClassScheduleBlockFactory(shift=section_a.offering.shift)
+    ClassSessionFactory(section=section_a, schedule_block=block, day_of_week=1)
+
+    section_b = SectionFactory(
+        academic_cycle=section_a.academic_cycle, shift=section_a.offering.shift
+    )
+    subject_b = SubjectFactory(institution=section_a.offering.institution)
+
+    session_b = create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    assert session_b.classroom_id is None
 
 
 def test_deactivate_class_session_is_idempotent():

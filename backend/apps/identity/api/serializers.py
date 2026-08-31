@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from apps.academics.api.serializers import (
+    ClassroomRefSerializer,
     ClassScheduleBlockRefSerializer,
     SectionRefSerializer,
     SubjectRefSerializer,
@@ -217,6 +218,7 @@ class MyClassSessionSerializer(serializers.ModelSerializer):
     section = SectionRefSerializer(read_only=True)
     subject = SubjectRefSerializer(read_only=True)
     schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
+    classroom = ClassroomRefSerializer(read_only=True)
     day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
     teacher_id = serializers.SerializerMethodField()
 
@@ -229,6 +231,7 @@ class MyClassSessionSerializer(serializers.ModelSerializer):
             "section",
             "subject",
             "schedule_block",
+            "classroom",
             "teacher_id",
         ]
 
