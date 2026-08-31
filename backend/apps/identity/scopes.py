@@ -1,7 +1,6 @@
 from django.db.models import Q
 from django.utils import timezone
 
-<<<<<<< HEAD
 from apps.academics.models import AcademicCycle, ClassSession, TeachingAssignment
 from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError
