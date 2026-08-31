@@ -1,7 +1,7 @@
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle, TeachingAssignment
+from apps.academics.models import AcademicCycle, ClassSession, TeachingAssignment
 from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError
 from apps.identity.models import ScopeGrant
@@ -154,6 +154,72 @@ def can_access_student(*, user, codename, student, when=None):
         )
     except AuthorizationError:
         return False
+
+
+def own_class_session_queryset(*, user, when=None):
+    """
+    Sessions a teacher account currently teaches (RF-HOR-010), derived from
+    the exact (academic_cycle, section, subject) of their current teaching
+    assignments -- not a looser per-section or per-subject match, which
+    would leak sessions from an unrelated subject the same teacher happens
+    to also teach elsewhere.
+    """
+    assignments = teaching_assignment_queryset(user=user, when=when)
+    condition = Q(pk__in=[])
+    for assignment in assignments:
+        condition |= Q(
+            academic_cycle_id=assignment.academic_cycle_id,
+            section_id=assignment.section_id,
+            subject_id=assignment.subject_id,
+        )
+    return ClassSession.objects.filter(condition)
+
+
+def ward_class_session_queryset(*, user):
+    """Sessions of the sections a guardian account's wards are actively enrolled in."""
+    students = guardian_student_queryset(user=user)
+    return ClassSession.objects.filter(
+        section__enrolments__student__in=students,
+        section__enrolments__is_active=True,
+        section__enrolments__status="active",
+    )
+
+
+def has_own_schedule_scope(*, user):
+    """True when the account is a teacher, or has at least one active ward."""
+    person = getattr(user, "person", None)
+    if person is None:
+        return False
+    if getattr(person, "teacher_profile", None) is not None:
+        return True
+    guardian = getattr(person, "guardian_profile", None)
+    return guardian is not None and guardian.is_active
+
+
+def my_weekly_schedule_queryset(*, user, when=None):
+    """
+    RF-HOR-010: the caller's own weekly schedule -- sessions they teach,
+    union sessions of their wards' sections. Restricted to published
+    schedules (RF-HOR-009): a draft schedule is not yet "sus asignaciones o
+    tutela" in the sense the requirement means.
+    """
+    own = own_class_session_queryset(user=user, when=when)
+    ward = ward_class_session_queryset(user=user)
+    related = (
+        "section__offering__grade",
+        "section__offering__shift",
+        "subject",
+        "schedule_block",
+    )
+    return (
+        ClassSession.objects.filter(Q(pk__in=own.values("pk")) | Q(pk__in=ward.values("pk")))
+        .filter(
+            is_active=True,
+            academic_cycle__schedule_publication__published_at__isnull=False,
+        )
+        .select_related(*related)
+        .distinct()
+    )
 
 
 def scope_matches(*, user, codename, scope, when=None):

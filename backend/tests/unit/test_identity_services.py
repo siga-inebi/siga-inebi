@@ -1,21 +1,30 @@
 import pytest
 
+from apps.academics.models import TeachingAssignment
+from apps.academics.services import publish_class_schedule
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
+from apps.enrolments.services import create_enrolment
 from apps.identity.services import (
     assign_role,
     create_role,
     disable_account,
     filter_queryset_by_scope,
     list_atomic_permissions,
+    my_weekly_schedule,
     revoke_role_assignment,
     update_role,
 )
 from apps.students.models import Student
-from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    ClassSessionFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -24,7 +33,8 @@ from tests.factories.identity import (
     UserFactory,
 )
 from tests.factories.people import PersonFactory
-from tests.factories.students import StudentFactory
+from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
+from tests.factories.teachers import TeacherFactory
 
 
 @pytest.mark.django_db
@@ -512,3 +522,98 @@ def test_scope_matches_denies_write_permissions_on_closed_cycle():
         )
         is False
     )
+
+
+# --------------------------------------------------------------------------- #
+# my weekly schedule (RF-HOR-010)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_my_weekly_schedule_returns_the_teachers_own_sessions():
+    """Escenario 1 (#203): docente ve su propia sesion, ciclo publicado."""
+    session = ClassSessionFactory()
+    publish_class_schedule(academic_cycle=session.academic_cycle)
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=session.subject,
+        teacher=teacher.person,
+        starts_on=session.academic_cycle.starts_on,
+    )
+    user = UserFactory(person=teacher.person)
+
+    assert list(my_weekly_schedule(actor=user)) == [session]
+
+
+@pytest.mark.django_db
+def test_my_weekly_schedule_excludes_sessions_of_an_unpublished_cycle():
+    """Un ciclo sin publicar no aparece, aunque el docente tenga asignacion vigente."""
+    session = ClassSessionFactory()
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=session.subject,
+        teacher=teacher.person,
+        starts_on=session.academic_cycle.starts_on,
+    )
+    user = UserFactory(person=teacher.person)
+
+    assert list(my_weekly_schedule(actor=user)) == []
+
+
+@pytest.mark.django_db
+def test_my_weekly_schedule_excludes_a_session_of_an_unrelated_subject():
+    """El docente que da Matematica en la seccion A no ve Comunicacion en esa misma seccion."""
+    session = ClassSessionFactory()
+    publish_class_schedule(academic_cycle=session.academic_cycle)
+    other_subject = SubjectFactory(institution=session.section.offering.institution)
+    other_subject_session = ClassSessionFactory(section=session.section, subject=other_subject)
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=session.subject,
+        teacher=teacher.person,
+        starts_on=session.academic_cycle.starts_on,
+    )
+    user = UserFactory(person=teacher.person)
+
+    schedule = list(my_weekly_schedule(actor=user))
+
+    assert session in schedule
+    assert other_subject_session not in schedule
+
+
+@pytest.mark.django_db
+def test_my_weekly_schedule_returns_a_guardians_ward_sessions():
+    """Escenario 1 alterno (#203): encargado ve la sesion de su pupilo, ciclo publicado."""
+    session = ClassSessionFactory()
+    publish_class_schedule(academic_cycle=session.academic_cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=session.academic_cycle,
+        grade=session.section.grade,
+        section=session.section,
+    )
+    guardian = GuardianFactory()
+    StudentGuardianRelationFactory(student=student, guardian=guardian)
+    user = UserFactory(person=guardian.person)
+
+    assert list(my_weekly_schedule(actor=user)) == [session]
+
+
+@pytest.mark.django_db
+def test_my_weekly_schedule_rejects_an_account_without_teacher_or_guardian_scope():
+    """Escenario 2 (#203): rechazo -- la cuenta no es docente ni encargado activo."""
+    user = UserFactory()
+
+    with pytest.raises(AuthorizationError, match="no esta vinculada"):
+        my_weekly_schedule(actor=user)
+
+    event = AuditEvent.objects.get(action="identity.my_schedule.read_denied")
+    assert event.actor == user
+    assert event.context["reason"] == "no_teacher_or_guardian_scope"
