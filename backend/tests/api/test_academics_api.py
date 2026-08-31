@@ -243,6 +243,29 @@ def test_create_class_session_api_rejects_block_from_another_shift(auth_client, 
     assert "misma jornada" in response.json()["error"]["detail"]
 
 
+def test_create_class_session_api_rejects_section_double_booked_in_the_same_slot(
+    auth_client, institution
+):
+    """RF-HOR-005: cruce por seccion en el mismo dia y bloque."""
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    ClassSessionFactory(section=section, schedule_block=block, day_of_week=1)
+    other_subject = SubjectFactory(institution=institution)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(other_subject.public_id),
+            "schedule_block_id": str(block.public_id),
+            "day_of_week": 1,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "cruce de horario" in response.json()["error"]["detail"]
+
+
 def test_list_class_sessions_is_scoped_to_the_section(auth_client, institution):
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
     ClassSessionFactory(section=section)

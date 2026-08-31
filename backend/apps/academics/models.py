@@ -455,9 +455,10 @@ class ClassSession(TimeStampedModel):
 
     The teacher is deliberately NOT stored here: RF-HOR-004 derives it from
     the current ``TeachingAssignment`` for (academic_cycle, section,
-    subject). Conflict detection between sessions (same section or classroom
-    in the same block, RF-HOR-005) is out of scope here; the only guard at
-    this layer is against registering the exact same session twice.
+    subject). RF-HOR-005 rejects a section double-booked in the same day and
+    block (enforced in ``services.create_class_session``); the classroom
+    half of that requirement is blocked on RF-AUL-001 (#99) -- there is no
+    classroom concept in this app yet.
     """
 
     class Weekday(models.IntegerChoices):
