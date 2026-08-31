@@ -1398,9 +1398,7 @@ def revoke_credential(*, student, reason, actor):
     credential.status = StudentCredential.Status.REVOKED
     credential.revocation_reason = reason
     credential.revoked_by = actor
-    credential.save(
-        update_fields=["status", "revocation_reason", "revoked_by", "updated_at"]
-    )
+    credential.save(update_fields=["status", "revocation_reason", "revoked_by", "updated_at"])
     record_event(
         actor=actor,
         action="attendance.credential.revoked",
