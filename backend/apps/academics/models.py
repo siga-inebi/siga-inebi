@@ -515,3 +515,27 @@ class ClassSession(TimeStampedModel):
             .first()
         )
         return assignment.teacher if assignment else None
+
+
+class ClassSchedulePublication(TimeStampedModel):
+    """
+    Publication state of a cycle's class schedule (RF-HOR-009).
+
+    The schedule (its ``ClassSession`` rows) is a working draft until this
+    is published; ``docentes``, ``estudiantes`` and ``encargados`` seeing it
+    only once published is a query-time concern (RF-HOR-010, #203), out of
+    scope here. One row per cycle, created on first publish -- mirrors
+    ``CycleEvaluationConfig`` in ``apps.evaluation``.
+    """
+
+    academic_cycle = models.OneToOneField(
+        AcademicCycle, on_delete=models.CASCADE, related_name="schedule_publication"
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Schedule publication for {self.academic_cycle.name}"
+
+    @property
+    def is_published(self):
+        return self.published_at is not None

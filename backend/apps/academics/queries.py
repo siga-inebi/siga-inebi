@@ -6,6 +6,7 @@ from apps.academics.models import (
     AcademicCycle,
     Campus,
     ClassScheduleBlock,
+    ClassSchedulePublication,
     ClassSession,
     CurriculumPlan,
     Grade,
@@ -324,3 +325,14 @@ def _get_payload(queryset, public_id, label):
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
         raise DomainError(f"No se encontro {label}.") from exc
+
+
+def class_schedule_publication(academic_cycle):
+    """
+    Existing publication row, or an unsaved default (never published).
+
+    Read-only: does not create a row, so checking status has no side effect.
+    """
+    return ClassSchedulePublication.objects.filter(
+        academic_cycle=academic_cycle
+    ).first() or ClassSchedulePublication(academic_cycle=academic_cycle)
