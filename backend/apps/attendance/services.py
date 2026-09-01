@@ -1451,6 +1451,35 @@ def revoke_credential(*, student, reason, actor):
     return credential
 
 
+def revoke_credential_for_closed_permanence(*, student, withdrawal_reason, effective_on, actor):
+    credential = StudentCredential.objects.filter(
+        student=student,
+        status=StudentCredential.Status.ACTIVE,
+        is_active=True,
+    ).first()
+    if credential is None:
+        return None
+    if actor is None:
+        raise DomainError("El retiro debe identificar quien autorizo el cierre de acceso.")
+
+    credential.status = StudentCredential.Status.REVOKED
+    credential.revocation_reason = "Cierre de permanencia"
+    credential.revoked_by = actor
+    credential.save(update_fields=["status", "revocation_reason", "revoked_by", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.credential.revoked_on_permanence_close",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "effective_on": effective_on.isoformat(),
+            "withdrawal_reason_recorded": bool(withdrawal_reason),
+        },
+    )
+    return credential
+
+
 # --------------------------------------------------------------------------- #
 # RF-CRE-006 — resolucion de identificador
 # --------------------------------------------------------------------------- #

@@ -7,6 +7,7 @@ from apps.academics.models import Section
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
+from apps.enrolments.events import student_permanence_closed
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 
 # Las dos unicas formas en que una matricula es un duplicado (ver los
@@ -122,6 +123,13 @@ def withdraw_student(*, enrolment, reason, actor=None, effective_on=None):
     student = enrolment.student
     student.status = student.StudentStatus.WITHDRAWN
     student.save(update_fields=["status", "updated_at"])
+    student_permanence_closed.send(
+        sender=withdraw_student,
+        student=student,
+        reason=movement.reason,
+        effective_on=effective_on,
+        actor=actor,
+    )
     record_event(
         actor=actor,
         action="enrolments.student.withdrawn",

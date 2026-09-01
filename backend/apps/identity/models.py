@@ -35,6 +35,9 @@ class UserAccount(AbstractUser):
         when = when or timezone.now()
         if not self.is_active or self.status != self.AccountStatus.ACTIVE or self.is_locked():
             return False
+        student = getattr(getattr(self, "person", None), "student_profile", None)
+        if student is not None and student.status != student.StudentStatus.ACTIVE:
+            return False
         return (
             RoleAssignment.objects.active_at(when)
             .filter(

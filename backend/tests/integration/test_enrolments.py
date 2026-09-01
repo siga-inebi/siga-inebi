@@ -4,6 +4,9 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.attendance import services as attendance_services
+from apps.attendance.models import AttendanceEvent, StudentCredential
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 from apps.enrolments.services import (
@@ -22,6 +25,7 @@ from apps.evaluation.models import Grade as EvaluationGrade
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.attendance import AttendanceEventFactory
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
 
@@ -213,6 +217,67 @@ def test_withdrawal_removes_student_from_active_source_without_deleting_history(
     assert Enrolment.objects.filter(pk=enrolment.pk, status="withdrawn").exists()
     assert StudentMovement.objects.filter(pk=movement.pk, reason__gt="").exists()
     assert attendance.student.attendance_events.filter(pk=attendance.pk).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_withdrawal_revokes_credential_and_preserves_attendance_history():
+    section = SectionFactory()
+    student = StudentFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    credential = attendance_services.issue_credential(student=student)
+    attendance = AttendanceEventFactory(student=student, shift=section.shift)
+
+    withdraw_student(
+        enrolment=enrolment,
+        reason="Cambio de residencia",
+        actor=actor,
+    )
+
+    credential.refresh_from_db()
+    assert credential.status == StudentCredential.Status.REVOKED
+    assert credential.revocation_reason == "Cierre de permanencia"
+    assert credential.revoked_by == actor
+    assert AttendanceEvent.objects.filter(pk=attendance.pk).exists()
+    assert AuditEvent.objects.filter(
+        action="attendance.credential.revoked_on_permanence_close",
+        actor=actor,
+    ).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_credential_revocation_failure_rolls_back_withdrawal():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    attendance_services.issue_credential(student=student)
+
+    with pytest.raises(DomainError, match="identificar quien autorizo"):
+        withdraw_student(enrolment=enrolment, reason="Cambio de residencia", actor=None)
+
+    enrolment.refresh_from_db()
+    student.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+    assert student.status == student.StudentStatus.ACTIVE
+    assert StudentMovement.objects.count() == 0
+    assert StudentCredential.objects.filter(
+        student=student,
+        status=StudentCredential.Status.ACTIVE,
+    ).exists()
 
 
 @pytest.mark.integration

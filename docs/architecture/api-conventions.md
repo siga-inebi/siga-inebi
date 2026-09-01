@@ -299,3 +299,9 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   las listas operativas que consumen esa fuente comun.
 - La causa se conserva en el movimiento, pero no se duplica en el contexto de auditoria para
   reducir exposicion de texto potencialmente sensible.
+- El cierre emite un evento de dominio sincronico dentro de la misma transaccion. Si existe una
+  credencial estudiantil vigente, `attendance-capture` la revoca inmediatamente; si no existe,
+  el retiro continua sin crear datos artificiales. Los eventos de asistencia previos no cambian.
+- La cuenta vinculada al estudiante no se deshabilita: mientras el expediente no este `active`,
+  sus permisos dejan de ser efectivos. Un encargado conserva su cuenta y otros estudiantes
+  vigentes, pero pierde el alcance derivado sobre el estudiante retirado.
