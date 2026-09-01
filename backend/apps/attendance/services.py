@@ -222,6 +222,43 @@ def record_attendance_event(
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-005 — tipos de movimiento admitidos por punto de control
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def configure_control_point_movement_types(*, control_point, allows_entry, allows_exit, actor):
+    """
+    RF-ASI-005: configure which movement types a control point accepts.
+
+    Both flags default to allowed at creation, so this only matters once
+    someone narrows a point on purpose (a turnstile that only ever sees
+    people leaving, say) -- and that narrowing is what gets audited here,
+    not the unconfigured default.
+    """
+    if not allows_entry and not allows_exit:
+        raise DomainError(
+            f"El punto de control '{control_point}' debe admitir al menos un tipo de movimiento."
+        )
+    if actor is None:
+        raise DomainError(
+            "La configuracion del punto de control debe identificar quien la autorizo."
+        )
+
+    control_point.allows_entry = allows_entry
+    control_point.allows_exit = allows_exit
+    control_point.save(update_fields=["allows_entry", "allows_exit", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.control_point.movement_types_configured",
+        resource="ControlPoint",
+        resource_identifier=str(control_point.public_id),
+        context={"allows_entry": allows_entry, "allows_exit": allows_exit},
+    )
+    return control_point
+
+
+# --------------------------------------------------------------------------- #
 # RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
 # idempotencia
 # --------------------------------------------------------------------------- #
@@ -320,6 +357,11 @@ def record_scan_movement(
                     student=student, shift=shift, event_date=existing.event_date
                 ),
             )
+
+    if movement_type == AttendanceEvent.MovementType.ENTRY and not control_point.allows_entry:
+        raise DomainError(f"El punto de control '{control_point}' no admite ingresos.")
+    if movement_type == AttendanceEvent.MovementType.EXIT and not control_point.allows_exit:
+        raise DomainError(f"El punto de control '{control_point}' no admite egresos.")
 
     event_date = timezone.localtime(captured_at).date()
     academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)

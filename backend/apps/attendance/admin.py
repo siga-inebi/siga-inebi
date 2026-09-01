@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
@@ -18,8 +19,25 @@ class JornadaParametersAdmin(admin.ModelAdmin):
 
 @admin.register(ControlPoint)
 class ControlPointAdmin(admin.ModelAdmin):
-    list_display = ["name", "code", "campus", "is_active"]
+    """
+    RF-ASI-005: editing ``allows_entry``/``allows_exit`` on an existing point
+    goes through ``configure_control_point_movement_types`` so the change is
+    audited with the responsible user, instead of a bare model save.
+    """
+
+    list_display = ["name", "code", "campus", "allows_entry", "allows_exit", "is_active"]
     list_filter = ["campus"]
+
+    def save_model(self, request, obj, form, change):
+        if change and {"allows_entry", "allows_exit"} & set(form.changed_data):
+            services.configure_control_point_movement_types(
+                control_point=obj,
+                allows_entry=obj.allows_entry,
+                allows_exit=obj.allows_exit,
+                actor=request.user,
+            )
+            return
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(ManualRegistrationReason)

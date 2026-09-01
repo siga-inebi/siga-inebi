@@ -49,10 +49,9 @@ class JornadaParameters(TimeStampedModel):
 class ControlPoint(TimeStampedModel):
     """
     A physical checkpoint (turnstile, gate, entrance) where scans happen
-    (RF-ASI-002). Deliberately minimal: just enough for an
-    ``AttendanceEvent`` to reference where it was captured. Configuring
-    which movement types a point admits (RF-ASI-005) is a separate,
-    not-yet-built capability layered on top of this model, not part of it.
+    (RF-ASI-002). Just enough for an ``AttendanceEvent`` to reference where
+    it was captured, plus which movement types it admits (RF-ASI-005) --
+    both default to allowed so existing points keep working unconfigured.
     """
 
     campus = models.ForeignKey(
@@ -60,6 +59,8 @@ class ControlPoint(TimeStampedModel):
     )
     name = models.CharField(max_length=100)
     code = models.CharField(max_length=30)
+    allows_entry = models.BooleanField(default=True)
+    allows_exit = models.BooleanField(default=True)
 
     class Meta:
         constraints = [

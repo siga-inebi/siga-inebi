@@ -1569,6 +1569,58 @@ def test_compute_attendance_percentage_carries_the_regulatory_notice_even_when_n
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-005 — tipos de movimiento admitidos por punto de control
+# --------------------------------------------------------------------------- #
+
+
+def test_configure_control_point_movement_types_updates_and_audits():
+    """
+    Escenario 1 (RF-ASI-005): GIVEN un punto de control, WHEN un usuario
+    autorizado lo configura para admitir solo egresos, THEN el punto queda
+    con esa configuracion, AND el cambio queda auditado con el usuario
+    responsable.
+    """
+    control_point = ControlPointFactory()
+    actor = UserFactory()
+
+    updated = services.configure_control_point_movement_types(
+        control_point=control_point, allows_entry=False, allows_exit=True, actor=actor
+    )
+
+    updated.refresh_from_db()
+    assert updated.allows_entry is False
+    assert updated.allows_exit is True
+    event = AuditEvent.objects.get(
+        action="attendance.control_point.movement_types_configured",
+        resource_identifier=str(control_point.public_id),
+    )
+    assert event.actor_id == actor.id
+    assert event.context["allows_entry"] is False
+    assert event.context["allows_exit"] is True
+
+
+def test_configure_control_point_movement_types_requires_at_least_one_type_allowed():
+    control_point = ControlPointFactory()
+
+    with pytest.raises(DomainError, match="al menos un tipo"):
+        services.configure_control_point_movement_types(
+            control_point=control_point,
+            allows_entry=False,
+            allows_exit=False,
+            actor=UserFactory(),
+        )
+
+
+def test_configure_control_point_movement_types_requires_an_actor():
+    control_point = ControlPointFactory()
+
+    with pytest.raises(DomainError, match="quien la autorizo"):
+        services.configure_control_point_movement_types(
+            control_point=control_point, allows_entry=True, allows_exit=False, actor=None
+        )
+
+
+# --------------------------------------------------------------------------- #
 # RF-ASI-001/002/004/010 — captura por escaneo
 # --------------------------------------------------------------------------- #
 
@@ -1641,6 +1693,30 @@ def test_record_scan_movement_rejects_inactive_control_point():
             movement_type=AttendanceEvent.MovementType.ENTRY,
             captured_at=_at(parameters.effective_from, 7, 0),
             client_event_id="scan-inactive-cp",
+            operator=operator,
+        )
+
+
+def test_record_scan_movement_rejects_a_movement_type_the_control_point_does_not_allow():
+    """
+    Escenario 1 (RF-ASI-005): GIVEN un punto de control configurado solo
+    para egreso, WHEN un operador intenta registrar un ingreso desde ese
+    punto, THEN el sistema rechaza la operacion indicando que el punto no
+    admite ingresos.
+    """
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus, allows_entry=False)
+    operator = UserFactory()
+
+    with pytest.raises(DomainError, match="no admite ingresos"):
+        services.record_scan_movement(
+            student=student,
+            shift=parameters.shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            client_event_id="scan-unsupported-type",
             operator=operator,
         )
 
