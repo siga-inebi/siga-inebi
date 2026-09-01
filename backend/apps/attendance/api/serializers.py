@@ -201,7 +201,15 @@ class ControlPointSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ControlPoint
-        fields = ["public_id", "name", "code", "campus_id", "is_active"]
+        fields = [
+            "public_id",
+            "name",
+            "code",
+            "campus_id",
+            "allows_entry",
+            "allows_exit",
+            "is_active",
+        ]
 
 
 class ManualRegistrationReasonSerializer(serializers.ModelSerializer):

@@ -743,6 +743,31 @@ def test_scan_endpoint_creates_event_with_permission(auth_client):
     assert body[0]["event"]["control_point_id"] == str(control_point.public_id)
 
 
+def test_scan_endpoint_rejects_a_movement_type_the_control_point_does_not_allow(auth_client):
+    """
+    Escenario 1 (RF-ASI-005): GIVEN un punto de control configurado solo
+    para egreso, WHEN un operador intenta registrar un ingreso desde ese
+    punto, THEN el sistema rechaza la operacion indicando que el punto no
+    admite ingresos.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    _enrol(student, parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus, allows_entry=False)
+    item = _scan_item(student, parameters.shift, control_point, "unsupported-1", timezone.now())
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [item]}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["outcome"] == "rejected"
+    assert "no admite ingresos" in body[0]["reason"]
+
+
 def test_scan_endpoint_confirmation_shows_only_photo_name_grade_and_section(auth_client):
     """
     RF-ASI-003: la confirmacion trae exactamente foto, nombre completo, grado
