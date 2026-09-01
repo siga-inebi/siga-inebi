@@ -1195,6 +1195,71 @@ def test_revoke_credential_without_an_active_one_is_a_bad_request(auth_client):
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-005 — persistencia de los movimientos ante revocacion
+# --------------------------------------------------------------------------- #
+
+
+def test_revoking_a_credential_does_not_alter_the_students_day_status(auth_client):
+    """
+    Escenario 1 (RF-CRE-005): GIVEN un estudiante con un movimiento de
+    asistencia ya registrado, WHEN se revoca su credencial, THEN el estado
+    diario consultado por API sigue siendo exactamente el mismo.
+    """
+    parameters = JornadaParametersFactory(entry_limit_time=time(7, 30))
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+    services.issue_credential(student=student)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+    url = _day_status_url(student, parameters.shift, parameters.effective_from)
+    before = auth_client.get(url).json()
+
+    assert _revoke_credential(auth_client, student).status_code == 200
+
+    after = auth_client.get(url).json()
+    assert after == before
+# RF-CRE-004 — reposicion sin perdida de historial
+# --------------------------------------------------------------------------- #
+
+
+def test_reissuing_after_revocation_via_the_api_generates_a_new_identifier(auth_client):
+    """
+    Escenario 1 (RF-CRE-004): GIVEN un estudiante cuya credencial fue
+    revocada, WHEN un usuario autorizado emite la reposicion, THEN el
+    sistema genera un identificador opaco distinto del anterior, AND el
+    historial de credenciales del estudiante conserva la credencial
+    revocada.
+    """
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+    first = services.issue_credential(student=student)
+
+    revoke_response = _revoke_credential(auth_client, student, reason="Extravio")
+    assert revoke_response.status_code == 200
+
+    reissue_response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": str(student.public_id)},
+        content_type="application/json",
+    )
+
+    assert reissue_response.status_code == 201
+    body = reissue_response.json()
+    assert body["opaque_identifier"] != first.opaque_identifier
+    assert body["status"] == StudentCredential.Status.ACTIVE
+    assert StudentCredential.objects.filter(student=student).count() == 2
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — contrato del endpoint de resolucion de identificador
 # --------------------------------------------------------------------------- #
 
