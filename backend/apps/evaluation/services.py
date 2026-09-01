@@ -640,11 +640,19 @@ def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
     recomputed from a fresh average elsewhere, so it can't drift from what
     was shown to the user.
 
+    RF-RES-005: when a recovery grade exists for this subarea, ``condition``
+    is recomputed from it (``approved_by_recovery`` / ``failed``). ``approved``
+    and ``final_grade`` still describe the original unit-average result and are
+    left untouched -- the recovery is stored alongside, never replacing it, so
+    the original stays consultable.
+
     Returns:
         Same shape as get_current_average (``average``, ``graded_units``,
         ``pending_units``, ``total_units``), plus ``final_grade`` (rounded
-        final grade, int, or None if no unit is graded yet) and ``approved``
-        (bool, or None when ``final_grade`` is None).
+        final grade, int, or None if no unit is graded yet), ``approved``
+        (bool, or None when ``final_grade`` is None), ``recovery_grade``
+        (int recovery value, or None) and ``condition`` (``approved`` /
+        ``approved_by_recovery`` / ``failed``, or None when nothing is graded).
     """
     result = get_current_average(enrolment, subject)
     average = result["average"]
@@ -653,7 +661,31 @@ def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
     result["approved"] = (
         final_grade >= SUBJECT_APPROVAL_THRESHOLD if final_grade is not None else None
     )
+
+    recovery = (
+        RecoveryGrade.objects.filter(enrolment=enrolment, subject=subject, is_active=True)
+        .order_by("-created_at")
+        .first()
+    )
+    result["recovery_grade"] = recovery.value if recovery is not None else None
+    result["condition"] = _subject_condition(result["approved"], result["recovery_grade"])
     return result
+
+
+def _subject_condition(approved, recovery_grade):
+    """
+    A subarea's condition label (RF-RES-005).
+
+    When a recovery grade exists it decides the condition on its own
+    (``approved_by_recovery`` at or above SUBJECT_APPROVAL_THRESHOLD, otherwise
+    ``failed``). With no recovery it mirrors ``approved`` (RF-RES-003), and is
+    None while nothing has been graded.
+    """
+    if recovery_grade is not None:
+        return "approved_by_recovery" if recovery_grade >= SUBJECT_APPROVAL_THRESHOLD else "failed"
+    if approved is None:
+        return None
+    return "approved" if approved else "failed"
 
 
 # --------------------------------------------------------------------------- #
@@ -775,3 +807,111 @@ def assess_recovery_eligibility(enrolment: Enrolment) -> RecoveryEligibility:
         failed_limit=failed_limit,
         recovery_already_used=recovery_already_used,
     )
+
+
+# --------------------------------------------------------------------------- #
+# RF-RES-005 — Registro de la nota de recuperacion
+# --------------------------------------------------------------------------- #
+
+
+def validate_cycle_recovery_window_open(academic_cycle: AcademicCycle, on_date=None) -> None:
+    """
+    Validate that the cycle has at least one evaluation unit whose recovery
+    window is open on ``on_date`` (RF-EVC-003, lifted to cycle scope for
+    RF-RES-005: a subarea's recovery is an end-of-cycle event, not tied to one
+    unit, so any open recovery window in the cycle authorizes it).
+
+    Raises:
+        DomainError: when no unit of the cycle has an open recovery window.
+    """
+    on_date = on_date or timezone.localdate()
+    has_open_window = EvaluationUnit.objects.filter(
+        academic_cycle=academic_cycle,
+        is_active=True,
+        recovery_starts_on__lte=on_date,
+        recovery_ends_on__gte=on_date,
+    ).exists()
+    if not has_open_window:
+        raise DomainError(
+            "El ciclo no tiene ninguna ventana de recuperacion abierta en esta fecha."
+        )
+
+
+def register_recovery_grade(
+    enrolment: Enrolment,
+    subject: Subject,
+    value: int,
+    actor=None,
+) -> RecoveryGrade:
+    """
+    Register the recovery grade for one failed subarea (RF-RES-005).
+
+    Allowed only when the student is eligible (RF-RES-004), the subarea's
+    current condition is failed, and the cycle's recovery window is open. The
+    recovery is stored alongside the original final grade (snapshot in
+    ``original_final_grade``), never replacing it, and the subarea's condition
+    is recomputed from it by get_final_subject_grade.
+
+    A rejected attempt on a non-eligible student is audited
+    (``evaluation.recovery_grade_rejected``) before the DomainError is raised,
+    so the trail records who tried and why it was refused.
+
+    Raises:
+        DomainError: value outside 0-100; student not eligible; subarea not in
+            a failed condition; or no recovery window open in the cycle.
+    """
+    if not GRADE_MIN_VALUE <= value <= GRADE_MAX_VALUE:
+        raise DomainError(
+            f"La nota de recuperacion debe estar entre {GRADE_MIN_VALUE} y "
+            f"{GRADE_MAX_VALUE} (se recibio {value})."
+        )
+
+    eligibility = assess_recovery_eligibility(enrolment)
+    if not eligibility.eligible:
+        record_event(
+            actor=actor,
+            action="evaluation.recovery_grade_rejected",
+            resource="RecoveryGrade",
+            context={
+                "enrolment_id": str(enrolment.public_id),
+                "subject_id": str(subject.public_id),
+                "reasons": eligibility.reasons,
+            },
+        )
+        raise DomainError(
+            "El estudiante no tiene derecho a recuperacion: " + " ".join(eligibility.reasons)
+        )
+
+    final = get_final_subject_grade(enrolment, subject)
+    if final["approved"] is not False:
+        raise DomainError(
+            f"Solo se puede registrar recuperacion de una subarea reprobada; la "
+            f"subarea '{subject}' no esta reprobada."
+        )
+
+    validate_cycle_recovery_window_open(enrolment.academic_cycle)
+
+    conflicts = {
+        "unique_recovery_grade_per_enrolment_subject": (
+            f"Ya existe una nota de recuperacion para '{subject}' en esta matricula."
+        )
+    }
+    with unique_violation_as(conflicts):
+        recovery = RecoveryGrade.objects.create(
+            enrolment=enrolment,
+            subject=subject,
+            value=value,
+            original_final_grade=final["final_grade"],
+        )
+
+    _audit(
+        actor,
+        "evaluation.recovery_grade_registered",
+        recovery,
+        enrolment_id=str(enrolment.public_id),
+        subject_id=str(subject.public_id),
+        value=value,
+        original_final_grade=final["final_grade"],
+    )
+
+    return recovery

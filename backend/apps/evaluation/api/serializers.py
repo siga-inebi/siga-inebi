@@ -16,6 +16,7 @@ from apps.evaluation.models import (
     EvaluationGlobalConfig,
     EvaluationUnit,
     Grade,
+    RecoveryGrade,
 )
 from apps.people.models import Person
 
@@ -216,3 +217,42 @@ class RecoveryEligibilitySerializer(serializers.Serializer):
     total_subjects = serializers.IntegerField(read_only=True)
     failed_limit = serializers.IntegerField(read_only=True)
     recovery_already_used = serializers.BooleanField(read_only=True)
+
+
+class RecoveryGradeSerializer(serializers.ModelSerializer):
+    """Contract for registering a recovery grade (RF-RES-005)."""
+
+    public_id = serializers.UUIDField(read_only=True)
+    # Ver la nota de CaptureExceptionGrantSerializer: identificadores opacos.
+    subject = serializers.SlugRelatedField(
+        slug_field="public_id",
+        queryset=Subject.objects.all(),
+        help_text="Public ID de la subarea reprobada que se recupera.",
+    )
+    # Condicion recalculada de la subarea tras la recuperacion; la agrega la
+    # vista a partir de get_final_subject_grade, no es un campo del modelo.
+    condition = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(read_only=True)
+
+    def get_condition(self, obj):
+        return getattr(obj, "recovery_condition", None)
+
+    class Meta:
+        model = RecoveryGrade
+        fields = [
+            "public_id",
+            "subject",
+            "value",
+            "original_final_grade",
+            "condition",
+            "created_at",
+        ]
+        read_only_fields = ["public_id", "original_final_grade", "created_at"]
+
+    def validate_value(self, value):
+        """RF-CAL-002 scale, shared with unit grades: reject values outside 0-100."""
+        if value < GRADE_MIN_VALUE or value > GRADE_MAX_VALUE:
+            raise serializers.ValidationError(
+                f"La nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE}."
+            )
+        return value

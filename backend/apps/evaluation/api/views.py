@@ -31,6 +31,7 @@ from apps.evaluation.api.serializers import (
     EvaluationUnitSerializer,
     GradeSerializer,
     RecoveryEligibilitySerializer,
+    RecoveryGradeSerializer,
     RecoveryWindowSerializer,
 )
 from apps.evaluation.services import (
@@ -42,6 +43,7 @@ from apps.evaluation.services import (
     get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_recovery_grade,
     register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
@@ -623,6 +625,59 @@ class RecoveryEligibilityView(APIView):
 
         eligibility = assess_recovery_eligibility(enrolment)
         return Response(RecoveryEligibilitySerializer(eligibility).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Registrar la nota de recuperacion de una subarea",
+        description=(
+            "Solo para estudiantes declarados elegibles (RF-RES-004), sobre una "
+            "subarea en condicion reprobada y con la ventana de recuperacion del "
+            "ciclo abierta. La nota de recuperacion se conserva junto a la nota "
+            "final original sin sustituirla; la condicion de la subarea se "
+            "recalcula a partir de la recuperacion."
+        ),
+        tags=TAGS,
+        request=RecoveryGradeSerializer,
+        responses={201: RecoveryGradeSerializer},
+    ),
+)
+class RecoveryGradeCreateView(APIView):
+    """
+    Register a recovery grade for a failed subarea (RF-RES-005).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    POST {base}/enrolments/{enrolment_id}/recovery-grades/
+    """
+
+    def post(self, request, *args, **kwargs):
+        enrolment = queries.enrolment_or_none(
+            cycle_public_id=kwargs.get("cycle_public_id"),
+            enrolment_id=kwargs.get("enrolment_id"),
+        )
+        if enrolment is None:
+            raise ResourceNotFoundError("Enrolment not found.")
+
+        serializer = RecoveryGradeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        recovery = register_recovery_grade(
+            enrolment=enrolment,
+            subject=serializer.validated_data["subject"],
+            value=serializer.validated_data["value"],
+            actor=request.user,
+        )
+        # Recompute the subarea condition off the freshly stored recovery so the
+        # response carries what get_final_subject_grade now reports.
+        recovery.recovery_condition = get_final_subject_grade(
+            enrolment, serializer.validated_data["subject"]
+        )["condition"]
+
+        return Response(
+            RecoveryGradeSerializer(recovery).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 @extend_schema_view(

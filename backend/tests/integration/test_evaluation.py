@@ -19,7 +19,7 @@ from apps.academics.models import AcademicCycle, CurriculumPlan
 from apps.attendance.models import AttendanceEvent
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
-from apps.evaluation.models import EvaluationUnit, Grade
+from apps.evaluation.models import EvaluationUnit, Grade, RecoveryGrade
 from apps.evaluation.services import (
     assess_recovery_eligibility,
     close_evaluation_unit,
@@ -29,6 +29,7 @@ from apps.evaluation.services import (
     get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_recovery_grade,
     register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
@@ -1137,3 +1138,85 @@ class TestRecoveryEligibilityIntegration:
         assert result.total_subjects == 8
         assert result.failed_limit == 3
         assert result.eligible is True
+
+
+class TestRecoveryGradeIntegration:
+    """
+    RF-RES-005: registering a recovery grade end to end -- real attendance
+    feeds eligibility (RF-RES-004), the recovery window gates the write, and the
+    subarea condition is recomputed while the original final grade stays stored.
+    """
+
+    def test_recovery_grade_flow_across_domains(self):
+        start = timezone.localdate() - timedelta(days=15)
+        cycle = AcademicCycleFactory(starts_on=start, ends_on=start + timedelta(days=200))
+        section = SectionFactory(academic_cycle=cycle)
+        shift = section.offering.shift
+        student = StudentFactory()
+        enrolment = create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+            effective_on=start,
+        )
+
+        JornadaParametersFactory(
+            shift=shift,
+            academic_cycle=cycle,
+            school_days=[1, 2, 3, 4, 5, 6, 7],
+            effective_from=start,
+        )
+        day = start
+        today = timezone.localdate()
+        while day < today:
+            AttendanceEventFactory(
+                student=student,
+                shift=shift,
+                event_date=day,
+                movement_type=AttendanceEvent.MovementType.ENTRY,
+                origin=AttendanceEvent.Origin.SCAN,
+                captured_at=timezone.make_aware(datetime.combine(day, time(7, 0))),
+            )
+            day += timedelta(days=1)
+
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        set_recovery_window(unit, today - timedelta(days=1), today + timedelta(days=1))
+
+        teacher = PersonFactory()
+        subjects = []
+        for index in range(8):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=50 if index == 0 else 80,
+            )
+            subjects.append(subject)
+
+        failed_subject = subjects[0]
+        assert get_final_subject_grade(enrolment, failed_subject)["condition"] == "failed"
+
+        recovery = register_recovery_grade(enrolment, failed_subject, 72)
+
+        assert recovery.original_final_grade == 50
+        assert RecoveryGrade.objects.filter(enrolment=enrolment).count() == 1
+
+        final = get_final_subject_grade(enrolment, failed_subject)
+        assert final["condition"] == "approved_by_recovery"
+        assert final["recovery_grade"] == 72
+        assert final["final_grade"] == 50
+        assert final["approved"] is False

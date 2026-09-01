@@ -41,6 +41,7 @@ from apps.evaluation.services import (
     get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_recovery_grade,
     register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
@@ -1525,3 +1526,167 @@ class TestRecoveryEligibility:
 
         assert result.eligible is False
         assert result.attendance_percentage is None
+
+
+class TestRegisterRecoveryGrade:
+    """Tests for RF-RES-005: Registro de la nota de recuperación."""
+
+    def _cycle_with_plan(self, plan_size):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subjects = []
+        for _ in range(plan_size):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            subjects.append(subject)
+        return enrolment, unit, subjects
+
+    def _grade_plan(self, enrolment, unit, subjects, failed_count):
+        for subject in subjects[:failed_count]:
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=50,
+            )
+        for subject in subjects[failed_count:]:
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=80,
+            )
+
+    def _eligible_with_one_failed_subject(self, *, open_recovery_window=True):
+        """
+        Eligible enrolment (plan of 8, one failed subarea at 50) plus, unless
+        told otherwise, an open recovery window on its unit. Returns
+        (enrolment, first_subject).
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(8)
+        self._grade_plan(enrolment, unit, subjects, failed_count=1)
+        if open_recovery_window:
+            today = timezone.localdate()
+            set_recovery_window(unit, today - timedelta(days=1), today + timedelta(days=1))
+        return enrolment, subjects[0]
+
+    def test_recovery_approved_recomputes_condition(self):
+        """
+        Escenario 1: Recuperación aprobada
+        GIVEN un estudiante elegible con una subárea reprobada
+        WHEN se registra una nota de recuperación de al menos sesenta puntos
+        THEN la subárea pasa a condición aprobada por recuperación
+        AND la nota final original permanece consultable
+        """
+        enrolment, subject = self._eligible_with_one_failed_subject()
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=90.0)):
+            recovery = register_recovery_grade(enrolment, subject, 65)
+
+        assert recovery.value == 65
+        assert recovery.original_final_grade == 50
+
+        result = get_final_subject_grade(enrolment, subject)
+        assert result["condition"] == "approved_by_recovery"
+        assert result["recovery_grade"] == 65
+        # The original result stays consultable and unchanged.
+        assert result["final_grade"] == 50
+        assert result["approved"] is False
+
+    def test_recovery_below_threshold_stays_failed(self):
+        """A recovery grade under 60 leaves the subarea failed (still by
+        recovery, not by the original result)."""
+        enrolment, subject = self._eligible_with_one_failed_subject()
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=90.0)):
+            register_recovery_grade(enrolment, subject, 55)
+
+        result = get_final_subject_grade(enrolment, subject)
+        assert result["condition"] == "failed"
+        assert result["recovery_grade"] == 55
+        assert result["final_grade"] == 50
+
+    def test_recovery_on_non_eligible_is_rejected(self):
+        """
+        Escenario 2: Intento sobre un estudiante no elegible
+        GIVEN un estudiante sin derecho a recuperación
+        WHEN se intenta registrar una nota de recuperación
+        THEN el sistema rechaza la operación indicando la causa de la no elegibilidad
+        """
+        enrolment, subject = self._eligible_with_one_failed_subject()
+
+        with (
+            patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=70.0)),
+            pytest.raises(DomainError) as exc,
+        ):
+            register_recovery_grade(enrolment, subject, 65)
+
+        assert "asistencia" in str(exc.value).lower()
+        assert RecoveryGrade.objects.count() == 0
+
+    def test_recovery_rejected_when_subject_is_not_failed(self):
+        """A subarea that is not in a failed condition cannot be recovered."""
+        enrolment, unit, subjects = self._cycle_with_plan(8)
+        self._grade_plan(enrolment, unit, subjects, failed_count=1)
+        today = timezone.localdate()
+        set_recovery_window(unit, today - timedelta(days=1), today + timedelta(days=1))
+        passing_subject = subjects[3]  # graded 80 by _grade_plan
+
+        with (
+            patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=90.0)),
+            pytest.raises(DomainError) as exc,
+        ):
+            register_recovery_grade(enrolment, passing_subject, 65)
+
+        assert "reprobada" in str(exc.value).lower()
+        assert RecoveryGrade.objects.count() == 0
+
+    def test_recovery_rejected_when_no_window_open(self):
+        """With no recovery window open anywhere in the cycle, registration is
+        refused even for an eligible student and a failed subarea."""
+        enrolment, subject = self._eligible_with_one_failed_subject(open_recovery_window=False)
+
+        with (
+            patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=90.0)),
+            pytest.raises(DomainError) as exc,
+        ):
+            register_recovery_grade(enrolment, subject, 65)
+
+        assert "ventana de recuperacion" in str(exc.value).lower()
+        assert RecoveryGrade.objects.count() == 0
+
+    def test_second_recovery_in_cycle_is_rejected_as_opportunity_used(self):
+        """RF-RES-004 one-per-cycle: once a recovery exists, a second one (even
+        for another subarea) is refused because the opportunity is spent."""
+        enrolment, unit, subjects = self._cycle_with_plan(8)
+        self._grade_plan(enrolment, unit, subjects, failed_count=2)
+        today = timezone.localdate()
+        set_recovery_window(unit, today - timedelta(days=1), today + timedelta(days=1))
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=90.0)):
+            register_recovery_grade(enrolment, subjects[0], 65)
+            with pytest.raises(DomainError) as exc:
+                register_recovery_grade(enrolment, subjects[1], 65)
+
+        assert "oportunidad de recuperacion" in str(exc.value).lower()
+        assert RecoveryGrade.objects.count() == 1

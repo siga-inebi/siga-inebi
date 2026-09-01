@@ -27,8 +27,8 @@ from django.utils import timezone
 
 from apps.academics.models import CurriculumPlan, TeachingAssignment
 from apps.enrolments.services import create_enrolment
-from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
-from apps.evaluation.services import register_unit_grade
+from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade, RecoveryGrade
+from apps.evaluation.services import register_unit_grade, set_recovery_window
 from apps.students.services import create_student_guardian_relation
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.evaluation import EvaluationUnitFactory
@@ -2041,6 +2041,127 @@ class TestRecoveryEligibilityAPI:
                     "enrolment_id": "00000000-0000-0000-0000-000000000000",
                 },
             )
+        )
+
+        assert response.status_code == 404
+
+
+class TestRecoveryGradeAPI:
+    """Tests for RF-RES-005: Registro de la nota de recuperación (endpoint contract)."""
+
+    def _setup(self, institution, *, plan_size=8, failed_count=1, open_recovery_window=True):
+        cycle = AcademicCycleFactory(institution=institution)
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        today = timezone.localdate()
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            number=1,
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        teacher = PersonFactory()
+        subjects = []
+        for index in range(plan_size):
+            subject = SubjectFactory(institution=institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=50 if index < failed_count else 80,
+            )
+            subjects.append(subject)
+        if open_recovery_window:
+            set_recovery_window(unit, today - timedelta(days=1), today + timedelta(days=1))
+        return cycle, enrolment, subjects
+
+    def _url(self, cycle, enrolment):
+        return reverse(
+            "recovery-grade-create",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "enrolment_id": str(enrolment.public_id),
+            },
+        )
+
+    def test_register_recovery_grade_success(self, auth_client, institution):
+        """
+        Escenario 1: Recuperación aprobada
+        POST {cycle}/enrolments/{enrolment_id}/recovery-grades/
+        THEN 201, condicion aprobada por recuperacion, nota final original conservada.
+        """
+        cycle, enrolment, subjects = self._setup(institution)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=90.0)):
+            response = auth_client.post(
+                self._url(cycle, enrolment),
+                {"subject": str(subjects[0].public_id), "value": 65},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["value"] == 65
+        assert data["original_final_grade"] == 50
+        assert data["condition"] == "approved_by_recovery"
+
+        # The original final grade stays consultable on its own endpoint.
+        final = auth_client.get(
+            reverse(
+                "grade-final-subject-grade",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": str(enrolment.public_id),
+                    "subject_id": str(subjects[0].public_id),
+                },
+            )
+        ).json()
+        assert final["final_grade"] == 50
+        assert final["condition"] == "approved_by_recovery"
+
+    def test_register_recovery_grade_rejected_for_non_eligible(self, auth_client, institution):
+        """
+        Escenario 2: Intento sobre un estudiante no elegible
+        THEN 400 con la causa de la no elegibilidad y ninguna nota registrada.
+        """
+        cycle, enrolment, subjects = self._setup(institution)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=70.0)):
+            response = auth_client.post(
+                self._url(cycle, enrolment),
+                {"subject": str(subjects[0].public_id), "value": 65},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 400
+        assert "asistencia" in response.content.decode().lower()
+        assert RecoveryGrade.objects.count() == 0
+
+    def test_recovery_grade_enrolment_not_found_returns_404(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        subject = SubjectFactory(institution=institution)
+
+        response = auth_client.post(
+            reverse(
+                "recovery-grade-create",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": "00000000-0000-0000-0000-000000000000",
+                },
+            ),
+            {"subject": str(subject.public_id), "value": 65},
+            content_type="application/json",
         )
 
         assert response.status_code == 404
