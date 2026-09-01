@@ -30,9 +30,11 @@ from apps.evaluation.api.serializers import (
     EvaluationGlobalConfigSerializer,
     EvaluationUnitSerializer,
     GradeSerializer,
+    RecoveryEligibilitySerializer,
     RecoveryWindowSerializer,
 )
 from apps.evaluation.services import (
+    assess_recovery_eligibility,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -587,6 +589,40 @@ class FinalSubjectGradeView(APIView):
         )
 
         return Response(get_final_subject_grade(enrolment, subject))
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar la elegibilidad de recuperacion de un estudiante",
+        description=(
+            "Evalua en conjunto tres condiciones: asistencia del ciclo de al menos "
+            "80%, cantidad de subareas reprobadas dentro del limite del plan de "
+            "estudios (3 si el plan tiene 9 subareas o menos, 4 si tiene mas), y que "
+            "el estudiante no haya usado ya su oportunidad de recuperacion en el ciclo."
+        ),
+        tags=TAGS,
+        responses={200: RecoveryEligibilitySerializer},
+    ),
+)
+class RecoveryEligibilityView(APIView):
+    """
+    Recovery eligibility for a student's enrolment (RF-RES-004).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/recovery-eligibility/
+    """
+
+    def get(self, request, *args, **kwargs):
+        enrolment = queries.enrolment_or_none(
+            cycle_public_id=kwargs.get("cycle_public_id"),
+            enrolment_id=kwargs.get("enrolment_id"),
+        )
+        if enrolment is None:
+            raise ResourceNotFoundError("Enrolment not found.")
+
+        eligibility = assess_recovery_eligibility(enrolment)
+        return Response(RecoveryEligibilitySerializer(eligibility).data)
 
 
 @extend_schema_view(

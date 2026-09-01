@@ -203,3 +203,16 @@ class GradeSerializer(serializers.ModelSerializer):
                 f"La nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE}."
             )
         return value
+
+
+class RecoveryEligibilitySerializer(serializers.Serializer):
+    """Read-only contract for the recovery-eligibility check (RF-RES-004)."""
+
+    enrolment_id = serializers.UUIDField(read_only=True)
+    eligible = serializers.BooleanField(read_only=True)
+    reasons = serializers.ListField(child=serializers.CharField(), read_only=True)
+    attendance_percentage = serializers.FloatField(read_only=True, allow_null=True)
+    failed_subjects = serializers.IntegerField(read_only=True)
+    total_subjects = serializers.IntegerField(read_only=True)
+    failed_limit = serializers.IntegerField(read_only=True)
+    recovery_already_used = serializers.BooleanField(read_only=True)

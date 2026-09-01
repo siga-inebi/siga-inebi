@@ -10,16 +10,18 @@ RF-EVC-005: Configuracion global heredable
 Cross-domain flows: evaluation interacts with academics domain (cycles).
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle
+from apps.academics.models import AcademicCycle, CurriculumPlan
+from apps.attendance.models import AttendanceEvent
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit, Grade
 from apps.evaluation.services import (
+    assess_recovery_eligibility,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -36,6 +38,7 @@ from apps.evaluation.services import (
     validate_recovery_window_open,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
@@ -1058,3 +1061,79 @@ class TestGradeVisibilityIntegration:
         visible = list(grades_for_enrolment(enrolment))
         assert len(visible) == 1
         assert visible[0].value == 88
+
+
+class TestRecoveryEligibilityIntegration:
+    """
+    RF-RES-004: recovery eligibility crosses three domains -- attendance
+    (cycle percentage, RF-JOR-009), academics (curriculum plan, RF-EST-005) and
+    evaluation (per-subarea final grade, RF-RES-003). No mocks here: the
+    attendance percentage is derived from real events.
+    """
+
+    def test_eligible_student_across_attendance_academics_and_evaluation(self):
+        start = timezone.localdate() - timedelta(days=15)
+        cycle = AcademicCycleFactory(starts_on=start, ends_on=start + timedelta(days=200))
+        section = SectionFactory(academic_cycle=cycle)
+        shift = section.offering.shift
+        student = StudentFactory()
+        enrolment = create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+            effective_on=start,
+        )
+
+        # Attendance: every elapsed school day has an on-time entry -> ~100%.
+        JornadaParametersFactory(
+            shift=shift,
+            academic_cycle=cycle,
+            school_days=[1, 2, 3, 4, 5, 6, 7],
+            effective_from=start,
+        )
+        day = start
+        today = timezone.localdate()
+        while day < today:
+            AttendanceEventFactory(
+                student=student,
+                shift=shift,
+                event_date=day,
+                movement_type=AttendanceEvent.MovementType.ENTRY,
+                origin=AttendanceEvent.Origin.SCAN,
+                captured_at=timezone.make_aware(datetime.combine(day, time(7, 0))),
+            )
+            day += timedelta(days=1)
+
+        # Curriculum plan of 8 subareas; 2 finish below 60, 6 above.
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        teacher = PersonFactory()
+        for index in range(8):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=50 if index < 2 else 80,
+            )
+
+        result = assess_recovery_eligibility(enrolment)
+
+        assert result.attendance_percentage is not None
+        assert result.attendance_percentage >= 80
+        assert result.failed_subjects == 2
+        assert result.total_subjects == 8
+        assert result.failed_limit == 3
+        assert result.eligible is True

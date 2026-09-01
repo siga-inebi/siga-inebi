@@ -22,14 +22,18 @@ Scenario 12: Promedio de las unidades
 """
 
 from datetime import date, timedelta
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
 
+from apps.academics.models import CurriculumPlan
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
-from apps.evaluation.models import EvaluationUnit, Grade
+from apps.evaluation.models import EvaluationUnit, Grade, RecoveryGrade
 from apps.evaluation.services import (
+    assess_recovery_eligibility,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -1378,3 +1382,146 @@ class TestSubjectApproval:
 
         assert result["final_grade"] is None
         assert result["approved"] is None
+
+
+ATTENDANCE_SERVICE_PATH = "apps.attendance.services.compute_attendance_percentage"
+
+
+class TestRecoveryEligibility:
+    """Tests for RF-RES-004: Elegibilidad de recuperación."""
+
+    def _cycle_with_plan(self, plan_size):
+        """
+        An active enrolment plus a curriculum plan of ``plan_size`` subareas for
+        its grade and cycle, and one open evaluation unit to hang grades on.
+        """
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subjects = []
+        for _ in range(plan_size):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            subjects.append(subject)
+        return enrolment, unit, subjects
+
+    def _grade(self, enrolment, unit, subject, value):
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=PersonFactory(),
+            value=value,
+        )
+
+    def _grade_plan(self, enrolment, unit, subjects, failed_count):
+        """Register a failing grade for the first ``failed_count`` subareas and a
+        passing grade for the rest."""
+        for subject in subjects[:failed_count]:
+            self._grade(enrolment, unit, subject, 50)
+        for subject in subjects[failed_count:]:
+            self._grade(enrolment, unit, subject, 80)
+
+    def test_student_is_eligible(self):
+        """
+        Escenario 1: Estudiante elegible
+        GIVEN un estudiante con asistencia del 85%, dos subáreas reprobadas y un
+              plan de estudios de ocho subáreas
+        WHEN se evalúa su elegibilidad
+        THEN el sistema lo declara con derecho a recuperación
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(8)
+        self._grade_plan(enrolment, unit, subjects, failed_count=2)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=85.0)):
+            result = assess_recovery_eligibility(enrolment)
+
+        assert result.eligible is True
+        assert result.reasons == []
+        assert result.failed_subjects == 2
+        assert result.total_subjects == 8
+        assert result.failed_limit == 3
+
+    def test_insufficient_attendance(self):
+        """
+        Escenario 2: Asistencia insuficiente
+        GIVEN un estudiante con asistencia del 75% y dos subáreas reprobadas
+        WHEN se evalúa su elegibilidad
+        THEN el sistema lo declara sin derecho a recuperación e indica la
+             asistencia como causa
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(8)
+        self._grade_plan(enrolment, unit, subjects, failed_count=2)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=75.0)):
+            result = assess_recovery_eligibility(enrolment)
+
+        assert result.eligible is False
+        assert any("asistencia" in reason.lower() for reason in result.reasons)
+
+    def test_too_many_failed_subjects(self):
+        """
+        Escenario 3: Exceso de subáreas reprobadas
+        GIVEN un estudiante con cinco subáreas reprobadas en un plan de doce
+              subáreas
+        WHEN se evalúa su elegibilidad
+        THEN el sistema lo declara sin derecho a recuperación e indica la
+             cantidad como causa
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(12)
+        self._grade_plan(enrolment, unit, subjects, failed_count=5)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=85.0)):
+            result = assess_recovery_eligibility(enrolment)
+
+        assert result.eligible is False
+        assert result.failed_subjects == 5
+        assert result.failed_limit == 4
+        assert any("subareas" in reason.lower() for reason in result.reasons)
+
+    def test_recovery_opportunity_already_used_this_cycle(self):
+        """
+        RF-RES-004: the opportunity is one per cycle. An existing RecoveryGrade
+        for the enrolment (any subarea) blocks eligibility even when attendance
+        and the failed-subarea count are within bounds.
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(8)
+        self._grade_plan(enrolment, unit, subjects, failed_count=1)
+        RecoveryGrade.objects.create(
+            enrolment=enrolment, subject=subjects[0], value=65, original_final_grade=50
+        )
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=90.0)):
+            result = assess_recovery_eligibility(enrolment)
+
+        assert result.eligible is False
+        assert result.recovery_already_used is True
+
+    def test_missing_attendance_data_is_not_eligible(self):
+        """A None percentage (no attendance data yet) counts as not meeting the
+        minimum rather than passing the check silently."""
+        enrolment, unit, subjects = self._cycle_with_plan(8)
+        self._grade_plan(enrolment, unit, subjects, failed_count=1)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=None)):
+            result = assess_recovery_eligibility(enrolment)
+
+        assert result.eligible is False
+        assert result.attendance_percentage is None

@@ -18,14 +18,17 @@ Scenario 8: Ciclo que se aparta del valor global
 """
 
 from datetime import date, timedelta
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.academics.models import TeachingAssignment
+from apps.academics.models import CurriculumPlan, TeachingAssignment
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
+from apps.evaluation.services import register_unit_grade
 from apps.students.services import create_student_guardian_relation
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.evaluation import EvaluationUnitFactory
@@ -1919,6 +1922,120 @@ class TestEnrolmentGradesAPI:
         response = auth_client.get(
             reverse(
                 "enrolment-grades",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "enrolment_id": "00000000-0000-0000-0000-000000000000",
+                },
+            )
+        )
+
+        assert response.status_code == 404
+
+
+ATTENDANCE_SERVICE_PATH = "apps.attendance.services.compute_attendance_percentage"
+
+
+class TestRecoveryEligibilityAPI:
+    """Tests for RF-RES-004: Elegibilidad de recuperación (endpoint contract)."""
+
+    def _setup(self, institution, *, plan_size, failed_count):
+        cycle = AcademicCycleFactory(institution=institution)
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        today = timezone.localdate()
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            number=1,
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        teacher = PersonFactory()
+        for index in range(plan_size):
+            subject = SubjectFactory(institution=institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=50 if index < failed_count else 80,
+            )
+        return cycle, enrolment
+
+    def _url(self, cycle, enrolment):
+        return reverse(
+            "recovery-eligibility",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "enrolment_id": str(enrolment.public_id),
+            },
+        )
+
+    def test_eligible_student_contract(self, auth_client, institution):
+        """
+        Escenario 1: Estudiante elegible
+        GET {cycle}/enrolments/{enrolment_id}/recovery-eligibility/
+        """
+        cycle, enrolment = self._setup(institution, plan_size=8, failed_count=2)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=85.0)):
+            response = auth_client.get(self._url(cycle, enrolment))
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["eligible"] is True
+        assert data["reasons"] == []
+        assert data["failed_subjects"] == 2
+        assert data["total_subjects"] == 8
+        assert data["failed_limit"] == 3
+
+    def test_not_eligible_by_attendance_contract(self, auth_client, institution):
+        """
+        Escenario 2: Asistencia insuficiente
+        THEN el endpoint responde eligible=false e indica la asistencia como causa.
+        """
+        cycle, enrolment = self._setup(institution, plan_size=8, failed_count=2)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=75.0)):
+            response = auth_client.get(self._url(cycle, enrolment))
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["eligible"] is False
+        assert any("asistencia" in reason.lower() for reason in data["reasons"])
+
+    def test_not_eligible_by_failed_count_contract(self, auth_client, institution):
+        """
+        Escenario 3: Exceso de subáreas reprobadas
+        THEN el endpoint responde eligible=false e indica la cantidad como causa.
+        """
+        cycle, enrolment = self._setup(institution, plan_size=12, failed_count=5)
+
+        with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=85.0)):
+            response = auth_client.get(self._url(cycle, enrolment))
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["eligible"] is False
+        assert data["failed_subjects"] == 5
+        assert data["failed_limit"] == 4
+        assert any("subareas" in reason.lower() for reason in data["reasons"])
+
+    def test_enrolment_not_found_returns_404(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "recovery-eligibility",
                 kwargs={
                     "cycle_public_id": str(cycle.public_id),
                     "enrolment_id": "00000000-0000-0000-0000-000000000000",

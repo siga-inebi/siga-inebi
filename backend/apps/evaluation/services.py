@@ -22,6 +22,7 @@ DomainError by unique_violation_as. Reading first and writing afterwards
 would leave a window for two concurrent requests to both pass the check.
 """
 
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -33,6 +34,7 @@ from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
 from apps.enrolments.models import Enrolment
+from apps.evaluation import queries
 from apps.evaluation.models import (
     GRADE_MAX_VALUE,
     GRADE_MIN_VALUE,
@@ -41,6 +43,7 @@ from apps.evaluation.models import (
     EvaluationGlobalConfig,
     EvaluationUnit,
     Grade,
+    RecoveryGrade,
 )
 from apps.people.models import Person
 
@@ -49,6 +52,16 @@ from apps.people.models import Person
 # constant, not a field on EvaluationGlobalConfig/CycleEvaluationConfig: the
 # requirement is explicit that no institution may configure it away.
 SUBJECT_APPROVAL_THRESHOLD = 60
+
+# RF-RES-004: recovery eligibility thresholds, per the Reglamento de Evaluacion
+# de los Aprendizajes. Python constants for the same reason as
+# SUBJECT_APPROVAL_THRESHOLD: the requirement fixes them and no institution may
+# configure them away. The failed-subarea limit is NOT a constant: it is derived
+# per grade and cycle from the curriculum plan (see _failed_subject_limit).
+RECOVERY_MIN_ATTENDANCE_PERCENTAGE = 80
+RECOVERY_LARGE_PLAN_SUBJECT_COUNT = 9
+RECOVERY_MAX_FAILED_SMALL_PLAN = 3
+RECOVERY_MAX_FAILED_LARGE_PLAN = 4
 
 
 def _unit_conflicts(*, number: int) -> dict:
@@ -641,3 +654,124 @@ def get_final_subject_grade(enrolment: Enrolment, subject: Subject) -> dict:
         final_grade >= SUBJECT_APPROVAL_THRESHOLD if final_grade is not None else None
     )
     return result
+
+
+# --------------------------------------------------------------------------- #
+# RF-RES-004 — Elegibilidad de recuperacion
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class RecoveryEligibility:
+    """
+    Outcome of the recovery-eligibility check for one enrolment (RF-RES-004).
+
+    ``eligible`` is true only when ``reasons`` is empty. The raw numbers behind
+    the decision travel alongside so a consumer can explain it without redoing
+    the work.
+    """
+
+    enrolment_id: str
+    eligible: bool
+    reasons: list[str] = field(default_factory=list)
+    attendance_percentage: float | None = None
+    failed_subjects: int = 0
+    total_subjects: int = 0
+    failed_limit: int = 0
+    recovery_already_used: bool = False
+
+
+def _failed_subject_limit(total_subjects: int) -> int:
+    """
+    RF-RES-004: at most 3 failed subareas when the grade's plan has 9 or fewer,
+    at most 4 when it has more than 9. Derived from the plan, never fixed.
+    """
+    if total_subjects <= RECOVERY_LARGE_PLAN_SUBJECT_COUNT:
+        return RECOVERY_MAX_FAILED_SMALL_PLAN
+    return RECOVERY_MAX_FAILED_LARGE_PLAN
+
+
+def _cycle_attendance_percentage(enrolment: Enrolment) -> float | None:
+    """
+    Cycle attendance percentage for the enrolment's student (RF-JOR-009),
+    resolved through ``attendance`` as a domain service -- the shift comes from
+    the enrolment's section. Returns None when there is no attendance data yet
+    or no active enrolment in that cycle and shift, which the caller treats as
+    "does not meet the minimum".
+
+    Imported inside the function on purpose: ``attendance`` is not a declared
+    dependency of ``academic-evaluation`` in the domain map; this keeps the one
+    cross-domain call explicit and out of module import time.
+    """
+    from apps.attendance.services import compute_attendance_percentage
+
+    try:
+        result = compute_attendance_percentage(
+            student=enrolment.student, shift=enrolment.section.shift
+        )
+    except DomainError:
+        return None
+    return result.percentage
+
+
+def assess_recovery_eligibility(enrolment: Enrolment) -> RecoveryEligibility:
+    """
+    Decide whether a student has the right to recovery evaluations (RF-RES-004).
+
+    Three conditions, all evaluated together and none short-circuited, so every
+    failing condition is reported:
+
+    1. Cycle attendance is at least RECOVERY_MIN_ATTENDANCE_PERCENTAGE. A
+       missing percentage counts as not meeting it.
+    2. The number of failed subareas does not exceed the limit derived from the
+       grade's curriculum plan for the cycle (_failed_subject_limit): 3 for a
+       plan of 9 subareas or fewer, 4 for a larger one.
+    3. The student has not already used their recovery opportunity this cycle
+       (one per cycle): no RecoveryGrade row exists for the enrolment.
+
+    Read-only: nothing is persisted or audited here.
+    """
+    reasons: list[str] = []
+
+    percentage = _cycle_attendance_percentage(enrolment)
+    if percentage is None:
+        reasons.append(
+            "No hay datos de asistencia del ciclo para verificar el minimo de "
+            f"{RECOVERY_MIN_ATTENDANCE_PERCENTAGE}%."
+        )
+    elif percentage < RECOVERY_MIN_ATTENDANCE_PERCENTAGE:
+        reasons.append(
+            f"La asistencia del ciclo ({percentage}%) es menor al minimo de "
+            f"{RECOVERY_MIN_ATTENDANCE_PERCENTAGE}%."
+        )
+
+    subjects = list(queries.curriculum_subjects(enrolment.academic_cycle, enrolment.grade))
+    total_subjects = len(subjects)
+    failed_subjects = sum(
+        1
+        for subject in subjects
+        if get_final_subject_grade(enrolment, subject)["approved"] is False
+    )
+    failed_limit = _failed_subject_limit(total_subjects)
+    if failed_subjects > failed_limit:
+        reasons.append(
+            f"Reprobo {failed_subjects} subareas y el maximo para recuperacion es "
+            f"{failed_limit} (plan de estudios de {total_subjects} subareas)."
+        )
+
+    recovery_already_used = RecoveryGrade.objects.filter(
+        enrolment=enrolment, is_active=True
+    ).exists()
+    if recovery_already_used:
+        reasons.append("El estudiante ya utilizo su oportunidad de recuperacion en este ciclo.")
+
+    return RecoveryEligibility(
+        enrolment_id=str(enrolment.public_id),
+        eligible=not reasons,
+        reasons=reasons,
+        attendance_percentage=percentage,
+        failed_subjects=failed_subjects,
+        total_subjects=total_subjects,
+        failed_limit=failed_limit,
+        recovery_already_used=recovery_already_used,
+    )

@@ -64,6 +64,25 @@ def subject_or_none(public_id):
     return Subject.objects.filter(public_id=public_id, is_active=True).first()
 
 
+def curriculum_subjects(academic_cycle, grade):
+    """
+    Subareas in the grade's curriculum plan for the cycle (RF-EST-005).
+
+    Backs the recovery-eligibility check (RF-RES-004): both the total count and
+    the set of subareas whose final grade must be inspected come from here, so
+    the failed-subarea limit is derived from the plan and never a fixed number.
+    """
+    return (
+        Subject.objects.filter(
+            curriculum_plans__academic_cycle=academic_cycle,
+            curriculum_plans__grade=grade,
+            curriculum_plans__is_active=True,
+        )
+        .distinct()
+        .order_by("name")
+    )
+
+
 def grades_for_enrolment(enrolment):
     """
     All registered grades for one enrolment, across subjects and units

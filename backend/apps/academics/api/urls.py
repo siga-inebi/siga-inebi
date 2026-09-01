@@ -6,6 +6,7 @@ from apps.evaluation.api.views import (
     EnrolmentGradesView,
     EvaluationGlobalConfigView,
     FinalSubjectGradeView,
+    RecoveryEligibilityView,
 )
 
 from .views import (
@@ -101,6 +102,11 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/final-grade/",
         FinalSubjectGradeView.as_view(),
         name="grade-final-subject-grade",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/recovery-eligibility/",
+        RecoveryEligibilityView.as_view(),
+        name="recovery-eligibility",
     ),
     path(
         "cycles/<uuid:public_id>/clone/",
