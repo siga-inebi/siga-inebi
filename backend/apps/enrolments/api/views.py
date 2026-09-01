@@ -18,6 +18,8 @@ from apps.enrolments.api.serializers import (
     SectionChangeCreateSerializer,
     SectionOccupancyQuerySerializer,
     SectionOccupancySerializer,
+    StudentMovementAnnulmentCreateSerializer,
+    StudentMovementAnnulmentSerializer,
     StudentMovementQuerySerializer,
     StudentMovementSerializer,
     StudentWithdrawalCreateSerializer,
@@ -167,6 +169,37 @@ class StudentMovementListView(GenericAPIView):
         student = queries.student_or_404(query.validated_data["student_id"])
         page = self.paginate_queryset(queries.student_movements(student=student))
         return self.get_paginated_response(StudentMovementSerializer(page, many=True).data)
+
+
+class StudentMovementAnnulmentCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentMovementAnnulmentCreateSerializer
+
+    @extend_schema(
+        summary="Anular movimiento estudiantil",
+        description=(
+            "Anula un retiro o cambio de seccion, revierte sus efectos operativos y "
+            "conserva el movimiento original junto con la evidencia auditable."
+        ),
+        request=StudentMovementAnnulmentCreateSerializer,
+        responses={201: StudentMovementAnnulmentSerializer},
+        tags=["enrolments"],
+    )
+    def post(self, request, movement_id):
+        if not request.user.has_atomic_permission("enrollment_update"):
+            raise AuthorizationError("Actor lacks the required permission.")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        annulment = services.annul_student_movement(
+            movement=queries.student_movement_or_404(movement_id),
+            actor=request.user,
+            **serializer.validated_data,
+        )
+        return Response(
+            StudentMovementAnnulmentSerializer(annulment).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class MatriculationCreateView(GenericAPIView):

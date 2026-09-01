@@ -9,6 +9,7 @@ from apps.enrolments.api.views import (
     ReenrolmentCreateView,
     SectionChangeCreateView,
     SectionOccupancyListView,
+    StudentMovementAnnulmentCreateView,
     StudentMovementListView,
     StudentWithdrawalCreateView,
 )
@@ -17,6 +18,11 @@ urlpatterns = [
     path("active/", ActiveEnrolmentListView.as_view(), name="active-enrolment-list"),
     path("history/", EnrolmentHistoryListView.as_view(), name="enrolment-history-list"),
     path("movements/", StudentMovementListView.as_view(), name="student-movement-list"),
+    path(
+        "movements/<uuid:movement_id>/annulment/",
+        StudentMovementAnnulmentCreateView.as_view(),
+        name="student-movement-annulment",
+    ),
     path(
         "sections/occupancy/",
         SectionOccupancyListView.as_view(),

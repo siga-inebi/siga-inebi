@@ -4,9 +4,15 @@ import pytest
 
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
+from apps.enrolments.models import (
+    Enrolment,
+    EnrolmentDocumentRequirement,
+    StudentMovement,
+    StudentMovementAnnulment,
+)
 from apps.enrolments.services import (
     active_enrolments,
+    annul_student_movement,
     change_section,
     create_enrolment,
     enrolment_history,
@@ -840,3 +846,126 @@ def test_section_occupancy_excludes_inactive_sections_unless_requested():
 
     with_inactive = list(section_occupancy(include_inactive=True))
     assert inactive_section in with_inactive
+
+
+def test_annul_withdrawal_restores_operational_state_and_preserves_history():
+    section = SectionFactory()
+    student = StudentFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="Registro equivocado",
+        actor=actor,
+    )
+
+    annulment = annul_student_movement(
+        movement=movement,
+        reason="Se selecciono al estudiante incorrecto",
+        actor=actor,
+    )
+
+    enrolment.refresh_from_db()
+    student.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+    assert enrolment.ends_on is None
+    assert student.status == student.StudentStatus.ACTIVE
+    assert StudentMovement.objects.filter(pk=movement.pk).exists()
+    assert annulment.movement == movement
+    assert AuditEvent.objects.filter(
+        action="enrolments.student_movement.annulled",
+        actor=actor,
+    ).exists()
+
+
+def test_annul_section_change_restores_source_and_cancels_target():
+    source_section = SectionFactory(name="A")
+    target_section = SectionFactory(
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        shift=source_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    actor = UserFactory()
+    source = create_enrolment(
+        student=student,
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+    )
+    target = change_section(enrolment=source, new_section=target_section, actor=actor)
+    movement = StudentMovement.objects.get(target_enrolment=target)
+
+    annul_student_movement(movement=movement, reason="Seccion incorrecta", actor=actor)
+
+    source.refresh_from_db()
+    target.refresh_from_db()
+    assert source.status == Enrolment.EnrolmentStatus.ACTIVE
+    assert source.ends_on is None
+    assert target.status == Enrolment.EnrolmentStatus.CANCELLED
+    assert target.ends_on == movement.effective_on
+
+
+def test_annul_movement_requires_reason_and_rejects_second_attempt():
+    section = SectionFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(enrolment=enrolment, reason="Error", actor=actor)
+
+    with pytest.raises(DomainError, match="motivo de la anulacion"):
+        annul_student_movement(movement=movement, reason="  ", actor=actor)
+
+    annul_student_movement(movement=movement, reason="Confirmado como error", actor=actor)
+    with pytest.raises(DomainError, match="ya fue anulado"):
+        annul_student_movement(movement=movement, reason="Segundo intento", actor=actor)
+    assert StudentMovementAnnulment.objects.filter(movement=movement).count() == 1
+
+
+def test_annul_transfer_without_reversible_workflow_is_rejected():
+    student, source, _ = _movement_enrolments()
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.TRANSFER_OUT,
+        source_enrolment=source,
+    )
+
+    with pytest.raises(DomainError, match="no admite anulacion segura"):
+        annul_student_movement(movement=movement, reason="Error", actor=UserFactory())
+
+
+def test_student_movement_annulment_is_immutable_by_instance_and_queryset():
+    section = SectionFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(enrolment=enrolment, reason="Error", actor=actor)
+    annulment = annul_student_movement(
+        movement=movement,
+        reason="Registro incorrecto",
+        actor=actor,
+    )
+
+    annulment.reason = "Intento de cambio"
+    with pytest.raises(RuntimeError, match="no pueden modificarse"):
+        annulment.save()
+    with pytest.raises(RuntimeError, match="no pueden modificarse"):
+        StudentMovementAnnulment.objects.filter(pk=annulment.pk).update(reason="Cambio")
+    with pytest.raises(RuntimeError, match="no pueden eliminarse"):
+        StudentMovementAnnulment.objects.filter(pk=annulment.pk).delete()
+    with pytest.raises(RuntimeError, match="no pueden eliminarse"):
+        annulment.delete()

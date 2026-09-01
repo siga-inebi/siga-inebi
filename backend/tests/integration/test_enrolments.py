@@ -11,6 +11,7 @@ from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 from apps.enrolments.services import (
     active_enrolments,
+    annul_student_movement,
     change_section,
     create_enrolment,
     enrolment_history,
@@ -235,7 +236,7 @@ def test_withdrawal_revokes_credential_and_preserves_attendance_history():
     credential = attendance_services.issue_credential(student=student)
     attendance = AttendanceEventFactory(student=student, shift=section.shift)
 
-    withdraw_student(
+    movement = withdraw_student(
         enrolment=enrolment,
         reason="Cambio de residencia",
         actor=actor,
@@ -245,6 +246,7 @@ def test_withdrawal_revokes_credential_and_preserves_attendance_history():
     assert credential.status == StudentCredential.Status.REVOKED
     assert credential.revocation_reason == "Cierre de permanencia"
     assert credential.revoked_by == actor
+    assert credential.revoked_on_movement == movement
     assert AttendanceEvent.objects.filter(pk=attendance.pk).exists()
     assert AuditEvent.objects.filter(
         action="attendance.credential.revoked_on_permanence_close",
@@ -512,3 +514,43 @@ def test_document_requirements_cross_enrolment_and_keep_delivery_state():
     assert requirement.enrolment.student_id == enrolment.student_id
     assert requirement.is_required is True
     assert requirement.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_annul_withdrawal_restores_credential_access_and_preserves_audit():
+    section = SectionFactory()
+    student = StudentFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    credential = attendance_services.issue_credential(student=student)
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="Registro equivocado",
+        actor=actor,
+    )
+
+    annul_student_movement(
+        movement=movement,
+        reason="Se retiro al estudiante incorrecto",
+        actor=actor,
+    )
+
+    credential.refresh_from_db()
+    assert credential.status == StudentCredential.Status.ACTIVE
+    assert credential.revocation_reason == ""
+    assert credential.revoked_by is None
+    assert AuditEvent.objects.filter(
+        action="attendance.credential.revoked_on_permanence_close",
+        actor=actor,
+    ).exists()
+    assert AuditEvent.objects.filter(
+        action="attendance.credential.restored_on_permanence_reopen",
+        actor=actor,
+    ).exists()

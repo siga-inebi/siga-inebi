@@ -10,6 +10,7 @@ from apps.enrolments.services import (
     create_enrolment,
     enrolment_history,
     record_student_movement,
+    withdraw_student,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
@@ -627,3 +628,65 @@ def test_document_requirement_accepts_enrolment_update_permission(auth_client):
 
     assert response.status_code == 200
     assert auth_client.get(url).json()["count"] == 1
+
+
+def test_movement_annulment_endpoint_requires_permission_reason_and_returns_evidence(auth_client):
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="Registro equivocado",
+        actor=auth_client.user,
+    )
+    url = reverse("student-movement-annulment", args=[movement.public_id])
+
+    assert auth_client.post(url, {"reason": "Correccion"}).status_code == 403
+    _grant_enrolment_update(auth_client.user)
+    assert auth_client.post(url, {"reason": "   "}).status_code == 400
+
+    response = auth_client.post(
+        url,
+        {"reason": "Se selecciono al estudiante incorrecto"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["reason"] == "Se selecciono al estudiante incorrecto"
+    assert AuditEvent.objects.filter(
+        action="enrolments.student_movement.annulled", actor=auth_client.user
+    ).exists()
+    enrolment.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_movement_history_exposes_annulment_without_removing_original(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(enrolment=enrolment, reason="Error", actor=auth_client.user)
+    _grant_enrolment_update(auth_client.user)
+    auth_client.post(
+        reverse("student-movement-annulment", args=[movement.public_id]),
+        {"reason": "Anulacion confirmada"},
+        content_type="application/json",
+    )
+
+    response = auth_client.get(
+        reverse("student-movement-list"),
+        {"student_id": str(student.public_id)},
+    )
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["public_id"] == str(movement.public_id)
+    assert result["annulment"]["reason"] == "Anulacion confirmada"

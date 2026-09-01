@@ -1,10 +1,30 @@
 from rest_framework import serializers
 
 from apps.academics.models import Section
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
+from apps.enrolments.models import (
+    Enrolment,
+    EnrolmentDocumentRequirement,
+    StudentMovement,
+    StudentMovementAnnulment,
+)
+
+
+class StudentMovementAnnulmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentMovementAnnulment
+        fields = ["public_id", "reason", "created_at"]
+
+
+class StudentMovementAnnulmentCreateSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Motivo obligatorio de la anulacion.",
+    )
 
 
 class StudentMovementSerializer(serializers.ModelSerializer):
+    annulment = StudentMovementAnnulmentSerializer(read_only=True, allow_null=True)
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     source_enrolment_id = serializers.UUIDField(
         source="source_enrolment.public_id", read_only=True, allow_null=True
@@ -23,6 +43,7 @@ class StudentMovementSerializer(serializers.ModelSerializer):
             "reason",
             "source_enrolment_id",
             "target_enrolment_id",
+            "annulment",
             "created_at",
         ]
 

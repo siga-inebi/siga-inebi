@@ -7,8 +7,13 @@ from apps.academics.models import Section
 from apps.audit.services import record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
-from apps.enrolments.events import student_permanence_closed
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
+from apps.enrolments.events import student_permanence_closed, student_permanence_reopened
+from apps.enrolments.models import (
+    Enrolment,
+    EnrolmentDocumentRequirement,
+    StudentMovement,
+    StudentMovementAnnulment,
+)
 
 # Las dos unicas formas en que una matricula es un duplicado (ver los
 # constraints del modelo). El mensaje se lee en la pantalla de matricula, asi que
@@ -128,6 +133,7 @@ def withdraw_student(*, enrolment, reason, actor=None, effective_on=None):
         student=student,
         reason=movement.reason,
         effective_on=effective_on,
+        movement=movement,
         actor=actor,
     )
     record_event(
@@ -142,6 +148,98 @@ def withdraw_student(*, enrolment, reason, actor=None, effective_on=None):
         },
     )
     return movement
+
+
+@transaction.atomic
+def annul_student_movement(*, movement, reason, actor):
+    reason = reason.strip()
+    if not reason:
+        raise DomainError("El motivo de la anulacion es obligatorio.")
+    if actor is None:
+        raise DomainError("La anulacion debe identificar quien la autorizo.")
+
+    movement = StudentMovement.objects.select_for_update().get(pk=movement.pk)
+    if StudentMovementAnnulment.objects.filter(movement=movement).exists():
+        raise DomainError("El movimiento ya fue anulado.")
+    if movement.movement_type not in {
+        StudentMovement.MovementType.WITHDRAWAL,
+        StudentMovement.MovementType.SECTION_CHANGE,
+    }:
+        raise DomainError("Este tipo de movimiento todavia no admite anulacion segura.")
+
+    source = movement.source_enrolment
+    require_cycle_academic_writes(
+        cycle=source.academic_cycle,
+        operation="enrolment.annul_student_movement",
+    )
+
+    if movement.movement_type == StudentMovement.MovementType.WITHDRAWAL:
+        student = movement.student
+        if source.status != Enrolment.EnrolmentStatus.WITHDRAWN:
+            raise DomainError("El retiro ya no coincide con el estado actual de la matricula.")
+        if (
+            Enrolment.objects.filter(
+                student=student,
+                status=Enrolment.EnrolmentStatus.ACTIVE,
+            )
+            .exclude(pk=source.pk)
+            .exists()
+        ):
+            raise DomainError("El estudiante ya tiene otra matricula activa.")
+
+        source.status = Enrolment.EnrolmentStatus.ACTIVE
+        source.ends_on = None
+        source.save(update_fields=["status", "ends_on", "updated_at"])
+        student.status = student.StudentStatus.ACTIVE
+        student.save(update_fields=["status", "updated_at"])
+        student_permanence_reopened.send(
+            sender=annul_student_movement,
+            student=student,
+            movement=movement,
+            actor=actor,
+        )
+    else:
+        target = Enrolment.objects.select_for_update().get(pk=movement.target_enrolment_id)
+        if (
+            source.status != Enrolment.EnrolmentStatus.COMPLETED
+            or target.status != Enrolment.EnrolmentStatus.ACTIVE
+        ):
+            raise DomainError("El cambio de seccion ya no coincide con el estado actual.")
+        if (
+            Enrolment.objects.filter(
+                student=movement.student,
+                status=Enrolment.EnrolmentStatus.ACTIVE,
+            )
+            .exclude(pk=target.pk)
+            .exists()
+        ):
+            raise DomainError("El estudiante ya tiene otra matricula activa.")
+        _ensure_section_has_capacity(source.section)
+
+        target.status = Enrolment.EnrolmentStatus.CANCELLED
+        target.ends_on = max(movement.effective_on, target.effective_on)
+        target.save(update_fields=["status", "ends_on", "updated_at"])
+        source.status = Enrolment.EnrolmentStatus.ACTIVE
+        source.ends_on = None
+        source.save(update_fields=["status", "ends_on", "updated_at"])
+
+    annulment = StudentMovementAnnulment.objects.create(
+        movement=movement,
+        reason=reason,
+        annulled_by=actor,
+    )
+    record_event(
+        actor=actor,
+        action="enrolments.student_movement.annulled",
+        resource="StudentMovement",
+        resource_identifier=str(movement.public_id),
+        context={
+            "annulment_id": str(annulment.public_id),
+            "movement_type": movement.movement_type,
+            "student_id": str(movement.student.public_id),
+        },
+    )
+    return annulment
 
 
 def section_occupancy(*, academic_cycle=None, grade=None, section=None, include_inactive=False):

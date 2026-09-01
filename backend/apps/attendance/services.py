@@ -1451,7 +1451,9 @@ def revoke_credential(*, student, reason, actor):
     return credential
 
 
-def revoke_credential_for_closed_permanence(*, student, withdrawal_reason, effective_on, actor):
+def revoke_credential_for_closed_permanence(
+    *, student, withdrawal_reason, effective_on, movement, actor
+):
     credential = StudentCredential.objects.filter(
         student=student,
         status=StudentCredential.Status.ACTIVE,
@@ -1465,7 +1467,16 @@ def revoke_credential_for_closed_permanence(*, student, withdrawal_reason, effec
     credential.status = StudentCredential.Status.REVOKED
     credential.revocation_reason = "Cierre de permanencia"
     credential.revoked_by = actor
-    credential.save(update_fields=["status", "revocation_reason", "revoked_by", "updated_at"])
+    credential.revoked_on_movement = movement
+    credential.save(
+        update_fields=[
+            "status",
+            "revocation_reason",
+            "revoked_by",
+            "revoked_on_movement",
+            "updated_at",
+        ]
+    )
     record_event(
         actor=actor,
         action="attendance.credential.revoked_on_permanence_close",
@@ -1475,6 +1486,56 @@ def revoke_credential_for_closed_permanence(*, student, withdrawal_reason, effec
             "student_id": str(student.public_id),
             "effective_on": effective_on.isoformat(),
             "withdrawal_reason_recorded": bool(withdrawal_reason),
+        },
+    )
+    return credential
+
+
+def restore_credential_for_reopened_permanence(*, student, movement, actor):
+    if actor is None:
+        raise DomainError("La anulacion debe identificar quien autorizo la reapertura de acceso.")
+    if StudentCredential.objects.filter(
+        student=student,
+        status=StudentCredential.Status.ACTIVE,
+        is_active=True,
+    ).exists():
+        return None
+
+    credential = (
+        StudentCredential.objects.filter(
+            student=student,
+            status=StudentCredential.Status.REVOKED,
+            is_active=True,
+            revocation_reason="Cierre de permanencia",
+            revoked_on_movement=movement,
+        )
+        .order_by("-updated_at", "-pk")
+        .first()
+    )
+    if credential is None:
+        return None
+
+    credential.status = StudentCredential.Status.ACTIVE
+    credential.revocation_reason = ""
+    credential.revoked_by = None
+    credential.revoked_on_movement = None
+    credential.save(
+        update_fields=[
+            "status",
+            "revocation_reason",
+            "revoked_by",
+            "revoked_on_movement",
+            "updated_at",
+        ]
+    )
+    record_event(
+        actor=actor,
+        action="attendance.credential.restored_on_permanence_reopen",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "movement_id": str(movement.public_id),
         },
     )
     return credential

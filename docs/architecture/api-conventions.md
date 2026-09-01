@@ -160,13 +160,23 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   representa el momento real de registro en el sistema.
 - Las matrículas de origen y destino son referencias históricas: cambio de sección exige ambas,
   traslado de ingreso solo destino y traslado de egreso solo origen.
-- Los movimientos son inmutables y no admiten borrado físico. Una corrección futura debe agregar
-  evidencia conforme a RF-MOV-008, no reescribir el asiento existente.
+- Los movimientos son inmutables y no admiten borrado físico. RF-MOV-008 agrega una anulación
+  separada y no reescribe el asiento existente.
 - La consulta requiere sesión autenticada. Este contrato es de solo lectura; cada operación
   académica concreta registra su movimiento desde el servicio de dominio correspondiente.
 - La ejecución anticipada de movimientos con fecha futura permanece como decisión pendiente: el
   modelo puede representar la fecha, pero ningún endpoint aplica por adelantado sus efectos.
 
+### Anulacion de movimientos
+
+- `POST /api/v1/enrolments/movements/{movement_id}/annulment/` exige `enrollment_update` y un
+  `reason` no vacio. La anulacion es un registro separado y nunca reescribe el movimiento original.
+- Retiro restaura matricula, estudiante y la credencial revocada por cierre de permanencia; cambio
+  de seccion cancela la matricula destino y reactiva la de origen.
+- Solo retiro y cambio de seccion admiten anulacion mientras coincidan con su estado resultante y
+  el ciclo permita escrituras. Traslados se rechazan hasta que sus casos de uso conserven estado
+  reversible. La doble anulacion tambien se rechaza.
+- El historial incluye `annulment` como campo aditivo, nulo para movimientos vigentes.
 ## Requisitos documentales de matrícula
 
 - `GET /api/v1/enrolments/{enrolment_id}/documents/` lista los requisitos documentales activos
