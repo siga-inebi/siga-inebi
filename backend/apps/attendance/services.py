@@ -852,6 +852,130 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-011 — cierre declarado por seccion
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class SectionClosureOmission:
+    student: object
+    reason: str
+
+
+@dataclass
+class SectionClosureResult:
+    section: object
+    event_date: object
+    included: list
+    omitted: list
+
+
+def _evaluate_section_closure(*, section, event_date, as_of=None):
+    """
+    RF-ASI-011: split a section's actively enrolled students between who is
+    eligible for a declared exit and who must be omitted, and why -- shared
+    by the preview and the confirmed closure so the two can never disagree
+    about who belongs where.
+    """
+    shift = section.offering.shift
+    as_of = as_of or timezone.now()
+    students = [
+        enrolment.student
+        for enrolment in Enrolment.objects.filter(
+            section=section,
+            status=Enrolment.EnrolmentStatus.ACTIVE,
+            student__is_active=True,
+        ).select_related("student")
+    ]
+
+    day_statuses = derive_day_statuses(
+        students=students, shift=shift, event_dates=[event_date], as_of=as_of
+    )
+    existing_exits = resolve_prevailing_events(
+        students=students,
+        shift=shift,
+        event_dates=[event_date],
+        movement_type=AttendanceEvent.MovementType.EXIT,
+    )
+
+    included = []
+    omitted = []
+    for student in students:
+        day_result = day_statuses.get((student.pk, event_date))
+        if day_result is None or day_result.entry_event is None:
+            omitted.append(
+                SectionClosureOmission(student=student, reason="No tiene ingreso registrado.")
+            )
+            continue
+        if (student.pk, event_date) in existing_exits:
+            omitted.append(
+                SectionClosureOmission(student=student, reason="Ya tiene salida registrada.")
+            )
+            continue
+        included.append(student)
+    return included, omitted
+
+
+def preview_section_closure(*, section, event_date, as_of=None):
+    """
+    RF-ASI-011: who would be included in a declared closure of ``section``
+    and who would be omitted, and why -- without registering anything.
+    """
+    _require_active(section, "la seccion")
+    included, omitted = _evaluate_section_closure(
+        section=section, event_date=event_date, as_of=as_of
+    )
+    return SectionClosureResult(
+        section=section, event_date=event_date, included=included, omitted=omitted
+    )
+
+
+@transaction.atomic
+def close_section(*, section, event_date, actor, as_of=None):
+    """
+    RF-ASI-011: declare an exit for every actively enrolled student in
+    ``section`` who has an entry and no exit yet on ``event_date``, in one
+    operation. A student who already has a registered exit, or never
+    registered an entry at all, is omitted rather than forced through --
+    the same eligibility rule ``preview_section_closure`` already showed
+    before this was confirmed. Reuses ``record_attendance_event`` per
+    student, so every existing guarantee (never mutating a prior event,
+    RF-JOR-005's inconsistency alert, day recalculation for past dates)
+    applies here too, unchanged.
+    """
+    _require_active(section, "la seccion")
+    included, omitted = _evaluate_section_closure(
+        section=section, event_date=event_date, as_of=as_of
+    )
+    shift = section.offering.shift
+    captured_at = as_of or timezone.now()
+    for student in included:
+        record_attendance_event(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.EXIT,
+            origin=AttendanceEvent.Origin.DECLARED,
+            captured_at=captured_at,
+            actor=actor,
+        )
+    record_event(
+        actor=actor,
+        action="attendance.section_closure.confirmed",
+        resource="Section",
+        resource_identifier=str(section.public_id),
+        context={
+            "event_date": str(event_date),
+            "included_count": len(included),
+            "omitted_count": len(omitted),
+        },
+    )
+    return SectionClosureResult(
+        section=section, event_date=event_date, included=included, omitted=omitted
+    )
+
+
+# --------------------------------------------------------------------------- #
 # RF-JOR-006 — recalculo ante cambios
 # --------------------------------------------------------------------------- #
 

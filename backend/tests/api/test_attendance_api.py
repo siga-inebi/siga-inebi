@@ -424,6 +424,160 @@ def test_declared_exit_without_entry_creates_inconsistency_alert_visible_via_ale
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-011 — cierre declarado por seccion
+# --------------------------------------------------------------------------- #
+
+
+def _grant_declared_closure_permission(user):
+    _grant(user, "attendance_declared_close")
+    _grant(user, "attendance_record_exit")
+
+
+def _section_closure_preview_url(section, event_date):
+    query = urlencode({"section_id": str(section.public_id), "event_date": str(event_date)})
+    return f"{reverse('attendance-section-closure-preview')}?{query}"
+
+
+def test_section_closure_preview_requires_permission(auth_client):
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+
+    response = auth_client.get(_section_closure_preview_url(section, parameters.effective_from))
+
+    assert response.status_code == 403
+
+
+def test_section_closure_requires_permission(auth_client):
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+
+    response = auth_client.post(
+        reverse("attendance-section-closure"),
+        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_section_closure_preview_shows_omitted_students_before_confirming(auth_client):
+    """
+    Escenario 1 (RF-ASI-011): GIVEN una seccion con un estudiante sin
+    ingreso registrado, WHEN un usuario autorizado previsualiza el cierre
+    declarado, THEN el resumen lo muestra omitido con el motivo, AND no se
+    registra ningun movimiento.
+    """
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+
+    response = auth_client.get(_section_closure_preview_url(section, parameters.effective_from))
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["included"] == []
+    assert len(data["omitted"]) == 1
+    assert data["omitted"][0]["student_id"] == str(student.public_id)
+    assert not AttendanceEvent.objects.filter(student=student).exists()
+
+
+def test_section_closure_confirms_declared_exit_for_eligible_students(auth_client):
+    """
+    Escenario 2 (RF-ASI-011): GIVEN una seccion con un estudiante que tiene
+    ingreso y sin salida, WHEN un usuario autorizado confirma el cierre
+    declarado, THEN el sistema registra su salida declarada, AND el resumen
+    lo muestra incluido, no omitido.
+    """
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+
+    response = auth_client.post(
+        reverse("attendance-section-closure"),
+        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["included"] == [{"student_id": str(student.public_id)}]
+    assert data["omitted"] == []
+    event = AttendanceEvent.objects.get(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    )
+    assert event.origin == AttendanceEvent.Origin.DECLARED
+
+
+def test_section_closure_omits_a_student_who_already_has_an_exit(auth_client):
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(12, 0))),
+    )
+
+    response = auth_client.post(
+        reverse("attendance-section-closure"),
+        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["included"] == []
+    assert len(data["omitted"]) == 1
+    assert data["omitted"][0]["student_id"] == str(student.public_id)
+    assert (
+        AttendanceEvent.objects.filter(
+            student=student, movement_type=AttendanceEvent.MovementType.EXIT
+        ).count()
+        == 1
+    )
+
+
+# --------------------------------------------------------------------------- #
 # RF-JOR-006 — recalculo ante cambios
 # --------------------------------------------------------------------------- #
 
@@ -1251,6 +1405,9 @@ def test_revoking_a_credential_does_not_alter_the_students_day_status(auth_clien
 
     after = auth_client.get(url).json()
     assert after == before
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-004 — reposicion sin perdida de historial
 # --------------------------------------------------------------------------- #
 

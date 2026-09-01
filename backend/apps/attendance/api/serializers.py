@@ -161,6 +161,33 @@ class JornadaClosureResultSerializer(serializers.Serializer):
     alerts = AttendanceAlertSerializer(many=True)
 
 
+class SectionClosureRequestSerializer(serializers.Serializer):
+    section_id = serializers.UUIDField(help_text="Public ID de la seccion.")
+    event_date = serializers.DateField(help_text="Fecha de la jornada a cerrar.")
+
+
+class SectionClosureStudentSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(source="public_id")
+
+
+class SectionClosureOmissionSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(source="student.public_id")
+    reason = serializers.CharField()
+
+
+class SectionClosureResultSerializer(serializers.Serializer):
+    """
+    RF-ASI-011: who was (or would be) closed and who was omitted, and why --
+    the same shape for the preview and for the confirmed closure, so a
+    client renders both with one component.
+    """
+
+    section_id = serializers.UUIDField(source="section.public_id")
+    event_date = serializers.DateField()
+    included = SectionClosureStudentSerializer(many=True)
+    omitted = SectionClosureOmissionSerializer(many=True)
+
+
 class AttendancePresenceQuerySerializer(serializers.Serializer):
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
     event_date = serializers.DateField(
