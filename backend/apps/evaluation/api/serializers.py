@@ -256,3 +256,41 @@ class RecoveryGradeSerializer(serializers.ModelSerializer):
                 f"La nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE}."
             )
         return value
+
+
+class CaptureProgressRowSerializer(serializers.Serializer):
+    """One (section, subarea) line of the capture-progress panel (RF-CAL-008)."""
+
+    section = serializers.SerializerMethodField()
+    subject = serializers.SerializerMethodField()
+    teacher = serializers.SerializerMethodField()
+    students_total = serializers.IntegerField(read_only=True)
+    students_graded = serializers.IntegerField(read_only=True)
+    students_pending = serializers.IntegerField(read_only=True)
+    progress_pct = serializers.FloatField(read_only=True)
+
+    def get_section(self, obj):
+        section = obj["section"]
+        return {"public_id": str(section.public_id), "name": str(section)}
+
+    def get_subject(self, obj):
+        subject = obj["subject"]
+        return {"public_id": str(subject.public_id), "name": subject.name}
+
+    def get_teacher(self, obj):
+        # Opaque identifier plus a display name only: a progress panel does not
+        # need the teacher's contact data (cf. PersonSerializer).
+        teacher = obj["teacher"]
+        if teacher is None:
+            return None
+        return {"public_id": str(teacher.public_id), "name": str(teacher)}
+
+
+class CaptureProgressReportSerializer(serializers.Serializer):
+    """Capture-progress panel for an evaluation unit (RF-CAL-008)."""
+
+    unit_public_id = serializers.UUIDField(read_only=True)
+    unit_name = serializers.CharField(read_only=True)
+    window_open = serializers.BooleanField(read_only=True)
+    overall_progress_pct = serializers.FloatField(read_only=True, allow_null=True)
+    rows = CaptureProgressRowSerializer(many=True, read_only=True)

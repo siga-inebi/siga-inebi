@@ -2,7 +2,13 @@
 
 from django.db.models import Q
 
-from apps.academics.models import AcademicCycle, Subject
+from apps.academics.models import (
+    AcademicCycle,
+    CurriculumPlan,
+    Section,
+    Subject,
+    TeachingAssignment,
+)
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
 
@@ -81,6 +87,66 @@ def curriculum_subjects(academic_cycle, grade):
         .distinct()
         .order_by("name")
     )
+
+
+def capture_progress_rows(*, evaluation_unit):
+    """
+    One row per (section, subarea) of the cycle's curriculum plan for
+    ``evaluation_unit`` (RF-CAL-008): how many of the section's active
+    enrolments already have a grade for that subarea in this unit, how many are
+    still pending, and the teacher currently responsible (the open-ended
+    TeachingAssignment, or None when the subarea has no assignment yet).
+
+    Sections with no active enrolment are skipped: there is nothing to capture.
+    """
+    cycle = evaluation_unit.academic_cycle
+    plans = CurriculumPlan.objects.filter(academic_cycle=cycle, is_active=True).select_related(
+        "grade", "subject"
+    )
+
+    rows = []
+    for plan in plans:
+        sections = Section.objects.filter(
+            offering__academic_cycle=cycle,
+            offering__grade=plan.grade,
+            is_active=True,
+        ).select_related("offering__grade")
+        for section in sections:
+            total = Enrolment.objects.filter(
+                section=section,
+                status=Enrolment.EnrolmentStatus.ACTIVE,
+                is_active=True,
+            ).count()
+            if total == 0:
+                continue
+            graded = Grade.objects.filter(
+                evaluation_unit=evaluation_unit,
+                subject=plan.subject,
+                enrolment__section=section,
+                is_active=True,
+            ).count()
+            assignment = (
+                TeachingAssignment.objects.filter(
+                    academic_cycle=cycle,
+                    section=section,
+                    subject=plan.subject,
+                    ends_on__isnull=True,
+                )
+                .select_related("teacher")
+                .first()
+            )
+            rows.append(
+                {
+                    "section": section,
+                    "subject": plan.subject,
+                    "teacher": assignment.teacher if assignment is not None else None,
+                    "students_total": total,
+                    "students_graded": graded,
+                    "students_pending": total - graded,
+                    "progress_pct": round(graded / total * 100, 2),
+                }
+            )
+    return rows
 
 
 def grades_for_enrolment(enrolment):

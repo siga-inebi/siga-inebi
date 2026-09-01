@@ -15,13 +15,14 @@ from datetime import date, datetime, time, timedelta
 import pytest
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle, CurriculumPlan
+from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
 from apps.attendance.models import AttendanceEvent
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit, Grade, RecoveryGrade
 from apps.evaluation.services import (
     assess_recovery_eligibility,
+    build_capture_progress_report,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -1220,3 +1221,76 @@ class TestRecoveryGradeIntegration:
         assert final["recovery_grade"] == 72
         assert final["final_grade"] == 50
         assert final["approved"] is False
+
+
+class TestCaptureProgressIntegration:
+    """
+    RF-CAL-008: the capture-progress panel crosses academics (curriculum plan,
+    sections, teaching assignments) and enrolments to say, per section and
+    subarea, what is still pending for an evaluation unit.
+    """
+
+    def test_pending_capture_across_academics_and_enrolments(self):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolments = [
+            create_enrolment(
+                student=StudentFactory(),
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+            )
+            for _ in range(3)
+        ]
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today - timedelta(days=5),
+            ends_on=today + timedelta(days=25),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+        graded_subject = SubjectFactory(institution=cycle.institution)
+        pending_subject = SubjectFactory(institution=cycle.institution)
+        for subject in (graded_subject, pending_subject):
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+        teacher = PersonFactory()
+        TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=section,
+            subject=pending_subject,
+            teacher=teacher,
+            starts_on=cycle.starts_on,
+        )
+
+        # graded_subject: 3/3 done. pending_subject: only 1/3 done.
+        for enrolment in enrolments:
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=graded_subject,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=75,
+            )
+        register_unit_grade(
+            enrolment=enrolments[0],
+            subject=pending_subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=80,
+        )
+
+        report = build_capture_progress_report(unit)
+
+        assert report["window_open"] is True
+        by_subject = {row["subject"]: row for row in report["rows"]}
+        assert by_subject[graded_subject]["students_pending"] == 0
+        assert by_subject[pending_subject]["students_pending"] == 2
+        assert by_subject[pending_subject]["students_graded"] == 1
+        assert by_subject[pending_subject]["teacher"] == teacher
+        assert report["overall_progress_pct"] == round(4 / 6 * 100, 2)

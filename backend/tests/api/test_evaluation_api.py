@@ -2165,3 +2165,93 @@ class TestRecoveryGradeAPI:
         )
 
         assert response.status_code == 404
+
+
+class TestCaptureProgressAPI:
+    """Tests for RF-CAL-008: Seguimiento de notas pendientes (endpoint contract)."""
+
+    def _setup(self, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        section = SectionFactory(academic_cycle=cycle)
+        for _ in range(2):
+            create_enrolment(
+                student=StudentFactory(),
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+            )
+        today = timezone.localdate()
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            number=1,
+            starts_on=today - timedelta(days=5),
+            ends_on=today + timedelta(days=5),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subject_a = SubjectFactory(institution=institution)
+        subject_b = SubjectFactory(institution=institution)
+        for subject in (subject_a, subject_b):
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+        teacher_b = PersonFactory()
+        TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=section,
+            subject=subject_b,
+            teacher=teacher_b,
+            starts_on=cycle.starts_on,
+        )
+        for enrolment in section.enrolments.all():
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject_a,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=70,
+            )
+        return cycle, unit, subject_b, teacher_b
+
+    def test_capture_progress_before_window_close(self, auth_client, institution):
+        """
+        Escenario: Consulta antes del cierre de la ventana
+        GET {cycle}/evaluation-units/{unit_public_id}/capture-progress/
+        """
+        cycle, unit, subject_b, teacher_b = self._setup(institution)
+
+        response = auth_client.get(
+            reverse(
+                "evaluation-unit-capture-progress",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": str(unit.public_id),
+                },
+            )
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["window_open"] is True
+        pending = next(
+            row for row in data["rows"] if row["subject"]["public_id"] == str(subject_b.public_id)
+        )
+        assert pending["students_pending"] == 2
+        assert pending["students_graded"] == 0
+        assert pending["teacher"]["public_id"] == str(teacher_b.public_id)
+        assert pending["teacher"]["name"] == str(teacher_b)
+
+    def test_capture_progress_unit_not_found_returns_404(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+
+        response = auth_client.get(
+            reverse(
+                "evaluation-unit-capture-progress",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": "00000000-0000-0000-0000-000000000000",
+                },
+            )
+        )
+
+        assert response.status_code == 404

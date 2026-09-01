@@ -28,12 +28,13 @@ from unittest.mock import patch
 import pytest
 from django.utils import timezone
 
-from apps.academics.models import CurriculumPlan
+from apps.academics.models import CurriculumPlan, TeachingAssignment
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit, Grade, RecoveryGrade
 from apps.evaluation.services import (
     assess_recovery_eligibility,
+    build_capture_progress_report,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -1690,3 +1691,106 @@ class TestRegisterRecoveryGrade:
 
         assert "oportunidad de recuperacion" in str(exc.value).lower()
         assert RecoveryGrade.objects.count() == 1
+
+
+class TestCaptureProgressReport:
+    """Tests for RF-CAL-008: Seguimiento de notas pendientes."""
+
+    def _setup(self, *, capture_window="open"):
+        """
+        Cycle with one grade offering, one section holding two active
+        enrolments, and a curriculum plan of two subareas. ``capture_window``
+        controls whether the unit's capture window is open or already past.
+        Returns (unit, section, [subject_a, subject_b]).
+        """
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        for _ in range(2):
+            create_enrolment(
+                student=StudentFactory(),
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+            )
+        today = timezone.localdate()
+        if capture_window == "open":
+            starts, ends = today - timedelta(days=5), today + timedelta(days=5)
+        else:
+            starts, ends = today - timedelta(days=30), today - timedelta(days=10)
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=starts,
+            ends_on=ends,
+            capture_starts_on=starts,
+            capture_ends_on=ends,
+        )
+        subjects = []
+        for _ in range(2):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            subjects.append(subject)
+        return unit, section, subjects
+
+    def _row_for(self, report, subject):
+        return next(r for r in report["rows"] if r["subject"] == subject)
+
+    def test_lists_pending_subareas_with_responsible_teacher(self):
+        """
+        Escenario: Consulta antes del cierre de la ventana
+        GIVEN una unidad con la ventana de captura próxima a cerrar
+        WHEN la Dirección consulta el estado de la captura
+        THEN el sistema lista las subáreas sin notas registradas y su docente responsable
+        """
+        unit, section, (subject_a, subject_b) = self._setup(capture_window="open")
+        cycle = unit.academic_cycle
+        teacher_b = PersonFactory()
+        TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=section,
+            subject=subject_b,
+            teacher=teacher_b,
+            starts_on=cycle.starts_on,
+        )
+        # subject_a fully graded, subject_b untouched.
+        for enrolment in section.enrolments.all():
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject_a,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=70,
+            )
+
+        report = build_capture_progress_report(unit)
+
+        assert report["window_open"] is True
+        pending = self._row_for(report, subject_b)
+        assert pending["students_graded"] == 0
+        assert pending["students_pending"] == 2
+        assert pending["teacher"] == teacher_b
+        complete = self._row_for(report, subject_a)
+        assert complete["students_pending"] == 0
+        assert complete["progress_pct"] == 100.0
+
+    def test_teacher_is_none_when_subarea_has_no_assignment(self):
+        unit, _section, (subject_a, _subject_b) = self._setup(capture_window="open")
+
+        report = build_capture_progress_report(unit)
+
+        assert self._row_for(report, subject_a)["teacher"] is None
+        assert self._row_for(report, subject_a)["students_pending"] == 2
+
+    def test_window_open_false_after_capture_window_passed_but_rows_stay(self):
+        """Decision: once the window has closed the panel still returns the rows
+        so Direccion can see what was left uncaptured."""
+        unit, _section, _subjects = self._setup(capture_window="past")
+
+        report = build_capture_progress_report(unit)
+
+        assert report["window_open"] is False
+        assert len(report["rows"]) == 2
+        assert all(row["students_pending"] == 2 for row in report["rows"])

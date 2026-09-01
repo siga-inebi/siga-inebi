@@ -915,3 +915,36 @@ def register_recovery_grade(
     )
 
     return recovery
+
+
+# --------------------------------------------------------------------------- #
+# RF-CAL-008 — Seguimiento de notas pendientes
+# --------------------------------------------------------------------------- #
+
+
+def build_capture_progress_report(evaluation_unit: EvaluationUnit, on_date=None) -> dict:
+    """
+    Capture-progress snapshot for an evaluation unit (RF-CAL-008).
+
+    Per section and subarea of the cycle's curriculum plan: how many grades are
+    already in and how many are still pending, with the responsible teacher, so
+    Direccion and coordinators can see what is missing while the window is open.
+
+    ``window_open`` is false once the capture window has passed or the unit is
+    closed; the rows are still returned in that case, so the same view also
+    shows what was left uncaptured after the fact.
+    """
+    rows = queries.capture_progress_rows(evaluation_unit=evaluation_unit)
+    total_students = sum(row["students_total"] for row in rows)
+    graded_students = sum(row["students_graded"] for row in rows)
+    return {
+        "unit_public_id": str(evaluation_unit.public_id),
+        "unit_name": evaluation_unit.name,
+        "window_open": (
+            evaluation_unit.is_capture_window_open(on_date) and not evaluation_unit.is_closed
+        ),
+        "overall_progress_pct": (
+            round(graded_students / total_students * 100, 2) if total_students else None
+        ),
+        "rows": rows,
+    }

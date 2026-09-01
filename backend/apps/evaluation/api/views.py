@@ -26,6 +26,7 @@ from apps.common.exceptions import AuthorizationError, DomainError, ResourceNotF
 from apps.evaluation import queries
 from apps.evaluation.api.serializers import (
     CaptureExceptionGrantSerializer,
+    CaptureProgressReportSerializer,
     CycleEvaluationConfigSerializer,
     EvaluationGlobalConfigSerializer,
     EvaluationUnitSerializer,
@@ -36,6 +37,7 @@ from apps.evaluation.api.serializers import (
 )
 from apps.evaluation.services import (
     assess_recovery_eligibility,
+    build_capture_progress_report,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -516,6 +518,41 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
 
         serializer = self.get_serializer(grade)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el avance de captura de notas de una unidad",
+        description=(
+            "Por seccion y subarea del plan de estudios del ciclo: cuantas notas "
+            "estan registradas, cuantas faltan y el docente responsable. "
+            "``window_open`` indica si la ventana de captura sigue abierta; las "
+            "filas se devuelven igual cuando ya cerro, para ver lo que quedo "
+            "pendiente."
+        ),
+        tags=TAGS,
+        responses={200: CaptureProgressReportSerializer},
+    ),
+)
+class UnitCaptureProgressView(APIView):
+    """
+    Capture-progress panel for an evaluation unit (RF-CAL-008).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    GET {base}/capture-progress/
+    """
+
+    def get(self, request, *args, **kwargs):
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=kwargs.get("cycle_public_id"),
+            unit_public_id=kwargs.get("unit_public_id"),
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
+
+        report = build_capture_progress_report(unit)
+        return Response(CaptureProgressReportSerializer(report).data)
 
 
 def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):

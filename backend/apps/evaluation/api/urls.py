@@ -12,6 +12,7 @@ from apps.evaluation.api.views import (
     EvaluationUnitListCreateView,
     EvaluationUnitRecoveryWindowView,
     GradeListCreateView,
+    UnitCaptureProgressView,
 )
 
 urlpatterns = [
@@ -35,5 +36,10 @@ urlpatterns = [
         "<uuid:unit_public_id>/grades/",
         GradeListCreateView.as_view(),
         name="evaluation-unit-grades",
+    ),
+    path(
+        "<uuid:unit_public_id>/capture-progress/",
+        UnitCaptureProgressView.as_view(),
+        name="evaluation-unit-capture-progress",
     ),
 ]
