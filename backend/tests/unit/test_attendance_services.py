@@ -2482,6 +2482,41 @@ def test_revoking_a_credential_does_not_alter_past_attendance_events_or_day_stat
         ).items()
     }
     assert day_statuses_after == day_statuses_before
+# RF-CRE-004 — reposicion sin perdida de historial
+# --------------------------------------------------------------------------- #
+
+
+def test_reissuing_after_revocation_generates_a_new_identifier_and_keeps_the_old_row():
+    """
+    Escenario 1 (RF-CRE-004): GIVEN un estudiante cuya credencial fue
+    revocada, WHEN un usuario autorizado emite la reposicion, THEN el
+    sistema genera un identificador opaco distinto del anterior, AND el
+    historial de credenciales del estudiante conserva la credencial
+    revocada.
+
+    Nada nuevo que programar: la restriccion unica de la base de datos
+    (``unique_active_student_credential``) solo exige una credencial
+    ACTIVA a la vez, no una por estudiante en total, asi que
+    ``issue_credential`` ya acepta emitir de nuevo apenas la anterior deja
+    de estar activa. Esta prueba cierra el requerimiento sobre ese
+    comportamiento existente (RF-CRE-001/003), no agrega logica nueva.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    original = services.issue_credential(student=student)
+    admin = UserFactory()
+    revoked = services.revoke_credential(student=student, reason="Extravio", actor=admin)
+
+    reissued = services.issue_credential(student=student)
+
+    assert reissued.opaque_identifier != original.opaque_identifier
+    assert reissued.status == StudentCredential.Status.ACTIVE
+
+    revoked.refresh_from_db()
+    assert revoked.status == StudentCredential.Status.REVOKED
+    assert revoked.revocation_reason == "Extravio"
+    assert revoked.revoked_by == admin
+    assert StudentCredential.objects.filter(student=student).count() == 2
 
 
 # --------------------------------------------------------------------------- #

@@ -1226,6 +1226,37 @@ def test_revoking_a_credential_does_not_alter_the_students_day_status(auth_clien
 
     after = auth_client.get(url).json()
     assert after == before
+# RF-CRE-004 — reposicion sin perdida de historial
+# --------------------------------------------------------------------------- #
+
+
+def test_reissuing_after_revocation_via_the_api_generates_a_new_identifier(auth_client):
+    """
+    Escenario 1 (RF-CRE-004): GIVEN un estudiante cuya credencial fue
+    revocada, WHEN un usuario autorizado emite la reposicion, THEN el
+    sistema genera un identificador opaco distinto del anterior, AND el
+    historial de credenciales del estudiante conserva la credencial
+    revocada.
+    """
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+    first = services.issue_credential(student=student)
+
+    revoke_response = _revoke_credential(auth_client, student, reason="Extravio")
+    assert revoke_response.status_code == 200
+
+    reissue_response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": str(student.public_id)},
+        content_type="application/json",
+    )
+
+    assert reissue_response.status_code == 201
+    body = reissue_response.json()
+    assert body["opaque_identifier"] != first.opaque_identifier
+    assert body["status"] == StudentCredential.Status.ACTIVE
+    assert StudentCredential.objects.filter(student=student).count() == 2
 
 
 # --------------------------------------------------------------------------- #
