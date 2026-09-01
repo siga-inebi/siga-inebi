@@ -149,6 +149,24 @@ def capture_progress_rows(*, evaluation_unit):
     return rows
 
 
+def active_enrolment_in_section(*, section, student_code):
+    """
+    The active enrolment of the student with ``student_code`` in ``section``,
+    or None. Backs per-row validation of the bulk grade upload (RF-CAL-004):
+    "the student exists and belongs to the section" is a single check here.
+    """
+    return (
+        Enrolment.objects.filter(
+            section=section,
+            student__student_code=student_code,
+            status=Enrolment.EnrolmentStatus.ACTIVE,
+            is_active=True,
+        )
+        .select_related("student")
+        .first()
+    )
+
+
 def grades_for_enrolment(enrolment):
     """
     All registered grades for one enrolment, across subjects and units

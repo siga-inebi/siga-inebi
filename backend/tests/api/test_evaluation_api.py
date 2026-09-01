@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
 
@@ -2252,6 +2253,117 @@ class TestCaptureProgressAPI:
                     "unit_public_id": "00000000-0000-0000-0000-000000000000",
                 },
             )
+        )
+
+        assert response.status_code == 404
+
+
+class TestBulkGradeUploadAPI:
+    """Tests for RF-CAL-004: Carga masiva desde archivo (endpoint contract)."""
+
+    def _setup(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        section = SectionFactory(academic_cycle=cycle)
+        enrolments = [
+            create_enrolment(
+                student=StudentFactory(),
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+            )
+            for _ in range(2)
+        ]
+        today = timezone.localdate()
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            number=1,
+            starts_on=today - timedelta(days=5),
+            ends_on=today + timedelta(days=5),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subject = SubjectFactory(institution=institution)
+        _grant_grade_write(auth_client.user, section=section, subject=subject, academic_cycle=cycle)
+        return cycle, unit, section, subject, enrolments
+
+    def _url(self, cycle, unit):
+        return reverse(
+            "evaluation-unit-grades-bulk",
+            kwargs={
+                "cycle_public_id": str(cycle.public_id),
+                "unit_public_id": str(unit.public_id),
+            },
+        )
+
+    def _csv(self, lines):
+        body = "student_code,value\n" + "\n".join(lines) + "\n"
+        return SimpleUploadedFile("grades.csv", body.encode("utf-8"), content_type="text/csv")
+
+    def test_valid_file_registers_all_rows(self, auth_client, institution):
+        cycle, unit, section, subject, enrolments = self._setup(auth_client, institution)
+
+        response = auth_client.post(
+            self._url(cycle, unit),
+            {
+                "file": self._csv(
+                    [
+                        f"{enrolments[0].student.student_code},70",
+                        f"{enrolments[1].student.student_code},85",
+                    ]
+                ),
+                "subject": str(subject.public_id),
+                "section": str(section.public_id),
+                "teacher": str(auth_client.user.person.public_id),
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"created": 2}
+        assert Grade.objects.filter(evaluation_unit=unit, subject=subject).count() == 2
+
+    def test_file_with_invalid_row_saves_nothing(self, auth_client, institution):
+        cycle, unit, section, subject, enrolments = self._setup(auth_client, institution)
+
+        response = auth_client.post(
+            self._url(cycle, unit),
+            {
+                "file": self._csv(
+                    [
+                        f"{enrolments[0].student.student_code},70",
+                        "STU-NOT-IN-SECTION,80",
+                    ]
+                ),
+                "subject": str(subject.public_id),
+                "section": str(section.public_id),
+                "teacher": str(auth_client.user.person.public_id),
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["created"] == 0
+        assert [e["row"] for e in data["errors"]] == [2]
+        assert Grade.objects.filter(evaluation_unit=unit).count() == 0
+
+    def test_unit_not_found_returns_404(self, auth_client, institution):
+        cycle = AcademicCycleFactory(institution=institution)
+        section = SectionFactory(academic_cycle=cycle)
+        subject = SubjectFactory(institution=institution)
+
+        response = auth_client.post(
+            reverse(
+                "evaluation-unit-grades-bulk",
+                kwargs={
+                    "cycle_public_id": str(cycle.public_id),
+                    "unit_public_id": "00000000-0000-0000-0000-000000000000",
+                },
+            ),
+            {
+                "file": self._csv(["STU-0001,70"]),
+                "subject": str(subject.public_id),
+                "section": str(section.public_id),
+                "teacher": str(auth_client.user.person.public_id),
+            },
         )
 
         assert response.status_code == 404

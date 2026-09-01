@@ -18,6 +18,7 @@ aparecian en el schema publicado. Cada operacion lo declara con
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -25,6 +26,7 @@ from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError, DomainError, ResourceNotFoundError
 from apps.evaluation import queries
 from apps.evaluation.api.serializers import (
+    BulkGradeUploadSerializer,
     CaptureExceptionGrantSerializer,
     CaptureProgressReportSerializer,
     CycleEvaluationConfigSerializer,
@@ -38,6 +40,7 @@ from apps.evaluation.api.serializers import (
 from apps.evaluation.services import (
     assess_recovery_eligibility,
     build_capture_progress_report,
+    bulk_register_unit_grades,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -553,6 +556,85 @@ class UnitCaptureProgressView(APIView):
 
         report = build_capture_progress_report(unit)
         return Response(CaptureProgressReportSerializer(report).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Cargar notas de una unidad de forma masiva desde un archivo",
+        description=(
+            "Recibe un CSV multipart con cabecera ``student_code,value`` y los "
+            "campos de formulario ``subject``, ``section`` y ``teacher`` (public "
+            "IDs). Valida todas las filas antes de guardar: si alguna falla no se "
+            "escribe ninguna y responde 400 con ``errors`` (fila y motivo). Con "
+            "todas validas responde 200 con ``created``."
+        ),
+        tags=TAGS,
+        request=BulkGradeUploadSerializer,
+        responses={200: dict, 400: dict},
+    ),
+)
+class BulkGradeUploadView(APIView):
+    """
+    Bulk grade upload for an evaluation unit (RF-CAL-004).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    POST {base}/grades/bulk/  (multipart/form-data)
+
+    The 400 body here is ``{"errors": [...], "created": 0}`` -- row-level
+    validation feedback the issue requires, deliberately outside the
+    single-message error envelope used for rule violations.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=kwargs.get("cycle_public_id"),
+            unit_public_id=kwargs.get("unit_public_id"),
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
+
+        serializer = BulkGradeUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        subject = serializer.validated_data["subject"]
+        section = serializer.validated_data["section"]
+        teacher = serializer.validated_data["teacher"]
+
+        # Same docente-scope check as the single-grade endpoint (RF-CAL-006).
+        if not request.user.has_scoped_permission(
+            "grade_write", scope={"section": section, "subject": subject}
+        ):
+            record_event(
+                actor=request.user,
+                action="evaluation.grade_write_denied",
+                resource="Grade",
+                context={
+                    "subject_id": str(subject.public_id),
+                    "section_id": str(section.public_id),
+                    "unit_id": str(unit.public_id),
+                    "bulk": True,
+                },
+            )
+            raise AuthorizationError(
+                "Permission denied. No teaching assignment over this section and subject."
+            )
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=serializer.validated_data["rows"],
+            actor=request.user,
+        )
+        if result.errors:
+            return Response(
+                {"errors": result.errors, "created": 0},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"created": result.created}, status=status.HTTP_200_OK)
 
 
 def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):

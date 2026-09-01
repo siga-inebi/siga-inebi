@@ -4,9 +4,12 @@ API serializers for evaluation domain.
 Contracts for POST/PATCH operations. Validation happens here before calling services.
 """
 
+import csv
+import io
+
 from rest_framework import serializers
 
-from apps.academics.models import Subject
+from apps.academics.models import Section, Subject
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import (
     GRADE_MAX_VALUE,
@@ -294,3 +297,57 @@ class CaptureProgressReportSerializer(serializers.Serializer):
     window_open = serializers.BooleanField(read_only=True)
     overall_progress_pct = serializers.FloatField(read_only=True, allow_null=True)
     rows = CaptureProgressRowSerializer(many=True, read_only=True)
+
+
+BULK_GRADE_MAX_BYTES = 2 * 1024 * 1024
+BULK_GRADE_COLUMNS = ("student_code", "value")
+
+
+class BulkGradeUploadSerializer(serializers.Serializer):
+    """
+    Contract for the bulk grade upload (RF-CAL-004).
+
+    ``file`` is a CSV with a header row ``student_code,value`` and one data row
+    per student. ``subject``, ``section`` and ``teacher`` are opaque public IDs;
+    the evaluation unit comes from the URL. Parsing the CSV into ``rows`` is done
+    here (transport); every domain rule runs in bulk_register_unit_grades.
+    """
+
+    file = serializers.FileField(write_only=True)
+    subject = serializers.SlugRelatedField(slug_field="public_id", queryset=Subject.objects.all())
+    section = serializers.SlugRelatedField(slug_field="public_id", queryset=Section.objects.all())
+    teacher = serializers.SlugRelatedField(slug_field="public_id", queryset=Person.objects.all())
+
+    def validate_file(self, uploaded):
+        if uploaded.size > BULK_GRADE_MAX_BYTES:
+            raise serializers.ValidationError(
+                f"El archivo supera el maximo de {BULK_GRADE_MAX_BYTES} bytes."
+            )
+        try:
+            text = uploaded.read().decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise serializers.ValidationError("El archivo debe estar codificado en UTF-8.") from exc
+
+        reader = csv.DictReader(io.StringIO(text))
+        headers = [h.strip() for h in (reader.fieldnames or [])]
+        missing = [column for column in BULK_GRADE_COLUMNS if column not in headers]
+        if missing:
+            raise serializers.ValidationError(
+                f"Faltan columnas en el archivo: {', '.join(missing)}."
+            )
+
+        rows = [
+            {
+                "student_code": (row.get("student_code") or "").strip(),
+                "value": (row.get("value") or "").strip(),
+            }
+            for row in reader
+        ]
+        if not rows:
+            raise serializers.ValidationError("El archivo no contiene filas de datos.")
+        self._parsed_rows = rows
+        return uploaded
+
+    def validate(self, attrs):
+        attrs["rows"] = getattr(self, "_parsed_rows", [])
+        return attrs

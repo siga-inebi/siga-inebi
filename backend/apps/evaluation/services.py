@@ -26,10 +26,11 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.db import transaction
 from django.db.models import Avg
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle, Subject
+from apps.academics.models import AcademicCycle, Section, Subject
 from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
@@ -948,3 +949,150 @@ def build_capture_progress_report(evaluation_unit: EvaluationUnit, on_date=None)
         ),
         "rows": rows,
     }
+
+
+# --------------------------------------------------------------------------- #
+# RF-CAL-004 — Carga masiva desde archivo
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class BulkGradeResult:
+    """
+    Outcome of a bulk grade upload (RF-CAL-004). ``created`` is 0 whenever
+    ``errors`` is non-empty: the file is all-or-nothing, so a single invalid
+    row means nothing is written.
+    """
+
+    created: int = 0
+    errors: list[dict] = field(default_factory=list)
+
+
+def bulk_register_unit_grades(
+    *,
+    evaluation_unit: EvaluationUnit,
+    section: Section,
+    subject: Subject,
+    teacher: Person,
+    rows: list[dict],
+    actor=None,
+) -> BulkGradeResult:
+    """
+    Register unit grades in bulk from a parsed file (RF-CAL-004).
+
+    ``rows`` is already parsed into ``[{"student_code": str, "value": str}]``;
+    parsing the file itself is transport, not a domain rule. Every row is
+    validated before anything is written: the student must have an active
+    enrolment in ``section``, ``value`` must be an integer in the 0-100 scale
+    (RF-CAL-002), and no ``student_code`` may repeat in the file. The unit must
+    admit capture for this teacher and subject right now (validate_capture_allowed,
+    RF-EVC-002/004) -- a file-level condition, checked once up front.
+
+    If any row fails, nothing is written and the returned result carries
+    ``errors`` (``[{"row": int, "field": str, "message": str}]``, 1-based row
+    numbers). Otherwise every grade is written inside one transaction, reusing
+    register_unit_grade so each grade keeps its own audit entry, plus a
+    ``evaluation.grades_bulk_registered`` summary event.
+
+    Raises:
+        DomainError: only for the file-level capture check; per-row problems
+            come back in ``errors``.
+    """
+    validate_capture_allowed(evaluation_unit, subject, teacher)
+
+    errors: list[dict] = []
+    resolved: list[tuple] = []
+    seen_codes: set[str] = set()
+
+    for index, row in enumerate(rows, start=1):
+        student_code = (row.get("student_code") or "").strip()
+        raw_value = (row.get("value") or "").strip()
+
+        if not student_code:
+            errors.append({"row": index, "field": "student_code", "message": "codigo vacio"})
+            continue
+        if student_code in seen_codes:
+            errors.append(
+                {
+                    "row": index,
+                    "field": "student_code",
+                    "message": f"fila duplicada para el estudiante '{student_code}'",
+                }
+            )
+            continue
+        seen_codes.add(student_code)
+
+        try:
+            value = int(raw_value)
+        except ValueError:
+            errors.append(
+                {"row": index, "field": "value", "message": f"valor no numerico: '{raw_value}'"}
+            )
+            continue
+        if not GRADE_MIN_VALUE <= value <= GRADE_MAX_VALUE:
+            errors.append(
+                {
+                    "row": index,
+                    "field": "value",
+                    "message": (
+                        f"la nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE} "
+                        f"(se recibio {value})"
+                    ),
+                }
+            )
+            continue
+
+        enrolment = queries.active_enrolment_in_section(section=section, student_code=student_code)
+        if enrolment is None:
+            errors.append(
+                {
+                    "row": index,
+                    "field": "student_code",
+                    "message": (
+                        f"el estudiante '{student_code}' no tiene matricula activa en la "
+                        f"seccion indicada"
+                    ),
+                }
+            )
+            continue
+
+        resolved.append((enrolment, value))
+
+    if errors:
+        record_event(
+            actor=actor,
+            action="evaluation.grades_bulk_rejected",
+            resource="Grade",
+            context={
+                "unit_id": str(evaluation_unit.public_id),
+                "subject_id": str(subject.public_id),
+                "section_id": str(section.public_id),
+                "row_count": len(rows),
+                "error_count": len(errors),
+            },
+        )
+        return BulkGradeResult(created=0, errors=errors)
+
+    with transaction.atomic():
+        for enrolment, value in resolved:
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=evaluation_unit,
+                teacher=teacher,
+                value=value,
+                actor=actor,
+            )
+
+    record_event(
+        actor=actor,
+        action="evaluation.grades_bulk_registered",
+        resource="Grade",
+        context={
+            "unit_id": str(evaluation_unit.public_id),
+            "subject_id": str(subject.public_id),
+            "section_id": str(section.public_id),
+            "created": len(resolved),
+        },
+    )
+    return BulkGradeResult(created=len(resolved), errors=[])

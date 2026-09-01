@@ -23,6 +23,7 @@ from apps.evaluation.models import EvaluationUnit, Grade, RecoveryGrade
 from apps.evaluation.services import (
     assess_recovery_eligibility,
     build_capture_progress_report,
+    bulk_register_unit_grades,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -1294,3 +1295,86 @@ class TestCaptureProgressIntegration:
         assert by_subject[pending_subject]["students_graded"] == 1
         assert by_subject[pending_subject]["teacher"] == teacher
         assert report["overall_progress_pct"] == round(4 / 6 * 100, 2)
+
+
+class TestBulkGradeUploadIntegration:
+    """
+    RF-CAL-004: a bulk upload resolves students through their enrolments
+    (enrollment-lifecycle) and writes Grade rows (evaluation) atomically -- one
+    bad row leaves the database untouched.
+    """
+
+    def _fixture(self, student_count=3):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolments = [
+            create_enrolment(
+                student=StudentFactory(),
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+            )
+            for _ in range(student_count)
+        ]
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today - timedelta(days=5),
+            ends_on=today + timedelta(days=25),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            starts_on=cycle.starts_on,
+        )
+        return unit, section, subject, teacher, enrolments
+
+    def test_valid_bulk_upload_writes_every_grade(self):
+        unit, section, subject, teacher, enrolments = self._fixture()
+        rows = [
+            {"student_code": e.student.student_code, "value": str(60 + i * 5)}
+            for i, e in enumerate(enrolments)
+        ]
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=rows,
+        )
+
+        assert result.created == 3
+        assert Grade.objects.filter(evaluation_unit=unit, subject=subject).count() == 3
+        for enrolment in enrolments:
+            assert Grade.objects.filter(
+                enrolment=enrolment, subject=subject, evaluation_unit=unit
+            ).exists()
+
+    def test_one_bad_row_rolls_back_the_whole_file(self):
+        unit, section, subject, teacher, enrolments = self._fixture()
+        rows = [
+            {"student_code": enrolments[0].student.student_code, "value": "70"},
+            {"student_code": enrolments[1].student.student_code, "value": "200"},
+            {"student_code": enrolments[2].student.student_code, "value": "80"},
+        ]
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=rows,
+        )
+
+        assert result.created == 0
+        assert [e["row"] for e in result.errors] == [2]
+        assert Grade.objects.filter(evaluation_unit=unit).count() == 0

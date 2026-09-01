@@ -35,6 +35,7 @@ from apps.evaluation.models import EvaluationUnit, Grade, RecoveryGrade
 from apps.evaluation.services import (
     assess_recovery_eligibility,
     build_capture_progress_report,
+    bulk_register_unit_grades,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -1794,3 +1795,132 @@ class TestCaptureProgressReport:
         assert report["window_open"] is False
         assert len(report["rows"]) == 2
         assert all(row["students_pending"] == 2 for row in report["rows"])
+
+
+class TestBulkRegisterUnitGrades:
+    """Tests for RF-CAL-004: Carga masiva desde archivo."""
+
+    def _setup(self, *, capture_window="open", student_count=2):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolments = [
+            create_enrolment(
+                student=StudentFactory(),
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+            )
+            for _ in range(student_count)
+        ]
+        today = timezone.localdate()
+        if capture_window == "open":
+            starts, ends = today - timedelta(days=5), today + timedelta(days=5)
+        else:
+            starts, ends = today - timedelta(days=30), today - timedelta(days=10)
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=starts,
+            ends_on=ends,
+            capture_starts_on=starts,
+            capture_ends_on=ends,
+        )
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        return unit, section, subject, teacher, enrolments
+
+    def test_valid_file_registers_all_rows(self):
+        """
+        Escenario 2: Archivo válido
+        WHEN el docente lo carga
+        THEN el sistema registra todas las notas AND informa la cantidad incorporada
+        """
+        unit, section, subject, teacher, enrolments = self._setup()
+        rows = [
+            {"student_code": enrolments[0].student.student_code, "value": "70"},
+            {"student_code": enrolments[1].student.student_code, "value": "85"},
+        ]
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=rows,
+        )
+
+        assert result.errors == []
+        assert result.created == 2
+        assert Grade.objects.count() == 2
+
+    def test_any_invalid_row_writes_nothing(self):
+        """
+        Escenario 1: Archivo con filas inválidas
+        WHEN el docente lo carga
+        THEN el sistema no guarda ninguna nota AND informa qué fila falló y por qué
+        """
+        unit, section, subject, teacher, enrolments = self._setup()
+        rows = [
+            {"student_code": enrolments[0].student.student_code, "value": "70"},
+            {"student_code": "STU-NOT-IN-SECTION", "value": "80"},
+        ]
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=rows,
+        )
+
+        assert result.created == 0
+        assert Grade.objects.count() == 0
+        assert [e["row"] for e in result.errors] == [2]
+        assert "seccion" in result.errors[0]["message"].lower()
+
+    def test_non_numeric_value_is_a_row_error(self):
+        unit, section, subject, teacher, enrolments = self._setup()
+        rows = [{"student_code": enrolments[0].student.student_code, "value": "abc"}]
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=rows,
+        )
+
+        assert result.created == 0
+        assert result.errors[0]["field"] == "value"
+        assert Grade.objects.count() == 0
+
+    def test_value_out_of_scale_is_a_row_error(self):
+        unit, section, subject, teacher, enrolments = self._setup()
+        rows = [{"student_code": enrolments[0].student.student_code, "value": "150"}]
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=rows,
+        )
+
+        assert result.created == 0
+        assert result.errors[0]["field"] == "value"
+
+    def test_closed_capture_window_raises_before_touching_rows(self):
+        unit, section, subject, teacher, enrolments = self._setup(capture_window="past")
+        rows = [{"student_code": enrolments[0].student.student_code, "value": "70"}]
+
+        with pytest.raises(DomainError):
+            bulk_register_unit_grades(
+                evaluation_unit=unit,
+                section=section,
+                subject=subject,
+                teacher=teacher,
+                rows=rows,
+            )
+
+        assert Grade.objects.count() == 0
