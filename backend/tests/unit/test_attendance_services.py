@@ -2558,6 +2558,8 @@ def test_revoking_a_credential_does_not_alter_past_attendance_events_or_day_stat
         ).items()
     }
     assert day_statuses_after == day_statuses_before
+
+
 # RF-CRE-004 — reposicion sin perdida de historial
 # --------------------------------------------------------------------------- #
 
