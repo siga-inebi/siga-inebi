@@ -2491,6 +2491,111 @@ def test_revoke_credential_twice_is_rejected_the_second_time():
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-005 — persistencia de los movimientos ante revocacion
+# --------------------------------------------------------------------------- #
+
+
+def test_revoking_a_credential_does_not_alter_past_attendance_events_or_day_status():
+    """
+    Escenario 1 (RF-CRE-005): GIVEN un estudiante con movimientos de
+    asistencia registrados durante la semana, WHEN se revoca su credencial
+    por extravio, THEN los movimientos previos permanecen sin cambios, AND
+    el estado diario derivado de esos movimientos tampoco cambia.
+
+    Nada nuevo que programar: ``AttendanceEvent`` no tiene relacion alguna
+    con ``StudentCredential`` (ni FK ni señal) y ``revoke_credential`` solo
+    muta la fila de la credencial, asi que esto ya se cumple por diseño,
+    igual que RF-CRE-004. Esta prueba deja esa garantia verificable.
+    """
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(starts_on=today - timedelta(days=30))
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    services.issue_credential(student=student)
+
+    event_dates = [today - timedelta(days=offset) for offset in (4, 3, 2, 1)]
+    events = [
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=timezone.make_aware(datetime.combine(event_date, time(7, 0))),
+        )
+        for event_date in event_dates
+    ]
+    events_before = {
+        event.pk: (event.event_date, event.movement_type, event.captured_at, event.is_active)
+        for event in events
+    }
+    day_statuses_before = {
+        key: (result.status if result else None, result.entry_event.pk if result else None)
+        for key, result in services.derive_day_statuses(
+            students=[student], shift=shift, event_dates=event_dates
+        ).items()
+    }
+
+    services.revoke_credential(student=student, reason="Extravío", actor=UserFactory())
+
+    events_after = {
+        event.pk: (event.event_date, event.movement_type, event.captured_at, event.is_active)
+        for event in AttendanceEvent.objects.filter(pk__in=events_before)
+    }
+    assert events_after == events_before
+    day_statuses_after = {
+        key: (result.status if result else None, result.entry_event.pk if result else None)
+        for key, result in services.derive_day_statuses(
+            students=[student], shift=shift, event_dates=event_dates
+        ).items()
+    }
+    assert day_statuses_after == day_statuses_before
+# RF-CRE-004 — reposicion sin perdida de historial
+# --------------------------------------------------------------------------- #
+
+
+def test_reissuing_after_revocation_generates_a_new_identifier_and_keeps_the_old_row():
+    """
+    Escenario 1 (RF-CRE-004): GIVEN un estudiante cuya credencial fue
+    revocada, WHEN un usuario autorizado emite la reposicion, THEN el
+    sistema genera un identificador opaco distinto del anterior, AND el
+    historial de credenciales del estudiante conserva la credencial
+    revocada.
+
+    Nada nuevo que programar: la restriccion unica de la base de datos
+    (``unique_active_student_credential``) solo exige una credencial
+    ACTIVA a la vez, no una por estudiante en total, asi que
+    ``issue_credential`` ya acepta emitir de nuevo apenas la anterior deja
+    de estar activa. Esta prueba cierra el requerimiento sobre ese
+    comportamiento existente (RF-CRE-001/003), no agrega logica nueva.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    original = services.issue_credential(student=student)
+    admin = UserFactory()
+    revoked = services.revoke_credential(student=student, reason="Extravio", actor=admin)
+
+    reissued = services.issue_credential(student=student)
+
+    assert reissued.opaque_identifier != original.opaque_identifier
+    assert reissued.status == StudentCredential.Status.ACTIVE
+
+    revoked.refresh_from_db()
+    assert revoked.status == StudentCredential.Status.REVOKED
+    assert revoked.revocation_reason == "Extravio"
+    assert revoked.revoked_by == admin
+    assert StudentCredential.objects.filter(student=student).count() == 2
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — resolucion de identificador
 # --------------------------------------------------------------------------- #
 
