@@ -26,6 +26,7 @@ from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     DayStatus,
     JornadaParameters,
     RecalculationReason,
@@ -44,6 +45,7 @@ from tests.factories.academic import (
 from tests.factories.attendance import (
     AttendanceAlertFactory,
     AttendanceEventFactory,
+    CaptureBatchFactory,
     ControlPointFactory,
     JornadaParametersFactory,
     ManualRegistrationReasonFactory,
@@ -2256,6 +2258,174 @@ def test_record_scan_batch_confirmation_has_no_grade_or_section_without_active_e
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-009 — lote de captura recuperable
+# --------------------------------------------------------------------------- #
+
+
+def test_open_capture_batch_creates_an_open_batch_for_the_operator():
+    operator = UserFactory()
+
+    batch = services.open_capture_batch(operator=operator)
+
+    assert batch.operator == operator
+    assert batch.status == CaptureBatch.Status.OPEN
+
+
+def test_open_capture_batch_is_idempotent():
+    operator = UserFactory()
+    first = services.open_capture_batch(operator=operator)
+
+    second = services.open_capture_batch(operator=operator)
+
+    assert second.pk == first.pk
+    assert CaptureBatch.objects.filter(operator=operator).count() == 1
+
+
+def test_recover_open_capture_batch_returns_none_when_nothing_is_open():
+    operator = UserFactory()
+
+    assert services.recover_open_capture_batch(operator=operator) is None
+
+
+def test_recover_open_capture_batch_returns_the_open_one():
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator)
+
+    assert services.recover_open_capture_batch(operator=operator) == batch
+
+
+def test_recovering_an_open_batch_returns_all_elements_with_original_capture_times():
+    """
+    Escenario 1 (RF-ASI-009): GIVEN un operador con un lote abierto que
+    contiene doce movimientos escaneados, WHEN la sesion se pierde y el
+    usuario se vuelve a autenticar, THEN el sistema presenta el lote
+    pendiente con los doce elementos, AND cada elemento conserva su hora de
+    captura original.
+    """
+    cycle = AcademicCycleFactory()
+    _student, _section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+    batch = services.open_capture_batch(operator=operator)
+
+    captured_times = [_at(cycle.starts_on, 7, minute) for minute in range(12)]
+    for index, captured_at in enumerate(captured_times):
+        services.record_scan_movement(
+            student=StudentFactory(),
+            shift=shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=captured_at,
+            client_event_id=f"batch-item-{index}",
+            operator=operator,
+            capture_batch=batch,
+        )
+
+    # El operador pierde la sesion y se vuelve a autenticar: recuperar es
+    # solo volver a leer lo que ya quedo guardado.
+    recovered = services.recover_open_capture_batch(operator=operator)
+
+    assert recovered.pk == batch.pk
+    recovered_events = list(recovered.events.all())
+    assert len(recovered_events) == 12
+    assert {event.captured_at for event in recovered_events} == set(captured_times)
+
+
+def test_record_scan_movement_links_the_event_to_the_capture_batch():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator)
+
+    result = services.record_scan_movement(
+        student=student,
+        shift=parameters.shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(parameters.effective_from, 7, 0),
+        client_event_id="linked-1",
+        operator=operator,
+        capture_batch=batch,
+    )
+
+    assert result.event.capture_batch_id == batch.pk
+
+
+def test_record_scan_movement_rejects_a_capture_batch_that_belongs_to_another_operator():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    operator = UserFactory()
+    someone_elses_batch = CaptureBatchFactory()
+
+    with pytest.raises(DomainError, match="no pertenece a este operador"):
+        services.record_scan_movement(
+            student=student,
+            shift=parameters.shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            client_event_id="wrong-operator-1",
+            operator=operator,
+            capture_batch=someone_elses_batch,
+        )
+
+
+def test_record_scan_movement_rejects_a_confirmed_capture_batch():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator, status=CaptureBatch.Status.CONFIRMED)
+
+    with pytest.raises(DomainError, match="ya no esta abierto"):
+        services.record_scan_movement(
+            student=student,
+            shift=parameters.shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            client_event_id="confirmed-batch-1",
+            operator=operator,
+            capture_batch=batch,
+        )
+
+
+def test_confirm_capture_batch_closes_it_and_audits():
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator)
+
+    confirmed = services.confirm_capture_batch(capture_batch=batch, actor=operator)
+
+    confirmed.refresh_from_db()
+    assert confirmed.status == CaptureBatch.Status.CONFIRMED
+    assert confirmed.confirmed_at is not None
+    event = AuditEvent.objects.get(
+        action="attendance.capture_batch.confirmed",
+        resource_identifier=str(batch.public_id),
+    )
+    assert event.actor_id == operator.id
+
+
+def test_confirm_capture_batch_rejects_an_already_confirmed_batch():
+    batch = CaptureBatchFactory(status=CaptureBatch.Status.CONFIRMED)
+
+    with pytest.raises(DomainError, match="ya no esta abierto"):
+        services.confirm_capture_batch(capture_batch=batch, actor=batch.operator)
+
+
+def test_confirming_a_batch_removes_it_from_recovery():
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator)
+
+    services.confirm_capture_batch(capture_batch=batch, actor=operator)
+
+    assert services.recover_open_capture_batch(operator=operator) is None
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-001 — emision de credencial con identificador opaco
 # --------------------------------------------------------------------------- #
 
@@ -2558,6 +2728,9 @@ def test_revoking_a_credential_does_not_alter_past_attendance_events_or_day_stat
         ).items()
     }
     assert day_statuses_after == day_statuses_before
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-004 — reposicion sin perdida de historial
 # --------------------------------------------------------------------------- #
 

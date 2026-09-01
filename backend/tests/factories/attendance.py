@@ -6,12 +6,14 @@ from django.utils import timezone
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     ControlPoint,
     JornadaParameters,
     ManualRegistrationReason,
     StudentCredential,
 )
 from tests.factories.academic import AcademicCycleFactory, CampusFactory, ShiftFactory
+from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
 
@@ -82,3 +84,11 @@ class StudentCredentialFactory(factory.django.DjangoModelFactory):
     opaque_identifier = factory.Sequence(lambda n: f"opaque-token-{n}")
     status = StudentCredential.Status.ACTIVE
     issued_at = factory.LazyFunction(timezone.now)
+
+
+class CaptureBatchFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = CaptureBatch
+
+    operator = factory.SubFactory(UserFactory)
+    status = CaptureBatch.Status.OPEN

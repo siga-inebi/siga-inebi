@@ -89,6 +89,40 @@ class ManualRegistrationReason(TimeStampedModel):
         return self.name
 
 
+class CaptureBatch(TimeStampedModel):
+    """
+    RF-ASI-009: an operator's in-progress group of scanned movements, kept
+    open across sessions and devices so nothing already captured is lost if
+    the operator's session drops before they confirm. Each movement is
+    already a real, immutable ``AttendanceEvent`` the instant it's scanned
+    (RF-ASI-002) -- this row only tracks whether the group is still being
+    accumulated or has been confirmed closed, so recovery is just reading
+    rows that were already durably saved, from any device.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Abierto"
+        CONFIRMED = "confirmed", "Confirmado"
+
+    operator = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="capture_batches"
+    )
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["operator"],
+                condition=Q(status="open"),
+                name="unique_open_capture_batch_per_operator",
+            )
+        ]
+
+    def __str__(self):
+        return f"Lote de {self.operator} ({self.status})"
+
+
 class AttendanceEventQuerySet(models.QuerySet):
     """
     ``QuerySet.delete()``/``update()`` run a direct SQL statement and never
@@ -168,6 +202,13 @@ class AttendanceEvent(TimeStampedModel):
     )
     client_event_id = models.CharField(max_length=100, blank=True, default="")
     batch_id = models.CharField(max_length=100, blank=True, default="")
+    capture_batch = models.ForeignKey(
+        CaptureBatch,
+        on_delete=models.PROTECT,
+        related_name="events",
+        null=True,
+        blank=True,
+    )
 
     objects = AttendanceEventQuerySet.as_manager()
 

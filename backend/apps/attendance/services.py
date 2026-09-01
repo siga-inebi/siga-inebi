@@ -26,6 +26,7 @@ from apps.academics.models import AcademicCycle
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     DayStatus,
     JornadaParameters,
     RecalculationReason,
@@ -321,6 +322,7 @@ def record_scan_movement(
     client_event_id,
     operator,
     batch_id="",
+    capture_batch=None,
     transmission=AttendanceEvent.Transmission.INDIVIDUAL,
     actor=None,
 ):
@@ -338,6 +340,9 @@ def record_scan_movement(
       window, evaluated on student/shift/date/movement_type alone --
       independent of operator, device or control point. A suppressed
       duplicate is recorded as an auditable rejection, not as a movement.
+    - RF-ASI-009: ``capture_batch``, when given, must be this same
+      operator's own open batch -- checked here too, not only by the view,
+      same defense-in-depth reason as the operator guard above.
     """
     if operator is None:
         raise DomainError("Un movimiento por escaneo debe registrarlo un operador autenticado.")
@@ -345,6 +350,12 @@ def record_scan_movement(
     _require_active(student, "el estudiante")
     _require_active(shift, "la jornada")
     _require_active(control_point, "el punto de control")
+
+    if capture_batch is not None:
+        if capture_batch.operator_id != operator.pk:
+            raise DomainError("El lote de captura no pertenece a este operador.")
+        if capture_batch.status != CaptureBatch.Status.OPEN:
+            raise DomainError(f"El lote '{capture_batch}' ya no esta abierto.")
 
     if client_event_id:
         existing = AttendanceEvent.objects.filter(client_event_id=client_event_id).first()
@@ -427,6 +438,7 @@ def record_scan_movement(
             operator=operator,
             client_event_id=client_event_id,
             batch_id=batch_id,
+            capture_batch=capture_batch,
         )
 
     record_event(
@@ -478,6 +490,55 @@ def record_scan_batch(*, items, operator, actor=None):
                 RejectedScanItem(client_event_id=item.get("client_event_id", ""), reason=str(exc))
             )
     return results
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-009 — lote de captura recuperable
+# --------------------------------------------------------------------------- #
+
+
+def open_capture_batch(*, operator):
+    """
+    RF-ASI-009: start, or resume, the operator's accumulating batch.
+
+    Idempotent on purpose: a client that isn't sure whether an earlier
+    "open" call reached the server before the connection dropped can call
+    this again safely and get back the same batch instead of erroring or
+    creating a second one -- ``unique_open_capture_batch_per_operator``
+    would reject a second open row for the same operator regardless.
+    """
+    existing = recover_open_capture_batch(operator=operator)
+    if existing is not None:
+        return existing
+    return CaptureBatch.objects.create(operator=operator, status=CaptureBatch.Status.OPEN)
+
+
+def recover_open_capture_batch(*, operator):
+    """RF-ASI-009: the operator's pending batch, if any, ready to resume."""
+    return CaptureBatch.objects.filter(operator=operator, status=CaptureBatch.Status.OPEN).first()
+
+
+@transaction.atomic
+def confirm_capture_batch(*, capture_batch, actor):
+    """
+    RF-ASI-009: close the batch in a single operation. Every movement in it
+    is already a saved, immutable ``AttendanceEvent`` (RF-ASI-002) -- this
+    only stops the batch from being offered back for recovery.
+    """
+    if capture_batch.status != CaptureBatch.Status.OPEN:
+        raise DomainError(f"El lote '{capture_batch}' ya no esta abierto.")
+
+    capture_batch.status = CaptureBatch.Status.CONFIRMED
+    capture_batch.confirmed_at = timezone.now()
+    capture_batch.save(update_fields=["status", "confirmed_at", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.capture_batch.confirmed",
+        resource="CaptureBatch",
+        resource_identifier=str(capture_batch.public_id),
+        context={"item_count": capture_batch.events.count()},
+    )
+    return capture_batch
 
 
 def _flag_declared_exit_without_entry(*, event, actor):

@@ -32,6 +32,8 @@ from .serializers import (
     AttendancePercentageQuerySerializer,
     AttendancePercentageResultSerializer,
     AttendancePresenceQuerySerializer,
+    CaptureBatchRecoverySerializer,
+    CaptureBatchSerializer,
     ControlPointSerializer,
     CredentialPrintContentQuerySerializer,
     CredentialPrintContentSerializer,
@@ -473,7 +475,9 @@ class ManualRegistrationReasonListView(GenericAPIView):
             "propio `client_event_id`; reenviar el mismo id es un no-op exitoso "
             "(RF-ASI-010). Un elemento del mismo tipo/estudiante/jornada dentro de "
             "la ventana de supresion configurada se rechaza sin crear movimiento "
-            "(RF-ASI-004). Un elemento invalido no aborta el resto del lote."
+            "(RF-ASI-004). Un elemento invalido no aborta el resto del lote. "
+            "`capture_batch_id` opcional enlaza cada elemento a un lote de "
+            "captura recuperable (RF-ASI-009)."
         ),
         tags=TAGS,
         request=ScanCaptureRequestSerializer,
@@ -494,6 +498,11 @@ class AttendanceScanView(GenericAPIView):
         batch_id = payload["batch_id"]
         raw_items = payload["items"]
         transmission = queries.scan_transmission(batch_id=batch_id, item_count=len(raw_items))
+        capture_batch = None
+        if "capture_batch_id" in payload:
+            capture_batch = queries.capture_batch_for_payload(
+                payload["capture_batch_id"], operator=request.user
+            )
 
         resolved = []
         results_by_index = {}
@@ -531,6 +540,7 @@ class AttendanceScanView(GenericAPIView):
                         "captured_at": raw_item["captured_at"],
                         "client_event_id": raw_item["client_event_id"],
                         "batch_id": batch_id,
+                        "capture_batch": capture_batch,
                         "transmission": transmission,
                     },
                 )
@@ -554,6 +564,86 @@ class AttendanceScanView(GenericAPIView):
             for result in (results_by_index[i] for i in range(len(raw_items)))
         ]
         return Response(ScanCaptureItemResultSerializer(data, many=True).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Abrir (o retomar) el lote de captura",
+        description=(
+            "RF-ASI-009: inicia el lote acumulable del operador autenticado. "
+            "Idempotente: si ya tiene uno abierto, devuelve ese mismo lote en "
+            "lugar de crear otro."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: CaptureBatchSerializer},
+    ),
+)
+class CaptureBatchOpenView(GenericAPIView):
+    """RF-ASI-009 contract: open or resume the operator's capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchSerializer
+
+    def post(self, request):
+        _require_permission(request, "attendance_scan")
+        capture_batch = services.open_capture_batch(operator=request.user)
+        return Response(CaptureBatchSerializer(capture_batch).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Recuperar el lote de captura pendiente",
+        description=(
+            "RF-ASI-009: el lote abierto del operador autenticado, si existe, "
+            "con cada movimiento ya guardado y su hora de captura original -- "
+            "recuperable tras perder la sesion, incluso desde otro dispositivo."
+        ),
+        tags=TAGS,
+        responses={200: CaptureBatchRecoverySerializer},
+    ),
+)
+class CaptureBatchCurrentView(GenericAPIView):
+    """RF-ASI-009 contract: recover the operator's pending capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchRecoverySerializer
+
+    def get(self, request):
+        _require_permission(request, "attendance_scan")
+        capture_batch = services.recover_open_capture_batch(operator=request.user)
+        events = capture_batch.events.all() if capture_batch is not None else []
+        return Response(
+            CaptureBatchRecoverySerializer({"capture_batch": capture_batch, "events": events}).data
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Confirmar el lote de captura",
+        description=(
+            "RF-ASI-009: cierra el lote en una sola operacion. Los movimientos "
+            "ya estaban guardados desde que se escanearon; esto solo deja de "
+            "ofrecerlo para recuperacion."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: CaptureBatchSerializer},
+    ),
+)
+class CaptureBatchConfirmView(GenericAPIView):
+    """RF-ASI-009 contract: confirm (close) the operator's capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchSerializer
+
+    def post(self, request, public_id):
+        _require_permission(request, "attendance_scan")
+        capture_batch = queries.capture_batch_for_payload(public_id, operator=request.user)
+        capture_batch = services.confirm_capture_batch(
+            capture_batch=capture_batch, actor=request.user
+        )
+        return Response(CaptureBatchSerializer(capture_batch).data)
 
 
 CREDENTIAL_TAGS = ["attendance: credencial"]

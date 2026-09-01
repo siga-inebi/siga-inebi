@@ -23,13 +23,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, StudentCredential
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, CaptureBatch, StudentCredential
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
 from tests.factories.attendance import (
     AttendanceEventFactory,
+    CaptureBatchFactory,
     ControlPointFactory,
     JornadaParametersFactory,
     ManualRegistrationReasonFactory,
@@ -936,6 +937,133 @@ def test_control_points_list_returns_catalogue(auth_client):
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-009 — lote de captura recuperable
+# --------------------------------------------------------------------------- #
+
+
+def test_open_capture_batch_endpoint_requires_authentication(client):
+    response = client.post(reverse("attendance-capture-batch-open"))
+
+    assert response.status_code == 403
+
+
+def test_open_capture_batch_endpoint_requires_permission(auth_client):
+    response = auth_client.post(reverse("attendance-capture-batch-open"))
+
+    assert response.status_code == 403
+
+
+def test_open_capture_batch_endpoint_is_idempotent(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+
+    first = auth_client.post(reverse("attendance-capture-batch-open"))
+    second = auth_client.post(reverse("attendance-capture-batch-open"))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["public_id"] == second.json()["public_id"]
+
+
+def test_current_capture_batch_endpoint_returns_none_when_nothing_is_open(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+
+    response = auth_client.get(reverse("attendance-capture-batch-current"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["capture_batch"] is None
+    assert body["events"] == []
+
+
+def test_current_capture_batch_endpoint_recovers_pending_batch_with_original_capture_times(
+    auth_client,
+):
+    """
+    Escenario 1 (RF-ASI-009): GIVEN un operador con un lote abierto que
+    contiene doce movimientos escaneados, WHEN la sesion se pierde y el
+    usuario se vuelve a autenticar, THEN el sistema presenta el lote
+    pendiente con los doce elementos, AND cada elemento conserva su hora de
+    captura original.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+
+    open_response = auth_client.post(reverse("attendance-capture-batch-open"))
+    capture_batch_id = open_response.json()["public_id"]
+
+    captured_times = []
+    for index in range(12):
+        student = StudentFactory()
+        _enrol(student, parameters.academic_cycle)
+        captured_at = timezone.make_aware(
+            datetime.combine(parameters.effective_from, time(7, index))
+        )
+        captured_times.append(captured_at)
+        item = _scan_item(
+            student, parameters.shift, control_point, f"batch-item-{index}", captured_at
+        )
+        response = auth_client.post(
+            reverse("attendance-scan"),
+            {"capture_batch_id": capture_batch_id, "items": [item]},
+            content_type="application/json",
+        )
+        assert response.json()[0]["outcome"] == "created"
+
+    response = auth_client.get(reverse("attendance-capture-batch-current"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["capture_batch"]["public_id"] == capture_batch_id
+    assert len(body["events"]) == 12
+    recovered_times = {datetime.fromisoformat(event["captured_at"]) for event in body["events"]}
+    assert recovered_times == set(captured_times)
+
+
+def test_confirm_capture_batch_endpoint_closes_it(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    batch = CaptureBatchFactory(operator=auth_client.user)
+
+    response = auth_client.post(reverse("attendance-capture-batch-confirm", args=[batch.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == CaptureBatch.Status.CONFIRMED
+
+
+def test_confirm_capture_batch_endpoint_rejects_a_batch_belonging_to_another_operator(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    someone_elses_batch = CaptureBatchFactory()
+
+    response = auth_client.post(
+        reverse("attendance-capture-batch-confirm", args=[someone_elses_batch.public_id])
+    )
+
+    assert response.status_code == 400
+
+
+def test_scan_endpoint_links_the_created_event_to_the_capture_batch(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    _enrol(student, parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    batch = CaptureBatchFactory(operator=auth_client.user)
+    item = _scan_item(student, parameters.shift, control_point, "linked-item-1", timezone.now())
+
+    response = auth_client.post(
+        reverse("attendance-scan"),
+        {"capture_batch_id": str(batch.public_id), "items": [item]},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["outcome"] == "created"
+    assert batch.events.count() == 1
+
+
+# --------------------------------------------------------------------------- #
 # RF-ASI-012 — registro manual autorizado
 # --------------------------------------------------------------------------- #
 
@@ -1251,6 +1379,9 @@ def test_revoking_a_credential_does_not_alter_the_students_day_status(auth_clien
 
     after = auth_client.get(url).json()
     assert after == before
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-004 — reposicion sin perdida de historial
 # --------------------------------------------------------------------------- #
 
