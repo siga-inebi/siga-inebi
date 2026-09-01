@@ -213,6 +213,18 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - La respuesta es paginada y se ordena desde la vigencia más reciente hacia la más antigua.
   Los estados y fechas se conservan para mantener la trazabilidad histórica.
 
+## Matricula masiva del ciclo siguiente
+
+- `POST /api/v1/enrolments/re-enrolments/bulk/` recibe `effective_on`, `preview` y una lista
+  explicita de pares `source_enrolment_id` / `target_section_id`.
+- `preview=true` aplica las mismas validaciones sin persistir. La confirmacion procesa cada
+  elemento de forma independiente y devuelve exito o error por estudiante.
+- La seccion destino debe pertenecer al ano inmediatamente siguiente y a la misma institucion.
+  El endpoint no decide promocion ni repitencia.
+- Repetir una confirmacion identica devuelve la matricula existente y no crea duplicados.
+- Requiere `enrollment_create` y alcance efectivo sobre cada estudiante. El resumen del lote
+  queda auditado.
+
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.

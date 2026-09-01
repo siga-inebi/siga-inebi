@@ -187,6 +187,27 @@ class ReenrolmentCreateSerializer(serializers.Serializer):
     effective_on = serializers.DateField(help_text="Fecha de inicio de la reinscripción.")
 
 
+class BulkReenrolmentItemSerializer(serializers.Serializer):
+    source_enrolment_id = serializers.UUIDField(
+        help_text="Matricula seleccionada del ciclo anterior."
+    )
+    target_section_id = serializers.UUIDField(help_text="Seccion elegida del ciclo siguiente.")
+
+
+class BulkReenrolmentCreateSerializer(serializers.Serializer):
+    preview = serializers.BooleanField(default=True)
+    effective_on = serializers.DateField(help_text="Fecha de inicio de las nuevas matriculas.")
+    items = BulkReenrolmentItemSerializer(many=True, allow_empty=False)
+
+    def validate_items(self, value):
+        source_ids = [item["source_enrolment_id"] for item in value]
+        if len(source_ids) != len(set(source_ids)):
+            raise serializers.ValidationError(
+                "Una matricula de origen no puede repetirse en el lote."
+            )
+        return value
+
+
 class SectionChangeCreateSerializer(serializers.Serializer):
     new_section_id = serializers.UUIDField(help_text="Public ID de la seccion destino.")
     effective_on = serializers.DateField(help_text="Fecha efectiva del cambio.")

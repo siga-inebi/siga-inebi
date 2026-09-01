@@ -13,6 +13,7 @@ from apps.enrolments.models import (
 from apps.enrolments.services import (
     active_enrolments,
     annul_student_movement,
+    bulk_reenrol_students,
     change_section,
     create_enrolment,
     enrolment_history,
@@ -28,6 +29,43 @@ from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
+
+
+def test_bulk_reenrolment_preview_does_not_write_and_reports_each_item():
+    source_section = SectionFactory(academic_cycle=AcademicCycleFactory(year=2026, status="closed"))
+    target_cycle = AcademicCycleFactory(
+        institution=source_section.academic_cycle.institution,
+        year=2027,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+    )
+    target_section = SectionFactory(academic_cycle=target_cycle)
+    student = StudentFactory()
+    source = Enrolment.objects.create(
+        student=student,
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 1, 15),
+    )
+    actor = UserFactory()
+    actor.has_scoped_permission = lambda *args, **kwargs: True
+
+    result = bulk_reenrol_students(
+        items=[
+            {
+                "source_enrolment_id": source.public_id,
+                "target_section_id": target_section.public_id,
+            }
+        ],
+        effective_on=date(2027, 1, 15),
+        actor=actor,
+        preview=True,
+    )
+
+    assert result["succeeded"] == 1
+    assert result["results"][0]["status"] == "ready"
+    assert not Enrolment.objects.filter(student=student, academic_cycle=target_cycle).exists()
 
 
 def _movement_enrolments():

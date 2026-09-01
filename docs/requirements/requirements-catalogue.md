@@ -216,7 +216,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-MOV-004 | Retiro del estudiante | Debe | enrollment-lifecycle | Implemented | #236 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Retiro atomico con causa y fecha, estados withdrawn, movimiento inmutable y exclusion de listas activas |
 | RF-MOV-005 | Revocacion de la credencial al cerrar la permanencia | Debe | attendance-capture | Implemented | #237 | backend/tests/{integration/test_enrolments.py,permissions/test_guardian_derived_scope.py} | Evento sincronico revoca credencial; estudiante pierde permisos efectivos y encargado solo alcance del retirado |
 | RF-MOV-006 | Promocion y repitencia | Debe | enrollment-lifecycle | Not implemented | #238 | TBD | Cruza resultados |
-| RF-MOV-007 | Matricula masiva del ciclo siguiente | Deberia | enrollment-lifecycle | Not implemented | #239 | TBD | Posterior |
+| RF-MOV-007 | Matricula masiva del ciclo siguiente | Deberia | enrollment-lifecycle | Implemented | #239 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Seleccion explicita, vista previa, resultado parcial, idempotencia, permiso y alcance; no decide promocion ni repitencia |
 | RF-MOV-008 | Correccion de movimientos registrados por error | Deberia | enrollment-lifecycle | Implemented | #240 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Anulacion aditiva y auditable revierte retiro y cambio de seccion |
 
 ## Non-functional Requirements

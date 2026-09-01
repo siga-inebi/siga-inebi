@@ -7,6 +7,7 @@ from apps.common.exceptions import AuthorizationError
 from apps.enrolments import queries, services
 from apps.enrolments.api.serializers import (
     ActiveEnrolmentQuerySerializer,
+    BulkReenrolmentCreateSerializer,
     EnrolmentCreateSerializer,
     EnrolmentDocumentRequirementCreateSerializer,
     EnrolmentDocumentRequirementSerializer,
@@ -266,6 +267,29 @@ class ReenrolmentCreateView(GenericAPIView):
             actor=request.user,
         )
         return Response(MatriculationSerializer(enrolment).data, status=status.HTTP_201_CREATED)
+
+
+class BulkReenrolmentCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = BulkReenrolmentCreateSerializer
+
+    @extend_schema(
+        summary="Previsualizar o ejecutar matricula masiva del ciclo siguiente",
+        description=(
+            "Procesa solo las matriculas seleccionadas y su seccion destino. "
+            "Cada fila es independiente y repetir una solicitud confirmada no duplica registros."
+        ),
+        request=BulkReenrolmentCreateSerializer,
+        responses={200: dict},
+        tags=["enrolments"],
+    )
+    def post(self, request):
+        if not request.user.has_atomic_permission("enrollment_create"):
+            raise AuthorizationError("Actor lacks the required permission.")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = services.bulk_reenrol_students(actor=request.user, **serializer.validated_data)
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class SectionChangeCreateView(GenericAPIView):

@@ -13,7 +13,12 @@ from apps.enrolments.services import (
     withdraw_student,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
-from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+)
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
@@ -22,6 +27,52 @@ pytestmark = [pytest.mark.api, pytest.mark.django_db]
 def _grant_enrolment_creation(user):
     permission = PermissionFactory(codename="enrollment_create")
     return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+
+
+def test_bulk_next_cycle_enrolment_requires_permission_scope_and_is_idempotent(auth_client):
+    source_cycle = AcademicCycleFactory(year=2026, status="closed")
+    source_section = SectionFactory(academic_cycle=source_cycle)
+    target_cycle = AcademicCycleFactory(
+        institution=source_cycle.institution,
+        year=2027,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+    )
+    target_section = SectionFactory(academic_cycle=target_cycle)
+    student = StudentFactory()
+    source = Enrolment.objects.create(
+        student=student,
+        academic_cycle=source_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 1, 15),
+    )
+    payload = {
+        "preview": False,
+        "effective_on": "2027-01-15",
+        "items": [
+            {
+                "source_enrolment_id": str(source.public_id),
+                "target_section_id": str(target_section.public_id),
+            }
+        ],
+    }
+    url = reverse("bulk-reenrolment-create")
+    assert auth_client.post(url, payload, content_type="application/json").status_code == 403
+
+    assignment = _grant_enrolment_creation(auth_client.user)
+    denied = auth_client.post(url, payload, content_type="application/json")
+    assert denied.status_code == 200
+    assert denied.json()["failed"] == 1
+
+    ScopeGrantFactory(assignment=assignment, institution=source_cycle.institution)
+    created = auth_client.post(url, payload, content_type="application/json")
+    repeated = auth_client.post(url, payload, content_type="application/json")
+
+    assert created.status_code == repeated.status_code == 200
+    assert created.json()["results"][0]["status"] == "created"
+    assert repeated.json()["results"][0]["status"] == "existing"
+    assert Enrolment.objects.filter(student=student, academic_cycle=target_cycle).count() == 1
 
 
 def _payload(section, student):
