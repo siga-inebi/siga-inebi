@@ -4,7 +4,12 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.academics.services import create_teaching_assignment, reassign_teaching_assignment
+from apps.academics.models import TeachingAssignment
+from apps.academics.services import (
+    create_teaching_assignment,
+    publish_class_schedule,
+    reassign_teaching_assignment,
+)
 from apps.audit.models import AuditEvent
 from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
@@ -14,6 +19,7 @@ from apps.identity.services import (
     assign_role,
     create_account,
     disable_account,
+    my_weekly_schedule,
     protect_system_role,
     require_all_permissions,
 )
@@ -25,6 +31,7 @@ from apps.students.services import (
 )
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassSessionFactory,
     InstitutionFactory,
     SectionFactory,
     SubjectFactory,
@@ -858,3 +865,76 @@ def test_rf_asi_006_support_role_without_declared_close_permission_is_denied_and
         )
 
     assert AuditEvent.objects.filter(action="attendance.event.capture_denied").exists()
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_my_weekly_schedule_isolates_one_teachers_sessions_from_another():
+    """
+    RF-HOR-010: dos docentes con sesiones en la misma seccion, cada uno solo
+    ve la suya -- el alcance no se resuelve por seccion, se resuelve por la
+    combinacion exacta (ciclo, seccion, subarea) de la asignacion vigente.
+    """
+    section = SectionFactory()
+    publish_class_schedule(academic_cycle=section.academic_cycle)
+    subject_a = SubjectFactory(institution=section.offering.institution)
+    subject_b = SubjectFactory(institution=section.offering.institution)
+    session_a = ClassSessionFactory(section=section, subject=subject_a)
+    session_b = ClassSessionFactory(section=section, subject=subject_b)
+
+    teacher_a = TeacherFactory()
+    teacher_b = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject_a,
+        teacher=teacher_a.person,
+        starts_on=section.academic_cycle.starts_on,
+    )
+    TeachingAssignment.objects.create(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject_b,
+        teacher=teacher_b.person,
+        starts_on=section.academic_cycle.starts_on,
+    )
+    user_a = UserFactory(person=teacher_a.person)
+    user_b = UserFactory(person=teacher_b.person)
+
+    assert list(my_weekly_schedule(actor=user_a)) == [session_a]
+    assert list(my_weekly_schedule(actor=user_b)) == [session_b]
+
+
+@pytest.mark.permissions
+@pytest.mark.django_db
+def test_my_weekly_schedule_isolates_one_guardians_wards_from_another():
+    """Dos encargados con un pupilo cada uno en la misma seccion, sin filtracion cruzada."""
+    section = SectionFactory()
+    publish_class_schedule(academic_cycle=section.academic_cycle)
+    session = ClassSessionFactory(section=section)
+
+    student_a = StudentFactory()
+    student_b = StudentFactory()
+    create_enrolment(
+        student=student_a,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    create_enrolment(
+        student=student_b,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    guardian_a = GuardianFactory()
+    guardian_b = GuardianFactory()
+    StudentGuardianRelationFactory(student=student_a, guardian=guardian_a)
+    StudentGuardianRelationFactory(student=student_b, guardian=guardian_b)
+    user_a = UserFactory(person=guardian_a.person)
+    # Vinculado como encargado (pasa has_own_schedule_scope), pero sin pupilos
+    # propios en esta seccion: la lectura tiene exito, el resultado es vacio.
+    unrelated_guardian = UserFactory(person=GuardianFactory().person)
+
+    assert list(my_weekly_schedule(actor=user_a)) == [session]
+    assert list(my_weekly_schedule(actor=unrelated_guardian)) == []

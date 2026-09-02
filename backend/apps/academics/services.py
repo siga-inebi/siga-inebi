@@ -30,6 +30,9 @@ from apps.academics.cycle_policies import (
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    ClassScheduleBlock,
+    ClassSchedulePublication,
+    ClassSession,
     CurriculumPlan,
     Grade,
     GradeOffering,
@@ -652,6 +655,111 @@ def deactivate_shift(*, shift, actor=None):
     shift.save(update_fields=["is_active", "updated_at"])
     _audit(actor, "academics.shift.deactivated", shift, code=shift.code)
     return shift
+
+
+# --------------------------------------------------------------------------- #
+# schedule blocks ("rejilla de bloques") -- RF-HOR-001
+# --------------------------------------------------------------------------- #
+
+
+def _schedule_block_conflicts(number):
+    return {
+        "unique_schedule_block_number_per_shift": (
+            f"Schedule block number {number} already exists for this shift."
+        ),
+    }
+
+
+def _validate_block_times(starts_on, ends_on):
+    if starts_on is None or ends_on is None:
+        raise DomainError("Se requiere hora de inicio y hora de fin del bloque.")
+    if starts_on >= ends_on:
+        raise DomainError("La hora de inicio del bloque debe ser anterior a la hora de fin.")
+
+
+def _require_no_schedule_block_overlap(*, shift, starts_on, ends_on, exclude_pk=None):
+    """
+    No native PostgreSQL range type exists for ``time`` (see the model
+    docstring), so this invariant cannot be an ``ExclusionConstraint`` like
+    its date-range counterparts. ``select_for_update`` locks the shift's
+    existing blocks for the rest of the transaction so two concurrent
+    requests cannot both pass the check.
+    """
+    existing = ClassScheduleBlock.objects.select_for_update().filter(shift=shift)
+    if exclude_pk is not None:
+        existing = existing.exclude(pk=exclude_pk)
+    for block in existing:
+        if starts_on < block.ends_on and block.starts_on < ends_on:
+            raise DomainError(
+                f"El bloque se solapa con '{block.name}' ({block.starts_on}-{block.ends_on})."
+            )
+
+
+def create_class_schedule_block(*, shift, number, name, starts_on, ends_on, actor=None):
+    """
+    Register a period block in a shift's schedule grid (RF-HOR-001).
+
+    Rules:
+    - Shift must be active.
+    - starts_on must be strictly before ends_on.
+    - Block number is unique within the shift.
+    - Blocks within the same shift cannot overlap in time.
+    """
+    _require_active(shift, "la jornada")
+    name = _clean_name(name)
+    _validate_block_times(starts_on, ends_on)
+
+    with unique_violation_as(_schedule_block_conflicts(number)):
+        _require_no_schedule_block_overlap(shift=shift, starts_on=starts_on, ends_on=ends_on)
+        block = ClassScheduleBlock.objects.create(
+            shift=shift, number=number, name=name, starts_on=starts_on, ends_on=ends_on
+        )
+
+    _audit(
+        actor,
+        "academics.schedule_block.created",
+        block,
+        shift_id=shift.pk,
+        number=number,
+        starts_on=str(starts_on),
+        ends_on=str(ends_on),
+    )
+    return block
+
+
+def update_class_schedule_block(*, block, name=None, starts_on=None, ends_on=None, actor=None):
+    """Rename and/or retime a schedule block. Number and shift are immutable."""
+    new_starts_on = block.starts_on if starts_on is None else starts_on
+    new_ends_on = block.ends_on if ends_on is None else ends_on
+    if starts_on is not None or ends_on is not None:
+        _validate_block_times(new_starts_on, new_ends_on)
+        with transaction.atomic():
+            _require_no_schedule_block_overlap(
+                shift=block.shift,
+                starts_on=new_starts_on,
+                ends_on=new_ends_on,
+                exclude_pk=block.pk,
+            )
+
+    changes = {}
+    if name is not None:
+        changes["name"] = _clean_name(name)
+    if starts_on is not None:
+        changes["starts_on"] = new_starts_on
+    if ends_on is not None:
+        changes["ends_on"] = new_ends_on
+    if not changes:
+        return block
+    return _changed(block, actor, "academics.schedule_block.updated", **changes)
+
+
+def deactivate_class_schedule_block(*, block, actor=None):
+    if not block.is_active:
+        return block
+    block.is_active = False
+    block.save(update_fields=["is_active", "updated_at"])
+    _audit(actor, "academics.schedule_block.deactivated", block, shift_id=block.shift_id)
+    return block
 
 
 # --------------------------------------------------------------------------- #
@@ -1441,3 +1549,138 @@ def reassign_teaching_assignment(*, assignment, teacher, ends_on, actor=None):
         starts_on=new_starts_on.isoformat(),
     )
     return successor
+
+
+# --------------------------------------------------------------------------- #
+# class sessions ("sesiones de clase") -- RF-HOR-003
+# --------------------------------------------------------------------------- #
+
+
+def _class_session_conflicts():
+    return {
+        "unique_class_session_registration": (
+            "Esta sesion ya esta registrada para esa seccion, subarea, dia y bloque."
+        ),
+    }
+
+
+def create_class_session(
+    *, academic_cycle, section, subject, schedule_block, day_of_week, actor=None
+):
+    """
+    Schedule a class session (RF-HOR-003): a subject taught to a section on a
+    day of the week, in a block of the schedule grid.
+
+    Rules:
+    - Section must belong to the academic cycle.
+    - Subject must belong to the cycle's institution.
+    - The block must belong to the same shift as the section (a session
+      cannot borrow a block from another jornada).
+    - The exact same registration twice is rejected (unique constraint).
+    - A section cannot attend two different sessions at once: an active
+      session with a different subject already occupying the same
+      (section, day_of_week, schedule_block) is a conflict (RF-HOR-005,
+      #198). The classroom half of that requirement is out of scope here --
+      apps.academics has no classroom concept yet (blocked on RF-AUL-001,
+      #99) -- and the issue stays open until it does.
+    """
+    require_cycle_academic_writes(cycle=academic_cycle, operation="class_session.create")
+
+    if section.offering.academic_cycle_id != academic_cycle.id:
+        raise DomainError("La seccion debe pertenecer al ciclo escolar.")
+    if subject.institution_id != academic_cycle.institution_id:
+        raise DomainError("El curso debe pertenecer a la institucion del ciclo escolar.")
+    if schedule_block.shift_id != section.offering.shift_id:
+        raise DomainError("El bloque de horario debe pertenecer a la misma jornada que la seccion.")
+    if (
+        ClassSession.objects.filter(
+            section=section,
+            day_of_week=day_of_week,
+            schedule_block=schedule_block,
+            is_active=True,
+        )
+        .exclude(subject=subject)
+        .exists()
+    ):
+        raise DomainError(
+            "La seccion ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
+        )
+
+    with unique_violation_as(_class_session_conflicts()):
+        session = ClassSession.objects.create(
+            academic_cycle=academic_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=schedule_block,
+            day_of_week=day_of_week,
+        )
+
+    _audit(
+        actor,
+        "academics.class_session.created",
+        session,
+        academic_cycle_id=academic_cycle.pk,
+        section_id=section.pk,
+        subject_id=subject.pk,
+        schedule_block_id=schedule_block.pk,
+        day_of_week=day_of_week,
+    )
+    return session
+
+
+def deactivate_class_session(*, session, actor=None):
+    if not session.is_active:
+        return session
+    session.is_active = False
+    session.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "academics.class_session.deactivated",
+        session,
+        section_id=session.section_id,
+        subject_id=session.subject_id,
+    )
+    return session
+
+
+# --------------------------------------------------------------------------- #
+# class schedule publication -- RF-HOR-009
+# --------------------------------------------------------------------------- #
+
+
+def publish_class_schedule(*, academic_cycle, actor=None):
+    """
+    Publish the cycle's class schedule (RF-HOR-009).
+
+    Idempotent: publishing an already-published schedule just refreshes
+    ``published_at``. Who gets to see it once published (docentes,
+    estudiantes, encargados) is a query-time concern (RF-HOR-010, #203).
+    """
+    require_cycle_academic_writes(cycle=academic_cycle, operation="class_schedule.publish")
+    publication, _ = ClassSchedulePublication.objects.get_or_create(academic_cycle=academic_cycle)
+    publication.published_at = timezone.now()
+    publication.save(update_fields=["published_at", "updated_at"])
+    _audit(
+        actor,
+        "academics.class_schedule.published",
+        publication,
+        academic_cycle_id=academic_cycle.pk,
+    )
+    return publication
+
+
+def unpublish_class_schedule(*, academic_cycle, actor=None):
+    """Revert the cycle's schedule to draft. A no-op if never published."""
+    require_cycle_academic_writes(cycle=academic_cycle, operation="class_schedule.unpublish")
+    publication, _ = ClassSchedulePublication.objects.get_or_create(academic_cycle=academic_cycle)
+    if publication.published_at is None:
+        return publication
+    publication.published_at = None
+    publication.save(update_fields=["published_at", "updated_at"])
+    _audit(
+        actor,
+        "academics.class_schedule.unpublished",
+        publication,
+        academic_cycle_id=academic_cycle.pk,
+    )
+    return publication

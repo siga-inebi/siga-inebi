@@ -5,6 +5,7 @@
 | Alcance | Restriccion contextual obligatoria que acompana permiso. |
 | Asignacion docente | Relacion vigente entre docente, subarea, seccion y ciclo. |
 | Auditoria | Registro verificable de acciones o lecturas sensibles. |
+| Bloque de horario | Periodo con hora de inicio y fin dentro de la rejilla de una jornada. |
 | Captura mediada | Registro de asistencia realizado por operador autorizado, no por autoservicio estudiantil. |
 | Ciclo escolar | Periodo academico institucional con estados y estructura propia. |
 | Cierre declarado | Declaracion operativa de cobertura de captura por seccion o punto definido. |
@@ -16,10 +17,15 @@
 | Expediente | Conjunto historico de datos y documentos asociados a persona o estudiante. |
 | Folio oficial | Correlativo controlado para documentos institucionales emitidos. |
 | Idempotencia | Garantia de que reintento no duplica efecto. |
+| Jornada | Turno de funcionamiento de una sede: matutina, vespertina, nocturna. |
 | Justificacion | Solicitud y resolucion sobre inasistencia, tardanza u otro estado relacionado. |
 | Lote de captura | Grupo recuperable de eventos de asistencia procesados juntos. |
 | Monolito modular | Una sola aplicacion desplegable con separacion interna fuerte por dominios. |
 | Persona institucional | Registro base de identidad usado para vincular cuentas y roles. |
 | QR opaco | Codigo que resuelve identificador sin exponer datos personales. |
+| Rejilla horaria | Conjunto ordenado de bloques de horario definidos para una jornada. |
 | Rol | Agrupacion configurable de permisos atomicos. |
+| Sesion de clase | Subarea agendada para una seccion en un dia de la semana y un bloque de horario especifico. |
 | Trazabilidad | Capacidad de seguir relacion entre requerimiento, decision, codigo, pruebas y cambios. |
+| Traslado de ingreso | Entrada desde otra institucion que crea matricula y conserva un movimiento diferenciado. |
+| Traslado de salida | Cierre de permanencia por cambio a otra institucion; no equivale a desercion. |

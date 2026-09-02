@@ -5,6 +5,9 @@ from django.db.models import Count, Prefetch, Q
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    ClassScheduleBlock,
+    ClassSchedulePublication,
+    ClassSession,
     CurriculumPlan,
     Grade,
     GradeOffering,
@@ -79,6 +82,31 @@ def shift_or_404(institution, public_id):
 
 def shift_for_payload(institution, public_id):
     return _get_payload(Shift.objects.filter(campus__institution=institution), public_id, "Shift")
+
+
+def class_schedule_blocks(shift, *, include_inactive=False):
+    return _filter_active(
+        ClassScheduleBlock.objects.filter(shift=shift).select_related("shift__campus"),
+        include_inactive=include_inactive,
+    )
+
+
+def class_schedule_block_or_404(institution, public_id):
+    return _get(
+        ClassScheduleBlock.objects.filter(shift__campus__institution=institution).select_related(
+            "shift__campus"
+        ),
+        public_id,
+        "Class schedule block",
+    )
+
+
+def class_schedule_block_for_payload(institution, public_id):
+    return _get_payload(
+        ClassScheduleBlock.objects.filter(shift__campus__institution=institution),
+        public_id,
+        "Class schedule block",
+    )
 
 
 def levels_all(institution):
@@ -168,6 +196,29 @@ def section_or_404(institution, public_id):
 
 def section_for_payload(public_id):
     return _get_payload(Section.objects.all(), public_id, "Section")
+
+
+_CLASS_SESSION_RELATED = (
+    "section__offering__grade__level",
+    "section__offering__shift__campus",
+    "subject",
+    "schedule_block",
+)
+
+
+def class_sessions(section, *, include_inactive=False):
+    queryset = ClassSession.objects.filter(section=section).select_related(*_CLASS_SESSION_RELATED)
+    return _filter_active(queryset, include_inactive=include_inactive)
+
+
+def class_session_or_404(institution, public_id):
+    return _get(
+        ClassSession.objects.filter(
+            section__offering__academic_cycle__institution=institution
+        ).select_related(*_CLASS_SESSION_RELATED),
+        public_id,
+        "Class session",
+    )
 
 
 _CURRICULUM_PLAN_RELATED = ("academic_cycle", "grade__level", "subject")
@@ -274,3 +325,14 @@ def _get_payload(queryset, public_id, label):
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
         raise DomainError(f"No se encontro {label}.") from exc
+
+
+def class_schedule_publication(academic_cycle):
+    """
+    Existing publication row, or an unsaved default (never published).
+
+    Read-only: does not create a row, so checking status has no side effect.
+    """
+    return ClassSchedulePublication.objects.filter(
+        academic_cycle=academic_cycle
+    ).first() or ClassSchedulePublication(academic_cycle=academic_cycle)

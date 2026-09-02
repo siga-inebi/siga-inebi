@@ -3,6 +3,9 @@ from rest_framework import serializers
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    ClassScheduleBlock,
+    ClassSchedulePublication,
+    ClassSession,
     CurriculumPlan,
     Grade,
     GradeOffering,
@@ -181,6 +184,40 @@ class ShiftUpdateSerializer(serializers.Serializer):
 
 
 # --------------------------------------------------------------------------- #
+# schedule blocks ("rejilla de bloques")
+# --------------------------------------------------------------------------- #
+
+
+class ClassScheduleBlockRefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClassScheduleBlock
+        fields = ["public_id", "number", "name", "starts_on", "ends_on"]
+
+
+class ClassScheduleBlockSerializer(serializers.ModelSerializer):
+    shift = ShiftRefSerializer(read_only=True)
+
+    class Meta:
+        model = ClassScheduleBlock
+        fields = ["public_id", "number", "name", "starts_on", "ends_on", "is_active", "shift"]
+
+
+class ClassScheduleBlockCreateSerializer(serializers.Serializer):
+    number = serializers.IntegerField(
+        min_value=1, help_text="Orden del bloque dentro de la jornada."
+    )
+    name = serializers.CharField(max_length=100, help_text='Ej. "Bloque 1", "Recreo".')
+    starts_on = serializers.TimeField(help_text="Hora de inicio del bloque.")
+    ends_on = serializers.TimeField(help_text="Hora de fin del bloque.")
+
+
+class ClassScheduleBlockUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, required=False)
+    starts_on = serializers.TimeField(required=False)
+    ends_on = serializers.TimeField(required=False)
+
+
+# --------------------------------------------------------------------------- #
 # levels ("niveles")
 # --------------------------------------------------------------------------- #
 
@@ -332,6 +369,15 @@ class LevelSubjectUpdateSerializer(serializers.Serializer):
 # --------------------------------------------------------------------------- #
 
 
+class SectionRefSerializer(serializers.ModelSerializer):
+    grade = GradeRefSerializer(source="offering.grade", read_only=True)
+    shift = ShiftRefSerializer(source="offering.shift", read_only=True)
+
+    class Meta:
+        model = Section
+        fields = ["public_id", "name", "grade", "shift"]
+
+
 class SectionSerializer(serializers.ModelSerializer):
     academic_cycle_id = serializers.UUIDField(
         source="offering.academic_cycle.public_id", read_only=True
@@ -368,6 +414,57 @@ class SectionCreateSerializer(serializers.Serializer):
 class SectionUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=50, required=False)
     capacity = serializers.IntegerField(min_value=0, required=False)
+
+
+# --------------------------------------------------------------------------- #
+# class sessions ("sesiones de clase") -- RF-HOR-003
+# --------------------------------------------------------------------------- #
+
+
+class ClassSessionSerializer(serializers.ModelSerializer):
+    subject = SubjectRefSerializer(read_only=True)
+    schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
+    day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
+    teacher_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClassSession
+        fields = [
+            "public_id",
+            "day_of_week",
+            "day_of_week_display",
+            "is_active",
+            "subject",
+            "schedule_block",
+            "teacher_id",
+        ]
+
+    def get_teacher_id(self, obj):
+        """RF-HOR-004: derived from the current teaching assignment, not stored."""
+        teacher = obj.current_teacher
+        return str(teacher.teacher_profile.public_id) if teacher else None
+
+
+class ClassSessionCreateSerializer(serializers.Serializer):
+    subject_id = serializers.UUIDField(help_text="Public ID de la subarea.")
+    schedule_block_id = serializers.UUIDField(help_text="Public ID del bloque de horario.")
+    day_of_week = serializers.ChoiceField(
+        choices=ClassSession.Weekday.choices, help_text="Dia ISO: 1=lunes .. 7=domingo."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# class schedule publication -- RF-HOR-009
+# --------------------------------------------------------------------------- #
+
+
+class ClassSchedulePublicationSerializer(serializers.ModelSerializer):
+    academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
+    is_published = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = ClassSchedulePublication
+        fields = ["academic_cycle_id", "is_published", "published_at"]
 
 
 # --------------------------------------------------------------------------- #

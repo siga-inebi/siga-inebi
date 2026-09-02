@@ -14,6 +14,7 @@ from apps.identity.api.serializers import (
     ActivatedAccountSerializer,
     ActivationChallengeSerializer,
     AtomicPermissionSerializer,
+    MyClassSessionSerializer,
     ProvisionedAccountSerializer,
     RoleAssignmentSerializer,
     RoleAssignmentWriteSerializer,
@@ -27,6 +28,7 @@ from apps.identity.services import (
     disable_account,
     list_atomic_permissions,
     list_roles,
+    my_weekly_schedule,
     provision_account_with_activation,
     reissue_activation_challenge,
     revoke_role_assignment,
@@ -62,6 +64,23 @@ class AtomicPermissionListView(GenericAPIView):
     @extend_schema(responses={200: AtomicPermissionSerializer(many=True)})
     def get(self, request):
         queryset = list_atomic_permissions(actor=request.user)
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+
+class MyWeeklyScheduleView(GenericAPIView):
+    """
+    RF-HOR-010: the caller's own weekly schedule -- their teaching sessions,
+    or their wards' sections' sessions, from published cycles only.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = MyClassSessionSerializer
+
+    @extend_schema(responses={200: MyClassSessionSerializer(many=True)})
+    def get(self, request):
+        queryset = my_weekly_schedule(actor=request.user)
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)

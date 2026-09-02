@@ -27,6 +27,7 @@ class Student(HistoricalStudentRecord):
         INACTIVE = "inactive", "Inactive"
         WITHDRAWN = "withdrawn", "Withdrawn"
         GRADUATED = "graduated", "Graduated"
+        TRANSFERRED = "transferred", "Transferred"
 
     person = models.OneToOneField(
         "people.Person",

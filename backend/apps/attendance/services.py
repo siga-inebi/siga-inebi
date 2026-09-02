@@ -26,6 +26,7 @@ from apps.academics.models import AcademicCycle
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     DayStatus,
     JornadaParameters,
     RecalculationReason,
@@ -222,6 +223,43 @@ def record_attendance_event(
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-005 — tipos de movimiento admitidos por punto de control
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def configure_control_point_movement_types(*, control_point, allows_entry, allows_exit, actor):
+    """
+    RF-ASI-005: configure which movement types a control point accepts.
+
+    Both flags default to allowed at creation, so this only matters once
+    someone narrows a point on purpose (a turnstile that only ever sees
+    people leaving, say) -- and that narrowing is what gets audited here,
+    not the unconfigured default.
+    """
+    if not allows_entry and not allows_exit:
+        raise DomainError(
+            f"El punto de control '{control_point}' debe admitir al menos un tipo de movimiento."
+        )
+    if actor is None:
+        raise DomainError(
+            "La configuracion del punto de control debe identificar quien la autorizo."
+        )
+
+    control_point.allows_entry = allows_entry
+    control_point.allows_exit = allows_exit
+    control_point.save(update_fields=["allows_entry", "allows_exit", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.control_point.movement_types_configured",
+        resource="ControlPoint",
+        resource_identifier=str(control_point.public_id),
+        context={"allows_entry": allows_entry, "allows_exit": allows_exit},
+    )
+    return control_point
+
+
+# --------------------------------------------------------------------------- #
 # RF-ASI-001/002/004/010 — captura por escaneo, supresion de duplicados e
 # idempotencia
 # --------------------------------------------------------------------------- #
@@ -284,6 +322,7 @@ def record_scan_movement(
     client_event_id,
     operator,
     batch_id="",
+    capture_batch=None,
     transmission=AttendanceEvent.Transmission.INDIVIDUAL,
     actor=None,
 ):
@@ -301,6 +340,9 @@ def record_scan_movement(
       window, evaluated on student/shift/date/movement_type alone --
       independent of operator, device or control point. A suppressed
       duplicate is recorded as an auditable rejection, not as a movement.
+    - RF-ASI-009: ``capture_batch``, when given, must be this same
+      operator's own open batch -- checked here too, not only by the view,
+      same defense-in-depth reason as the operator guard above.
     """
     if operator is None:
         raise DomainError("Un movimiento por escaneo debe registrarlo un operador autenticado.")
@@ -308,6 +350,12 @@ def record_scan_movement(
     _require_active(student, "el estudiante")
     _require_active(shift, "la jornada")
     _require_active(control_point, "el punto de control")
+
+    if capture_batch is not None:
+        if capture_batch.operator_id != operator.pk:
+            raise DomainError("El lote de captura no pertenece a este operador.")
+        if capture_batch.status != CaptureBatch.Status.OPEN:
+            raise DomainError(f"El lote '{capture_batch}' ya no esta abierto.")
 
     if client_event_id:
         existing = AttendanceEvent.objects.filter(client_event_id=client_event_id).first()
@@ -320,6 +368,11 @@ def record_scan_movement(
                     student=student, shift=shift, event_date=existing.event_date
                 ),
             )
+
+    if movement_type == AttendanceEvent.MovementType.ENTRY and not control_point.allows_entry:
+        raise DomainError(f"El punto de control '{control_point}' no admite ingresos.")
+    if movement_type == AttendanceEvent.MovementType.EXIT and not control_point.allows_exit:
+        raise DomainError(f"El punto de control '{control_point}' no admite egresos.")
 
     event_date = timezone.localtime(captured_at).date()
     academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
@@ -385,6 +438,7 @@ def record_scan_movement(
             operator=operator,
             client_event_id=client_event_id,
             batch_id=batch_id,
+            capture_batch=capture_batch,
         )
 
     record_event(
@@ -436,6 +490,55 @@ def record_scan_batch(*, items, operator, actor=None):
                 RejectedScanItem(client_event_id=item.get("client_event_id", ""), reason=str(exc))
             )
     return results
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-009 — lote de captura recuperable
+# --------------------------------------------------------------------------- #
+
+
+def open_capture_batch(*, operator):
+    """
+    RF-ASI-009: start, or resume, the operator's accumulating batch.
+
+    Idempotent on purpose: a client that isn't sure whether an earlier
+    "open" call reached the server before the connection dropped can call
+    this again safely and get back the same batch instead of erroring or
+    creating a second one -- ``unique_open_capture_batch_per_operator``
+    would reject a second open row for the same operator regardless.
+    """
+    existing = recover_open_capture_batch(operator=operator)
+    if existing is not None:
+        return existing
+    return CaptureBatch.objects.create(operator=operator, status=CaptureBatch.Status.OPEN)
+
+
+def recover_open_capture_batch(*, operator):
+    """RF-ASI-009: the operator's pending batch, if any, ready to resume."""
+    return CaptureBatch.objects.filter(operator=operator, status=CaptureBatch.Status.OPEN).first()
+
+
+@transaction.atomic
+def confirm_capture_batch(*, capture_batch, actor):
+    """
+    RF-ASI-009: close the batch in a single operation. Every movement in it
+    is already a saved, immutable ``AttendanceEvent`` (RF-ASI-002) -- this
+    only stops the batch from being offered back for recovery.
+    """
+    if capture_batch.status != CaptureBatch.Status.OPEN:
+        raise DomainError(f"El lote '{capture_batch}' ya no esta abierto.")
+
+    capture_batch.status = CaptureBatch.Status.CONFIRMED
+    capture_batch.confirmed_at = timezone.now()
+    capture_batch.save(update_fields=["status", "confirmed_at", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.capture_batch.confirmed",
+        resource="CaptureBatch",
+        resource_identifier=str(capture_batch.public_id),
+        context={"item_count": capture_batch.events.count()},
+    )
+    return capture_batch
 
 
 def _flag_declared_exit_without_entry(*, event, actor):
@@ -806,6 +909,130 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
         parameters=parameters,
         statuses=statuses,
         alerts=alerts,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-011 — cierre declarado por seccion
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class SectionClosureOmission:
+    student: object
+    reason: str
+
+
+@dataclass
+class SectionClosureResult:
+    section: object
+    event_date: object
+    included: list
+    omitted: list
+
+
+def _evaluate_section_closure(*, section, event_date, as_of=None):
+    """
+    RF-ASI-011: split a section's actively enrolled students between who is
+    eligible for a declared exit and who must be omitted, and why -- shared
+    by the preview and the confirmed closure so the two can never disagree
+    about who belongs where.
+    """
+    shift = section.offering.shift
+    as_of = as_of or timezone.now()
+    students = [
+        enrolment.student
+        for enrolment in Enrolment.objects.filter(
+            section=section,
+            status=Enrolment.EnrolmentStatus.ACTIVE,
+            student__is_active=True,
+        ).select_related("student")
+    ]
+
+    day_statuses = derive_day_statuses(
+        students=students, shift=shift, event_dates=[event_date], as_of=as_of
+    )
+    existing_exits = resolve_prevailing_events(
+        students=students,
+        shift=shift,
+        event_dates=[event_date],
+        movement_type=AttendanceEvent.MovementType.EXIT,
+    )
+
+    included = []
+    omitted = []
+    for student in students:
+        day_result = day_statuses.get((student.pk, event_date))
+        if day_result is None or day_result.entry_event is None:
+            omitted.append(
+                SectionClosureOmission(student=student, reason="No tiene ingreso registrado.")
+            )
+            continue
+        if (student.pk, event_date) in existing_exits:
+            omitted.append(
+                SectionClosureOmission(student=student, reason="Ya tiene salida registrada.")
+            )
+            continue
+        included.append(student)
+    return included, omitted
+
+
+def preview_section_closure(*, section, event_date, as_of=None):
+    """
+    RF-ASI-011: who would be included in a declared closure of ``section``
+    and who would be omitted, and why -- without registering anything.
+    """
+    _require_active(section, "la seccion")
+    included, omitted = _evaluate_section_closure(
+        section=section, event_date=event_date, as_of=as_of
+    )
+    return SectionClosureResult(
+        section=section, event_date=event_date, included=included, omitted=omitted
+    )
+
+
+@transaction.atomic
+def close_section(*, section, event_date, actor, as_of=None):
+    """
+    RF-ASI-011: declare an exit for every actively enrolled student in
+    ``section`` who has an entry and no exit yet on ``event_date``, in one
+    operation. A student who already has a registered exit, or never
+    registered an entry at all, is omitted rather than forced through --
+    the same eligibility rule ``preview_section_closure`` already showed
+    before this was confirmed. Reuses ``record_attendance_event`` per
+    student, so every existing guarantee (never mutating a prior event,
+    RF-JOR-005's inconsistency alert, day recalculation for past dates)
+    applies here too, unchanged.
+    """
+    _require_active(section, "la seccion")
+    included, omitted = _evaluate_section_closure(
+        section=section, event_date=event_date, as_of=as_of
+    )
+    shift = section.offering.shift
+    captured_at = as_of or timezone.now()
+    for student in included:
+        record_attendance_event(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.EXIT,
+            origin=AttendanceEvent.Origin.DECLARED,
+            captured_at=captured_at,
+            actor=actor,
+        )
+    record_event(
+        actor=actor,
+        action="attendance.section_closure.confirmed",
+        resource="Section",
+        resource_identifier=str(section.public_id),
+        context={
+            "event_date": str(event_date),
+            "included_count": len(included),
+            "omitted_count": len(omitted),
+        },
+    )
+    return SectionClosureResult(
+        section=section, event_date=event_date, included=included, omitted=omitted
     )
 
 
@@ -1328,6 +1555,178 @@ def issue_credential(
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-002 — contenido visible de la credencial
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class CredentialPrintContent:
+    """
+    RF-CRE-002: exactly what the printed/digital credential material shows --
+    name, photo, grade, section, academic cycle and institution. Deliberately
+    excludes everything else the student record carries (health, address,
+    family contact), same boundary ``ScanConfirmation`` draws for the
+    scan-confirmation screen (RF-ASI-003) -- a different requirement with a
+    different field list, so it gets its own dataclass rather than reusing
+    that one.
+    """
+
+    student: object
+    full_name: str
+    grade_name: str
+    section_name: str
+    academic_cycle_name: str
+    institution_name: str
+    photo_url: str | None
+
+
+def resolve_credential_print_content(*, student):
+    """RF-CRE-002: build the printable material for a student's active credential."""
+    credential = StudentCredential.objects.filter(
+        student=student, status=StudentCredential.Status.ACTIVE, is_active=True
+    ).first()
+    if credential is None:
+        raise DomainError(f"El estudiante '{student}' no tiene una credencial vigente.")
+
+    enrolment = active_enrolments(student=student).first()
+    if enrolment is None:
+        raise DomainError(f"El estudiante '{student}' no tiene inscripcion activa.")
+
+    return CredentialPrintContent(
+        student=student,
+        full_name=f"{student.person.first_name} {student.person.last_name}".strip(),
+        grade_name=enrolment.grade.name,
+        section_name=enrolment.section.name,
+        academic_cycle_name=enrolment.academic_cycle.name,
+        institution_name=enrolment.academic_cycle.institution.name,
+        photo_url=student.photo.url if student.photo else None,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-003 — vigencia y revocacion
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def revoke_credential(*, student, reason, actor):
+    """RF-CRE-003: revoke the active credential without deleting its history."""
+    if not reason:
+        raise DomainError("La revocacion debe indicar un motivo.")
+    if actor is None:
+        raise DomainError("La revocacion debe identificar quien la autorizo.")
+
+    credential = StudentCredential.objects.filter(
+        student=student, status=StudentCredential.Status.ACTIVE, is_active=True
+    ).first()
+    if credential is None:
+        raise DomainError(f"El estudiante '{student}' no tiene una credencial vigente.")
+
+    credential.status = StudentCredential.Status.REVOKED
+    credential.revocation_reason = reason
+    credential.revoked_by = actor
+    credential.save(update_fields=["status", "revocation_reason", "revoked_by", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.credential.revoked",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={"student_id": str(student.public_id), "reason": reason},
+    )
+    return credential
+
+
+def revoke_credential_for_closed_permanence(
+    *, student, withdrawal_reason, effective_on, movement, actor
+):
+    credential = StudentCredential.objects.filter(
+        student=student,
+        status=StudentCredential.Status.ACTIVE,
+        is_active=True,
+    ).first()
+    if credential is None:
+        return None
+    if actor is None:
+        raise DomainError("El retiro debe identificar quien autorizo el cierre de acceso.")
+
+    credential.status = StudentCredential.Status.REVOKED
+    credential.revocation_reason = "Cierre de permanencia"
+    credential.revoked_by = actor
+    credential.revoked_on_movement = movement
+    credential.save(
+        update_fields=[
+            "status",
+            "revocation_reason",
+            "revoked_by",
+            "revoked_on_movement",
+            "updated_at",
+        ]
+    )
+    record_event(
+        actor=actor,
+        action="attendance.credential.revoked_on_permanence_close",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "effective_on": effective_on.isoformat(),
+            "withdrawal_reason_recorded": bool(withdrawal_reason),
+        },
+    )
+    return credential
+
+
+def restore_credential_for_reopened_permanence(*, student, movement, actor):
+    if actor is None:
+        raise DomainError("La anulacion debe identificar quien autorizo la reapertura de acceso.")
+    if StudentCredential.objects.filter(
+        student=student,
+        status=StudentCredential.Status.ACTIVE,
+        is_active=True,
+    ).exists():
+        return None
+
+    credential = (
+        StudentCredential.objects.filter(
+            student=student,
+            status=StudentCredential.Status.REVOKED,
+            is_active=True,
+            revocation_reason="Cierre de permanencia",
+            revoked_on_movement=movement,
+        )
+        .order_by("-updated_at", "-pk")
+        .first()
+    )
+    if credential is None:
+        return None
+
+    credential.status = StudentCredential.Status.ACTIVE
+    credential.revocation_reason = ""
+    credential.revoked_by = None
+    credential.revoked_on_movement = None
+    credential.save(
+        update_fields=[
+            "status",
+            "revocation_reason",
+            "revoked_by",
+            "revoked_on_movement",
+            "updated_at",
+        ]
+    )
+    record_event(
+        actor=actor,
+        action="attendance.credential.restored_on_permanence_reopen",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "movement_id": str(movement.public_id),
+        },
+    )
+    return credential
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — resolucion de identificador
 # --------------------------------------------------------------------------- #
 
@@ -1339,7 +1738,26 @@ class CredentialResolution:
     enrolment: object
 
 
-def resolve_credential(*, opaque_identifier):
+def _audit_scan_rejection(*, actor, reason, resource, resource_identifier="", student=None):
+    """
+    RNF-SEG-003: every rejected scan/resolution attempt is auditable, even
+    though the rejection message itself stays deliberately vague about the
+    student (see ``resolve_credential``'s docstring) -- the audit trail is
+    internal, not part of the response a caller can probe.
+    """
+    context = {"result": "denied", "reason": reason}
+    if student is not None:
+        context["student_id"] = student.pk
+    record_event(
+        actor=actor,
+        action="attendance.credential.resolution_rejected",
+        resource=resource,
+        resource_identifier=resource_identifier,
+        context=context,
+    )
+
+
+def resolve_credential(*, opaque_identifier, actor=None):
     """
     The student behind an opaque identifier (RF-CRE-006).
 
@@ -1358,19 +1776,36 @@ def resolve_credential(*, opaque_identifier):
         .first()
     )
     if credential is None:
+        _audit_scan_rejection(
+            actor=actor, reason="unrecognized_credential", resource="StudentCredential"
+        )
         raise DomainError("La credencial no es reconocida.")
     if credential.status != StudentCredential.Status.ACTIVE or not credential.is_active:
+        _audit_scan_rejection(
+            actor=actor,
+            reason="revoked_credential",
+            resource="StudentCredential",
+            resource_identifier=str(credential.pk),
+            student=credential.student,
+        )
         raise DomainError("La credencial fue revocada.")
 
     enrolment = active_enrolments(student=credential.student).first()
     if enrolment is None:
+        _audit_scan_rejection(
+            actor=actor,
+            reason="no_active_enrolment",
+            resource="StudentCredential",
+            resource_identifier=str(credential.pk),
+            student=credential.student,
+        )
         raise DomainError("El portador de la credencial no tiene inscripcion activa.")
     return CredentialResolution(
         credential=credential, student=credential.student, enrolment=enrolment
     )
 
 
-def resolve_scan_subject(*, credential_identifier="", student_code=""):
+def resolve_scan_subject(*, credential_identifier="", student_code="", actor=None):
     """
     The student a captured item refers to, whichever way it was identified.
 
@@ -1394,11 +1829,19 @@ def resolve_scan_subject(*, credential_identifier="", student_code=""):
     requirement has taken.
     """
     if credential_identifier:
-        return resolve_credential(opaque_identifier=credential_identifier).student
+        return resolve_credential(opaque_identifier=credential_identifier, actor=actor).student
     try:
         student = Student.objects.get(student_code=student_code, is_active=True)
     except Student.DoesNotExist as exc:
+        _audit_scan_rejection(actor=actor, reason="unregistered_student_code", resource="Student")
         raise DomainError(f"No existe estudiante con codigo '{student_code}'.") from exc
     if not _is_enrolled(student):
+        _audit_scan_rejection(
+            actor=actor,
+            reason="no_active_enrolment",
+            resource="Student",
+            resource_identifier=str(student.pk),
+            student=student,
+        )
         raise DomainError(f"El estudiante con codigo '{student_code}' no tiene inscripcion activa.")
     return student

@@ -8,6 +8,8 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassScheduleBlockFactory,
+    ClassSessionFactory,
     GradeFactory,
     GradeOfferingFactory,
     SectionFactory,
@@ -181,6 +183,158 @@ def test_section_endpoints_require_authentication(client, institution):
 
     assert client.get(reverse("section-list-create")).status_code == 403
     assert client.get(reverse("section-detail", args=[section.public_id])).status_code == 403
+
+
+def test_create_class_session_api_creates_session(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    subject = SubjectFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(subject.public_id),
+            "schedule_block_id": str(block.public_id),
+            "day_of_week": 1,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["day_of_week"] == 1
+    assert body["subject"]["public_id"] == str(subject.public_id)
+    assert body["schedule_block"]["public_id"] == str(block.public_id)
+    assert body["teacher_id"] is None  # sin asignacion vigente todavia (RF-HOR-004)
+
+
+def test_class_session_api_exposes_the_current_teacher(auth_client, institution):
+    """RF-HOR-004: el docente se deriva de la asignacion vigente, se muestra en la sesion."""
+    cycle = AcademicCycleFactory(institution=institution)
+    section = SectionFactory(academic_cycle=cycle)
+    session = ClassSessionFactory(section=section)
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=cycle, section=section, subject=session.subject, teacher=teacher.person
+    )
+
+    response = auth_client.get(reverse("class-session-detail", args=[session.public_id]))
+
+    assert response.json()["teacher_id"] == str(teacher.public_id)
+
+
+def test_create_class_session_api_rejects_block_from_another_shift(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    subject = SubjectFactory(institution=institution)
+    other_shift = ShiftFactory(campus__institution=institution)
+    other_shift_block = ClassScheduleBlockFactory(shift=other_shift)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(subject.public_id),
+            "schedule_block_id": str(other_shift_block.public_id),
+            "day_of_week": 1,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "misma jornada" in response.json()["error"]["detail"]
+
+
+def test_create_class_session_api_rejects_section_double_booked_in_the_same_slot(
+    auth_client, institution
+):
+    """RF-HOR-005: cruce por seccion en el mismo dia y bloque."""
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    ClassSessionFactory(section=section, schedule_block=block, day_of_week=1)
+    other_subject = SubjectFactory(institution=institution)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(other_subject.public_id),
+            "schedule_block_id": str(block.public_id),
+            "day_of_week": 1,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "cruce de horario" in response.json()["error"]["detail"]
+
+
+def test_list_class_sessions_is_scoped_to_the_section(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    ClassSessionFactory(section=section)
+    ClassSessionFactory()  # a session of another section entirely
+
+    response = auth_client.get(
+        reverse("section-class-session-list-create", args=[section.public_id])
+    )
+
+    assert len(response.json()["results"]) == 1
+
+
+def test_class_session_detail_roundtrip(auth_client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    session = ClassSessionFactory(section=section)
+
+    read = auth_client.get(reverse("class-session-detail", args=[session.public_id]))
+    removed = auth_client.delete(reverse("class-session-detail", args=[session.public_id]))
+
+    assert read.status_code == 200
+    assert removed.status_code == 204
+    session.refresh_from_db()
+    assert session.is_active is False
+
+
+def test_class_session_endpoints_require_authentication(client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    session = ClassSessionFactory(section=section)
+
+    list_response = client.get(
+        reverse("section-class-session-list-create", args=[section.public_id])
+    )
+    detail_response = client.get(reverse("class-session-detail", args=[session.public_id]))
+
+    assert list_response.status_code == 403
+    assert detail_response.status_code == 403
+
+
+def test_class_schedule_publication_api_lifecycle(auth_client, institution):
+    """RF-HOR-009: consultar, publicar y despublicar el horario del ciclo."""
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    url = reverse("class-schedule-publication", args=[cycle.public_id])
+
+    initial = auth_client.get(url)
+    published = auth_client.post(url)
+    unpublished = auth_client.delete(url)
+
+    assert initial.json()["is_published"] is False
+    assert published.status_code == 200
+    assert published.json()["is_published"] is True
+    assert published.json()["published_at"] is not None
+    assert unpublished.json()["is_published"] is False
+
+
+def test_class_schedule_publication_api_rejects_closed_cycle(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+
+    response = auth_client.post(reverse("class-schedule-publication", args=[cycle.public_id]))
+
+    assert response.status_code == 400
+    assert "no admite cambios academicos" in response.json()["error"]["detail"]
+
+
+def test_class_schedule_publication_endpoint_requires_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+
+    response = client.get(reverse("class-schedule-publication", args=[cycle.public_id]))
+
+    assert response.status_code == 403
 
 
 def test_create_curriculum_plan_api_contract(auth_client, institution):

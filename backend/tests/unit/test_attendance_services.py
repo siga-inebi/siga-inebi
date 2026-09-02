@@ -26,6 +26,7 @@ from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     DayStatus,
     JornadaParameters,
     RecalculationReason,
@@ -44,9 +45,11 @@ from tests.factories.academic import (
 from tests.factories.attendance import (
     AttendanceAlertFactory,
     AttendanceEventFactory,
+    CaptureBatchFactory,
     ControlPointFactory,
     JornadaParametersFactory,
     ManualRegistrationReasonFactory,
+    StudentCredentialFactory,
 )
 from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
@@ -91,6 +94,34 @@ def test_two_jornadas_with_different_schedules_evaluate_independently():
 
     assert morning_params.entry_limit_time == time(7, 0)
     assert afternoon_params.entry_limit_time == time(13, 30)
+
+
+def test_set_jornada_parameters_is_audited_with_actor_and_vigencia():
+    """
+    RNF-AUD-002, camino feliz: un cambio de parametros de jornada queda en
+    bitacora con el responsable y la fecha desde la que rige (vigencia).
+    """
+    campus = CampusFactory()
+    cycle = AcademicCycleFactory(institution=campus.institution)
+    shift = ShiftFactory(campus=campus)
+    actor = UserFactory()
+
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(13, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+        actor=actor,
+    )
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.jornada_parameters.set"
+    assert event.actor_id == actor.id
+    assert event.context["effective_from"] == str(cycle.starts_on)
 
 
 def test_set_jornada_parameters_never_mutates_prior_versions():
@@ -315,6 +346,90 @@ def test_record_attendance_event_rejects_inactive_student():
 
 
 # --------------------------------------------------------------------------- #
+# RNF-AUD-001 — inmutabilidad de eventos de movimiento
+# --------------------------------------------------------------------------- #
+
+
+def test_attendance_event_cannot_be_modified_or_deleted():
+    """
+    RNF-AUD-001, camino feliz e inverso: un evento ya creado no puede
+    modificarse ni eliminarse por instancia, sin importar quien lo intente --
+    mismo contrato que ``AuditEvent`` (RF-BIT-005).
+    """
+    event = AttendanceEventFactory()
+
+    with pytest.raises(RuntimeError):
+        event.delete()
+
+    with pytest.raises(RuntimeError):
+        event.movement_type = AttendanceEvent.MovementType.ENTRY
+        event.save()
+
+
+def test_attendance_event_cannot_be_bulk_deleted_or_updated_via_queryset():
+    """
+    RNF-AUD-001: ``QuerySet.delete()``/``update()`` run SQL directo y no
+    pasan por los overrides de instancia, asi que el guardia de instancia no
+    basta por si solo -- una operacion masiva por el manager tambien debe
+    rechazarse.
+    """
+    event = AttendanceEventFactory()
+
+    with pytest.raises(RuntimeError):
+        AttendanceEvent.objects.all().delete()
+
+    with pytest.raises(RuntimeError):
+        AttendanceEvent.objects.all().update(movement_type=AttendanceEvent.MovementType.ENTRY)
+
+    event.refresh_from_db()
+    assert event.movement_type == AttendanceEvent.MovementType.EXIT
+
+
+def test_a_correction_adds_a_new_event_instead_of_overwriting_the_original():
+    """
+    RNF-AUD-001: "las correcciones agregan, no sobrescriben" -- ya
+    garantizado por ``record_attendance_event`` (nunca actualiza un evento
+    existente) y ``resolve_prevailing_event`` (decide por precedencia sin
+    tocar los eventos que pierden). Este test prueba el flujo real, no solo
+    el guardia del modelo: dos eventos en conflicto para la misma
+    jornada/movimiento coexisten, y el original sigue intacto y consultable.
+    """
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+
+    original = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.DECLARED,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    correction = services.record_attendance_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 5),
+    )
+
+    assert AttendanceEvent.objects.filter(pk=original.pk).exists()
+    assert AttendanceEvent.objects.filter(pk=correction.pk).exists()
+    assert original.pk != correction.pk
+
+    prevailing = services.resolve_prevailing_event(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+    )
+    assert prevailing == correction
+    original.refresh_from_db()
+    assert original.origin == AttendanceEvent.Origin.DECLARED
+
+
+# --------------------------------------------------------------------------- #
 # RF-JOR-002 — derivacion del estado diario
 # --------------------------------------------------------------------------- #
 
@@ -466,6 +581,197 @@ def test_close_jornada_does_not_flag_students_with_a_matching_exit():
     assert result.alerts == []
     status = next(s for s in result.statuses if s.student == student)
     assert status.permanence_without_closure is False
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-011 — cierre declarado por seccion
+# --------------------------------------------------------------------------- #
+
+
+def _enrol_in_section(parameters, section):
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    return student
+
+
+def test_preview_section_closure_includes_a_student_with_entry_and_no_exit():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+
+    result = services.preview_section_closure(section=section, event_date=parameters.effective_from)
+
+    assert result.included == [student]
+    assert result.omitted == []
+
+
+def test_preview_section_closure_omits_a_student_with_no_entry():
+    """
+    Escenario 1 (RF-ASI-011): GIVEN una seccion con un estudiante sin
+    ingreso registrado, WHEN se previsualiza el cierre declarado, THEN el
+    resumen lo muestra omitido, AND informa el motivo antes de confirmar
+    nada.
+    """
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+
+    result = services.preview_section_closure(section=section, event_date=parameters.effective_from)
+
+    assert result.included == []
+    assert len(result.omitted) == 1
+    assert result.omitted[0].student == student
+    assert "ingreso" in result.omitted[0].reason.lower()
+
+
+def test_preview_section_closure_omits_a_student_who_already_has_an_exit():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 12, 0),
+    )
+
+    result = services.preview_section_closure(section=section, event_date=parameters.effective_from)
+
+    assert result.included == []
+    assert len(result.omitted) == 1
+    assert result.omitted[0].student == student
+    assert "salida" in result.omitted[0].reason.lower()
+
+
+def test_preview_section_closure_does_not_register_anything():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+
+    services.preview_section_closure(section=section, event_date=parameters.effective_from)
+
+    assert not AttendanceEvent.objects.filter(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    ).exists()
+
+
+def test_close_section_declares_exit_for_eligible_students_and_audits():
+    """
+    Escenario 2 (RF-ASI-011): GIVEN una seccion con un estudiante que tiene
+    ingreso y sin salida, WHEN un usuario autorizado confirma el cierre
+    declarado, THEN el sistema registra la salida declarada de ese
+    estudiante, AND el resumen ya no lo muestra como omitido.
+    """
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    actor = UserFactory()
+
+    result = services.close_section(
+        section=section, event_date=parameters.effective_from, actor=actor
+    )
+
+    assert result.included == [student]
+    assert result.omitted == []
+    exit_event = AttendanceEvent.objects.get(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    )
+    assert exit_event.origin == AttendanceEvent.Origin.DECLARED
+    audit = AuditEvent.objects.get(
+        action="attendance.section_closure.confirmed",
+        resource_identifier=str(section.public_id),
+    )
+    assert audit.actor_id == actor.id
+    assert audit.context["included_count"] == 1
+    assert audit.context["omitted_count"] == 0
+
+
+def test_close_section_omits_a_student_with_no_entry_without_creating_an_event():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+
+    result = services.close_section(
+        section=section, event_date=parameters.effective_from, actor=UserFactory()
+    )
+
+    assert result.included == []
+    assert len(result.omitted) == 1
+    assert result.omitted[0].student == student
+    assert not AttendanceEvent.objects.filter(student=student).exists()
+
+
+def test_close_section_does_not_duplicate_an_existing_exit():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 12, 0),
+    )
+
+    result = services.close_section(
+        section=section, event_date=parameters.effective_from, actor=UserFactory()
+    )
+
+    assert result.included == []
+    assert (
+        AttendanceEvent.objects.filter(
+            student=student, movement_type=AttendanceEvent.MovementType.EXIT
+        ).count()
+        == 1
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1456,6 +1762,58 @@ def test_compute_attendance_percentage_carries_the_regulatory_notice_even_when_n
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-005 — tipos de movimiento admitidos por punto de control
+# --------------------------------------------------------------------------- #
+
+
+def test_configure_control_point_movement_types_updates_and_audits():
+    """
+    Escenario 1 (RF-ASI-005): GIVEN un punto de control, WHEN un usuario
+    autorizado lo configura para admitir solo egresos, THEN el punto queda
+    con esa configuracion, AND el cambio queda auditado con el usuario
+    responsable.
+    """
+    control_point = ControlPointFactory()
+    actor = UserFactory()
+
+    updated = services.configure_control_point_movement_types(
+        control_point=control_point, allows_entry=False, allows_exit=True, actor=actor
+    )
+
+    updated.refresh_from_db()
+    assert updated.allows_entry is False
+    assert updated.allows_exit is True
+    event = AuditEvent.objects.get(
+        action="attendance.control_point.movement_types_configured",
+        resource_identifier=str(control_point.public_id),
+    )
+    assert event.actor_id == actor.id
+    assert event.context["allows_entry"] is False
+    assert event.context["allows_exit"] is True
+
+
+def test_configure_control_point_movement_types_requires_at_least_one_type_allowed():
+    control_point = ControlPointFactory()
+
+    with pytest.raises(DomainError, match="al menos un tipo"):
+        services.configure_control_point_movement_types(
+            control_point=control_point,
+            allows_entry=False,
+            allows_exit=False,
+            actor=UserFactory(),
+        )
+
+
+def test_configure_control_point_movement_types_requires_an_actor():
+    control_point = ControlPointFactory()
+
+    with pytest.raises(DomainError, match="quien la autorizo"):
+        services.configure_control_point_movement_types(
+            control_point=control_point, allows_entry=True, allows_exit=False, actor=None
+        )
+
+
+# --------------------------------------------------------------------------- #
 # RF-ASI-001/002/004/010 — captura por escaneo
 # --------------------------------------------------------------------------- #
 
@@ -1528,6 +1886,30 @@ def test_record_scan_movement_rejects_inactive_control_point():
             movement_type=AttendanceEvent.MovementType.ENTRY,
             captured_at=_at(parameters.effective_from, 7, 0),
             client_event_id="scan-inactive-cp",
+            operator=operator,
+        )
+
+
+def test_record_scan_movement_rejects_a_movement_type_the_control_point_does_not_allow():
+    """
+    Escenario 1 (RF-ASI-005): GIVEN un punto de control configurado solo
+    para egreso, WHEN un operador intenta registrar un ingreso desde ese
+    punto, THEN el sistema rechaza la operacion indicando que el punto no
+    admite ingresos.
+    """
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus, allows_entry=False)
+    operator = UserFactory()
+
+    with pytest.raises(DomainError, match="no admite ingresos"):
+        services.record_scan_movement(
+            student=student,
+            shift=parameters.shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            client_event_id="scan-unsupported-type",
             operator=operator,
         )
 
@@ -2067,6 +2449,174 @@ def test_record_scan_batch_confirmation_has_no_grade_or_section_without_active_e
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-009 — lote de captura recuperable
+# --------------------------------------------------------------------------- #
+
+
+def test_open_capture_batch_creates_an_open_batch_for_the_operator():
+    operator = UserFactory()
+
+    batch = services.open_capture_batch(operator=operator)
+
+    assert batch.operator == operator
+    assert batch.status == CaptureBatch.Status.OPEN
+
+
+def test_open_capture_batch_is_idempotent():
+    operator = UserFactory()
+    first = services.open_capture_batch(operator=operator)
+
+    second = services.open_capture_batch(operator=operator)
+
+    assert second.pk == first.pk
+    assert CaptureBatch.objects.filter(operator=operator).count() == 1
+
+
+def test_recover_open_capture_batch_returns_none_when_nothing_is_open():
+    operator = UserFactory()
+
+    assert services.recover_open_capture_batch(operator=operator) is None
+
+
+def test_recover_open_capture_batch_returns_the_open_one():
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator)
+
+    assert services.recover_open_capture_batch(operator=operator) == batch
+
+
+def test_recovering_an_open_batch_returns_all_elements_with_original_capture_times():
+    """
+    Escenario 1 (RF-ASI-009): GIVEN un operador con un lote abierto que
+    contiene doce movimientos escaneados, WHEN la sesion se pierde y el
+    usuario se vuelve a autenticar, THEN el sistema presenta el lote
+    pendiente con los doce elementos, AND cada elemento conserva su hora de
+    captura original.
+    """
+    cycle = AcademicCycleFactory()
+    _student, _section, shift = _enrolled_student(cycle)
+    control_point = ControlPointFactory(campus=shift.campus)
+    operator = UserFactory()
+    _configure_jornada(shift=shift, cycle=cycle)
+    batch = services.open_capture_batch(operator=operator)
+
+    captured_times = [_at(cycle.starts_on, 7, minute) for minute in range(12)]
+    for index, captured_at in enumerate(captured_times):
+        services.record_scan_movement(
+            student=StudentFactory(),
+            shift=shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=captured_at,
+            client_event_id=f"batch-item-{index}",
+            operator=operator,
+            capture_batch=batch,
+        )
+
+    # El operador pierde la sesion y se vuelve a autenticar: recuperar es
+    # solo volver a leer lo que ya quedo guardado.
+    recovered = services.recover_open_capture_batch(operator=operator)
+
+    assert recovered.pk == batch.pk
+    recovered_events = list(recovered.events.all())
+    assert len(recovered_events) == 12
+    assert {event.captured_at for event in recovered_events} == set(captured_times)
+
+
+def test_record_scan_movement_links_the_event_to_the_capture_batch():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator)
+
+    result = services.record_scan_movement(
+        student=student,
+        shift=parameters.shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        captured_at=_at(parameters.effective_from, 7, 0),
+        client_event_id="linked-1",
+        operator=operator,
+        capture_batch=batch,
+    )
+
+    assert result.event.capture_batch_id == batch.pk
+
+
+def test_record_scan_movement_rejects_a_capture_batch_that_belongs_to_another_operator():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    operator = UserFactory()
+    someone_elses_batch = CaptureBatchFactory()
+
+    with pytest.raises(DomainError, match="no pertenece a este operador"):
+        services.record_scan_movement(
+            student=student,
+            shift=parameters.shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            client_event_id="wrong-operator-1",
+            operator=operator,
+            capture_batch=someone_elses_batch,
+        )
+
+
+def test_record_scan_movement_rejects_a_confirmed_capture_batch():
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator, status=CaptureBatch.Status.CONFIRMED)
+
+    with pytest.raises(DomainError, match="ya no esta abierto"):
+        services.record_scan_movement(
+            student=student,
+            shift=parameters.shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=_at(parameters.effective_from, 7, 0),
+            client_event_id="confirmed-batch-1",
+            operator=operator,
+            capture_batch=batch,
+        )
+
+
+def test_confirm_capture_batch_closes_it_and_audits():
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator)
+
+    confirmed = services.confirm_capture_batch(capture_batch=batch, actor=operator)
+
+    confirmed.refresh_from_db()
+    assert confirmed.status == CaptureBatch.Status.CONFIRMED
+    assert confirmed.confirmed_at is not None
+    event = AuditEvent.objects.get(
+        action="attendance.capture_batch.confirmed",
+        resource_identifier=str(batch.public_id),
+    )
+    assert event.actor_id == operator.id
+
+
+def test_confirm_capture_batch_rejects_an_already_confirmed_batch():
+    batch = CaptureBatchFactory(status=CaptureBatch.Status.CONFIRMED)
+
+    with pytest.raises(DomainError, match="ya no esta abierto"):
+        services.confirm_capture_batch(capture_batch=batch, actor=batch.operator)
+
+
+def test_confirming_a_batch_removes_it_from_recovery():
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator)
+
+    services.confirm_capture_batch(capture_batch=batch, actor=operator)
+
+    assert services.recover_open_capture_batch(operator=operator) is None
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-001 — emision de credencial con identificador opaco
 # --------------------------------------------------------------------------- #
 
@@ -2190,6 +2740,226 @@ def test_a_colliding_identifier_is_regenerated_instead_of_failing():
 
 
 # --------------------------------------------------------------------------- #
+# RF-CRE-002 — contenido visible de la credencial
+# --------------------------------------------------------------------------- #
+
+
+def test_resolve_credential_print_content_returns_name_photo_grade_section_cycle_institution():
+    """
+    Escenario 1 (RF-CRE-002): GIVEN un estudiante con credencial vigente, WHEN
+    un usuario autorizado genera el material imprimible, THEN el documento
+    incluye nombre, fotografia, grado y seccion, ciclo e institucion, AND no
+    incluye informacion de salud ni datos de contacto de la familia.
+    """
+    cycle = AcademicCycleFactory()
+    student, section, _shift = _enrolled_student(cycle)
+    student.photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
+    student.save(update_fields=["photo"])
+    services.issue_credential(student=student)
+
+    content = services.resolve_credential_print_content(student=student)
+
+    assert content.full_name == f"{student.person.first_name} {student.person.last_name}"
+    assert content.grade_name == section.offering.grade.name
+    assert content.section_name == section.name
+    assert content.academic_cycle_name == cycle.name
+    assert content.institution_name == cycle.institution.name
+    assert content.photo_url is not None and "photo" in content.photo_url
+
+
+def test_resolve_credential_print_content_requires_an_active_credential():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+
+    with pytest.raises(DomainError, match="no tiene una credencial vigente"):
+        services.resolve_credential_print_content(student=student)
+
+
+def test_resolve_credential_print_content_requires_active_enrolment():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    services.issue_credential(student=student)
+    student.enrolments.update(status=Enrolment.EnrolmentStatus.WITHDRAWN)
+
+    with pytest.raises(DomainError, match="no tiene inscripcion activa"):
+        services.resolve_credential_print_content(student=student)
+
+
+def test_resolve_credential_print_content_rejects_a_revoked_credential():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    StudentCredentialFactory(student=student, status=StudentCredential.Status.REVOKED)
+
+    with pytest.raises(DomainError, match="no tiene una credencial vigente"):
+        services.resolve_credential_print_content(student=student)
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-003 — vigencia y revocacion
+# --------------------------------------------------------------------------- #
+
+
+def test_revoke_credential_records_reason_and_revoker_and_rejects_reuse():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    issued = services.issue_credential(student=student)
+    actor = UserFactory()
+
+    revoked = services.revoke_credential(student=student, reason="Extravío", actor=actor)
+
+    assert revoked.pk == issued.pk
+    assert revoked.status == StudentCredential.Status.REVOKED
+    assert revoked.revocation_reason == "Extravío"
+    assert revoked.revoked_by == actor
+    with pytest.raises(DomainError, match="revocada"):
+        services.resolve_credential(opaque_identifier=issued.opaque_identifier)
+
+
+def test_revoke_credential_requires_a_reason():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+
+    with pytest.raises(DomainError, match="motivo"):
+        services.revoke_credential(student=student, reason="", actor=UserFactory())
+
+
+def test_revoke_credential_requires_an_actor():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    services.issue_credential(student=student)
+
+    with pytest.raises(DomainError, match="autorizo"):
+        services.revoke_credential(student=student, reason="Extravío", actor=None)
+
+
+def test_revoke_credential_without_an_active_one_is_rejected():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+
+    with pytest.raises(DomainError, match="credencial vigente"):
+        services.revoke_credential(student=student, reason="Extravío", actor=UserFactory())
+
+
+def test_revoke_credential_twice_is_rejected_the_second_time():
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    services.issue_credential(student=student)
+    actor = UserFactory()
+    services.revoke_credential(student=student, reason="Extravío", actor=actor)
+
+    with pytest.raises(DomainError, match="credencial vigente"):
+        services.revoke_credential(student=student, reason="Duplicada", actor=actor)
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-005 — persistencia de los movimientos ante revocacion
+# --------------------------------------------------------------------------- #
+
+
+def test_revoking_a_credential_does_not_alter_past_attendance_events_or_day_status():
+    """
+    Escenario 1 (RF-CRE-005): GIVEN un estudiante con movimientos de
+    asistencia registrados durante la semana, WHEN se revoca su credencial
+    por extravio, THEN los movimientos previos permanecen sin cambios, AND
+    el estado diario derivado de esos movimientos tampoco cambia.
+
+    Nada nuevo que programar: ``AttendanceEvent`` no tiene relacion alguna
+    con ``StudentCredential`` (ni FK ni señal) y ``revoke_credential`` solo
+    muta la fila de la credencial, asi que esto ya se cumple por diseño,
+    igual que RF-CRE-004. Esta prueba deja esa garantia verificable.
+    """
+    today = timezone.localdate()
+    cycle = AcademicCycleFactory(starts_on=today - timedelta(days=30))
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    services.issue_credential(student=student)
+
+    event_dates = [today - timedelta(days=offset) for offset in (4, 3, 2, 1)]
+    events = [
+        AttendanceEventFactory(
+            student=student,
+            shift=shift,
+            event_date=event_date,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=timezone.make_aware(datetime.combine(event_date, time(7, 0))),
+        )
+        for event_date in event_dates
+    ]
+    events_before = {
+        event.pk: (event.event_date, event.movement_type, event.captured_at, event.is_active)
+        for event in events
+    }
+    day_statuses_before = {
+        key: (result.status if result else None, result.entry_event.pk if result else None)
+        for key, result in services.derive_day_statuses(
+            students=[student], shift=shift, event_dates=event_dates
+        ).items()
+    }
+
+    services.revoke_credential(student=student, reason="Extravío", actor=UserFactory())
+
+    events_after = {
+        event.pk: (event.event_date, event.movement_type, event.captured_at, event.is_active)
+        for event in AttendanceEvent.objects.filter(pk__in=events_before)
+    }
+    assert events_after == events_before
+    day_statuses_after = {
+        key: (result.status if result else None, result.entry_event.pk if result else None)
+        for key, result in services.derive_day_statuses(
+            students=[student], shift=shift, event_dates=event_dates
+        ).items()
+    }
+    assert day_statuses_after == day_statuses_before
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-004 — reposicion sin perdida de historial
+# --------------------------------------------------------------------------- #
+
+
+def test_reissuing_after_revocation_generates_a_new_identifier_and_keeps_the_old_row():
+    """
+    Escenario 1 (RF-CRE-004): GIVEN un estudiante cuya credencial fue
+    revocada, WHEN un usuario autorizado emite la reposicion, THEN el
+    sistema genera un identificador opaco distinto del anterior, AND el
+    historial de credenciales del estudiante conserva la credencial
+    revocada.
+
+    Nada nuevo que programar: la restriccion unica de la base de datos
+    (``unique_active_student_credential``) solo exige una credencial
+    ACTIVA a la vez, no una por estudiante en total, asi que
+    ``issue_credential`` ya acepta emitir de nuevo apenas la anterior deja
+    de estar activa. Esta prueba cierra el requerimiento sobre ese
+    comportamiento existente (RF-CRE-001/003), no agrega logica nueva.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    original = services.issue_credential(student=student)
+    admin = UserFactory()
+    revoked = services.revoke_credential(student=student, reason="Extravio", actor=admin)
+
+    reissued = services.issue_credential(student=student)
+
+    assert reissued.opaque_identifier != original.opaque_identifier
+    assert reissued.status == StudentCredential.Status.ACTIVE
+
+    revoked.refresh_from_db()
+    assert revoked.status == StudentCredential.Status.REVOKED
+    assert revoked.revocation_reason == "Extravio"
+    assert revoked.revoked_by == admin
+    assert StudentCredential.objects.filter(student=student).count() == 2
+
+
+# --------------------------------------------------------------------------- #
 # RF-CRE-006 — resolucion de identificador
 # --------------------------------------------------------------------------- #
 
@@ -2281,6 +3051,61 @@ def test_the_scan_subject_resolves_from_either_a_credential_or_a_student_code():
         services.resolve_scan_subject(credential_identifier="unknown-token")
     with pytest.raises(DomainError, match="No existe estudiante"):
         services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST")
+
+
+# --------------------------------------------------------------------------- #
+# RNF-SEG-003 -- registro de intentos de escaneo rechazados
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unrecognized_credential_is_audited_without_naming_any_student():
+    """
+    RNF-SEG-003, camino feliz: un codigo invalido queda registrado en la
+    bitacora. La respuesta al operador sigue sin nombrar a nadie (verificado
+    arriba); el asiento interno tampoco puede, porque en este caso el sistema
+    mismo no sabe de quien se trataba.
+    """
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_credential(opaque_identifier="not-a-real-token", actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.actor_id == operator.id
+    assert event.context["reason"] == "unrecognized_credential"
+    assert "student_id" not in event.context
+
+
+def test_a_revoked_credential_rejection_is_audited_with_the_student():
+    """RNF-SEG-003: "credencial no vigente" -- el sistema si sabe de quien, y lo registra."""
+    cycle = AcademicCycleFactory()
+    student, _section, _shift = _enrolled_student(cycle)
+    credential = services.issue_credential(student=student)
+    credential.status = StudentCredential.Status.REVOKED
+    credential.save(update_fields=["status"])
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_credential(opaque_identifier=credential.opaque_identifier, actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.context["reason"] == "revoked_credential"
+    assert event.context["student_id"] == student.pk
+
+
+def test_an_unregistered_student_code_rejection_is_audited():
+    """RNF-SEG-003: "estudiante no registrado" via el codigo de respaldo."""
+    operator = UserFactory()
+
+    with pytest.raises(DomainError):
+        services.resolve_scan_subject(student_code="EST-DOES-NOT-EXIST", actor=operator)
+
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "attendance.credential.resolution_rejected"
+    assert event.actor_id == operator.id
+    assert event.context["reason"] == "unregistered_student_code"
 
 
 # --------------------------------------------------------------------------- #

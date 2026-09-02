@@ -71,6 +71,23 @@ def test_sensitive_permissions_without_student_scope_are_denied(client_user):
 
 @pytest.mark.api
 @pytest.mark.django_db
+def test_reading_a_health_note_detail_is_audited(client_user):
+    """RNF-AUD-003: reading one health note, not just listing them, is audited too."""
+    client, user = client_user
+    note = StudentHealthNoteFactory()
+    grant(user, note.student, "student_view_sensitive", "student_edit_basic")
+
+    response = client.get(reverse("student-health-note-detail", args=[note.public_id]))
+
+    assert response.status_code == 200
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "students.health_note.detail_read"
+    assert event.context["student_id"] == note.student_id
+    assert event.actor_id == user.id
+
+
+@pytest.mark.api
+@pytest.mark.django_db
 def test_health_note_soft_delete_requires_edit_and_preserves_history(client_user):
     client, user = client_user
     note = StudentHealthNoteFactory()

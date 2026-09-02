@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     ControlPoint,
     DayStatus,
     JornadaParameters,
@@ -161,6 +162,33 @@ class JornadaClosureResultSerializer(serializers.Serializer):
     alerts = AttendanceAlertSerializer(many=True)
 
 
+class SectionClosureRequestSerializer(serializers.Serializer):
+    section_id = serializers.UUIDField(help_text="Public ID de la seccion.")
+    event_date = serializers.DateField(help_text="Fecha de la jornada a cerrar.")
+
+
+class SectionClosureStudentSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(source="public_id")
+
+
+class SectionClosureOmissionSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(source="student.public_id")
+    reason = serializers.CharField()
+
+
+class SectionClosureResultSerializer(serializers.Serializer):
+    """
+    RF-ASI-011: who was (or would be) closed and who was omitted, and why --
+    the same shape for the preview and for the confirmed closure, so a
+    client renders both with one component.
+    """
+
+    section_id = serializers.UUIDField(source="section.public_id")
+    event_date = serializers.DateField()
+    included = SectionClosureStudentSerializer(many=True)
+    omitted = SectionClosureOmissionSerializer(many=True)
+
+
 class AttendancePresenceQuerySerializer(serializers.Serializer):
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
     event_date = serializers.DateField(
@@ -201,7 +229,15 @@ class ControlPointSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ControlPoint
-        fields = ["public_id", "name", "code", "campus_id", "is_active"]
+        fields = [
+            "public_id",
+            "name",
+            "code",
+            "campus_id",
+            "allows_entry",
+            "allows_exit",
+            "is_active",
+        ]
 
 
 class ManualRegistrationReasonSerializer(serializers.ModelSerializer):
@@ -262,6 +298,14 @@ class ScanCaptureRequestSerializer(serializers.Serializer):
         default="",
         help_text="Id de agrupacion del lote; vacio para un escaneo individual.",
     )
+    capture_batch_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Public ID del lote de captura recuperable (RF-ASI-009) al que "
+            "pertenecen estos elementos; omitido para un escaneo fuera de un "
+            "lote recuperable."
+        ),
+    )
     items = ScanCaptureItemSerializer(many=True, allow_empty=False)
 
 
@@ -288,6 +332,23 @@ class ScanCaptureItemResultSerializer(serializers.Serializer):
     duplicate_of = AttendanceEventSerializer(allow_null=True)
     confirmation = ScanConfirmationSerializer(allow_null=True)
     reason = serializers.CharField(allow_blank=True)
+
+
+class CaptureBatchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaptureBatch
+        fields = ["public_id", "status", "confirmed_at", "created_at"]
+
+
+class CaptureBatchRecoverySerializer(serializers.Serializer):
+    """
+    RF-ASI-009: what an operator gets back on recovery -- the batch itself
+    (``null`` when there is nothing pending) plus every movement already
+    saved in it, each with its original capture time intact.
+    """
+
+    capture_batch = CaptureBatchSerializer(allow_null=True)
+    events = AttendanceEventSerializer(many=True)
 
 
 class StudentCredentialSerializer(serializers.ModelSerializer):
@@ -319,6 +380,40 @@ class StudentCredentialIssueSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
 
 
+class CredentialRevocationRequestSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+    reason = serializers.CharField(
+        max_length=255, help_text="Motivo de la revocacion (extravio, retiro, etc.)."
+    )
+
+
+class CredentialRevocationResultSerializer(serializers.ModelSerializer):
+    """
+    RF-CRE-003 revocation response: confirms the credential is revoked, with
+    its reason and who revoked it. Deliberately omits ``opaque_identifier`` --
+    see ``StudentCredentialSerializer``'s docstring on why a token should
+    never be echoed back outside the one response that issues it.
+    """
+
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    revoked_by_id = serializers.IntegerField(
+        source="revoked_by.pk", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = StudentCredential
+        fields = [
+            "public_id",
+            "student_id",
+            "status",
+            "revocation_reason",
+            "revoked_by_id",
+            "issued_at",
+            "is_active",
+            "updated_at",
+        ]
+
+
 class CredentialResolutionRequestSerializer(serializers.Serializer):
     opaque_identifier = serializers.CharField(
         max_length=64, help_text="Identificador opaco leido del codigo QR."
@@ -342,3 +437,24 @@ class CredentialResolutionSerializer(serializers.Serializer):
     section_id = serializers.UUIDField(source="enrolment.section.public_id")
     academic_cycle_id = serializers.UUIDField(source="enrolment.academic_cycle.public_id")
     credential_status = serializers.CharField(source="credential.status")
+
+
+class CredentialPrintContentQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+
+
+class CredentialPrintContentSerializer(serializers.Serializer):
+    """
+    RF-CRE-002 response: exactly what the printed/digital credential shows.
+
+    Deliberately excludes everything else the student record carries (health,
+    address, family contact) -- the field list itself is the boundary.
+    """
+
+    student_id = serializers.UUIDField(source="student.public_id")
+    full_name = serializers.CharField()
+    grade_name = serializers.CharField()
+    section_name = serializers.CharField()
+    academic_cycle_name = serializers.CharField()
+    institution_name = serializers.CharField()
+    photo_url = serializers.CharField(allow_null=True)

@@ -19,17 +19,20 @@ from datetime import datetime, time, timedelta
 from urllib.parse import urlencode
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, StudentCredential
+from apps.attendance.models import AttendanceAlert, AttendanceEvent, CaptureBatch, StudentCredential
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
 from tests.factories.attendance import (
     AttendanceEventFactory,
+    CaptureBatchFactory,
     ControlPointFactory,
     JornadaParametersFactory,
     ManualRegistrationReasonFactory,
@@ -424,6 +427,160 @@ def test_declared_exit_without_entry_creates_inconsistency_alert_visible_via_ale
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-011 — cierre declarado por seccion
+# --------------------------------------------------------------------------- #
+
+
+def _grant_declared_closure_permission(user):
+    _grant(user, "attendance_declared_close")
+    _grant(user, "attendance_record_exit")
+
+
+def _section_closure_preview_url(section, event_date):
+    query = urlencode({"section_id": str(section.public_id), "event_date": str(event_date)})
+    return f"{reverse('attendance-section-closure-preview')}?{query}"
+
+
+def test_section_closure_preview_requires_permission(auth_client):
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+
+    response = auth_client.get(_section_closure_preview_url(section, parameters.effective_from))
+
+    assert response.status_code == 403
+
+
+def test_section_closure_requires_permission(auth_client):
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+
+    response = auth_client.post(
+        reverse("attendance-section-closure"),
+        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_section_closure_preview_shows_omitted_students_before_confirming(auth_client):
+    """
+    Escenario 1 (RF-ASI-011): GIVEN una seccion con un estudiante sin
+    ingreso registrado, WHEN un usuario autorizado previsualiza el cierre
+    declarado, THEN el resumen lo muestra omitido con el motivo, AND no se
+    registra ningun movimiento.
+    """
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+
+    response = auth_client.get(_section_closure_preview_url(section, parameters.effective_from))
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["included"] == []
+    assert len(data["omitted"]) == 1
+    assert data["omitted"][0]["student_id"] == str(student.public_id)
+    assert not AttendanceEvent.objects.filter(student=student).exists()
+
+
+def test_section_closure_confirms_declared_exit_for_eligible_students(auth_client):
+    """
+    Escenario 2 (RF-ASI-011): GIVEN una seccion con un estudiante que tiene
+    ingreso y sin salida, WHEN un usuario autorizado confirma el cierre
+    declarado, THEN el sistema registra su salida declarada, AND el resumen
+    lo muestra incluido, no omitido.
+    """
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+
+    response = auth_client.post(
+        reverse("attendance-section-closure"),
+        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["included"] == [{"student_id": str(student.public_id)}]
+    assert data["omitted"] == []
+    event = AttendanceEvent.objects.get(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    )
+    assert event.origin == AttendanceEvent.Origin.DECLARED
+
+
+def test_section_closure_omits_a_student_who_already_has_an_exit(auth_client):
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(12, 0))),
+    )
+
+    response = auth_client.post(
+        reverse("attendance-section-closure"),
+        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["included"] == []
+    assert len(data["omitted"]) == 1
+    assert data["omitted"][0]["student_id"] == str(student.public_id)
+    assert (
+        AttendanceEvent.objects.filter(
+            student=student, movement_type=AttendanceEvent.MovementType.EXIT
+        ).count()
+        == 1
+    )
+
+
+# --------------------------------------------------------------------------- #
 # RF-JOR-006 — recalculo ante cambios
 # --------------------------------------------------------------------------- #
 
@@ -743,6 +900,31 @@ def test_scan_endpoint_creates_event_with_permission(auth_client):
     assert body[0]["event"]["control_point_id"] == str(control_point.public_id)
 
 
+def test_scan_endpoint_rejects_a_movement_type_the_control_point_does_not_allow(auth_client):
+    """
+    Escenario 1 (RF-ASI-005): GIVEN un punto de control configurado solo
+    para egreso, WHEN un operador intenta registrar un ingreso desde ese
+    punto, THEN el sistema rechaza la operacion indicando que el punto no
+    admite ingresos.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    _enrol(student, parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus, allows_entry=False)
+    item = _scan_item(student, parameters.shift, control_point, "unsupported-1", timezone.now())
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [item]}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["outcome"] == "rejected"
+    assert "no admite ingresos" in body[0]["reason"]
+
+
 def test_scan_endpoint_confirmation_shows_only_photo_name_grade_and_section(auth_client):
     """
     RF-ASI-003: la confirmacion trae exactamente foto, nombre completo, grado
@@ -864,6 +1046,69 @@ def test_scan_batch_endpoint_reports_mixed_outcomes_per_item(auth_client):
     assert outcomes == ["created", "rejected"]
 
 
+def _queries_for_scan_batch(auth_client, *, items):
+    with CaptureQueriesContext(connection) as captured:
+        response = auth_client.post(
+            reverse("attendance-scan"), {"items": items}, content_type="application/json"
+        )
+    assert response.status_code == 200
+    return len(captured.captured_queries)
+
+
+def test_scan_batch_does_not_requery_the_same_shift_control_point_and_permission_per_item(
+    auth_client,
+):
+    """
+    RF-ASI-014: a batch overwhelmingly repeats the same shift, control point
+    and movement-type permission across its items (one operator, one control
+    point, one jornada). Comparing two batches of the *same* size N -- one
+    where every item shares those three keys, one where every item has its
+    own -- isolates exactly the caching effect: if repeating a key never saved
+    a query, both batches would cost the same regardless of what else the
+    request does. It doesn't: the shared-key batch costs strictly less.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    _grant(auth_client.user, "attendance_record_exit")
+    now = timezone.now()
+
+    shared_parameters = JornadaParametersFactory()
+    shared_control_point = ControlPointFactory(campus=shared_parameters.shift.campus)
+    shared_students = [StudentFactory() for _ in range(4)]
+    for student in shared_students:
+        _enrol(student, shared_parameters.academic_cycle)
+    shared_key_items = [
+        _scan_item(student, shared_parameters.shift, shared_control_point, f"shared-{i}", now)
+        for i, student in enumerate(shared_students)
+    ]
+
+    unique_key_items = []
+    for i in range(4):
+        parameters = JornadaParametersFactory()
+        control_point = ControlPointFactory(campus=parameters.shift.campus)
+        student = StudentFactory()
+        _enrol(student, parameters.academic_cycle)
+        unique_key_items.append(
+            _scan_item(
+                student,
+                parameters.shift,
+                control_point,
+                f"unique-{i}",
+                now,
+                movement_type=(
+                    AttendanceEvent.MovementType.ENTRY
+                    if i % 2 == 0
+                    else AttendanceEvent.MovementType.EXIT
+                ),
+            )
+        )
+
+    shared_key_queries = _queries_for_scan_batch(auth_client, items=shared_key_items)
+    unique_key_queries = _queries_for_scan_batch(auth_client, items=unique_key_items)
+
+    assert shared_key_queries < unique_key_queries
+
+
 def test_scan_endpoint_reports_scanned_captured_at_distinct_from_server_created_at(auth_client):
     """
     RF-ASI-008: la hora de captura que llega en el item del escaneo se
@@ -908,6 +1153,133 @@ def test_control_points_list_returns_catalogue(auth_client):
     assert response.status_code == 200
     codes = {item["code"] for item in response.json()["results"]}
     assert control_point.code in codes
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-009 — lote de captura recuperable
+# --------------------------------------------------------------------------- #
+
+
+def test_open_capture_batch_endpoint_requires_authentication(client):
+    response = client.post(reverse("attendance-capture-batch-open"))
+
+    assert response.status_code == 403
+
+
+def test_open_capture_batch_endpoint_requires_permission(auth_client):
+    response = auth_client.post(reverse("attendance-capture-batch-open"))
+
+    assert response.status_code == 403
+
+
+def test_open_capture_batch_endpoint_is_idempotent(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+
+    first = auth_client.post(reverse("attendance-capture-batch-open"))
+    second = auth_client.post(reverse("attendance-capture-batch-open"))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["public_id"] == second.json()["public_id"]
+
+
+def test_current_capture_batch_endpoint_returns_none_when_nothing_is_open(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+
+    response = auth_client.get(reverse("attendance-capture-batch-current"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["capture_batch"] is None
+    assert body["events"] == []
+
+
+def test_current_capture_batch_endpoint_recovers_pending_batch_with_original_capture_times(
+    auth_client,
+):
+    """
+    Escenario 1 (RF-ASI-009): GIVEN un operador con un lote abierto que
+    contiene doce movimientos escaneados, WHEN la sesion se pierde y el
+    usuario se vuelve a autenticar, THEN el sistema presenta el lote
+    pendiente con los doce elementos, AND cada elemento conserva su hora de
+    captura original.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+
+    open_response = auth_client.post(reverse("attendance-capture-batch-open"))
+    capture_batch_id = open_response.json()["public_id"]
+
+    captured_times = []
+    for index in range(12):
+        student = StudentFactory()
+        _enrol(student, parameters.academic_cycle)
+        captured_at = timezone.make_aware(
+            datetime.combine(parameters.effective_from, time(7, index))
+        )
+        captured_times.append(captured_at)
+        item = _scan_item(
+            student, parameters.shift, control_point, f"batch-item-{index}", captured_at
+        )
+        response = auth_client.post(
+            reverse("attendance-scan"),
+            {"capture_batch_id": capture_batch_id, "items": [item]},
+            content_type="application/json",
+        )
+        assert response.json()[0]["outcome"] == "created"
+
+    response = auth_client.get(reverse("attendance-capture-batch-current"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["capture_batch"]["public_id"] == capture_batch_id
+    assert len(body["events"]) == 12
+    recovered_times = {datetime.fromisoformat(event["captured_at"]) for event in body["events"]}
+    assert recovered_times == set(captured_times)
+
+
+def test_confirm_capture_batch_endpoint_closes_it(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    batch = CaptureBatchFactory(operator=auth_client.user)
+
+    response = auth_client.post(reverse("attendance-capture-batch-confirm", args=[batch.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == CaptureBatch.Status.CONFIRMED
+
+
+def test_confirm_capture_batch_endpoint_rejects_a_batch_belonging_to_another_operator(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    someone_elses_batch = CaptureBatchFactory()
+
+    response = auth_client.post(
+        reverse("attendance-capture-batch-confirm", args=[someone_elses_batch.public_id])
+    )
+
+    assert response.status_code == 400
+
+
+def test_scan_endpoint_links_the_created_event_to_the_capture_batch(auth_client):
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    _enrol(student, parameters.academic_cycle)
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    batch = CaptureBatchFactory(operator=auth_client.user)
+    item = _scan_item(student, parameters.shift, control_point, "linked-item-1", timezone.now())
+
+    response = auth_client.post(
+        reverse("attendance-scan"),
+        {"capture_batch_id": str(batch.public_id), "items": [item]},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["outcome"] == "created"
+    assert batch.events.count() == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -1067,6 +1439,199 @@ def test_issue_credential_requires_authentication(client):
     )
 
     assert response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-002 — contrato del endpoint de contenido imprimible de la credencial
+# --------------------------------------------------------------------------- #
+
+
+def _print_content_url(student):
+    return f"{reverse('attendance-credential-print-content')}?student_id={student.public_id}"
+
+
+def test_credential_print_content_requires_authentication(client):
+    student = StudentFactory()
+
+    response = client.get(_print_content_url(student))
+
+    assert response.status_code == 403
+
+
+def test_credential_print_content_requires_permission_and_student_scope(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+
+    response = auth_client.get(_print_content_url(student))
+
+    assert response.status_code == 403
+
+
+def test_credential_print_content_returns_exactly_the_allowed_fields(auth_client):
+    """
+    RF-CRE-002: la respuesta trae nombre, foto, grado, seccion, ciclo e
+    institucion -- nada de salud, calificaciones, contacto ni domicilio.
+    """
+    student = StudentFactory()
+    section = _enrol(student)
+    services.issue_credential(student=student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.get(_print_content_url(student))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body.keys()) == {
+        "student_id",
+        "full_name",
+        "grade_name",
+        "section_name",
+        "academic_cycle_name",
+        "institution_name",
+        "photo_url",
+    }
+    assert body["student_id"] == str(student.public_id)
+    assert body["grade_name"] == section.offering.grade.name
+    assert body["section_name"] == section.name
+
+
+def test_credential_print_content_without_an_active_credential_is_a_bad_request(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.get(_print_content_url(student))
+
+    assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-003 — contrato de revocacion de credencial
+# --------------------------------------------------------------------------- #
+
+
+def _revoke_credential(client, student, reason="Extravío"):
+    return client.post(
+        reverse("attendance-credential-revoke"),
+        {"student_id": str(student.public_id), "reason": reason},
+        content_type="application/json",
+    )
+
+
+def test_revoke_credential_requires_authentication(client):
+    assert _revoke_credential(client, StudentFactory()).status_code == 403
+
+
+def test_revoke_credential_requires_permission_and_student_scope(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+
+    assert _revoke_credential(auth_client, student).status_code == 403
+
+
+def test_revoke_credential_records_reason_and_revoker(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = _revoke_credential(auth_client, student, reason="Extravío reportado por tutor")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == StudentCredential.Status.REVOKED
+    assert body["revocation_reason"] == "Extravío reportado por tutor"
+    assert body["revoked_by_id"] == auth_client.user.pk
+    assert "opaque_identifier" not in body
+
+
+def test_revoke_credential_requires_a_reason(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = _revoke_credential(auth_client, student, reason="")
+
+    assert response.status_code == 400
+
+
+def test_revoke_credential_without_an_active_one_is_a_bad_request(auth_client):
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    assert _revoke_credential(auth_client, student).status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-005 — persistencia de los movimientos ante revocacion
+# --------------------------------------------------------------------------- #
+
+
+def test_revoking_a_credential_does_not_alter_the_students_day_status(auth_client):
+    """
+    Escenario 1 (RF-CRE-005): GIVEN un estudiante con un movimiento de
+    asistencia ya registrado, WHEN se revoca su credencial, THEN el estado
+    diario consultado por API sigue siendo exactamente el mismo.
+    """
+    parameters = JornadaParametersFactory(entry_limit_time=time(7, 30))
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+    services.issue_credential(student=student)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+    url = _day_status_url(student, parameters.shift, parameters.effective_from)
+    before = auth_client.get(url).json()
+
+    assert _revoke_credential(auth_client, student).status_code == 200
+
+    after = auth_client.get(url).json()
+    assert after == before
+
+
+# --------------------------------------------------------------------------- #
+# RF-CRE-004 — reposicion sin perdida de historial
+# --------------------------------------------------------------------------- #
+
+
+def test_reissuing_after_revocation_via_the_api_generates_a_new_identifier(auth_client):
+    """
+    Escenario 1 (RF-CRE-004): GIVEN un estudiante cuya credencial fue
+    revocada, WHEN un usuario autorizado emite la reposicion, THEN el
+    sistema genera un identificador opaco distinto del anterior, AND el
+    historial de credenciales del estudiante conserva la credencial
+    revocada.
+    """
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+    first = services.issue_credential(student=student)
+
+    revoke_response = _revoke_credential(auth_client, student, reason="Extravio")
+    assert revoke_response.status_code == 200
+
+    reissue_response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": str(student.public_id)},
+        content_type="application/json",
+    )
+
+    assert reissue_response.status_code == 201
+    body = reissue_response.json()
+    assert body["opaque_identifier"] != first.opaque_identifier
+    assert body["status"] == StudentCredential.Status.ACTIVE
+    assert StudentCredential.objects.filter(student=student).count() == 2
 
 
 # --------------------------------------------------------------------------- #

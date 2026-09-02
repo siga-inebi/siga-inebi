@@ -353,3 +353,58 @@ class Grade(TimeStampedModel):
 
     def __str__(self):
         return f"{self.enrolment} / {self.subject} / {self.evaluation_unit}: {self.value}"
+
+
+class RecoveryGrade(TimeStampedModel):
+    """
+    Recovery grade for one student and one failed subarea in a cycle (RF-RES-005).
+
+    Kept alongside the original final grade, never replacing it: ``value`` is the
+    result of the recovery evaluation and ``original_final_grade`` is a snapshot
+    of the rounded final grade (RF-RES-002) taken when the recovery is
+    registered, so the boleta can still show what the student had before.
+
+    RF-RES-004: the presence of any row here for an enrolment is what "el
+    estudiante ya utilizo su oportunidad de recuperacion en ese ciclo" means --
+    the opportunity is one per cycle, not one per subarea. The unique constraint
+    is per (enrolment, subject) only to stop a subarea being recovered twice;
+    the once-per-cycle rule lives in the eligibility service.
+
+    This model is introduced by RF-RES-004 (which only reads it) and its write
+    path lands with RF-RES-005.
+    """
+
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment",
+        on_delete=models.PROTECT,
+        related_name="recovery_grades",
+        help_text="Ties the recovery grade to the student, the section and the cycle.",
+    )
+    subject = models.ForeignKey(
+        "academics.Subject",
+        on_delete=models.PROTECT,
+        related_name="recovery_grades",
+        help_text="Failed subarea the recovery grade applies to.",
+    )
+    value = models.PositiveSmallIntegerField(
+        help_text="Result of the recovery evaluation, on the same 0-100 scale.",
+    )
+    original_final_grade = models.PositiveSmallIntegerField(
+        help_text="Snapshot of the rounded final grade before the recovery, kept for the boleta.",
+    )
+
+    class Meta:
+        ordering = ["enrolment", "subject"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["enrolment", "subject"],
+                name="unique_recovery_grade_per_enrolment_subject",
+            ),
+            models.CheckConstraint(
+                condition=Q(value__gte=GRADE_MIN_VALUE) & Q(value__lte=GRADE_MAX_VALUE),
+                name="recovery_grade_value_within_scale",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.enrolment} / {self.subject} recovery: {self.value}"

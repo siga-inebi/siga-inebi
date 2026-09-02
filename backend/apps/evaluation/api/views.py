@@ -18,6 +18,7 @@ aparecian en el schema publicado. Cada operacion lo declara con
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -25,26 +26,38 @@ from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError, DomainError, ResourceNotFoundError
 from apps.evaluation import queries
 from apps.evaluation.api.serializers import (
+    BulkGradeUploadSerializer,
     CaptureExceptionGrantSerializer,
+    CaptureProgressReportSerializer,
     CycleEvaluationConfigSerializer,
     EvaluationGlobalConfigSerializer,
     EvaluationUnitSerializer,
     GradeSerializer,
+    RecoveryEligibilitySerializer,
+    RecoveryGradeSerializer,
     RecoveryWindowSerializer,
 )
 from apps.evaluation.services import (
+    assess_recovery_eligibility,
+    build_capture_progress_report,
+    bulk_register_unit_grades,
+    close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
     get_effective_unit_count,
     get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_recovery_grade,
     register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
     update_global_evaluation_config,
 )
-from apps.identity.scopes import teaching_assignment_queryset
+from apps.identity.scopes import can_access_student, teaching_assignment_queryset
+
+EVALUATION_CONFIGURE_PERMISSION = "evaluation_configure_units"
+STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 TAGS = ["evaluation: configuration"]
 
@@ -158,6 +171,62 @@ class EvaluationUnitRecoveryWindowView(APIView):
             recovery_starts_on=serializer.validated_data["recovery_starts_on"],
             recovery_ends_on=serializer.validated_data["recovery_ends_on"],
         )
+
+        return Response(
+            EvaluationUnitSerializer(unit).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        summary="Cerrar una unidad de evaluacion",
+        description=(
+            "Una unidad cerrada deja de admitir captura o correccion de notas salvo "
+            "brecha excepcional vigente (RF-EVC-007)."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: EvaluationUnitSerializer},
+    ),
+)
+class EvaluationUnitCloseView(APIView):
+    """
+    Close an evaluation unit (RF-EVC-007).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    PATCH {base}/close/
+    """
+
+    def check_configuration_permission(self, unit):
+        """Require the atomic permission and an effective institution scope."""
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        return user.has_scoped_permission(
+            EVALUATION_CONFIGURE_PERMISSION,
+            scope={"institution": unit.academic_cycle.institution},
+        )
+
+    def patch(self, request, *args, **kwargs):
+        cycle_public_id = kwargs.get("cycle_public_id")
+        unit_public_id = kwargs.get("unit_public_id")
+
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
+
+        if not self.check_configuration_permission(unit):
+            raise AuthorizationError(
+                "Permission denied. The actor needs evaluation configuration permission and scope."
+            )
+
+        unit = close_evaluation_unit(unit, actor=request.user)
 
         return Response(
             EvaluationUnitSerializer(unit).data,
@@ -454,6 +523,120 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el avance de captura de notas de una unidad",
+        description=(
+            "Por seccion y subarea del plan de estudios del ciclo: cuantas notas "
+            "estan registradas, cuantas faltan y el docente responsable. "
+            "``window_open`` indica si la ventana de captura sigue abierta; las "
+            "filas se devuelven igual cuando ya cerro, para ver lo que quedo "
+            "pendiente."
+        ),
+        tags=TAGS,
+        responses={200: CaptureProgressReportSerializer},
+    ),
+)
+class UnitCaptureProgressView(APIView):
+    """
+    Capture-progress panel for an evaluation unit (RF-CAL-008).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    GET {base}/capture-progress/
+    """
+
+    def get(self, request, *args, **kwargs):
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=kwargs.get("cycle_public_id"),
+            unit_public_id=kwargs.get("unit_public_id"),
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
+
+        report = build_capture_progress_report(unit)
+        return Response(CaptureProgressReportSerializer(report).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Cargar notas de una unidad de forma masiva desde un archivo",
+        description=(
+            "Recibe un CSV multipart con cabecera ``student_code,value`` y los "
+            "campos de formulario ``subject``, ``section`` y ``teacher`` (public "
+            "IDs). Valida todas las filas antes de guardar: si alguna falla no se "
+            "escribe ninguna y responde 400 con ``errors`` (fila y motivo). Con "
+            "todas validas responde 200 con ``created``."
+        ),
+        tags=TAGS,
+        request=BulkGradeUploadSerializer,
+        responses={200: dict, 400: dict},
+    ),
+)
+class BulkGradeUploadView(APIView):
+    """
+    Bulk grade upload for an evaluation unit (RF-CAL-004).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/{unit_public_id}
+
+    POST {base}/grades/bulk/  (multipart/form-data)
+
+    The 400 body here is ``{"errors": [...], "created": 0}`` -- row-level
+    validation feedback the issue requires, deliberately outside the
+    single-message error envelope used for rule violations.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        unit = queries.evaluation_unit_or_none(
+            cycle_public_id=kwargs.get("cycle_public_id"),
+            unit_public_id=kwargs.get("unit_public_id"),
+        )
+        if unit is None:
+            raise ResourceNotFoundError("Evaluation unit not found.")
+
+        serializer = BulkGradeUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        subject = serializer.validated_data["subject"]
+        section = serializer.validated_data["section"]
+        teacher = serializer.validated_data["teacher"]
+
+        # Same docente-scope check as the single-grade endpoint (RF-CAL-006).
+        if not request.user.has_scoped_permission(
+            "grade_write", scope={"section": section, "subject": subject}
+        ):
+            record_event(
+                actor=request.user,
+                action="evaluation.grade_write_denied",
+                resource="Grade",
+                context={
+                    "subject_id": str(subject.public_id),
+                    "section_id": str(section.public_id),
+                    "unit_id": str(unit.public_id),
+                    "bulk": True,
+                },
+            )
+            raise AuthorizationError(
+                "Permission denied. No teaching assignment over this section and subject."
+            )
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=serializer.validated_data["rows"],
+            actor=request.user,
+        )
+        if result.errors:
+            return Response(
+                {"errors": result.errors, "created": 0},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"created": result.created}, status=status.HTTP_200_OK)
+
+
 def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
     """
     Resolve (enrolment, subject) for the current-average and final-grade
@@ -527,3 +710,136 @@ class FinalSubjectGradeView(APIView):
         )
 
         return Response(get_final_subject_grade(enrolment, subject))
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar la elegibilidad de recuperacion de un estudiante",
+        description=(
+            "Evalua en conjunto tres condiciones: asistencia del ciclo de al menos "
+            "80%, cantidad de subareas reprobadas dentro del limite del plan de "
+            "estudios (3 si el plan tiene 9 subareas o menos, 4 si tiene mas), y que "
+            "el estudiante no haya usado ya su oportunidad de recuperacion en el ciclo."
+        ),
+        tags=TAGS,
+        responses={200: RecoveryEligibilitySerializer},
+    ),
+)
+class RecoveryEligibilityView(APIView):
+    """
+    Recovery eligibility for a student's enrolment (RF-RES-004).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/recovery-eligibility/
+    """
+
+    def get(self, request, *args, **kwargs):
+        enrolment = queries.enrolment_or_none(
+            cycle_public_id=kwargs.get("cycle_public_id"),
+            enrolment_id=kwargs.get("enrolment_id"),
+        )
+        if enrolment is None:
+            raise ResourceNotFoundError("Enrolment not found.")
+
+        eligibility = assess_recovery_eligibility(enrolment)
+        return Response(RecoveryEligibilitySerializer(eligibility).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Registrar la nota de recuperacion de una subarea",
+        description=(
+            "Solo para estudiantes declarados elegibles (RF-RES-004), sobre una "
+            "subarea en condicion reprobada y con la ventana de recuperacion del "
+            "ciclo abierta. La nota de recuperacion se conserva junto a la nota "
+            "final original sin sustituirla; la condicion de la subarea se "
+            "recalcula a partir de la recuperacion."
+        ),
+        tags=TAGS,
+        request=RecoveryGradeSerializer,
+        responses={201: RecoveryGradeSerializer},
+    ),
+)
+class RecoveryGradeCreateView(APIView):
+    """
+    Register a recovery grade for a failed subarea (RF-RES-005).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    POST {base}/enrolments/{enrolment_id}/recovery-grades/
+    """
+
+    def post(self, request, *args, **kwargs):
+        enrolment = queries.enrolment_or_none(
+            cycle_public_id=kwargs.get("cycle_public_id"),
+            enrolment_id=kwargs.get("enrolment_id"),
+        )
+        if enrolment is None:
+            raise ResourceNotFoundError("Enrolment not found.")
+
+        serializer = RecoveryGradeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        recovery = register_recovery_grade(
+            enrolment=enrolment,
+            subject=serializer.validated_data["subject"],
+            value=serializer.validated_data["value"],
+            actor=request.user,
+        )
+        # Recompute the subarea condition off the freshly stored recovery so the
+        # response carries what get_final_subject_grade now reports.
+        recovery.recovery_condition = get_final_subject_grade(
+            enrolment, serializer.validated_data["subject"]
+        )["condition"]
+
+        return Response(
+            RecoveryGradeSerializer(recovery).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar las notas de un estudiante (portal de encargado)",
+        description=(
+            "Devuelve unicamente las notas del estudiante de la matricula indicada. "
+            "El sistema nunca expone listados comparativos de la seccion (RF-CAL-007)."
+        ),
+        tags=TAGS,
+        responses={200: GradeSerializer(many=True)},
+    ),
+)
+class EnrolmentGradesView(APIView):
+    """
+    All registered grades for one enrolment, scoped to the caller's own
+    associations (RF-CAL-007).
+
+    A guardian sees only the students with a current association
+    (guardian_student_queryset, via authorized_student_queryset); anyone
+    without an effective scope over this student is denied.
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/grades/
+    """
+
+    def get(self, request, *args, **kwargs):
+        cycle_public_id = kwargs.get("cycle_public_id")
+        enrolment_id = kwargs.get("enrolment_id")
+
+        enrolment = queries.enrolment_or_none(
+            cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
+        )
+        if enrolment is None:
+            raise ResourceNotFoundError("Enrolment not found.")
+
+        if not can_access_student(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=enrolment.student
+        ):
+            raise AuthorizationError(
+                "Permission denied. No hay una asociacion vigente con este estudiante."
+            )
+
+        grades = queries.grades_for_enrolment(enrolment)
+        return Response(GradeSerializer(grades, many=True).data)

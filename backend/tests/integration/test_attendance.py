@@ -17,6 +17,8 @@ import pytest
 from django.db import IntegrityError
 from django.utils import timezone
 
+from apps.academics.models import ClassScheduleBlock
+from apps.academics.services import create_class_schedule_block, deactivate_class_schedule_block
 from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
@@ -510,3 +512,70 @@ def test_withdrawing_a_student_stops_their_credential_without_touching_past_move
     entry.refresh_from_db()
     assert entry.is_active
     assert AttendanceEvent.objects.filter(student=student).count() == 1
+
+
+# --------------------------------------------------------------------------- #
+# RF-HOR-002 -- los horarios de porton no se definen en el modulo de horarios
+# --------------------------------------------------------------------------- #
+
+
+def test_class_schedule_blocks_and_gate_windows_coexist_without_interfering():
+    """
+    RF-HOR-002: el modulo de horarios (apps.academics.ClassScheduleBlock,
+    RF-HOR-001) administra unicamente periodos lectivos de clase; las
+    ventanas operativas del control de ingreso (apps.attendance.
+    JornadaParameters) son un dominio distinto (attendance-governance) que
+    ninguno de los dos consulta, bloquea o depende del otro.
+
+    Escenario 1: coexisten en la misma jornada, incluso con horas que se
+    solapan, sin que el registro de uno valide o rechace contra el otro.
+    """
+    shift = ShiftFactory()
+    cycle = AcademicCycleFactory(institution=shift.campus.institution)
+
+    gate_window = services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+
+    class_block = create_class_schedule_block(
+        shift=shift, number=1, name="Bloque 1", starts_on=time(7, 0), ends_on=time(7, 45)
+    )
+
+    # The class block (07:00-07:45) overlaps the gate's entry_limit_time
+    # (07:30): registering it neither consulted nor was rejected by the gate
+    # parameters -- they live in unrelated tables of unrelated apps.
+    assert class_block.starts_on < gate_window.entry_limit_time < class_block.ends_on
+    assert ClassScheduleBlock.objects.filter(shift=shift).count() == 1
+    assert JornadaParameters.objects.filter(shift=shift).count() == 1
+
+
+def test_deactivating_a_class_schedule_block_leaves_the_gate_window_untouched():
+    """Escenario 2: un cambio de un lado de la frontera no toca el otro."""
+    shift = ShiftFactory()
+    cycle = AcademicCycleFactory(institution=shift.campus.institution)
+    gate_window = services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    class_block = create_class_schedule_block(
+        shift=shift, number=1, name="Bloque 1", starts_on=time(9, 0), ends_on=time(9, 45)
+    )
+
+    deactivate_class_schedule_block(block=class_block)
+
+    gate_window.refresh_from_db()
+    assert gate_window.is_active
+    assert gate_window.closing_time == time(16, 0)

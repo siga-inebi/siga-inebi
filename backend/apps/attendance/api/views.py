@@ -32,9 +32,15 @@ from .serializers import (
     AttendancePercentageQuerySerializer,
     AttendancePercentageResultSerializer,
     AttendancePresenceQuerySerializer,
+    CaptureBatchRecoverySerializer,
+    CaptureBatchSerializer,
     ControlPointSerializer,
+    CredentialPrintContentQuerySerializer,
+    CredentialPrintContentSerializer,
     CredentialResolutionRequestSerializer,
     CredentialResolutionSerializer,
+    CredentialRevocationRequestSerializer,
+    CredentialRevocationResultSerializer,
     DayStatusQuerySerializer,
     DayStatusResultSerializer,
     JornadaClosureRequestSerializer,
@@ -45,6 +51,8 @@ from .serializers import (
     PresentStudentSerializer,
     ScanCaptureItemResultSerializer,
     ScanCaptureRequestSerializer,
+    SectionClosureRequestSerializer,
+    SectionClosureResultSerializer,
     StudentCredentialIssueSerializer,
     StudentCredentialSerializer,
 )
@@ -300,6 +308,78 @@ class JornadaClosureView(GenericAPIView):
         return Response(JornadaClosureResultSerializer(result).data)
 
 
+def _require_declared_closure_permission(request):
+    identity_services.require_all_permissions(
+        actor=request.user,
+        permission_codenames=[
+            ORIGIN_PERMISSIONS["declared"],
+            MOVEMENT_TYPE_PERMISSIONS["exit"],
+        ],
+        denial_action="attendance.event.capture_denied",
+        denial_resource="AttendanceEvent",
+    )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Previsualizar cierre declarado por seccion",
+        description=(
+            "RF-ASI-011: quien quedaria incluido y quien omitido -- y por que -- "
+            "si se confirma el cierre declarado de la seccion, sin registrar nada "
+            "todavia."
+        ),
+        tags=TAGS,
+        responses={200: SectionClosureResultSerializer},
+    ),
+)
+class SectionClosurePreviewView(GenericAPIView):
+    """RF-ASI-011 contract: preview a section's declared closure."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SectionClosureResultSerializer
+
+    def get(self, request):
+        _require_declared_closure_permission(request)
+        serializer = SectionClosureRequestSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = queries.section_for_payload(payload["section_id"])
+        result = services.preview_section_closure(section=section, event_date=payload["event_date"])
+        return Response(SectionClosureResultSerializer(result).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Confirmar cierre declarado por seccion",
+        description=(
+            "RF-ASI-011: declara la salida de cada estudiante activamente "
+            "inscrito en la seccion que tiene ingreso y aun no tiene salida "
+            "registrada. Excluye a quien ya tiene salida registrada o no tiene "
+            "ingreso, informando el motivo de cada exclusion."
+        ),
+        tags=TAGS,
+        request=SectionClosureRequestSerializer,
+        responses={200: SectionClosureResultSerializer},
+    ),
+)
+class SectionClosureView(GenericAPIView):
+    """RF-ASI-011 contract: confirm a section's declared closure."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SectionClosureResultSerializer
+
+    def post(self, request):
+        _require_declared_closure_permission(request)
+        serializer = SectionClosureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = queries.section_for_payload(payload["section_id"])
+        result = services.close_section(
+            section=section, event_date=payload["event_date"], actor=request.user
+        )
+        return Response(SectionClosureResultSerializer(result).data)
+
+
 @extend_schema_view(
     get=extend_schema(
         summary="Listar alertas de asistencia",
@@ -469,7 +549,9 @@ class ManualRegistrationReasonListView(GenericAPIView):
             "propio `client_event_id`; reenviar el mismo id es un no-op exitoso "
             "(RF-ASI-010). Un elemento del mismo tipo/estudiante/jornada dentro de "
             "la ventana de supresion configurada se rechaza sin crear movimiento "
-            "(RF-ASI-004). Un elemento invalido no aborta el resto del lote."
+            "(RF-ASI-004). Un elemento invalido no aborta el resto del lote. "
+            "`capture_batch_id` opcional enlaza cada elemento a un lote de "
+            "captura recuperable (RF-ASI-009)."
         ),
         tags=TAGS,
         request=ScanCaptureRequestSerializer,
@@ -490,26 +572,54 @@ class AttendanceScanView(GenericAPIView):
         batch_id = payload["batch_id"]
         raw_items = payload["items"]
         transmission = queries.scan_transmission(batch_id=batch_id, item_count=len(raw_items))
+        capture_batch = None
+        if "capture_batch_id" in payload:
+            capture_batch = queries.capture_batch_for_payload(
+                payload["capture_batch_id"], operator=request.user
+            )
+
+        # RF-ASI-014: a batch overwhelmingly repeats the same shift, control
+        # point and movement-type permission across its items (one operator,
+        # one control point, one jornada) -- caching each by its own key
+        # avoids re-querying the database for a value already resolved
+        # earlier in this same request. A cached permission entry is only
+        # ever a granted one: a denial still runs (and gets audited) for
+        # every item that hits it, never skipped by an earlier item's cache.
+        granted_permission_keys = set()
+        shift_cache = {}
+        control_point_cache = {}
 
         resolved = []
         results_by_index = {}
         for index, raw_item in enumerate(raw_items):
             try:
-                identity_services.require_all_permissions(
-                    actor=request.user,
-                    permission_codenames=[
-                        ORIGIN_PERMISSIONS["scan"],
-                        MOVEMENT_TYPE_PERMISSIONS[raw_item["movement_type"]],
-                    ],
-                    denial_action="attendance.event.capture_denied",
-                    denial_resource="AttendanceEvent",
+                permission_key = (
+                    ORIGIN_PERMISSIONS["scan"],
+                    MOVEMENT_TYPE_PERMISSIONS[raw_item["movement_type"]],
                 )
+                if permission_key not in granted_permission_keys:
+                    identity_services.require_all_permissions(
+                        actor=request.user,
+                        permission_codenames=list(permission_key),
+                        denial_action="attendance.event.capture_denied",
+                        denial_resource="AttendanceEvent",
+                    )
+                    granted_permission_keys.add(permission_key)
                 student = services.resolve_scan_subject(
                     credential_identifier=raw_item.get("credential_identifier", ""),
                     student_code=raw_item.get("student_code", ""),
+                    actor=request.user,
                 )
-                shift = queries.shift_for_payload(raw_item["shift_id"])
-                control_point = queries.control_point_for_payload(raw_item["control_point_id"])
+                shift_id = raw_item["shift_id"]
+                if shift_id not in shift_cache:
+                    shift_cache[shift_id] = queries.shift_for_payload(shift_id)
+                shift = shift_cache[shift_id]
+                control_point_id = raw_item["control_point_id"]
+                if control_point_id not in control_point_cache:
+                    control_point_cache[control_point_id] = queries.control_point_for_payload(
+                        control_point_id
+                    )
+                control_point = control_point_cache[control_point_id]
             except (DomainError, AuthorizationError) as exc:
                 results_by_index[index] = services.RejectedScanItem(
                     client_event_id=raw_item["client_event_id"], reason=str(exc)
@@ -526,6 +636,7 @@ class AttendanceScanView(GenericAPIView):
                         "captured_at": raw_item["captured_at"],
                         "client_event_id": raw_item["client_event_id"],
                         "batch_id": batch_id,
+                        "capture_batch": capture_batch,
                         "transmission": transmission,
                     },
                 )
@@ -549,6 +660,86 @@ class AttendanceScanView(GenericAPIView):
             for result in (results_by_index[i] for i in range(len(raw_items)))
         ]
         return Response(ScanCaptureItemResultSerializer(data, many=True).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Abrir (o retomar) el lote de captura",
+        description=(
+            "RF-ASI-009: inicia el lote acumulable del operador autenticado. "
+            "Idempotente: si ya tiene uno abierto, devuelve ese mismo lote en "
+            "lugar de crear otro."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: CaptureBatchSerializer},
+    ),
+)
+class CaptureBatchOpenView(GenericAPIView):
+    """RF-ASI-009 contract: open or resume the operator's capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchSerializer
+
+    def post(self, request):
+        _require_permission(request, "attendance_scan")
+        capture_batch = services.open_capture_batch(operator=request.user)
+        return Response(CaptureBatchSerializer(capture_batch).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Recuperar el lote de captura pendiente",
+        description=(
+            "RF-ASI-009: el lote abierto del operador autenticado, si existe, "
+            "con cada movimiento ya guardado y su hora de captura original -- "
+            "recuperable tras perder la sesion, incluso desde otro dispositivo."
+        ),
+        tags=TAGS,
+        responses={200: CaptureBatchRecoverySerializer},
+    ),
+)
+class CaptureBatchCurrentView(GenericAPIView):
+    """RF-ASI-009 contract: recover the operator's pending capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchRecoverySerializer
+
+    def get(self, request):
+        _require_permission(request, "attendance_scan")
+        capture_batch = services.recover_open_capture_batch(operator=request.user)
+        events = capture_batch.events.all() if capture_batch is not None else []
+        return Response(
+            CaptureBatchRecoverySerializer({"capture_batch": capture_batch, "events": events}).data
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Confirmar el lote de captura",
+        description=(
+            "RF-ASI-009: cierra el lote en una sola operacion. Los movimientos "
+            "ya estaban guardados desde que se escanearon; esto solo deja de "
+            "ofrecerlo para recuperacion."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: CaptureBatchSerializer},
+    ),
+)
+class CaptureBatchConfirmView(GenericAPIView):
+    """RF-ASI-009 contract: confirm (close) the operator's capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchSerializer
+
+    def post(self, request, public_id):
+        _require_permission(request, "attendance_scan")
+        capture_batch = queries.capture_batch_for_payload(public_id, operator=request.user)
+        capture_batch = services.confirm_capture_batch(
+            capture_batch=capture_batch, actor=request.user
+        )
+        return Response(CaptureBatchSerializer(capture_batch).data)
 
 
 CREDENTIAL_TAGS = ["attendance: credencial"]
@@ -588,6 +779,75 @@ class StudentCredentialIssueView(GenericAPIView):
 
 
 @extend_schema_view(
+    get=extend_schema(
+        summary="Contenido imprimible de la credencial",
+        description=(
+            "Nombre completo, fotografia, grado, seccion, ciclo escolar e "
+            "institucion para el material imprimible de la credencial "
+            "(RF-CRE-002). No incluye salud, contacto de familia ni domicilio."
+        ),
+        tags=CREDENTIAL_TAGS,
+        parameters=[CredentialPrintContentQuerySerializer],
+        responses={200: CredentialPrintContentSerializer},
+    ),
+)
+class CredentialPrintContentView(GenericAPIView):
+    """RF-CRE-002 contract: exactly what the printed credential material shows."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialPrintContentSerializer
+
+    def get(self, request):
+        query = CredentialPrintContentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        student = queries.student_for_payload(query.validated_data["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        content = services.resolve_credential_print_content(student=student)
+        return Response(CredentialPrintContentSerializer(content).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Revocar credencial",
+        description=(
+            "Revoca de inmediato la credencial vigente del estudiante, indicando "
+            "el motivo (RF-CRE-003). Una credencial revocada queda inutilizable "
+            "para registrar movimientos."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialRevocationRequestSerializer,
+        responses={200: CredentialRevocationResultSerializer},
+    ),
+)
+class CredentialRevocationView(GenericAPIView):
+    """RF-CRE-003 contract: revoke a student's active credential."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialRevocationResultSerializer
+
+    def post(self, request):
+        serializer = CredentialRevocationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        credential = services.revoke_credential(
+            student=student, reason=payload["reason"], actor=request.user
+        )
+        return Response(CredentialRevocationResultSerializer(credential).data)
+
+
+@extend_schema_view(
     post=extend_schema(
         summary="Resolver identificador de credencial",
         tags=CREDENTIAL_TAGS,
@@ -606,7 +866,8 @@ class StudentCredentialResolutionView(GenericAPIView):
         serializer = CredentialResolutionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         resolution = services.resolve_credential(
-            opaque_identifier=serializer.validated_data["opaque_identifier"]
+            opaque_identifier=serializer.validated_data["opaque_identifier"],
+            actor=request.user,
         )
         record_sensitive_read(
             actor=request.user,

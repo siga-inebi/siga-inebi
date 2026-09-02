@@ -1,9 +1,13 @@
+from datetime import time
+
 import factory
 from django.utils import timezone
 
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    ClassScheduleBlock,
+    ClassSession,
     Grade,
     GradeOffering,
     Institution,
@@ -55,6 +59,20 @@ class ShiftFactory(factory.django.DjangoModelFactory):
     campus = factory.SubFactory(CampusFactory)
     name = factory.Sequence(lambda n: f"Shift {n}")
     code = factory.Sequence(lambda n: f"SH{n}")
+
+
+class ClassScheduleBlockFactory(factory.django.DjangoModelFactory):
+    """A single 07:00-07:45 block (RF-HOR-001). Override times for a second
+    block on the same shift -- the default would collide with itself."""
+
+    class Meta:
+        model = ClassScheduleBlock
+
+    shift = factory.SubFactory(ShiftFactory)
+    number = factory.Sequence(lambda n: n + 1)
+    name = factory.Sequence(lambda n: f"Bloque {n + 1}")
+    starts_on = time(7, 0)
+    ends_on = time(7, 45)
 
 
 class LevelFactory(factory.django.DjangoModelFactory):
@@ -157,3 +175,24 @@ def _build_offering(cycle, grade, shift):
         shift=shift,
     )
     return offering
+
+
+class ClassSessionFactory(factory.django.DjangoModelFactory):
+    """
+    Defaults build a section, subject and schedule block that all share the
+    same shift and institution -- callers only need to override what makes
+    their scenario distinct.
+    """
+
+    class Meta:
+        model = ClassSession
+
+    section = factory.SubFactory(SectionFactory)
+    academic_cycle = factory.LazyAttribute(lambda obj: obj.section.academic_cycle)
+    subject = factory.LazyAttribute(
+        lambda obj: SubjectFactory(institution=obj.section.offering.institution)
+    )
+    schedule_block = factory.LazyAttribute(
+        lambda obj: ClassScheduleBlockFactory(shift=obj.section.offering.shift)
+    )
+    day_of_week = ClassSession.Weekday.MONDAY

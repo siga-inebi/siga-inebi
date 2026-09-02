@@ -49,10 +49,9 @@ class JornadaParameters(TimeStampedModel):
 class ControlPoint(TimeStampedModel):
     """
     A physical checkpoint (turnstile, gate, entrance) where scans happen
-    (RF-ASI-002). Deliberately minimal: just enough for an
-    ``AttendanceEvent`` to reference where it was captured. Configuring
-    which movement types a point admits (RF-ASI-005) is a separate,
-    not-yet-built capability layered on top of this model, not part of it.
+    (RF-ASI-002). Just enough for an ``AttendanceEvent`` to reference where
+    it was captured, plus which movement types it admits (RF-ASI-005) --
+    both default to allowed so existing points keep working unconfigured.
     """
 
     campus = models.ForeignKey(
@@ -60,6 +59,8 @@ class ControlPoint(TimeStampedModel):
     )
     name = models.CharField(max_length=100)
     code = models.CharField(max_length=30)
+    allows_entry = models.BooleanField(default=True)
+    allows_exit = models.BooleanField(default=True)
 
     class Meta:
         constraints = [
@@ -88,6 +89,56 @@ class ManualRegistrationReason(TimeStampedModel):
         return self.name
 
 
+class CaptureBatch(TimeStampedModel):
+    """
+    RF-ASI-009: an operator's in-progress group of scanned movements, kept
+    open across sessions and devices so nothing already captured is lost if
+    the operator's session drops before they confirm. Each movement is
+    already a real, immutable ``AttendanceEvent`` the instant it's scanned
+    (RF-ASI-002) -- this row only tracks whether the group is still being
+    accumulated or has been confirmed closed, so recovery is just reading
+    rows that were already durably saved, from any device.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Abierto"
+        CONFIRMED = "confirmed", "Confirmado"
+
+    operator = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="capture_batches"
+    )
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["operator"],
+                condition=Q(status="open"),
+                name="unique_open_capture_batch_per_operator",
+            )
+        ]
+
+    def __str__(self):
+        return f"Lote de {self.operator} ({self.status})"
+
+
+class AttendanceEventQuerySet(models.QuerySet):
+    """
+    ``QuerySet.delete()``/``update()`` run a direct SQL statement and never
+    call the model's own ``delete()``/``save()`` overrides below, so the
+    instance-level guard on its own would not stop a bulk
+    ``AttendanceEvent.objects.filter(...).delete()`` (RNF-AUD-001, same gap
+    class already closed for ``apps.audit.models.AuditEvent`` in RF-BIT-005).
+    """
+
+    def delete(self):
+        raise RuntimeError("Attendance events cannot be deleted.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Attendance events cannot be modified.")
+
+
 class AttendanceEvent(TimeStampedModel):
     """
     A single movement record for a student in a jornada (RF-JOR-002/003):
@@ -95,7 +146,11 @@ class AttendanceEvent(TimeStampedModel):
 
     Events are never deleted or overwritten, even when a later event
     supersedes them for precedence purposes (AGENTS.md #12) — a superseded
-    event stays stored and queryable.
+    event stays stored and queryable. RNF-AUD-001: corrections must add a new
+    row (see ``resolve_prevailing_event``'s precedence rule and
+    ``record_scan_movement``'s duplicate rejection, both of which already
+    never touch an existing row) rather than editing this one, so both the
+    instance and the queryset reject any attempt to do so after creation.
     """
 
     class MovementType(models.TextChoices):
@@ -147,6 +202,15 @@ class AttendanceEvent(TimeStampedModel):
     )
     client_event_id = models.CharField(max_length=100, blank=True, default="")
     batch_id = models.CharField(max_length=100, blank=True, default="")
+    capture_batch = models.ForeignKey(
+        CaptureBatch,
+        on_delete=models.PROTECT,
+        related_name="events",
+        null=True,
+        blank=True,
+    )
+
+    objects = AttendanceEventQuerySet.as_manager()
 
     class Meta:
         ordering = ["-captured_at"]
@@ -166,6 +230,14 @@ class AttendanceEvent(TimeStampedModel):
 
     def __str__(self):
         return f"{self.student} {self.movement_type} ({self.origin}) {self.captured_at}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Attendance events cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Attendance events cannot be deleted.")
 
 
 class AttendanceAlert(TimeStampedModel):
@@ -256,8 +328,7 @@ class StudentCredential(TimeStampedModel):
 
     Credentials are never deleted or rewritten: reposition (RF-CRE-004) issues a
     new row and revocation (RF-CRE-003) flips ``status`` on the old one, so the
-    student's credential history stays queryable (AGENTS.md #12). The revocation
-    reason and revoking actor belong to RF-CRE-003 and are not modelled yet.
+    student's credential history stays queryable (AGENTS.md #12).
     """
 
     class Status(models.TextChoices):
@@ -270,6 +341,22 @@ class StudentCredential(TimeStampedModel):
     opaque_identifier = models.CharField(max_length=64)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     issued_at = models.DateTimeField()
+    revocation_reason = models.CharField(max_length=255, blank=True, default="")
+    revoked_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="credentials_revoked",
+        null=True,
+        blank=True,
+    )
+
+    revoked_on_movement = models.ForeignKey(
+        "enrolments.StudentMovement",
+        on_delete=models.PROTECT,
+        related_name="credentials_revoked_on_close",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         ordering = ["-issued_at"]

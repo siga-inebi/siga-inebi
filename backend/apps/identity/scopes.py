@@ -1,7 +1,8 @@
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle, TeachingAssignment
+from apps.academics.models import AcademicCycle, ClassSession, TeachingAssignment
+from apps.audit.services import record_event
 from apps.common.exceptions import AuthorizationError
 from apps.identity.models import ScopeGrant
 from apps.students.models import Student
@@ -86,6 +87,7 @@ def guardian_student_queryset(*, user, queryset=None):
         guardian_relations__is_active=True,
         guardian_relations__starts_at__lte=timezone.localdate(),
         guardian_relations__ends_at__isnull=True,
+        status=Student.StudentStatus.ACTIVE,
     ).distinct()
 
 
@@ -117,14 +119,31 @@ def effective_student_queryset(*, user, codename, queryset=None, when=None):
 def authorized_student_queryset(*, user, codename, queryset=None, when=None):
     """Resolve a student queryset or deny when permission or scope is missing."""
     if not user.has_atomic_permission(codename, when=when):
+        _audit_student_access_denied(user=user, codename=codename, reason="missing_permission")
         raise AuthorizationError("El actor no tiene el permiso requerido.")
     guardian_students = guardian_student_queryset(user=user)
     teacher_students = teacher_student_queryset(user=user, when=when)
     has_administrative_scope = has_effective_scope_grant(user=user, codename=codename, when=when)
     has_derived_scope = guardian_students.exists() or teacher_students.exists()
     if not has_administrative_scope and not has_derived_scope:
+        _audit_student_access_denied(user=user, codename=codename, reason="missing_scope")
         raise AuthorizationError("El actor no tiene un alcance vigente asignado.")
     return effective_student_queryset(user=user, codename=codename, queryset=queryset, when=when)
+
+
+def _audit_student_access_denied(*, user, codename, reason):
+    """
+    RF-BIT-004: this is the single choke point every student-scoped view goes
+    through (directly or via ``can_access_student``), so auditing here covers
+    the "encargado sin asociacion" scenario without duplicating the call at
+    every view that resolves a student.
+    """
+    record_event(
+        actor=user,
+        action="identity.authorization.denied",
+        resource="Student",
+        context={"result": "denied", "reason": reason, "permission": codename},
+    )
 
 
 def can_access_student(*, user, codename, student, when=None):
@@ -136,6 +155,72 @@ def can_access_student(*, user, codename, student, when=None):
         )
     except AuthorizationError:
         return False
+
+
+def own_class_session_queryset(*, user, when=None):
+    """
+    Sessions a teacher account currently teaches (RF-HOR-010), derived from
+    the exact (academic_cycle, section, subject) of their current teaching
+    assignments -- not a looser per-section or per-subject match, which
+    would leak sessions from an unrelated subject the same teacher happens
+    to also teach elsewhere.
+    """
+    assignments = teaching_assignment_queryset(user=user, when=when)
+    condition = Q(pk__in=[])
+    for assignment in assignments:
+        condition |= Q(
+            academic_cycle_id=assignment.academic_cycle_id,
+            section_id=assignment.section_id,
+            subject_id=assignment.subject_id,
+        )
+    return ClassSession.objects.filter(condition)
+
+
+def ward_class_session_queryset(*, user):
+    """Sessions of the sections a guardian account's wards are actively enrolled in."""
+    students = guardian_student_queryset(user=user)
+    return ClassSession.objects.filter(
+        section__enrolments__student__in=students,
+        section__enrolments__is_active=True,
+        section__enrolments__status="active",
+    )
+
+
+def has_own_schedule_scope(*, user):
+    """True when the account is a teacher, or has at least one active ward."""
+    person = getattr(user, "person", None)
+    if person is None:
+        return False
+    if getattr(person, "teacher_profile", None) is not None:
+        return True
+    guardian = getattr(person, "guardian_profile", None)
+    return guardian is not None and guardian.is_active
+
+
+def my_weekly_schedule_queryset(*, user, when=None):
+    """
+    RF-HOR-010: the caller's own weekly schedule -- sessions they teach,
+    union sessions of their wards' sections. Restricted to published
+    schedules (RF-HOR-009): a draft schedule is not yet "sus asignaciones o
+    tutela" in the sense the requirement means.
+    """
+    own = own_class_session_queryset(user=user, when=when)
+    ward = ward_class_session_queryset(user=user)
+    related = (
+        "section__offering__grade",
+        "section__offering__shift",
+        "subject",
+        "schedule_block",
+    )
+    return (
+        ClassSession.objects.filter(Q(pk__in=own.values("pk")) | Q(pk__in=ward.values("pk")))
+        .filter(
+            is_active=True,
+            academic_cycle__schedule_publication__published_at__isnull=False,
+        )
+        .select_related(*related)
+        .distinct()
+    )
 
 
 def scope_matches(*, user, codename, scope, when=None):

@@ -1,10 +1,30 @@
 from rest_framework import serializers
 
 from apps.academics.models import Section
-from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
+from apps.enrolments.models import (
+    Enrolment,
+    EnrolmentDocumentRequirement,
+    StudentMovement,
+    StudentMovementAnnulment,
+)
+
+
+class StudentMovementAnnulmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentMovementAnnulment
+        fields = ["public_id", "reason", "created_at"]
+
+
+class StudentMovementAnnulmentCreateSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Motivo obligatorio de la anulacion.",
+    )
 
 
 class StudentMovementSerializer(serializers.ModelSerializer):
+    annulment = StudentMovementAnnulmentSerializer(read_only=True, allow_null=True)
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     source_enrolment_id = serializers.UUIDField(
         source="source_enrolment.public_id", read_only=True, allow_null=True
@@ -23,6 +43,7 @@ class StudentMovementSerializer(serializers.ModelSerializer):
             "reason",
             "source_enrolment_id",
             "target_enrolment_id",
+            "annulment",
             "created_at",
         ]
 
@@ -166,6 +187,27 @@ class ReenrolmentCreateSerializer(serializers.Serializer):
     effective_on = serializers.DateField(help_text="Fecha de inicio de la reinscripción.")
 
 
+class BulkReenrolmentItemSerializer(serializers.Serializer):
+    source_enrolment_id = serializers.UUIDField(
+        help_text="Matricula seleccionada del ciclo anterior."
+    )
+    target_section_id = serializers.UUIDField(help_text="Seccion elegida del ciclo siguiente.")
+
+
+class BulkReenrolmentCreateSerializer(serializers.Serializer):
+    preview = serializers.BooleanField(default=True)
+    effective_on = serializers.DateField(help_text="Fecha de inicio de las nuevas matriculas.")
+    items = BulkReenrolmentItemSerializer(many=True, allow_empty=False)
+
+    def validate_items(self, value):
+        source_ids = [item["source_enrolment_id"] for item in value]
+        if len(source_ids) != len(set(source_ids)):
+            raise serializers.ValidationError(
+                "Una matricula de origen no puede repetirse en el lote."
+            )
+        return value
+
+
 class SectionChangeCreateSerializer(serializers.Serializer):
     new_section_id = serializers.UUIDField(help_text="Public ID de la seccion destino.")
     effective_on = serializers.DateField(help_text="Fecha efectiva del cambio.")
@@ -178,3 +220,12 @@ class StudentWithdrawalCreateSerializer(serializers.Serializer):
         help_text="Causa formal del retiro.",
     )
     effective_on = serializers.DateField(help_text="Fecha efectiva del retiro.")
+
+
+class StudentTransferInCreateSerializer(MatriculationCreateSerializer):
+    pass
+
+
+class StudentTransferOutCreateSerializer(serializers.Serializer):
+    effective_on = serializers.DateField(help_text="Fecha efectiva del traslado de salida.")
+    reason = serializers.CharField(required=False, allow_blank=True, default="")

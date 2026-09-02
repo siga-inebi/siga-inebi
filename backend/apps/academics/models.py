@@ -406,3 +406,136 @@ class TeachingAssignment(TimeStampedModel):
                 ],
             ),
         ]
+
+
+class ClassScheduleBlock(TimeStampedModel):
+    """
+    Period of the class-schedule grid for one shift ("bloque de la rejilla
+    horaria"), RF-HOR-001.
+
+    Scoped to ``Shift``, not ``AcademicCycle``: the grid of period times
+    (e.g. "Bloque 1: 07:00-07:45") is structural to the shift and does not
+    change per cycle, the same way ``Shift`` itself carries no cycle FK.
+    Class sessions (RF-HOR-003) will reference these blocks every cycle
+    instead of the grid being rebuilt.
+
+    No native PostgreSQL range type exists for ``time`` (only date, integer,
+    numeric and timestamp ranges), so the no-overlap invariant enforced at
+    the database level for date ranges elsewhere in this file cannot be an
+    ``ExclusionConstraint`` here; it is enforced in ``services.py`` instead,
+    under a row lock on the shift's existing blocks.
+    """
+
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE, related_name="schedule_blocks")
+    number = models.PositiveSmallIntegerField(help_text="Order within the shift: 1, 2, 3, etc.")
+    name = models.CharField(max_length=100, help_text='Display name: "Bloque 1", "Recreo", etc.')
+    starts_on = models.TimeField(help_text="Start time of the block.")
+    ends_on = models.TimeField(help_text="End time of the block.")
+
+    class Meta:
+        ordering = ["shift", "number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shift", "number"], name="unique_schedule_block_number_per_shift"
+            ),
+            models.CheckConstraint(
+                condition=Q(starts_on__lt=F("ends_on")),
+                name="class_schedule_block_valid_times",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.shift})"
+
+
+class ClassSession(TimeStampedModel):
+    """
+    Scheduled class session (RF-HOR-003): a subject taught to a section on a
+    given day of the week, in a specific block of the schedule grid.
+
+    The teacher is deliberately NOT stored here: RF-HOR-004 derives it from
+    the current ``TeachingAssignment`` for (academic_cycle, section,
+    subject). RF-HOR-005 rejects a section double-booked in the same day and
+    block (enforced in ``services.create_class_session``); the classroom
+    half of that requirement is blocked on RF-AUL-001 (#99) -- there is no
+    classroom concept in this app yet.
+    """
+
+    class Weekday(models.IntegerChoices):
+        # ISO weekday, matching apps.attendance.JornadaParameters.school_days.
+        MONDAY = 1, "Monday"
+        TUESDAY = 2, "Tuesday"
+        WEDNESDAY = 3, "Wednesday"
+        THURSDAY = 4, "Thursday"
+        FRIDAY = 5, "Friday"
+        SATURDAY = 6, "Saturday"
+        SUNDAY = 7, "Sunday"
+
+    academic_cycle = models.ForeignKey(
+        AcademicCycle, on_delete=models.CASCADE, related_name="class_sessions"
+    )
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="class_sessions")
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="class_sessions")
+    schedule_block = models.ForeignKey(
+        ClassScheduleBlock, on_delete=models.PROTECT, related_name="class_sessions"
+    )
+    day_of_week = models.PositiveSmallIntegerField(choices=Weekday.choices)
+
+    class Meta:
+        ordering = ["day_of_week", "schedule_block__number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["section", "subject", "day_of_week", "schedule_block"],
+                name="unique_class_session_registration",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.subject} - {self.section} ({self.get_day_of_week_display()})"
+
+    @property
+    def current_teacher(self):
+        """
+        RF-HOR-004: the teacher responsible for this session, derived from
+        the section's current teaching assignment for this subject -- never
+        captured on the session itself, and never cached: a reassignment is
+        reflected on the very next read.
+
+        ``None`` when no current assignment exists yet (a session may be
+        scheduled before the teacher for that subarea is assigned).
+        """
+        assignment = (
+            TeachingAssignment.objects.filter(
+                academic_cycle=self.academic_cycle,
+                section=self.section,
+                subject=self.subject,
+                ends_on__isnull=True,
+            )
+            .select_related("teacher")
+            .first()
+        )
+        return assignment.teacher if assignment else None
+
+
+class ClassSchedulePublication(TimeStampedModel):
+    """
+    Publication state of a cycle's class schedule (RF-HOR-009).
+
+    The schedule (its ``ClassSession`` rows) is a working draft until this
+    is published; ``docentes``, ``estudiantes`` and ``encargados`` seeing it
+    only once published is a query-time concern (RF-HOR-010, #203), out of
+    scope here. One row per cycle, created on first publish -- mirrors
+    ``CycleEvaluationConfig`` in ``apps.evaluation``.
+    """
+
+    academic_cycle = models.OneToOneField(
+        AcademicCycle, on_delete=models.CASCADE, related_name="schedule_publication"
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Schedule publication for {self.academic_cycle.name}"
+
+    @property
+    def is_published(self):
+        return self.published_at is not None

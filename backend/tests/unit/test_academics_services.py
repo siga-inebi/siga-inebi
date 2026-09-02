@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 import pytest
 from django.utils import timezone
@@ -9,10 +9,17 @@ from apps.academics.services import (
     clone_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_class_schedule_block,
+    create_class_session,
     create_curriculum_plan,
     create_section,
+    deactivate_class_schedule_block,
+    deactivate_class_session,
     deactivate_curriculum_plan,
     deactivate_section,
+    publish_class_schedule,
+    unpublish_class_schedule,
+    update_class_schedule_block,
     update_curriculum_plan,
     update_section,
 )
@@ -21,6 +28,8 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassScheduleBlockFactory,
+    ClassSessionFactory,
     GradeFactory,
     GradeOfferingFactory,
     InstitutionFactory,
@@ -518,3 +527,352 @@ def test_deactivate_curriculum_plan_rejects_when_cycle_is_active():
 
     with pytest.raises(DomainError, match="en preparacion"):
         deactivate_curriculum_plan(plan=plan)
+
+
+# --------------------------------------------------------------------------- #
+# class schedule blocks (RF-HOR-001)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_class_schedule_block_registers_requested_block():
+    """Escenario 1 (#194): registro de un bloque valido dentro de la jornada."""
+    shift = ShiftFactory()
+
+    block = create_class_schedule_block(
+        shift=shift, number=1, name="Bloque 1", starts_on=time(7, 0), ends_on=time(7, 45)
+    )
+
+    assert block.shift_id == shift.pk
+    assert block.number == 1
+    assert block.starts_on == time(7, 0)
+    assert block.ends_on == time(7, 45)
+
+
+def test_create_class_schedule_block_rejects_overlapping_block():
+    """Escenario 2 (#194): rechazo por bloques solapados en la misma jornada."""
+    shift = ShiftFactory()
+    existing = ClassScheduleBlockFactory(
+        shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45)
+    )
+
+    with pytest.raises(DomainError, match="se solapa"):
+        create_class_schedule_block(
+            shift=shift, number=2, name="Bloque 2", starts_on=time(7, 30), ends_on=time(8, 15)
+        )
+
+    assert shift.schedule_blocks.count() == 1
+    existing.refresh_from_db()
+    assert existing.starts_on == time(7, 0)
+
+
+def test_create_class_schedule_block_allows_adjacent_block():
+    """A block that starts exactly when the previous one ends does not overlap."""
+    shift = ShiftFactory()
+    ClassScheduleBlockFactory(shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45))
+
+    block = create_class_schedule_block(
+        shift=shift, number=2, name="Bloque 2", starts_on=time(7, 45), ends_on=time(8, 30)
+    )
+
+    assert block.starts_on == time(7, 45)
+
+
+def test_create_class_schedule_block_rejects_invalid_times():
+    shift = ShiftFactory()
+
+    with pytest.raises(DomainError, match="anterior a la hora de fin"):
+        create_class_schedule_block(
+            shift=shift, number=1, name="Bloque 1", starts_on=time(8, 0), ends_on=time(7, 0)
+        )
+
+
+def test_create_class_schedule_block_rejects_duplicate_number():
+    shift = ShiftFactory()
+    ClassScheduleBlockFactory(shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45))
+
+    with pytest.raises(DomainError, match="Schedule block number 1"):
+        create_class_schedule_block(
+            shift=shift, number=1, name="Otro bloque", starts_on=time(9, 0), ends_on=time(9, 45)
+        )
+
+
+def test_create_class_schedule_block_rejects_when_shift_inactive():
+    shift = ShiftFactory(is_active=False)
+
+    with pytest.raises(DomainError, match="la jornada"):
+        create_class_schedule_block(
+            shift=shift, number=1, name="Bloque 1", starts_on=time(7, 0), ends_on=time(7, 45)
+        )
+
+
+def test_update_class_schedule_block_rejects_overlap_with_other_block():
+    shift = ShiftFactory()
+    ClassScheduleBlockFactory(shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45))
+    second = ClassScheduleBlockFactory(
+        shift=shift, number=2, starts_on=time(8, 0), ends_on=time(8, 45)
+    )
+
+    with pytest.raises(DomainError, match="se solapa"):
+        update_class_schedule_block(block=second, starts_on=time(7, 30))
+
+    second.refresh_from_db()
+    assert second.starts_on == time(8, 0)
+
+
+def test_update_class_schedule_block_allows_retiming_without_collision():
+    shift = ShiftFactory()
+    block = ClassScheduleBlockFactory(
+        shift=shift, number=1, starts_on=time(7, 0), ends_on=time(7, 45)
+    )
+
+    updated = update_class_schedule_block(block=block, name="Bloque renombrado", ends_on=time(8, 0))
+
+    assert updated.name == "Bloque renombrado"
+    assert updated.ends_on == time(8, 0)
+
+
+def test_deactivate_class_schedule_block_is_idempotent():
+    block = ClassScheduleBlockFactory()
+
+    deactivated = deactivate_class_schedule_block(block=block)
+    assert deactivated.is_active is False
+
+    again = deactivate_class_schedule_block(block=deactivated)
+    assert again.is_active is False
+
+
+# --------------------------------------------------------------------------- #
+# class sessions (RF-HOR-003)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_class_session_registers_requested_session():
+    """Escenario 1 (#196): agendar una sesion valida."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    session = create_class_session(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    assert session.section_id == section.pk
+    assert session.subject_id == subject.pk
+    assert session.schedule_block_id == block.pk
+    assert session.day_of_week == 1
+
+
+def test_create_class_session_rejects_block_from_a_different_shift():
+    """Escenario 2 (#196): el bloque debe pertenecer a la jornada de la seccion."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    other_shift_block = ClassScheduleBlockFactory()
+
+    with pytest.raises(DomainError, match="misma jornada"):
+        create_class_session(
+            academic_cycle=section.academic_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=other_shift_block,
+            day_of_week=1,
+        )
+
+    assert section.class_sessions.count() == 0
+
+
+def test_create_class_session_rejects_section_from_a_different_cycle():
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    other_cycle = AcademicCycleFactory(
+        institution=section.offering.institution,
+        starts_on=date(section.academic_cycle.starts_on.year + 1, 1, 1),
+        status=AcademicCycle.CycleStatus.DRAFT,
+    )
+
+    with pytest.raises(DomainError, match="ciclo escolar"):
+        create_class_session(
+            academic_cycle=other_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=block,
+            day_of_week=1,
+        )
+
+
+def test_create_class_session_rejects_exact_duplicate_registration():
+    session = ClassSessionFactory()
+
+    with pytest.raises(DomainError, match="ya esta registrada"):
+        create_class_session(
+            academic_cycle=session.academic_cycle,
+            section=session.section,
+            subject=session.subject,
+            schedule_block=session.schedule_block,
+            day_of_week=session.day_of_week,
+        )
+
+
+def test_create_class_session_rejects_section_double_booked_in_the_same_slot():
+    """Escenario 1 (#198): cruce por seccion en el mismo dia y bloque."""
+    session = ClassSessionFactory()
+    other_subject = SubjectFactory(institution=session.section.offering.institution)
+
+    with pytest.raises(DomainError, match="cruce de horario"):
+        create_class_session(
+            academic_cycle=session.academic_cycle,
+            section=session.section,
+            subject=other_subject,
+            schedule_block=session.schedule_block,
+            day_of_week=session.day_of_week,
+        )
+
+    assert session.section.class_sessions.count() == 1
+
+
+def test_create_class_session_allows_same_section_in_a_different_block():
+    session = ClassSessionFactory()
+    other_subject = SubjectFactory(institution=session.section.offering.institution)
+    other_block = ClassScheduleBlockFactory(shift=session.section.offering.shift, number=99)
+
+    new_session = create_class_session(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=other_subject,
+        schedule_block=other_block,
+        day_of_week=session.day_of_week,
+    )
+
+    assert new_session.section.class_sessions.count() == 2
+
+
+def test_create_class_session_ignores_a_deactivated_session_in_the_same_slot():
+    """A soft-deleted session no longer occupies its slot."""
+    session = ClassSessionFactory()
+    other_subject = SubjectFactory(institution=session.section.offering.institution)
+    deactivate_class_session(session=session)
+
+    new_session = create_class_session(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=other_subject,
+        schedule_block=session.schedule_block,
+        day_of_week=session.day_of_week,
+    )
+
+    assert new_session.pk != session.pk
+
+
+def test_deactivate_class_session_is_idempotent():
+    session = ClassSessionFactory()
+
+    deactivated = deactivate_class_session(session=session)
+    assert deactivated.is_active is False
+
+    again = deactivate_class_session(session=deactivated)
+    assert again.is_active is False
+
+
+# --------------------------------------------------------------------------- #
+# derived teacher on class sessions (RF-HOR-004)
+# --------------------------------------------------------------------------- #
+
+
+def test_class_session_current_teacher_matches_the_current_assignment():
+    """Escenario 1 (#197): el docente se deriva de la asignacion vigente."""
+    session = ClassSessionFactory()
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=session.subject,
+        teacher=teacher.person,
+        starts_on=session.academic_cycle.starts_on,
+    )
+
+    assert session.current_teacher == teacher.person
+
+
+def test_class_session_current_teacher_is_none_without_a_current_assignment():
+    """Escenario 2 (#197): sin asignacion vigente, el docente derivado es nulo."""
+    session = ClassSessionFactory()
+
+    assert session.current_teacher is None
+
+
+def test_class_session_current_teacher_ignores_a_closed_assignment():
+    """A reassigned (closed) assignment does not count as current coverage."""
+    session = ClassSessionFactory()
+    former_teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=session.academic_cycle,
+        section=session.section,
+        subject=session.subject,
+        teacher=former_teacher.person,
+        starts_on=session.academic_cycle.starts_on,
+        ends_on=session.academic_cycle.starts_on + timedelta(days=30),
+    )
+
+    assert session.current_teacher is None
+
+
+# --------------------------------------------------------------------------- #
+# class schedule publication (RF-HOR-009)
+# --------------------------------------------------------------------------- #
+
+
+def test_publish_class_schedule_marks_it_published():
+    """Escenario 1 (#202): publicar el horario del ciclo."""
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+
+    publication = publish_class_schedule(academic_cycle=cycle)
+
+    assert publication.is_published is True
+    assert publication.published_at is not None
+
+
+def test_publish_class_schedule_rejects_closed_cycle():
+    """Escenario 2 (#202): rechazo por ciclo cerrado."""
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+
+    with pytest.raises(DomainError, match="no admite cambios academicos"):
+        publish_class_schedule(academic_cycle=cycle)
+
+
+def test_publish_class_schedule_is_idempotent():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    first = publish_class_schedule(academic_cycle=cycle)
+
+    second = publish_class_schedule(academic_cycle=cycle)
+
+    assert second.pk == first.pk
+    assert second.is_published is True
+
+
+def test_unpublish_class_schedule_reverts_to_draft():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    publish_class_schedule(academic_cycle=cycle)
+
+    publication = unpublish_class_schedule(academic_cycle=cycle)
+
+    assert publication.is_published is False
+    assert publication.published_at is None
+
+
+def test_unpublish_class_schedule_is_a_no_op_when_never_published():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+
+    publication = unpublish_class_schedule(academic_cycle=cycle)
+
+    assert publication.is_published is False
+
+
+def test_unpublish_class_schedule_rejects_closed_cycle():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+
+    with pytest.raises(DomainError, match="no admite cambios academicos"):
+        unpublish_class_schedule(academic_cycle=cycle)

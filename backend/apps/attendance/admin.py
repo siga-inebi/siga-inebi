@@ -1,8 +1,10 @@
 from django.contrib import admin
 
+from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     ControlPoint,
     JornadaParameters,
     ManualRegistrationReason,
@@ -18,8 +20,25 @@ class JornadaParametersAdmin(admin.ModelAdmin):
 
 @admin.register(ControlPoint)
 class ControlPointAdmin(admin.ModelAdmin):
-    list_display = ["name", "code", "campus", "is_active"]
+    """
+    RF-ASI-005: editing ``allows_entry``/``allows_exit`` on an existing point
+    goes through ``configure_control_point_movement_types`` so the change is
+    audited with the responsible user, instead of a bare model save.
+    """
+
+    list_display = ["name", "code", "campus", "allows_entry", "allows_exit", "is_active"]
     list_filter = ["campus"]
+
+    def save_model(self, request, obj, form, change):
+        if change and {"allows_entry", "allows_exit"} & set(form.changed_data):
+            services.configure_control_point_movement_types(
+                control_point=obj,
+                allows_entry=obj.allows_entry,
+                allows_exit=obj.allows_exit,
+                actor=request.user,
+            )
+            return
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(ManualRegistrationReason)
@@ -44,6 +63,15 @@ class AttendanceEventAdmin(admin.ModelAdmin):
     date_hierarchy = "event_date"
 
 
+@admin.register(CaptureBatch)
+class CaptureBatchAdmin(admin.ModelAdmin):
+    """Support surface only: open/confirm go through the API, not here."""
+
+    list_display = ["operator", "status", "confirmed_at", "created_at"]
+    list_filter = ["status"]
+    date_hierarchy = "created_at"
+
+
 @admin.register(AttendanceAlert)
 class AttendanceAlertAdmin(admin.ModelAdmin):
     list_display = ["student", "shift", "event_date", "alert_type", "created_at"]
@@ -59,6 +87,6 @@ class StudentCredentialAdmin(admin.ModelAdmin):
     would turn it into a place to harvest usable passes.
     """
 
-    list_display = ["student", "status", "issued_at", "is_active"]
+    list_display = ["student", "status", "issued_at", "revoked_by", "is_active"]
     list_filter = ["status"]
     date_hierarchy = "issued_at"

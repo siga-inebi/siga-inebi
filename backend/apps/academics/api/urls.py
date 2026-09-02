@@ -3,8 +3,11 @@ from django.urls import include, path
 from apps.evaluation.api.views import (
     CurrentAverageView,
     CycleEvaluationConfigView,
+    EnrolmentGradesView,
     EvaluationGlobalConfigView,
     FinalSubjectGradeView,
+    RecoveryEligibilityView,
+    RecoveryGradeCreateView,
 )
 
 from .views import (
@@ -17,6 +20,9 @@ from .views import (
     CampusListCreateView,
     CampusNextCodeView,
     CampusShiftListCreateView,
+    ClassScheduleBlockDetailView,
+    ClassSchedulePublicationView,
+    ClassSessionDetailView,
     CurriculumPlanDetailView,
     CurriculumPlanListCreateView,
     GradeDetailView,
@@ -28,8 +34,10 @@ from .views import (
     LevelNextCodeView,
     LevelSubjectDetailView,
     LevelSubjectListCreateView,
+    SectionClassSessionListCreateView,
     SectionDetailView,
     SectionListCreateView,
+    ShiftClassScheduleBlockListCreateView,
     ShiftDetailView,
     SubjectDetailView,
     SubjectListCreateView,
@@ -63,6 +71,11 @@ urlpatterns = [
         name="academic-cycle-close",
     ),
     path(
+        "cycles/<uuid:public_id>/schedule-publication/",
+        ClassSchedulePublicationView.as_view(),
+        name="class-schedule-publication",
+    ),
+    path(
         "cycles/<uuid:cycle_public_id>/evaluation-units/",
         include("apps.evaluation.api.urls"),
     ),
@@ -77,6 +90,11 @@ urlpatterns = [
         name="cycle-evaluation-config",
     ),
     path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/grades/",
+        EnrolmentGradesView.as_view(),
+        name="enrolment-grades",
+    ),
+    path(
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/current-average/",
         CurrentAverageView.as_view(),
         name="grade-current-average",
@@ -85,6 +103,16 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/final-grade/",
         FinalSubjectGradeView.as_view(),
         name="grade-final-subject-grade",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/recovery-eligibility/",
+        RecoveryEligibilityView.as_view(),
+        name="recovery-eligibility",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/recovery-grades/",
+        RecoveryGradeCreateView.as_view(),
+        name="recovery-grade-create",
     ),
     path(
         "cycles/<uuid:public_id>/clone/",
@@ -101,6 +129,16 @@ urlpatterns = [
         name="campus-shift-list-create",
     ),
     path("shifts/<uuid:public_id>/", ShiftDetailView.as_view(), name="shift-detail"),
+    path(
+        "shifts/<uuid:public_id>/schedule-blocks/",
+        ShiftClassScheduleBlockListCreateView.as_view(),
+        name="shift-schedule-block-list-create",
+    ),
+    path(
+        "schedule-blocks/<uuid:public_id>/",
+        ClassScheduleBlockDetailView.as_view(),
+        name="schedule-block-detail",
+    ),
     # academic structure: niveles, grados y cursos
     path("levels/", LevelListCreateView.as_view(), name="level-list-create"),
     path("levels/next-code/", LevelNextCodeView.as_view(), name="level-next-code"),
@@ -130,6 +168,16 @@ urlpatterns = [
     path("subjects/<uuid:public_id>/", SubjectDetailView.as_view(), name="subject-detail"),
     path("sections/", SectionListCreateView.as_view(), name="section-list-create"),
     path("sections/<uuid:public_id>/", SectionDetailView.as_view(), name="section-detail"),
+    path(
+        "sections/<uuid:public_id>/class-sessions/",
+        SectionClassSessionListCreateView.as_view(),
+        name="section-class-session-list-create",
+    ),
+    path(
+        "class-sessions/<uuid:public_id>/",
+        ClassSessionDetailView.as_view(),
+        name="class-session-detail",
+    ),
     path(
         "curriculum-plans/",
         CurriculumPlanListCreateView.as_view(),
