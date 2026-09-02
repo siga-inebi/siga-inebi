@@ -165,6 +165,15 @@ class JornadaClosureResultSerializer(serializers.Serializer):
 class SectionClosureRequestSerializer(serializers.Serializer):
     section_id = serializers.UUIDField(help_text="Public ID de la seccion.")
     event_date = serializers.DateField(help_text="Fecha de la jornada a cerrar.")
+    confirmed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "RF-ASI-013: obligatorio en `true` cuando quien declara no es el "
+            "docente asignado a la seccion; de lo contrario no se registra nada "
+            "y la respuesta trae confirmation_required=true."
+        ),
+    )
 
 
 class SectionClosureStudentSerializer(serializers.Serializer):
@@ -181,12 +190,32 @@ class SectionClosureResultSerializer(serializers.Serializer):
     RF-ASI-011: who was (or would be) closed and who was omitted, and why --
     the same shape for the preview and for the confirmed closure, so a
     client renders both with one component.
+
+    RF-ASI-013: ``is_covering`` and ``confirmation_required`` let the client
+    show "estas cerrando como docente de cobertura, confirma para continuar"
+    without a second round trip -- the same response already carries the
+    section, grade and student counts needed for that prompt.
     """
 
     section_id = serializers.UUIDField(source="section.public_id")
+    grade_name = serializers.CharField(source="section.offering.grade.name")
     event_date = serializers.DateField()
     included = SectionClosureStudentSerializer(many=True)
     omitted = SectionClosureOmissionSerializer(many=True)
+    is_covering = serializers.BooleanField()
+    confirmation_required = serializers.BooleanField()
+
+
+class CoverageClosureRatioQuerySerializer(serializers.Serializer):
+    section_id = serializers.UUIDField(required=False, help_text="Filtro opcional por seccion.")
+    date_from = serializers.DateField(required=False, help_text="Fecha inicial, inclusive.")
+    date_to = serializers.DateField(required=False, help_text="Fecha final, inclusive.")
+
+
+class CoverageClosureRatioResultSerializer(serializers.Serializer):
+    total_closures = serializers.IntegerField()
+    covering_closures = serializers.IntegerField()
+    coverage_ratio = serializers.FloatField(allow_null=True)
 
 
 class AttendancePresenceQuerySerializer(serializers.Serializer):
