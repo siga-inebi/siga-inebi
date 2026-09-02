@@ -151,6 +151,83 @@ def withdraw_student(*, enrolment, reason, actor=None, effective_on=None):
 
 
 @transaction.atomic
+def transfer_student_out(*, enrolment, actor=None, effective_on=None, reason=""):
+    require_cycle_academic_writes(
+        cycle=enrolment.academic_cycle,
+        operation="enrolment.transfer_student_out",
+    )
+    if enrolment.status != Enrolment.EnrolmentStatus.ACTIVE:
+        raise DomainError("Solo una matricula activa puede trasladarse fuera de la institucion.")
+    effective_on = effective_on or timezone.localdate()
+    if effective_on > timezone.localdate():
+        raise DomainError("Los traslados con fecha futura permanecen pendientes de definicion.")
+
+    movement = record_student_movement(
+        student=enrolment.student,
+        movement_type=StudentMovement.MovementType.TRANSFER_OUT,
+        source_enrolment=enrolment,
+        effective_on=effective_on,
+        reason=reason,
+        actor=actor,
+    )
+    enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
+    enrolment.ends_on = effective_on
+    enrolment.save(update_fields=["status", "ends_on", "updated_at"])
+    student = enrolment.student
+    student.status = student.StudentStatus.TRANSFERRED
+    student.save(update_fields=["status", "updated_at"])
+    student_permanence_closed.send(
+        sender=transfer_student_out,
+        student=student,
+        reason=reason or "Traslado hacia otra institucion",
+        effective_on=effective_on,
+        movement=movement,
+        actor=actor,
+    )
+    record_event(
+        actor=actor,
+        action="enrolments.student.transferred_out",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={"enrolment_id": enrolment.pk, "movement_id": movement.pk},
+    )
+    return movement
+
+
+@transaction.atomic
+def transfer_student_in(
+    *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
+):
+    effective_on = effective_on or timezone.localdate()
+    if effective_on > timezone.localdate():
+        raise DomainError("Los traslados con fecha futura permanecen pendientes de definicion.")
+    enrolment = matriculate_student(
+        student=student,
+        academic_cycle=academic_cycle,
+        grade=grade,
+        shift=shift,
+        section=section,
+        actor=actor,
+        effective_on=effective_on,
+    )
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.TRANSFER_IN,
+        target_enrolment=enrolment,
+        effective_on=effective_on,
+        actor=actor,
+    )
+    record_event(
+        actor=actor,
+        action="enrolments.student.transferred_in",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={"enrolment_id": enrolment.pk, "movement_id": movement.pk},
+    )
+    return movement
+
+
+@transaction.atomic
 def annul_student_movement(*, movement, reason, actor):
     reason = reason.strip()
     if not reason:

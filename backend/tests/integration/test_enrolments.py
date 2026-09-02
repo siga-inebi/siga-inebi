@@ -21,6 +21,7 @@ from apps.enrolments.services import (
     reenrol_student,
     section_occupancy,
     set_document_requirement,
+    transfer_student_out,
     withdraw_student,
 )
 from apps.evaluation.models import Grade as EvaluationGrade
@@ -29,6 +30,40 @@ from tests.factories.attendance import AttendanceEventFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_transfer_out_revokes_access_and_preserves_distinct_history():
+    section = SectionFactory()
+    student = StudentFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    credential = attendance_services.issue_credential(student=student)
+
+    movement = transfer_student_out(
+        enrolment=enrolment,
+        actor=actor,
+        effective_on=date(2026, 8, 20),
+    )
+
+    credential.refresh_from_db()
+    assert credential.status == StudentCredential.Status.REVOKED
+    assert credential.revoked_by == actor
+    assert credential.revoked_on_movement == movement
+    assert list(active_enrolments(student=student)) == []
+    assert movement.movement_type == StudentMovement.MovementType.TRANSFER_OUT
+    assert not StudentMovement.objects.filter(
+        student=student,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+    ).exists()
 
 
 @pytest.mark.integration

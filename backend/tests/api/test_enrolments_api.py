@@ -618,6 +618,53 @@ def _grant_enrolment_update(user):
     return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
 
 
+def test_transfer_out_endpoint_requires_permission_and_scope(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    url = reverse("student-transfer-out", args=[enrolment.public_id])
+    payload = {"effective_on": "2026-08-20", "reason": "Cambio de institucion"}
+
+    assert auth_client.post(url, payload, content_type="application/json").status_code == 403
+    assignment = _grant_enrolment_update(auth_client.user)
+    assert auth_client.post(url, payload, content_type="application/json").status_code == 403
+    ScopeGrantFactory(assignment=assignment, institution=section.academic_cycle.institution)
+    response = auth_client.post(url, payload, content_type="application/json")
+
+    assert response.status_code == 201
+    assert response.json()["movement_type"] == "transfer_out"
+    assert response.json()["source_enrolment_id"] == str(enrolment.public_id)
+
+
+def test_transfer_in_endpoint_creates_distinct_incoming_movement(auth_client):
+    section = SectionFactory()
+    student = StudentFactory(status="transferred")
+    assignment = _grant_enrolment_update(auth_client.user)
+    ScopeGrantFactory(assignment=assignment, institution=section.academic_cycle.institution)
+    payload = {
+        "student_id": str(student.public_id),
+        "academic_cycle_id": str(section.academic_cycle.public_id),
+        "grade_id": str(section.grade.public_id),
+        "shift_id": str(section.shift.public_id),
+        "section_id": str(section.public_id),
+        "effective_on": "2026-08-20",
+    }
+    response = auth_client.post(
+        reverse("student-transfer-in"), payload, content_type="application/json"
+    )
+
+    assert response.status_code == 201
+    assert response.json()["movement_type"] == "transfer_in"
+    assert response.json()["source_enrolment_id"] is None
+    assert response.json()["target_enrolment_id"]
+
+
 def _enrolment_for_documents():
     section = SectionFactory()
     return create_enrolment(
