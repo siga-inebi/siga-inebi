@@ -7,11 +7,13 @@ Nested under /api/v1/academics/cycles/{cycle_public_id}/evaluation-units/
 from django.urls import path
 
 from apps.evaluation.api.views import (
+    BulkGradeUploadView,
     CaptureExceptionGrantListCreateView,
     EvaluationUnitCloseView,
     EvaluationUnitListCreateView,
     EvaluationUnitRecoveryWindowView,
     GradeListCreateView,
+    UnitCaptureProgressView,
 )
 
 urlpatterns = [
@@ -35,5 +37,15 @@ urlpatterns = [
         "<uuid:unit_public_id>/grades/",
         GradeListCreateView.as_view(),
         name="evaluation-unit-grades",
+    ),
+    path(
+        "<uuid:unit_public_id>/grades/bulk/",
+        BulkGradeUploadView.as_view(),
+        name="evaluation-unit-grades-bulk",
+    ),
+    path(
+        "<uuid:unit_public_id>/capture-progress/",
+        UnitCaptureProgressView.as_view(),
+        name="evaluation-unit-capture-progress",
     ),
 ]

@@ -10,16 +10,20 @@ RF-EVC-005: Configuracion global heredable
 Cross-domain flows: evaluation interacts with academics domain (cycles).
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle
+from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
+from apps.attendance.models import AttendanceEvent
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
-from apps.evaluation.models import EvaluationUnit, Grade
+from apps.evaluation.models import EvaluationUnit, Grade, RecoveryGrade
 from apps.evaluation.services import (
+    assess_recovery_eligibility,
+    build_capture_progress_report,
+    bulk_register_unit_grades,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -27,6 +31,7 @@ from apps.evaluation.services import (
     get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
+    register_recovery_grade,
     register_unit_grade,
     set_cycle_unit_count,
     set_recovery_window,
@@ -36,6 +41,7 @@ from apps.evaluation.services import (
     validate_recovery_window_open,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
@@ -1058,3 +1064,317 @@ class TestGradeVisibilityIntegration:
         visible = list(grades_for_enrolment(enrolment))
         assert len(visible) == 1
         assert visible[0].value == 88
+
+
+class TestRecoveryEligibilityIntegration:
+    """
+    RF-RES-004: recovery eligibility crosses three domains -- attendance
+    (cycle percentage, RF-JOR-009), academics (curriculum plan, RF-EST-005) and
+    evaluation (per-subarea final grade, RF-RES-003). No mocks here: the
+    attendance percentage is derived from real events.
+    """
+
+    def test_eligible_student_across_attendance_academics_and_evaluation(self):
+        start = timezone.localdate() - timedelta(days=15)
+        cycle = AcademicCycleFactory(starts_on=start, ends_on=start + timedelta(days=200))
+        section = SectionFactory(academic_cycle=cycle)
+        shift = section.offering.shift
+        student = StudentFactory()
+        enrolment = create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+            effective_on=start,
+        )
+
+        # Attendance: every elapsed school day has an on-time entry -> ~100%.
+        JornadaParametersFactory(
+            shift=shift,
+            academic_cycle=cycle,
+            school_days=[1, 2, 3, 4, 5, 6, 7],
+            effective_from=start,
+        )
+        day = start
+        today = timezone.localdate()
+        while day < today:
+            AttendanceEventFactory(
+                student=student,
+                shift=shift,
+                event_date=day,
+                movement_type=AttendanceEvent.MovementType.ENTRY,
+                origin=AttendanceEvent.Origin.SCAN,
+                captured_at=timezone.make_aware(datetime.combine(day, time(7, 0))),
+            )
+            day += timedelta(days=1)
+
+        # Curriculum plan of 8 subareas; 2 finish below 60, 6 above.
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        teacher = PersonFactory()
+        for index in range(8):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=50 if index < 2 else 80,
+            )
+
+        result = assess_recovery_eligibility(enrolment)
+
+        assert result.attendance_percentage is not None
+        assert result.attendance_percentage >= 80
+        assert result.failed_subjects == 2
+        assert result.total_subjects == 8
+        assert result.failed_limit == 3
+        assert result.eligible is True
+
+
+class TestRecoveryGradeIntegration:
+    """
+    RF-RES-005: registering a recovery grade end to end -- real attendance
+    feeds eligibility (RF-RES-004), the recovery window gates the write, and the
+    subarea condition is recomputed while the original final grade stays stored.
+    """
+
+    def test_recovery_grade_flow_across_domains(self):
+        start = timezone.localdate() - timedelta(days=15)
+        cycle = AcademicCycleFactory(starts_on=start, ends_on=start + timedelta(days=200))
+        section = SectionFactory(academic_cycle=cycle)
+        shift = section.offering.shift
+        student = StudentFactory()
+        enrolment = create_enrolment(
+            student=student,
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+            effective_on=start,
+        )
+
+        JornadaParametersFactory(
+            shift=shift,
+            academic_cycle=cycle,
+            school_days=[1, 2, 3, 4, 5, 6, 7],
+            effective_from=start,
+        )
+        day = start
+        today = timezone.localdate()
+        while day < today:
+            AttendanceEventFactory(
+                student=student,
+                shift=shift,
+                event_date=day,
+                movement_type=AttendanceEvent.MovementType.ENTRY,
+                origin=AttendanceEvent.Origin.SCAN,
+                captured_at=timezone.make_aware(datetime.combine(day, time(7, 0))),
+            )
+            day += timedelta(days=1)
+
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        set_recovery_window(unit, today - timedelta(days=1), today + timedelta(days=1))
+
+        teacher = PersonFactory()
+        subjects = []
+        for index in range(8):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=teacher,
+                value=50 if index == 0 else 80,
+            )
+            subjects.append(subject)
+
+        failed_subject = subjects[0]
+        assert get_final_subject_grade(enrolment, failed_subject)["condition"] == "failed"
+
+        recovery = register_recovery_grade(enrolment, failed_subject, 72)
+
+        assert recovery.original_final_grade == 50
+        assert RecoveryGrade.objects.filter(enrolment=enrolment).count() == 1
+
+        final = get_final_subject_grade(enrolment, failed_subject)
+        assert final["condition"] == "approved_by_recovery"
+        assert final["recovery_grade"] == 72
+        assert final["final_grade"] == 50
+        assert final["approved"] is False
+
+
+class TestCaptureProgressIntegration:
+    """
+    RF-CAL-008: the capture-progress panel crosses academics (curriculum plan,
+    sections, teaching assignments) and enrolments to say, per section and
+    subarea, what is still pending for an evaluation unit.
+    """
+
+    def test_pending_capture_across_academics_and_enrolments(self):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolments = [
+            create_enrolment(
+                student=StudentFactory(),
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+            )
+            for _ in range(3)
+        ]
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today - timedelta(days=5),
+            ends_on=today + timedelta(days=25),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+
+        graded_subject = SubjectFactory(institution=cycle.institution)
+        pending_subject = SubjectFactory(institution=cycle.institution)
+        for subject in (graded_subject, pending_subject):
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+        teacher = PersonFactory()
+        TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=section,
+            subject=pending_subject,
+            teacher=teacher,
+            starts_on=cycle.starts_on,
+        )
+
+        # graded_subject: 3/3 done. pending_subject: only 1/3 done.
+        for enrolment in enrolments:
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=graded_subject,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=75,
+            )
+        register_unit_grade(
+            enrolment=enrolments[0],
+            subject=pending_subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=80,
+        )
+
+        report = build_capture_progress_report(unit)
+
+        assert report["window_open"] is True
+        by_subject = {row["subject"]: row for row in report["rows"]}
+        assert by_subject[graded_subject]["students_pending"] == 0
+        assert by_subject[pending_subject]["students_pending"] == 2
+        assert by_subject[pending_subject]["students_graded"] == 1
+        assert by_subject[pending_subject]["teacher"] == teacher
+        assert report["overall_progress_pct"] == round(4 / 6 * 100, 2)
+
+
+class TestBulkGradeUploadIntegration:
+    """
+    RF-CAL-004: a bulk upload resolves students through their enrolments
+    (enrollment-lifecycle) and writes Grade rows (evaluation) atomically -- one
+    bad row leaves the database untouched.
+    """
+
+    def _fixture(self, student_count=3):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolments = [
+            create_enrolment(
+                student=StudentFactory(),
+                academic_cycle=cycle,
+                grade=section.grade,
+                section=section,
+            )
+            for _ in range(student_count)
+        ]
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today - timedelta(days=5),
+            ends_on=today + timedelta(days=25),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subject = SubjectFactory(institution=cycle.institution)
+        teacher = PersonFactory()
+        TeachingAssignment.objects.create(
+            academic_cycle=cycle,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            starts_on=cycle.starts_on,
+        )
+        return unit, section, subject, teacher, enrolments
+
+    def test_valid_bulk_upload_writes_every_grade(self):
+        unit, section, subject, teacher, enrolments = self._fixture()
+        rows = [
+            {"student_code": e.student.student_code, "value": str(60 + i * 5)}
+            for i, e in enumerate(enrolments)
+        ]
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=rows,
+        )
+
+        assert result.created == 3
+        assert Grade.objects.filter(evaluation_unit=unit, subject=subject).count() == 3
+        for enrolment in enrolments:
+            assert Grade.objects.filter(
+                enrolment=enrolment, subject=subject, evaluation_unit=unit
+            ).exists()
+
+    def test_one_bad_row_rolls_back_the_whole_file(self):
+        unit, section, subject, teacher, enrolments = self._fixture()
+        rows = [
+            {"student_code": enrolments[0].student.student_code, "value": "70"},
+            {"student_code": enrolments[1].student.student_code, "value": "200"},
+            {"student_code": enrolments[2].student.student_code, "value": "80"},
+        ]
+
+        result = bulk_register_unit_grades(
+            evaluation_unit=unit,
+            section=section,
+            subject=subject,
+            teacher=teacher,
+            rows=rows,
+        )
+
+        assert result.created == 0
+        assert [e["row"] for e in result.errors] == [2]
+        assert Grade.objects.filter(evaluation_unit=unit).count() == 0
