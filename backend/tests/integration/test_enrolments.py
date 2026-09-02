@@ -12,6 +12,7 @@ from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, Stud
 from apps.enrolments.services import (
     active_enrolments,
     annul_student_movement,
+    bulk_reenrol_students,
     change_section,
     create_enrolment,
     enrolment_history,
@@ -20,6 +21,7 @@ from apps.enrolments.services import (
     reenrol_student,
     section_occupancy,
     set_document_requirement,
+    transfer_student_out,
     withdraw_student,
 )
 from apps.evaluation.models import Grade as EvaluationGrade
@@ -28,6 +30,91 @@ from tests.factories.attendance import AttendanceEventFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_transfer_out_revokes_access_and_preserves_distinct_history():
+    section = SectionFactory()
+    student = StudentFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    credential = attendance_services.issue_credential(student=student)
+
+    movement = transfer_student_out(
+        enrolment=enrolment,
+        actor=actor,
+        effective_on=date(2026, 8, 20),
+    )
+
+    credential.refresh_from_db()
+    assert credential.status == StudentCredential.Status.REVOKED
+    assert credential.revoked_by == actor
+    assert credential.revoked_on_movement == movement
+    assert list(active_enrolments(student=student)) == []
+    assert movement.movement_type == StudentMovement.MovementType.TRANSFER_OUT
+    assert not StudentMovement.objects.filter(
+        student=student,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+    ).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_bulk_next_cycle_enrolment_keeps_success_when_another_item_fails():
+    source_cycle = AcademicCycleFactory(year=2026, status="closed")
+    source_section = SectionFactory(academic_cycle=source_cycle)
+    target_cycle = AcademicCycleFactory(
+        institution=source_cycle.institution,
+        year=2027,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+    )
+    available = SectionFactory(academic_cycle=target_cycle, capacity=1)
+    full = SectionFactory(academic_cycle=target_cycle, capacity=1)
+    students = [StudentFactory(), StudentFactory()]
+    sources = [
+        Enrolment.objects.create(
+            student=student,
+            academic_cycle=source_cycle,
+            grade=source_section.grade,
+            section=source_section,
+            effective_on=date(2026, 1, 15),
+        )
+        for student in students
+    ]
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=target_cycle,
+        grade=full.grade,
+        section=full,
+        effective_on=date(2027, 1, 15),
+    )
+    actor = UserFactory()
+    actor.has_scoped_permission = lambda *args, **kwargs: True
+
+    result = bulk_reenrol_students(
+        items=[
+            {"source_enrolment_id": sources[0].public_id, "target_section_id": available.public_id},
+            {"source_enrolment_id": sources[1].public_id, "target_section_id": full.public_id},
+        ],
+        effective_on=date(2027, 1, 15),
+        actor=actor,
+        preview=False,
+    )
+
+    assert result["succeeded"] == result["failed"] == 1
+    assert Enrolment.objects.filter(student=students[0], academic_cycle=target_cycle).exists()
+    sources[1].refresh_from_db()
+    assert sources[1].status == Enrolment.EnrolmentStatus.ACTIVE
 
 
 @pytest.mark.integration

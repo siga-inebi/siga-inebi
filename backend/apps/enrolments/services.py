@@ -151,6 +151,83 @@ def withdraw_student(*, enrolment, reason, actor=None, effective_on=None):
 
 
 @transaction.atomic
+def transfer_student_out(*, enrolment, actor=None, effective_on=None, reason=""):
+    require_cycle_academic_writes(
+        cycle=enrolment.academic_cycle,
+        operation="enrolment.transfer_student_out",
+    )
+    if enrolment.status != Enrolment.EnrolmentStatus.ACTIVE:
+        raise DomainError("Solo una matricula activa puede trasladarse fuera de la institucion.")
+    effective_on = effective_on or timezone.localdate()
+    if effective_on > timezone.localdate():
+        raise DomainError("Los traslados con fecha futura permanecen pendientes de definicion.")
+
+    movement = record_student_movement(
+        student=enrolment.student,
+        movement_type=StudentMovement.MovementType.TRANSFER_OUT,
+        source_enrolment=enrolment,
+        effective_on=effective_on,
+        reason=reason,
+        actor=actor,
+    )
+    enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
+    enrolment.ends_on = effective_on
+    enrolment.save(update_fields=["status", "ends_on", "updated_at"])
+    student = enrolment.student
+    student.status = student.StudentStatus.TRANSFERRED
+    student.save(update_fields=["status", "updated_at"])
+    student_permanence_closed.send(
+        sender=transfer_student_out,
+        student=student,
+        reason=reason or "Traslado hacia otra institucion",
+        effective_on=effective_on,
+        movement=movement,
+        actor=actor,
+    )
+    record_event(
+        actor=actor,
+        action="enrolments.student.transferred_out",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={"enrolment_id": enrolment.pk, "movement_id": movement.pk},
+    )
+    return movement
+
+
+@transaction.atomic
+def transfer_student_in(
+    *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
+):
+    effective_on = effective_on or timezone.localdate()
+    if effective_on > timezone.localdate():
+        raise DomainError("Los traslados con fecha futura permanecen pendientes de definicion.")
+    enrolment = matriculate_student(
+        student=student,
+        academic_cycle=academic_cycle,
+        grade=grade,
+        shift=shift,
+        section=section,
+        actor=actor,
+        effective_on=effective_on,
+    )
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.TRANSFER_IN,
+        target_enrolment=enrolment,
+        effective_on=effective_on,
+        actor=actor,
+    )
+    record_event(
+        actor=actor,
+        action="enrolments.student.transferred_in",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={"enrolment_id": enrolment.pk, "movement_id": movement.pk},
+    )
+    return movement
+
+
+@transaction.atomic
 def annul_student_movement(*, movement, reason, actor):
     reason = reason.strip()
     if not reason:
@@ -487,6 +564,119 @@ def reenrol_student(
         },
     )
     return enrolment
+
+
+def _bulk_reenrolment_result(*, source_enrolment, target_section, effective_on, actor, preview):
+    student = source_enrolment.student
+    target_cycle = target_section.academic_cycle
+    if not source_enrolment.is_active or source_enrolment.status not in {
+        Enrolment.EnrolmentStatus.ACTIVE,
+        Enrolment.EnrolmentStatus.COMPLETED,
+    }:
+        raise DomainError("La matricula seleccionada no es elegible para reinscripcion.")
+    if target_cycle.year != source_enrolment.academic_cycle.year + 1:
+        raise DomainError("La seccion destino debe pertenecer al ciclo escolar siguiente.")
+    if target_cycle.institution_id != source_enrolment.academic_cycle.institution_id:
+        raise DomainError("El ciclo destino debe pertenecer a la misma institucion.")
+    if not actor.has_scoped_permission(
+        "enrollment_create",
+        scope={"student": student, "section": target_section, "module_key": "enrolments"},
+    ):
+        raise DomainError("El actor no tiene alcance sobre el estudiante seleccionado.")
+
+    existing = (
+        Enrolment.objects.filter(student=student, academic_cycle=target_cycle)
+        .exclude(status=Enrolment.EnrolmentStatus.CANCELLED)
+        .first()
+    )
+    if existing is not None:
+        if existing.section_id != target_section.pk:
+            raise DomainError("El estudiante ya tiene matricula en otra seccion del ciclo destino.")
+        return existing, "existing"
+
+    enrolment = reenrol_student(
+        student=student,
+        academic_cycle=target_cycle,
+        grade=target_section.grade,
+        shift=target_section.shift,
+        section=target_section,
+        effective_on=effective_on,
+        actor=actor,
+    )
+    return enrolment, "ready" if preview else "created"
+
+
+def bulk_reenrol_students(*, items, effective_on, actor, preview=True):
+    """Preview or process explicitly selected next-cycle re-enrolments independently."""
+    results = []
+    for item in items:
+        source_id = item["source_enrolment_id"]
+        section_id = item["target_section_id"]
+        try:
+            with transaction.atomic():
+                source = Enrolment.objects.select_related(
+                    "student", "academic_cycle__institution"
+                ).get(public_id=source_id)
+                target = Section.objects.select_related(
+                    "offering__academic_cycle__institution",
+                    "offering__grade",
+                    "offering__shift",
+                ).get(public_id=section_id)
+                enrolment, result_status = _bulk_reenrolment_result(
+                    source_enrolment=source,
+                    target_section=target,
+                    effective_on=effective_on,
+                    actor=actor,
+                    preview=preview,
+                )
+                result = {
+                    "source_enrolment_id": str(source.public_id),
+                    "target_section_id": str(target.public_id),
+                    "student_id": str(source.student.public_id),
+                    "status": result_status,
+                    "enrolment_id": (
+                        None if result_status == "ready" else str(enrolment.public_id)
+                    ),
+                    "error": None,
+                }
+                if preview and result_status != "existing":
+                    transaction.set_rollback(True)
+        except Enrolment.DoesNotExist:
+            result = _bulk_error(source_id, section_id, "Matricula de origen no encontrada.")
+        except Section.DoesNotExist:
+            result = _bulk_error(source_id, section_id, "Seccion destino no encontrada.")
+        except DomainError as exc:
+            result = _bulk_error(source_id, section_id, str(exc))
+        results.append(result)
+
+    succeeded = sum(result["status"] != "error" for result in results)
+    record_event(
+        actor=actor,
+        action="enrolments.bulk_reenrolment.previewed"
+        if preview
+        else "enrolments.bulk_reenrolment.processed",
+        resource="Enrolment",
+        resource_identifier="bulk-next-cycle",
+        context={"total": len(results), "succeeded": succeeded, "failed": len(results) - succeeded},
+    )
+    return {
+        "preview": preview,
+        "total": len(results),
+        "succeeded": succeeded,
+        "failed": len(results) - succeeded,
+        "results": results,
+    }
+
+
+def _bulk_error(source_id, section_id, message):
+    return {
+        "source_enrolment_id": str(source_id),
+        "target_section_id": str(section_id),
+        "student_id": None,
+        "status": "error",
+        "enrolment_id": None,
+        "error": message,
+    }
 
 
 @transaction.atomic

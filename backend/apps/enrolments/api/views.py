@@ -7,6 +7,7 @@ from apps.common.exceptions import AuthorizationError
 from apps.enrolments import queries, services
 from apps.enrolments.api.serializers import (
     ActiveEnrolmentQuerySerializer,
+    BulkReenrolmentCreateSerializer,
     EnrolmentCreateSerializer,
     EnrolmentDocumentRequirementCreateSerializer,
     EnrolmentDocumentRequirementSerializer,
@@ -22,6 +23,8 @@ from apps.enrolments.api.serializers import (
     StudentMovementAnnulmentSerializer,
     StudentMovementQuerySerializer,
     StudentMovementSerializer,
+    StudentTransferInCreateSerializer,
+    StudentTransferOutCreateSerializer,
     StudentWithdrawalCreateSerializer,
 )
 
@@ -268,6 +271,29 @@ class ReenrolmentCreateView(GenericAPIView):
         return Response(MatriculationSerializer(enrolment).data, status=status.HTTP_201_CREATED)
 
 
+class BulkReenrolmentCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = BulkReenrolmentCreateSerializer
+
+    @extend_schema(
+        summary="Previsualizar o ejecutar matricula masiva del ciclo siguiente",
+        description=(
+            "Procesa solo las matriculas seleccionadas y su seccion destino. "
+            "Cada fila es independiente y repetir una solicitud confirmada no duplica registros."
+        ),
+        request=BulkReenrolmentCreateSerializer,
+        responses={200: dict},
+        tags=["enrolments"],
+    )
+    def post(self, request):
+        if not request.user.has_atomic_permission("enrollment_create"):
+            raise AuthorizationError("Actor lacks the required permission.")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = services.bulk_reenrol_students(actor=request.user, **serializer.validated_data)
+        return Response(result, status=status.HTTP_200_OK)
+
+
 class SectionChangeCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = SectionChangeCreateSerializer
@@ -320,6 +346,68 @@ class StudentWithdrawalCreateView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         movement = services.withdraw_student(
             enrolment=queries.enrolment_or_404(enrolment_id),
+            actor=request.user,
+            **serializer.validated_data,
+        )
+        return Response(StudentMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
+
+
+class StudentTransferInCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentTransferInCreateSerializer
+
+    @extend_schema(
+        summary="Registrar traslado de ingreso",
+        request=StudentTransferInCreateSerializer,
+        responses={201: StudentMovementSerializer},
+        tags=["enrolments"],
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        student = queries.student_or_404(payload["student_id"])
+        section = queries.section_or_404(payload["section_id"])
+        has_scope = request.user.has_scoped_permission(
+            "enrollment_update", scope={"student": student}
+        ) or request.user.has_scoped_permission(
+            "enrollment_update",
+            scope={"section": section, "module_key": "enrolments"},
+        )
+        if not has_scope:
+            raise AuthorizationError("Actor lacks the required permission or scope.")
+        movement = services.transfer_student_in(
+            student=student,
+            academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
+            grade=queries.grade_or_404(payload["grade_id"]),
+            shift=queries.shift_or_404(payload["shift_id"]),
+            section=section,
+            effective_on=payload["effective_on"],
+            actor=request.user,
+        )
+        return Response(StudentMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
+
+
+class StudentTransferOutCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentTransferOutCreateSerializer
+
+    @extend_schema(
+        summary="Registrar traslado de salida",
+        request=StudentTransferOutCreateSerializer,
+        responses={201: StudentMovementSerializer},
+        tags=["enrolments"],
+    )
+    def post(self, request, enrolment_id):
+        enrolment = queries.enrolment_or_404(enrolment_id)
+        if not request.user.has_scoped_permission(
+            "enrollment_update", scope={"student": enrolment.student}
+        ):
+            raise AuthorizationError("Actor lacks the required permission or scope.")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        movement = services.transfer_student_out(
+            enrolment=enrolment,
             actor=request.user,
             **serializer.validated_data,
         )
