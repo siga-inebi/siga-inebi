@@ -19,6 +19,8 @@ from datetime import datetime, time, timedelta
 from urllib.parse import urlencode
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -1042,6 +1044,69 @@ def test_scan_batch_endpoint_reports_mixed_outcomes_per_item(auth_client):
     assert response.status_code == 200
     outcomes = [entry["outcome"] for entry in response.json()]
     assert outcomes == ["created", "rejected"]
+
+
+def _queries_for_scan_batch(auth_client, *, items):
+    with CaptureQueriesContext(connection) as captured:
+        response = auth_client.post(
+            reverse("attendance-scan"), {"items": items}, content_type="application/json"
+        )
+    assert response.status_code == 200
+    return len(captured.captured_queries)
+
+
+def test_scan_batch_does_not_requery_the_same_shift_control_point_and_permission_per_item(
+    auth_client,
+):
+    """
+    RF-ASI-014: a batch overwhelmingly repeats the same shift, control point
+    and movement-type permission across its items (one operator, one control
+    point, one jornada). Comparing two batches of the *same* size N -- one
+    where every item shares those three keys, one where every item has its
+    own -- isolates exactly the caching effect: if repeating a key never saved
+    a query, both batches would cost the same regardless of what else the
+    request does. It doesn't: the shared-key batch costs strictly less.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    _grant(auth_client.user, "attendance_record_exit")
+    now = timezone.now()
+
+    shared_parameters = JornadaParametersFactory()
+    shared_control_point = ControlPointFactory(campus=shared_parameters.shift.campus)
+    shared_students = [StudentFactory() for _ in range(4)]
+    for student in shared_students:
+        _enrol(student, shared_parameters.academic_cycle)
+    shared_key_items = [
+        _scan_item(student, shared_parameters.shift, shared_control_point, f"shared-{i}", now)
+        for i, student in enumerate(shared_students)
+    ]
+
+    unique_key_items = []
+    for i in range(4):
+        parameters = JornadaParametersFactory()
+        control_point = ControlPointFactory(campus=parameters.shift.campus)
+        student = StudentFactory()
+        _enrol(student, parameters.academic_cycle)
+        unique_key_items.append(
+            _scan_item(
+                student,
+                parameters.shift,
+                control_point,
+                f"unique-{i}",
+                now,
+                movement_type=(
+                    AttendanceEvent.MovementType.ENTRY
+                    if i % 2 == 0
+                    else AttendanceEvent.MovementType.EXIT
+                ),
+            )
+        )
+
+    shared_key_queries = _queries_for_scan_batch(auth_client, items=shared_key_items)
+    unique_key_queries = _queries_for_scan_batch(auth_client, items=unique_key_items)
+
+    assert shared_key_queries < unique_key_queries
 
 
 def test_scan_endpoint_reports_scanned_captured_at_distinct_from_server_created_at(auth_client):
