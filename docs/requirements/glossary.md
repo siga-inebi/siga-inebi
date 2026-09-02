@@ -27,3 +27,5 @@
 | Rol | Agrupacion configurable de permisos atomicos. |
 | Sesion de clase | Subarea agendada para una seccion en un dia de la semana y un bloque de horario especifico. |
 | Trazabilidad | Capacidad de seguir relacion entre requerimiento, decision, codigo, pruebas y cambios. |
+| Traslado de ingreso | Entrada desde otra institucion que crea matricula y conserva un movimiento diferenciado. |
+| Traslado de salida | Cierre de permanencia por cambio a otra institucion; no equivale a desercion. |

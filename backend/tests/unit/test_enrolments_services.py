@@ -1,6 +1,7 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+from django.utils import timezone
 
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
@@ -22,6 +23,8 @@ from apps.enrolments.services import (
     reenrol_student,
     section_occupancy,
     set_document_requirement,
+    transfer_student_in,
+    transfer_student_out,
     withdraw_student,
 )
 from tests.factories.academic import AcademicCycleFactory, GradeFactory, SectionFactory
@@ -29,6 +32,74 @@ from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
+
+
+def test_transfer_out_closes_enrolment_and_marks_student_transferred():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    movement = transfer_student_out(
+        enrolment=enrolment,
+        effective_on=date(2026, 8, 20),
+        reason="Traslado solicitado",
+    )
+
+    enrolment.refresh_from_db()
+    student.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.COMPLETED
+    assert enrolment.ends_on == date(2026, 8, 20)
+    assert student.status == student.StudentStatus.TRANSFERRED
+    assert movement.movement_type == StudentMovement.MovementType.TRANSFER_OUT
+    assert movement.source_enrolment == enrolment
+    assert movement.target_enrolment is None
+
+
+def test_transfer_in_creates_target_only_movement_and_activates_student():
+    section = SectionFactory()
+    student = StudentFactory(status="transferred")
+    movement = transfer_student_in(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+        section=section,
+        effective_on=date(2026, 8, 20),
+    )
+
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.ACTIVE
+    assert movement.movement_type == StudentMovement.MovementType.TRANSFER_IN
+    assert movement.source_enrolment is None
+    assert movement.target_enrolment.student == student
+
+
+def test_transfer_operations_reject_future_effective_dates():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    future = timezone.localdate() + timedelta(days=1)
+
+    with pytest.raises(DomainError, match="fecha futura"):
+        transfer_student_out(enrolment=enrolment, effective_on=future)
+    with pytest.raises(DomainError, match="fecha futura"):
+        transfer_student_in(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+            effective_on=future,
+        )
 
 
 def test_bulk_reenrolment_preview_does_not_write_and_reports_each_item():

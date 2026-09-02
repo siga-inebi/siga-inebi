@@ -220,3 +220,12 @@ class StudentWithdrawalCreateSerializer(serializers.Serializer):
         help_text="Causa formal del retiro.",
     )
     effective_on = serializers.DateField(help_text="Fecha efectiva del retiro.")
+
+
+class StudentTransferInCreateSerializer(MatriculationCreateSerializer):
+    pass
+
+
+class StudentTransferOutCreateSerializer(serializers.Serializer):
+    effective_on = serializers.DateField(help_text="Fecha efectiva del traslado de salida.")
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
