@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     ControlPoint,
     DayStatus,
     JornadaParameters,
@@ -270,6 +271,14 @@ class ScanCaptureRequestSerializer(serializers.Serializer):
         default="",
         help_text="Id de agrupacion del lote; vacio para un escaneo individual.",
     )
+    capture_batch_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Public ID del lote de captura recuperable (RF-ASI-009) al que "
+            "pertenecen estos elementos; omitido para un escaneo fuera de un "
+            "lote recuperable."
+        ),
+    )
     items = ScanCaptureItemSerializer(many=True, allow_empty=False)
 
 
@@ -296,6 +305,23 @@ class ScanCaptureItemResultSerializer(serializers.Serializer):
     duplicate_of = AttendanceEventSerializer(allow_null=True)
     confirmation = ScanConfirmationSerializer(allow_null=True)
     reason = serializers.CharField(allow_blank=True)
+
+
+class CaptureBatchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaptureBatch
+        fields = ["public_id", "status", "confirmed_at", "created_at"]
+
+
+class CaptureBatchRecoverySerializer(serializers.Serializer):
+    """
+    RF-ASI-009: what an operator gets back on recovery -- the batch itself
+    (``null`` when there is nothing pending) plus every movement already
+    saved in it, each with its original capture time intact.
+    """
+
+    capture_batch = CaptureBatchSerializer(allow_null=True)
+    events = AttendanceEventSerializer(many=True)
 
 
 class StudentCredentialSerializer(serializers.ModelSerializer):

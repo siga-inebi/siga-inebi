@@ -4,6 +4,7 @@ from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     ControlPoint,
     JornadaParameters,
     ManualRegistrationReason,
@@ -60,6 +61,15 @@ class AttendanceEventAdmin(admin.ModelAdmin):
     ]
     list_filter = ["shift", "movement_type", "origin"]
     date_hierarchy = "event_date"
+
+
+@admin.register(CaptureBatch)
+class CaptureBatchAdmin(admin.ModelAdmin):
+    """Support surface only: open/confirm go through the API, not here."""
+
+    list_display = ["operator", "status", "confirmed_at", "created_at"]
+    list_filter = ["status"]
+    date_hierarchy = "created_at"
 
 
 @admin.register(AttendanceAlert)

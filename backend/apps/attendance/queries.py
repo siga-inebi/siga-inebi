@@ -4,6 +4,7 @@ from apps.academics.models import AcademicCycle, Grade, Section, Shift
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    CaptureBatch,
     ControlPoint,
     JornadaParameters,
     ManualRegistrationReason,
@@ -63,6 +64,18 @@ def academic_cycle_for_payload(public_id):
 
 def control_point_for_payload(public_id):
     return _payload_get(ControlPoint.objects.all(), public_id, "el punto de control")
+
+
+def capture_batch_for_payload(public_id, *, operator):
+    """
+    RF-ASI-009: resolve a batch by public id, scoped to its own operator --
+    a batch belonging to someone else does not exist as far as this caller
+    is concerned, same vague-not-found rule ``_payload_get`` already applies
+    to every other lookup here.
+    """
+    return _payload_get(
+        CaptureBatch.objects.filter(operator=operator), public_id, "el lote de captura"
+    )
 
 
 def manual_reason_for_payload(public_id):

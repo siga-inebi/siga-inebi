@@ -8,6 +8,9 @@ from apps.attendance.api.views import (
     AttendancePercentageView,
     AttendancePresenceListView,
     AttendanceScanView,
+    CaptureBatchConfirmView,
+    CaptureBatchCurrentView,
+    CaptureBatchOpenView,
     ControlPointListView,
     CredentialPrintContentView,
     CredentialRevocationView,
@@ -68,6 +71,21 @@ urlpatterns = [
         "scan/",
         AttendanceScanView.as_view(),
         name="attendance-scan",
+    ),
+    path(
+        "capture-batches/",
+        CaptureBatchOpenView.as_view(),
+        name="attendance-capture-batch-open",
+    ),
+    path(
+        "capture-batches/current/",
+        CaptureBatchCurrentView.as_view(),
+        name="attendance-capture-batch-current",
+    ),
+    path(
+        "capture-batches/<uuid:public_id>/confirm/",
+        CaptureBatchConfirmView.as_view(),
+        name="attendance-capture-batch-confirm",
     ),
     path(
         "manual-registration-reasons/",
