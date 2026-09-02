@@ -83,7 +83,11 @@ RoleAssignment -> ScopeGrant
   asignacion docente; no requieren un `ScopeGrant` duplicado.
 - Para `student_view_basic`, el resolvedor tambien une los estudiantes de las relaciones vigentes
   del `Guardian` vinculado a la persona de la cuenta. Ese alcance derivado no requiere
-  `ScopeGrant`, pero tampoco concede estudiantes fuera de las relaciones actuales.
+  `ScopeGrant`, pero tampoco concede estudiantes fuera de las relaciones actuales ni expedientes
+  cuyo estado ya no sea `active`.
+- Una cuenta vinculada a un expediente estudiantil no activo conserva su registro de cuenta, pero
+  sus permisos atomicos dejan de ser efectivos. Esto evita borrar identidad e historial al cerrar
+  la permanencia y no deshabilita la cuenta completa de un encargado compartido.
 - Para estudiantes, el resolvedor tambien une el alcance derivado de `TeachingAssignment`: requiere
   que el ciclo este `active`, que la fecha local este entre `starts_on` y `ends_on` (o sin fin), y
   que el estudiante tenga una matricula activa en la seccion asignada. No se crea un `ScopeGrant`
