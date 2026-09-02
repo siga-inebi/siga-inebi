@@ -584,6 +584,197 @@ def test_close_jornada_does_not_flag_students_with_a_matching_exit():
 
 
 # --------------------------------------------------------------------------- #
+# RF-ASI-011 — cierre declarado por seccion
+# --------------------------------------------------------------------------- #
+
+
+def _enrol_in_section(parameters, section):
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    return student
+
+
+def test_preview_section_closure_includes_a_student_with_entry_and_no_exit():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+
+    result = services.preview_section_closure(section=section, event_date=parameters.effective_from)
+
+    assert result.included == [student]
+    assert result.omitted == []
+
+
+def test_preview_section_closure_omits_a_student_with_no_entry():
+    """
+    Escenario 1 (RF-ASI-011): GIVEN una seccion con un estudiante sin
+    ingreso registrado, WHEN se previsualiza el cierre declarado, THEN el
+    resumen lo muestra omitido, AND informa el motivo antes de confirmar
+    nada.
+    """
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+
+    result = services.preview_section_closure(section=section, event_date=parameters.effective_from)
+
+    assert result.included == []
+    assert len(result.omitted) == 1
+    assert result.omitted[0].student == student
+    assert "ingreso" in result.omitted[0].reason.lower()
+
+
+def test_preview_section_closure_omits_a_student_who_already_has_an_exit():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 12, 0),
+    )
+
+    result = services.preview_section_closure(section=section, event_date=parameters.effective_from)
+
+    assert result.included == []
+    assert len(result.omitted) == 1
+    assert result.omitted[0].student == student
+    assert "salida" in result.omitted[0].reason.lower()
+
+
+def test_preview_section_closure_does_not_register_anything():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+
+    services.preview_section_closure(section=section, event_date=parameters.effective_from)
+
+    assert not AttendanceEvent.objects.filter(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    ).exists()
+
+
+def test_close_section_declares_exit_for_eligible_students_and_audits():
+    """
+    Escenario 2 (RF-ASI-011): GIVEN una seccion con un estudiante que tiene
+    ingreso y sin salida, WHEN un usuario autorizado confirma el cierre
+    declarado, THEN el sistema registra la salida declarada de ese
+    estudiante, AND el resumen ya no lo muestra como omitido.
+    """
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    actor = UserFactory()
+
+    result = services.close_section(
+        section=section, event_date=parameters.effective_from, actor=actor
+    )
+
+    assert result.included == [student]
+    assert result.omitted == []
+    exit_event = AttendanceEvent.objects.get(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    )
+    assert exit_event.origin == AttendanceEvent.Origin.DECLARED
+    audit = AuditEvent.objects.get(
+        action="attendance.section_closure.confirmed",
+        resource_identifier=str(section.public_id),
+    )
+    assert audit.actor_id == actor.id
+    assert audit.context["included_count"] == 1
+    assert audit.context["omitted_count"] == 0
+
+
+def test_close_section_omits_a_student_with_no_entry_without_creating_an_event():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+
+    result = services.close_section(
+        section=section, event_date=parameters.effective_from, actor=UserFactory()
+    )
+
+    assert result.included == []
+    assert len(result.omitted) == 1
+    assert result.omitted[0].student == student
+    assert not AttendanceEvent.objects.filter(student=student).exists()
+
+
+def test_close_section_does_not_duplicate_an_existing_exit():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 12, 0),
+    )
+
+    result = services.close_section(
+        section=section, event_date=parameters.effective_from, actor=UserFactory()
+    )
+
+    assert result.included == []
+    assert (
+        AttendanceEvent.objects.filter(
+            student=student, movement_type=AttendanceEvent.MovementType.EXIT
+        ).count()
+        == 1
+    )
+
+
+# --------------------------------------------------------------------------- #
 # RF-JOR-005 — deteccion de inconsistencias entre fuentes
 # --------------------------------------------------------------------------- #
 

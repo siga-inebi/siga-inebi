@@ -51,6 +51,8 @@ from .serializers import (
     PresentStudentSerializer,
     ScanCaptureItemResultSerializer,
     ScanCaptureRequestSerializer,
+    SectionClosureRequestSerializer,
+    SectionClosureResultSerializer,
     StudentCredentialIssueSerializer,
     StudentCredentialSerializer,
 )
@@ -304,6 +306,78 @@ class JornadaClosureView(GenericAPIView):
             shift=shift, event_date=payload["event_date"], actor=request.user
         )
         return Response(JornadaClosureResultSerializer(result).data)
+
+
+def _require_declared_closure_permission(request):
+    identity_services.require_all_permissions(
+        actor=request.user,
+        permission_codenames=[
+            ORIGIN_PERMISSIONS["declared"],
+            MOVEMENT_TYPE_PERMISSIONS["exit"],
+        ],
+        denial_action="attendance.event.capture_denied",
+        denial_resource="AttendanceEvent",
+    )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Previsualizar cierre declarado por seccion",
+        description=(
+            "RF-ASI-011: quien quedaria incluido y quien omitido -- y por que -- "
+            "si se confirma el cierre declarado de la seccion, sin registrar nada "
+            "todavia."
+        ),
+        tags=TAGS,
+        responses={200: SectionClosureResultSerializer},
+    ),
+)
+class SectionClosurePreviewView(GenericAPIView):
+    """RF-ASI-011 contract: preview a section's declared closure."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SectionClosureResultSerializer
+
+    def get(self, request):
+        _require_declared_closure_permission(request)
+        serializer = SectionClosureRequestSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = queries.section_for_payload(payload["section_id"])
+        result = services.preview_section_closure(section=section, event_date=payload["event_date"])
+        return Response(SectionClosureResultSerializer(result).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Confirmar cierre declarado por seccion",
+        description=(
+            "RF-ASI-011: declara la salida de cada estudiante activamente "
+            "inscrito en la seccion que tiene ingreso y aun no tiene salida "
+            "registrada. Excluye a quien ya tiene salida registrada o no tiene "
+            "ingreso, informando el motivo de cada exclusion."
+        ),
+        tags=TAGS,
+        request=SectionClosureRequestSerializer,
+        responses={200: SectionClosureResultSerializer},
+    ),
+)
+class SectionClosureView(GenericAPIView):
+    """RF-ASI-011 contract: confirm a section's declared closure."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SectionClosureResultSerializer
+
+    def post(self, request):
+        _require_declared_closure_permission(request)
+        serializer = SectionClosureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = queries.section_for_payload(payload["section_id"])
+        result = services.close_section(
+            section=section, event_date=payload["event_date"], actor=request.user
+        )
+        return Response(SectionClosureResultSerializer(result).data)
 
 
 @extend_schema_view(

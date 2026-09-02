@@ -17,6 +17,8 @@ from apps.attendance.api.views import (
     JornadaClosureView,
     JornadaParametersListCreateView,
     ManualRegistrationReasonListView,
+    SectionClosurePreviewView,
+    SectionClosureView,
     StudentCredentialIssueView,
     StudentCredentialResolutionView,
 )
@@ -46,6 +48,16 @@ urlpatterns = [
         "jornada-closures/",
         JornadaClosureView.as_view(),
         name="attendance-jornada-closures",
+    ),
+    path(
+        "section-closures/",
+        SectionClosureView.as_view(),
+        name="attendance-section-closure",
+    ),
+    path(
+        "section-closures/preview/",
+        SectionClosurePreviewView.as_view(),
+        name="attendance-section-closure-preview",
     ),
     path(
         "alerts/",
