@@ -495,26 +495,48 @@ class AttendanceScanView(GenericAPIView):
         raw_items = payload["items"]
         transmission = queries.scan_transmission(batch_id=batch_id, item_count=len(raw_items))
 
+        # RF-ASI-014: a batch overwhelmingly repeats the same shift, control
+        # point and movement-type permission across its items (one operator,
+        # one control point, one jornada) -- caching each by its own key
+        # avoids re-querying the database for a value already resolved
+        # earlier in this same request. A cached permission entry is only
+        # ever a granted one: a denial still runs (and gets audited) for
+        # every item that hits it, never skipped by an earlier item's cache.
+        granted_permission_keys = set()
+        shift_cache = {}
+        control_point_cache = {}
+
         resolved = []
         results_by_index = {}
         for index, raw_item in enumerate(raw_items):
             try:
-                identity_services.require_all_permissions(
-                    actor=request.user,
-                    permission_codenames=[
-                        ORIGIN_PERMISSIONS["scan"],
-                        MOVEMENT_TYPE_PERMISSIONS[raw_item["movement_type"]],
-                    ],
-                    denial_action="attendance.event.capture_denied",
-                    denial_resource="AttendanceEvent",
+                permission_key = (
+                    ORIGIN_PERMISSIONS["scan"],
+                    MOVEMENT_TYPE_PERMISSIONS[raw_item["movement_type"]],
                 )
+                if permission_key not in granted_permission_keys:
+                    identity_services.require_all_permissions(
+                        actor=request.user,
+                        permission_codenames=list(permission_key),
+                        denial_action="attendance.event.capture_denied",
+                        denial_resource="AttendanceEvent",
+                    )
+                    granted_permission_keys.add(permission_key)
                 student = services.resolve_scan_subject(
                     credential_identifier=raw_item.get("credential_identifier", ""),
                     student_code=raw_item.get("student_code", ""),
                     actor=request.user,
                 )
-                shift = queries.shift_for_payload(raw_item["shift_id"])
-                control_point = queries.control_point_for_payload(raw_item["control_point_id"])
+                shift_id = raw_item["shift_id"]
+                if shift_id not in shift_cache:
+                    shift_cache[shift_id] = queries.shift_for_payload(shift_id)
+                shift = shift_cache[shift_id]
+                control_point_id = raw_item["control_point_id"]
+                if control_point_id not in control_point_cache:
+                    control_point_cache[control_point_id] = queries.control_point_for_payload(
+                        control_point_id
+                    )
+                control_point = control_point_cache[control_point_id]
             except (DomainError, AuthorizationError) as exc:
                 results_by_index[index] = services.RejectedScanItem(
                     client_event_id=raw_item["client_event_id"], reason=str(exc)
