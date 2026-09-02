@@ -106,11 +106,13 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   `student.edit_basic` con alcance de modulo `students`; permiso sin alcance se deniega.
 - `PATCH /api/v1/students/{id}/` modifica codigo, estado o fotografia mediante servicio de
   dominio y genera auditoria. Los datos de `Person` mantienen su endpoint propio.
-- Estados publicados: `pre_enrolled`, `active`, `inactive`, `withdrawn` y `graduated`.
+- Estados publicados: `pre_enrolled`, `active`, `inactive`, `withdrawn`, `graduated` y
+  `transferred`.
 - Semantica del expediente: `pre_enrolled` conserva al estudiante para matricula o rematricula
   del siguiente ciclo; `active` habilita interacciones ordinarias; `withdrawn` conserva la salida
-  por desercion; `graduated` conserva la salida tras completar el pensum; `inactive` representa
-  una baja administrativa logica. Matricular o rematricular cambia `pre_enrolled` a `active`.
+  por desercion; `graduated` conserva la salida tras completar el pensum; `transferred` indica
+  salida hacia otra institucion; `inactive` representa una baja administrativa logica. Matricular,
+  rematricular o registrar un traslado de ingreso cambia el expediente a `active`.
 - `DELETE /api/v1/students/{id}/` desactiva el expediente; no elimina el registro ni su persona.
 - La fotografia se clasifica `Restricted`; modificarla exige `student.edit_basic` y alcance sobre
   el estudiante. La carga admite hasta 5 MB y se valida por contenido; antes de almacenarla se
@@ -160,13 +162,30 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   representa el momento real de registro en el sistema.
 - Las matrículas de origen y destino son referencias históricas: cambio de sección exige ambas,
   traslado de ingreso solo destino y traslado de egreso solo origen.
-- Los movimientos son inmutables y no admiten borrado físico. Una corrección futura debe agregar
-  evidencia conforme a RF-MOV-008, no reescribir el asiento existente.
+- Los movimientos son inmutables y no admiten borrado físico. RF-MOV-008 agrega una anulación
+  separada y no reescribe el asiento existente.
 - La consulta requiere sesión autenticada. Este contrato es de solo lectura; cada operación
   académica concreta registra su movimiento desde el servicio de dominio correspondiente.
 - La ejecución anticipada de movimientos con fecha futura permanece como decisión pendiente: el
   modelo puede representar la fecha, pero ningún endpoint aplica por adelantado sus efectos.
 
+- `POST /api/v1/enrolments/transfers/in/` crea la matricula de un expediente ya registrado y
+  agrega un movimiento `transfer_in` que referencia solo la matricula destino.
+- `POST /api/v1/enrolments/{enrolment_id}/transfer-out/` cierra la matricula activa, cambia el
+  expediente a `transferred`, revoca acceso y credencial y agrega `transfer_out` con origen.
+- Ambos endpoints exigen `enrollment_update` y alcance efectivo. Rechazan fechas futuras hasta
+  que RF-MOV-003 defina su ejecucion; no registran datos externos no declarados.
+
+### Anulacion de movimientos
+
+- `POST /api/v1/enrolments/movements/{movement_id}/annulment/` exige `enrollment_update` y un
+  `reason` no vacio. La anulacion es un registro separado y nunca reescribe el movimiento original.
+- Retiro restaura matricula, estudiante y la credencial revocada por cierre de permanencia; cambio
+  de seccion cancela la matricula destino y reactiva la de origen.
+- Solo retiro y cambio de seccion admiten anulacion mientras coincidan con su estado resultante y
+  el ciclo permita escrituras. Traslados se rechazan hasta que sus casos de uso conserven estado
+  reversible. La doble anulacion tambien se rechaza.
+- El historial incluye `annulment` como campo aditivo, nulo para movimientos vigentes.
 ## Requisitos documentales de matrícula
 
 - `GET /api/v1/enrolments/{enrolment_id}/documents/` lista los requisitos documentales activos
@@ -202,6 +221,18 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   registradas del estudiante, sin filtrar por estado ni por `is_active`.
 - La respuesta es paginada y se ordena desde la vigencia más reciente hacia la más antigua.
   Los estados y fechas se conservan para mantener la trazabilidad histórica.
+
+## Matricula masiva del ciclo siguiente
+
+- `POST /api/v1/enrolments/re-enrolments/bulk/` recibe `effective_on`, `preview` y una lista
+  explicita de pares `source_enrolment_id` / `target_section_id`.
+- `preview=true` aplica las mismas validaciones sin persistir. La confirmacion procesa cada
+  elemento de forma independiente y devuelve exito o error por estudiante.
+- La seccion destino debe pertenecer al ano inmediatamente siguiente y a la misma institucion.
+  El endpoint no decide promocion ni repitencia.
+- Repetir una confirmacion identica devuelve la matricula existente y no crea duplicados.
+- Requiere `enrollment_create` y alcance efectivo sobre cada estudiante. El resumen del lote
+  queda auditado.
 
 ## Administracion de roles
 

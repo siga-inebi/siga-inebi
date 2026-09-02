@@ -10,9 +10,15 @@ from apps.enrolments.services import (
     create_enrolment,
     enrolment_history,
     record_student_movement,
+    withdraw_student,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
-from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+)
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
@@ -21,6 +27,52 @@ pytestmark = [pytest.mark.api, pytest.mark.django_db]
 def _grant_enrolment_creation(user):
     permission = PermissionFactory(codename="enrollment_create")
     return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+
+
+def test_bulk_next_cycle_enrolment_requires_permission_scope_and_is_idempotent(auth_client):
+    source_cycle = AcademicCycleFactory(year=2026, status="closed")
+    source_section = SectionFactory(academic_cycle=source_cycle)
+    target_cycle = AcademicCycleFactory(
+        institution=source_cycle.institution,
+        year=2027,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+    )
+    target_section = SectionFactory(academic_cycle=target_cycle)
+    student = StudentFactory()
+    source = Enrolment.objects.create(
+        student=student,
+        academic_cycle=source_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 1, 15),
+    )
+    payload = {
+        "preview": False,
+        "effective_on": "2027-01-15",
+        "items": [
+            {
+                "source_enrolment_id": str(source.public_id),
+                "target_section_id": str(target_section.public_id),
+            }
+        ],
+    }
+    url = reverse("bulk-reenrolment-create")
+    assert auth_client.post(url, payload, content_type="application/json").status_code == 403
+
+    assignment = _grant_enrolment_creation(auth_client.user)
+    denied = auth_client.post(url, payload, content_type="application/json")
+    assert denied.status_code == 200
+    assert denied.json()["failed"] == 1
+
+    ScopeGrantFactory(assignment=assignment, institution=source_cycle.institution)
+    created = auth_client.post(url, payload, content_type="application/json")
+    repeated = auth_client.post(url, payload, content_type="application/json")
+
+    assert created.status_code == repeated.status_code == 200
+    assert created.json()["results"][0]["status"] == "created"
+    assert repeated.json()["results"][0]["status"] == "existing"
+    assert Enrolment.objects.filter(student=student, academic_cycle=target_cycle).count() == 1
 
 
 def _payload(section, student):
@@ -566,6 +618,53 @@ def _grant_enrolment_update(user):
     return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
 
 
+def test_transfer_out_endpoint_requires_permission_and_scope(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    url = reverse("student-transfer-out", args=[enrolment.public_id])
+    payload = {"effective_on": "2026-08-20", "reason": "Cambio de institucion"}
+
+    assert auth_client.post(url, payload, content_type="application/json").status_code == 403
+    assignment = _grant_enrolment_update(auth_client.user)
+    assert auth_client.post(url, payload, content_type="application/json").status_code == 403
+    ScopeGrantFactory(assignment=assignment, institution=section.academic_cycle.institution)
+    response = auth_client.post(url, payload, content_type="application/json")
+
+    assert response.status_code == 201
+    assert response.json()["movement_type"] == "transfer_out"
+    assert response.json()["source_enrolment_id"] == str(enrolment.public_id)
+
+
+def test_transfer_in_endpoint_creates_distinct_incoming_movement(auth_client):
+    section = SectionFactory()
+    student = StudentFactory(status="transferred")
+    assignment = _grant_enrolment_update(auth_client.user)
+    ScopeGrantFactory(assignment=assignment, institution=section.academic_cycle.institution)
+    payload = {
+        "student_id": str(student.public_id),
+        "academic_cycle_id": str(section.academic_cycle.public_id),
+        "grade_id": str(section.grade.public_id),
+        "shift_id": str(section.shift.public_id),
+        "section_id": str(section.public_id),
+        "effective_on": "2026-08-20",
+    }
+    response = auth_client.post(
+        reverse("student-transfer-in"), payload, content_type="application/json"
+    )
+
+    assert response.status_code == 201
+    assert response.json()["movement_type"] == "transfer_in"
+    assert response.json()["source_enrolment_id"] is None
+    assert response.json()["target_enrolment_id"]
+
+
 def _enrolment_for_documents():
     section = SectionFactory()
     return create_enrolment(
@@ -627,3 +726,65 @@ def test_document_requirement_accepts_enrolment_update_permission(auth_client):
 
     assert response.status_code == 200
     assert auth_client.get(url).json()["count"] == 1
+
+
+def test_movement_annulment_endpoint_requires_permission_reason_and_returns_evidence(auth_client):
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="Registro equivocado",
+        actor=auth_client.user,
+    )
+    url = reverse("student-movement-annulment", args=[movement.public_id])
+
+    assert auth_client.post(url, {"reason": "Correccion"}).status_code == 403
+    _grant_enrolment_update(auth_client.user)
+    assert auth_client.post(url, {"reason": "   "}).status_code == 400
+
+    response = auth_client.post(
+        url,
+        {"reason": "Se selecciono al estudiante incorrecto"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["reason"] == "Se selecciono al estudiante incorrecto"
+    assert AuditEvent.objects.filter(
+        action="enrolments.student_movement.annulled", actor=auth_client.user
+    ).exists()
+    enrolment.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_movement_history_exposes_annulment_without_removing_original(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(enrolment=enrolment, reason="Error", actor=auth_client.user)
+    _grant_enrolment_update(auth_client.user)
+    auth_client.post(
+        reverse("student-movement-annulment", args=[movement.public_id]),
+        {"reason": "Anulacion confirmada"},
+        content_type="application/json",
+    )
+
+    response = auth_client.get(
+        reverse("student-movement-list"),
+        {"student_id": str(student.public_id)},
+    )
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["public_id"] == str(movement.public_id)
+    assert result["annulment"]["reason"] == "Anulacion confirmada"

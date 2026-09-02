@@ -188,3 +188,47 @@ class StudentMovement(TimeStampedModel):
 
     def __str__(self):
         return f"{self.student} - {self.get_movement_type_display()}"
+
+
+class StudentMovementAnnulmentQuerySet(models.QuerySet):
+    def delete(self):
+        raise RuntimeError("Las anulaciones de movimientos no pueden eliminarse.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Las anulaciones de movimientos no pueden modificarse.")
+
+
+class StudentMovementAnnulment(TimeStampedModel):
+    objects = StudentMovementAnnulmentQuerySet.as_manager()
+
+    movement = models.OneToOneField(
+        StudentMovement,
+        on_delete=models.PROTECT,
+        related_name="annulment",
+    )
+    reason = models.TextField()
+    annulled_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="student_movement_annulments",
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(reason=""),
+                name="student_movement_annulment_requires_reason",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Las anulaciones de movimientos no pueden modificarse.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Las anulaciones de movimientos no pueden eliminarse.")
+
+    def __str__(self):
+        return f"Anulacion de {self.movement_id}"
