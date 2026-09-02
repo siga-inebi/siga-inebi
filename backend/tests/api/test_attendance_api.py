@@ -1251,6 +1251,8 @@ def test_revoking_a_credential_does_not_alter_the_students_day_status(auth_clien
 
     after = auth_client.get(url).json()
     assert after == before
+
+
 # RF-CRE-004 — reposicion sin perdida de historial
 # --------------------------------------------------------------------------- #
 

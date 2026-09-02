@@ -87,6 +87,7 @@ def guardian_student_queryset(*, user, queryset=None):
         guardian_relations__is_active=True,
         guardian_relations__starts_at__lte=timezone.localdate(),
         guardian_relations__ends_at__isnull=True,
+        status=Student.StudentStatus.ACTIVE,
     ).distinct()
 
 

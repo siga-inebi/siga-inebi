@@ -309,6 +309,14 @@ class StudentCredential(TimeStampedModel):
         blank=True,
     )
 
+    revoked_on_movement = models.ForeignKey(
+        "enrolments.StudentMovement",
+        on_delete=models.PROTECT,
+        related_name="credentials_revoked_on_close",
+        null=True,
+        blank=True,
+    )
+
     class Meta:
         ordering = ["-issued_at"]
         constraints = [

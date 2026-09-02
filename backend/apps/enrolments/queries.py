@@ -37,6 +37,10 @@ def enrolment_or_404(public_id):
     return _get(Enrolment.objects.all(), public_id, "Enrolment")
 
 
+def student_movement_or_404(public_id):
+    return _get(StudentMovement.objects.all(), public_id, "Student movement")
+
+
 def student_movements(*, student):
     return StudentMovement.objects.filter(student=student).select_related(
         "student",

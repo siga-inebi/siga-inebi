@@ -31,6 +31,8 @@ Garantizar trazabilidad de operaciones sensibles, lecturas sensibles e intentos 
 - Auditoria separada de logs tecnicos efimeros.
 - No depender de UI para generar auditoria.
 - Correcciones agregan nuevos asientos.
+- La anulacion de un movimiento conserva el movimiento original, registra motivo y actor en una
+  entidad inmutable, y audita la reversion sin copiar el motivo al contexto del log.
 
 ## Consultas
 
