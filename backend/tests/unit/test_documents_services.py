@@ -5,6 +5,8 @@ from unittest.mock import patch
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
+from apps.academics.models import AcademicCycle, CurriculumPlan
+from apps.academics.services import close_academic_cycle
 from apps.audit.models import AuditEvent
 from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
@@ -46,10 +48,12 @@ from apps.evaluation.services import (
     get_final_subject_grade,
     register_unit_grade,
 )
-from apps.academics.models import AcademicCycle, CurriculumPlan
-from apps.academics.services import close_academic_cycle
-from tests.factories.academic import AcademicCycleFactory, InstitutionFactory, SectionFactory, SubjectFactory
-from tests.factories.people import PersonFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    InstitutionFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.documents import DocumentTemplateFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -58,6 +62,7 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
+from tests.factories.people import PersonFactory
 from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
@@ -965,7 +970,7 @@ def test_document_batch_for_section_generates_one_in_memory_report_per_enrolment
     assert batch["count"] == 2
     assert all(item["persisted"] is False for item in batch["documents"])
     assert all(item["storage_key"] is None for item in batch["documents"])
-    assert set(item["enrolment_id"] for item in batch["documents"]) == {
+    assert {item["enrolment_id"] for item in batch["documents"]} == {
         str(enrolled_first.public_id),
         str(enrolled_second.public_id),
     }

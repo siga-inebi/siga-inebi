@@ -35,7 +35,7 @@ from apps.documents.models import (
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import pending_required_document_codes
 from apps.evaluation.models import Grade
-from apps.students.models import Guardian, Student, StudentGuardianRelation
+from apps.students.models import StudentGuardianRelation
 
 SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
 OFFICIAL_ISSUANCE_PERMISSION = "document_issue"
@@ -112,7 +112,14 @@ def validate_document_upload(upload):
 
 
 @transaction.atomic
-def register_scanned_document(*, student, enrolment=None, upload=None, actor=None, source="scanner"):
+def register_scanned_document(
+    *,
+    student,
+    enrolment=None,
+    upload=None,
+    actor=None,
+    source="scanner",
+):
     """Register a document captured directly from a scanner or local document peripheral.
 
     RF-DOC-007 defines a direct digitalization flow into the dossier. The practical
@@ -902,7 +909,7 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
     from apps.evaluation.services import get_final_subject_grade
 
     lines = [
-        f"Boleta de calificaciones",
+        "Boleta de calificaciones",
         f"Estudiante: {enrolment.student}",
         f"Ciclo: {cycle.name} ({cycle.starts_on} - {cycle.ends_on})",
     ]
@@ -910,7 +917,9 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
         for grade in grades:
             summary = get_final_subject_grade(enrolment, grade.subject)
             final_grade = summary.get("final_grade")
-            lines.append(f"- {grade.subject.name}: {final_grade if final_grade is not None else 'NC'}")
+            lines.append(
+                f"- {grade.subject.name}: {final_grade if final_grade is not None else 'NC'}"
+            )
     else:
         lines.append("- Sin calificaciones registradas.")
 
