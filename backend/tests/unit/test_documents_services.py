@@ -1,5 +1,5 @@
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -11,7 +11,9 @@ from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
 from apps.documents.models import DocumentRecord, DocumentTemplate
 from apps.documents.services import (
+    compile_document_batch,
     compile_generated_document,
+    compile_historical_cycle_report,
     create_document_template,
     deactivate_document_record,
     deactivate_document_template,
@@ -28,15 +30,26 @@ from apps.documents.services import (
     normalize_document_filename,
     preview_document_template,
     record_document_read_audit,
+    register_document_delivery_receipt,
+    register_scanned_document,
     student_document_dossier,
     update_document_template,
     validate_document_checksum,
     validate_document_download_token,
     validate_document_upload,
 )
-from apps.enrolments.models import EnrolmentDocumentRequirement
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import create_enrolment, set_document_requirement
-from tests.factories.academic import InstitutionFactory, SectionFactory
+from apps.evaluation.services import (
+    close_evaluation_unit,
+    create_evaluation_unit,
+    get_final_subject_grade,
+    register_unit_grade,
+)
+from apps.academics.models import AcademicCycle, CurriculumPlan
+from apps.academics.services import close_academic_cycle
+from tests.factories.academic import AcademicCycleFactory, InstitutionFactory, SectionFactory, SubjectFactory
+from tests.factories.people import PersonFactory
 from tests.factories.documents import DocumentTemplateFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -45,7 +58,7 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
-from tests.factories.students import StudentFactory
+from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
 
@@ -154,6 +167,34 @@ def test_normalize_document_filename_keeps_safe_and_stable_basename():
     assert normalize_document_filename("../weird name.png") == "weird-name.png"
 
 
+def test_register_scanned_document_creates_a_student_document_from_a_scanner_upload():
+    student = StudentFactory()
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    upload = SimpleUploadedFile(
+        "escaneo-constancia.pdf",
+        b"%PDF-1.4 scanned document",
+        content_type="application/pdf",
+    )
+
+    record = register_scanned_document(student=student, enrolment=enrolment, upload=upload)
+
+    assert record.student_id == student.pk
+    assert record.enrolment_id == enrolment.pk
+    assert record.filename == "escaneo-constancia.pdf"
+    assert record.content_type == "application/pdf"
+    assert record.checksum == hashlib.sha256(b"%PDF-1.4 scanned document").hexdigest()
+    assert record.storage_key.startswith("scanner/")
+
+    dossier = student_document_dossier(student=student)
+    assert dossier["documents"][0]["storage_key"] == record.storage_key
+
+
 def _enrolment():
     section = SectionFactory()
     return create_enrolment(
@@ -192,6 +233,25 @@ def test_official_document_issuance_ignores_pending_optional_documents():
     )
 
     assert ensure_official_document_issuance_allowed(enrolment=enrolment) is True
+
+
+def test_official_document_issuance_is_blocked_for_inactive_enrolments_or_students():
+    enrolment = _enrolment()
+    enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
+    enrolment.save(update_fields=["status", "updated_at"])
+
+    blocking_codes = evaluate_official_document_issuance(enrolment=enrolment)
+
+    assert "ENROLMENT_NOT_ACTIVE" in blocking_codes
+
+    enrolment.status = Enrolment.EnrolmentStatus.ACTIVE
+    enrolment.save(update_fields=["status", "updated_at"])
+    enrolment.student.status = enrolment.student.StudentStatus.INACTIVE
+    enrolment.student.save(update_fields=["status", "updated_at"])
+
+    blocking_codes = evaluate_official_document_issuance(enrolment=enrolment)
+
+    assert "STUDENT_NOT_ACTIVE" in blocking_codes
 
 
 def test_official_document_issuance_ignores_pending_inactive_documents():
@@ -745,6 +805,28 @@ def test_document_download_tokens_are_issued_and_validated():
         validate_document_download_token(document=document, token="invalid-token")
 
 
+def test_register_document_delivery_receipt_records_guardian_acknowledgement():
+    actor = UserFactory()
+    student = StudentFactory()
+    guardian = GuardianFactory()
+    StudentGuardianRelationFactory(student=student, guardian=guardian, is_primary=True)
+
+    receipt = register_document_delivery_receipt(
+        actor=actor,
+        student=student,
+        guardian=guardian,
+        document_type="Certificado",
+        folio="DOC-2026-0001",
+        recipient_name="Ana López",
+    )
+
+    assert receipt.student_id == student.pk
+    assert receipt.guardian_id == guardian.pk
+    assert receipt.document_type == "Certificado"
+    assert receipt.folio == "DOC-2026-0001"
+    assert AuditEvent.objects.filter(action="documents.delivery.receipt.created").exists()
+
+
 def test_generated_documents_are_compiled_in_memory_and_never_persisted():
     template = DocumentTemplateFactory()
 
@@ -788,6 +870,105 @@ def test_generated_documents_include_the_issuance_timestamp_and_folio_when_avail
     assert generated.folio == folio
     assert folio.encode() in generated.content
     assert b"2026-08-18" in generated.content
+
+
+def test_generated_documents_are_logged_in_the_emission_history():
+    actor = UserFactory()
+    student = StudentFactory()
+    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+    issued_at = "2026-08-18T12:30:45-03:00"
+    folio = "DOC-2026-0001"
+
+    compile_generated_document(
+        template=template,
+        payload={
+            "student": student,
+            "student_name": "Ana López",
+            "document_type": "Certificado",
+            "issued_at": issued_at,
+            "folio": folio,
+        },
+        actor=actor,
+    )
+
+    event = AuditEvent.objects.filter(action="documents.document.issued").latest("created_at")
+    assert event.actor_id == actor.id
+    assert event.context["student_id"] == student.pk
+    assert event.context["document_type"] == "Certificado"
+    assert event.context["issued_at"] == issued_at
+    assert event.context["folio"] == folio
+
+
+def test_closed_cycle_history_report_is_generated_without_altering_historical_data():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    subject = SubjectFactory(institution=cycle.institution, name="Matemática")
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+    unit = create_evaluation_unit(
+        academic_cycle=cycle,
+        number=1,
+        name="Unidad 1",
+        starts_on=cycle.starts_on,
+        ends_on=cycle.starts_on + timedelta(days=30),
+        capture_starts_on=cycle.starts_on,
+        capture_ends_on=cycle.starts_on + timedelta(days=30),
+    )
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=80,
+    )
+    close_evaluation_unit(unit)
+    close_academic_cycle(cycle=cycle)
+    cycle.refresh_from_db()
+
+    report = compile_historical_cycle_report(enrolment=enrolment)
+
+    assert report.persisted is False
+    assert report.storage_key is None
+    assert b"Boleta" in report.content
+    assert b"Matem\xc3\xa1tica" in report.content
+    assert b"80" in report.content
+    assert get_final_subject_grade(enrolment, subject)["final_grade"] == 80
+    assert cycle.status == AcademicCycle.CycleStatus.CLOSED
+    assert DocumentRecord.objects.filter(storage_key=report.storage_key).count() == 0
+
+
+def test_document_batch_for_section_generates_one_in_memory_report_per_enrolment():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    enrolled_first = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    enrolled_second = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    close_academic_cycle(cycle=cycle)
+    cycle.refresh_from_db()
+
+    batch = compile_document_batch(section=section)
+
+    assert batch["count"] == 2
+    assert all(item["persisted"] is False for item in batch["documents"])
+    assert all(item["storage_key"] is None for item in batch["documents"])
+    assert set(item["enrolment_id"] for item in batch["documents"]) == {
+        str(enrolled_first.public_id),
+        str(enrolled_second.public_id),
+    }
 
 
 def test_issue_official_document_folio_increments_by_institution():

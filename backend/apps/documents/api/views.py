@@ -27,6 +27,8 @@ from apps.academics.api.views import (
 from apps.documents import queries, services
 
 from .serializers import (
+    DocumentDeliveryReceiptCreateSerializer,
+    DocumentDeliveryReceiptSerializer,
     DocumentTemplateCreateSerializer,
     DocumentTemplateSerializer,
     DocumentTemplateTypeSerializer,
@@ -243,3 +245,22 @@ class OfficialDocumentEligibilityView(GenericAPIView):
             enrolment=enrolment, actor=request.user
         )
         return Response({"eligible": not blocking_codes, "blocking_document_codes": blocking_codes})
+
+
+class DocumentDeliveryReceiptCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentDeliveryReceiptCreateSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        receipt = services.register_document_delivery_receipt(
+            actor=request.user,
+            student=serializer.validated_data["student"],
+            guardian=serializer.validated_data["guardian"],
+            document_type=serializer.validated_data["document_type"],
+            folio=serializer.validated_data.get("folio", ""),
+            recipient_name=serializer.validated_data.get("recipient_name", ""),
+            notes=serializer.validated_data.get("notes", ""),
+        )
+        return Response(DocumentDeliveryReceiptSerializer(receipt).data, status=201)
