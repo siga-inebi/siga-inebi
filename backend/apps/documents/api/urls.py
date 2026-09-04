@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    DocumentDeliveryReceiptCreateView,
     DocumentTemplateDetailView,
     DocumentTemplateListCreateView,
     DocumentTemplateVersionListView,
@@ -29,5 +30,10 @@ urlpatterns = [
         "official-issuance/eligibility/",
         OfficialDocumentEligibilityView.as_view(),
         name="document-official-issuance-eligibility",
+    ),
+    path(
+        "delivery-receipts/",
+        DocumentDeliveryReceiptCreateView.as_view(),
+        name="document-delivery-receipt-create",
     ),
 ]
