@@ -35,6 +35,8 @@ from .serializers import (
     CaptureBatchRecoverySerializer,
     CaptureBatchSerializer,
     ControlPointSerializer,
+    CoverageClosureRatioQuerySerializer,
+    CoverageClosureRatioResultSerializer,
     CredentialPrintContentQuerySerializer,
     CredentialPrintContentSerializer,
     CredentialResolutionRequestSerializer,
@@ -355,7 +357,11 @@ class SectionClosurePreviewView(GenericAPIView):
             "RF-ASI-011: declara la salida de cada estudiante activamente "
             "inscrito en la seccion que tiene ingreso y aun no tiene salida "
             "registrada. Excluye a quien ya tiene salida registrada o no tiene "
-            "ingreso, informando el motivo de cada exclusion."
+            "ingreso, informando el motivo de cada exclusion. RF-ASI-013: si "
+            "quien declara no es el docente asignado a la seccion, esta "
+            "llamada no registra nada y responde con "
+            "`confirmation_required=true`; reenviar con `confirmed=true` para "
+            "completar el cierre."
         ),
         tags=TAGS,
         request=SectionClosureRequestSerializer,
@@ -363,7 +369,7 @@ class SectionClosurePreviewView(GenericAPIView):
     ),
 )
 class SectionClosureView(GenericAPIView):
-    """RF-ASI-011 contract: confirm a section's declared closure."""
+    """RF-ASI-011/RF-ASI-013 contract: confirm a section's declared closure."""
 
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = SectionClosureResultSerializer
@@ -375,9 +381,46 @@ class SectionClosureView(GenericAPIView):
         payload = serializer.validated_data
         section = queries.section_for_payload(payload["section_id"])
         result = services.close_section(
-            section=section, event_date=payload["event_date"], actor=request.user
+            section=section,
+            event_date=payload["event_date"],
+            actor=request.user,
+            confirmed=payload["confirmed"],
         )
         return Response(SectionClosureResultSerializer(result).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Proporcion de cierres por cobertura",
+        description=(
+            "RF-ASI-013: de los cierres declarados confirmados en el alcance "
+            "dado, que proporcion los declaro un docente de cobertura (no "
+            "asignado a la seccion), sin inspeccionar el horario manualmente."
+        ),
+        tags=TAGS,
+        responses={200: CoverageClosureRatioResultSerializer},
+    ),
+)
+class CoverageClosureRatioView(GenericAPIView):
+    """RF-ASI-013 contract: coverage-closure proportion, filterable by section and date range."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CoverageClosureRatioResultSerializer
+
+    def get(self, request):
+        _require_permission(request, CONFIGURE_PERMISSION)
+        serializer = CoverageClosureRatioQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = (
+            queries.section_for_payload(payload["section_id"]) if "section_id" in payload else None
+        )
+        result = services.coverage_closure_ratio(
+            section=section,
+            date_from=payload.get("date_from"),
+            date_to=payload.get("date_to"),
+        )
+        return Response(CoverageClosureRatioResultSerializer(result).data)
 
 
 @extend_schema_view(
