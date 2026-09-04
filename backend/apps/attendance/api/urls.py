@@ -12,6 +12,7 @@ from apps.attendance.api.views import (
     CaptureBatchCurrentView,
     CaptureBatchOpenView,
     ControlPointListView,
+    CoverageClosureRatioView,
     CredentialPrintContentView,
     CredentialRevocationView,
     JornadaClosureView,
@@ -58,6 +59,11 @@ urlpatterns = [
         "section-closures/preview/",
         SectionClosurePreviewView.as_view(),
         name="attendance-section-closure-preview",
+    ),
+    path(
+        "section-closures/coverage-ratio/",
+        CoverageClosureRatioView.as_view(),
+        name="attendance-section-closure-coverage-ratio",
     ),
     path(
         "alerts/",

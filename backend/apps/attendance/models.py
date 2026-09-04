@@ -379,3 +379,31 @@ class StudentCredential(TimeStampedModel):
 
     def __str__(self):
         return f"{self.student} ({self.status})"
+
+
+class SectionClosureLog(TimeStampedModel):
+    """
+    RF-ASI-013: one durable row per confirmed declared closure of a section
+    (RF-ASI-011), recording who declared it and whether they were the
+    section's currently assigned teacher or a covering one -- so the
+    coverage proportion is a plain count query, never a re-derivation of
+    the schedule for every past closure. Append-only, like every other
+    movement record in this app (AGENTS.md #12).
+    """
+
+    section = models.ForeignKey(
+        "academics.Section", on_delete=models.PROTECT, related_name="closure_logs"
+    )
+    event_date = models.DateField()
+    declared_by = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="section_closures_declared"
+    )
+    is_covering = models.BooleanField()
+    included_count = models.PositiveIntegerField()
+    omitted_count = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Cierre de {self.section} ({self.event_date})"

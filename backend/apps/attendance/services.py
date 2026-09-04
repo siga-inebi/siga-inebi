@@ -19,10 +19,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle
+from apps.academics.models import AcademicCycle, TeachingAssignment
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
@@ -30,6 +30,7 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     RecalculationReason,
+    SectionClosureLog,
     StudentCredential,
 )
 from apps.audit.services import record_event
@@ -929,6 +930,8 @@ class SectionClosureResult:
     event_date: object
     included: list
     omitted: list
+    is_covering: bool = False
+    confirmation_required: bool = False
 
 
 def _evaluate_section_closure(*, section, event_date, as_of=None):
@@ -991,8 +994,32 @@ def preview_section_closure(*, section, event_date, as_of=None):
     )
 
 
+def _is_assigned_teacher(*, actor, section, academic_cycle, event_date):
+    """
+    RF-ASI-013: whether ``actor`` currently holds a ``TeachingAssignment``
+    for ``section`` on ``event_date`` -- for any subject. A section closure
+    is a whole-day exit declaration, not tied to one class period, so this
+    deliberately does not resolve a specific ``ClassSession``/schedule
+    block: any active assignment to the section is enough to count as "the
+    assigned teacher", and its absence makes the declarant a covering one.
+    """
+    person = getattr(actor, "person", None)
+    if person is None:
+        return False
+    return (
+        TeachingAssignment.objects.filter(
+            teacher=person,
+            section=section,
+            academic_cycle=academic_cycle,
+            starts_on__lte=event_date,
+        )
+        .filter(Q(ends_on__isnull=True) | Q(ends_on__gte=event_date))
+        .exists()
+    )
+
+
 @transaction.atomic
-def close_section(*, section, event_date, actor, as_of=None):
+def close_section(*, section, event_date, actor, as_of=None, confirmed=False):
     """
     RF-ASI-011: declare an exit for every actively enrolled student in
     ``section`` who has an entry and no exit yet on ``event_date``, in one
@@ -1003,12 +1030,37 @@ def close_section(*, section, event_date, actor, as_of=None):
     student, so every existing guarantee (never mutating a prior event,
     RF-JOR-005's inconsistency alert, day recalculation for past dates)
     applies here too, unchanged.
+
+    RF-ASI-013: when ``actor`` is not the section's currently assigned
+    teacher (a covering teacher), the first call registers nothing and
+    comes back with ``confirmation_required=True`` -- the caller resends
+    with ``confirmed=True`` to actually close. This is a soft, non-blocking
+    step: the covering teacher is still allowed to close, just not on the
+    first call. Every closure that does register gets one
+    ``SectionClosureLog`` row recording who declared it and whether they
+    were covering, so the coverage proportion is a plain count query later,
+    never a re-derivation of the schedule for every past closure.
     """
     _require_active(section, "la seccion")
+    shift = section.offering.shift
+    academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+    is_covering = not _is_assigned_teacher(
+        actor=actor, section=section, academic_cycle=academic_cycle, event_date=event_date
+    )
     included, omitted = _evaluate_section_closure(
         section=section, event_date=event_date, as_of=as_of
     )
-    shift = section.offering.shift
+
+    if is_covering and not confirmed:
+        return SectionClosureResult(
+            section=section,
+            event_date=event_date,
+            included=included,
+            omitted=omitted,
+            is_covering=is_covering,
+            confirmation_required=True,
+        )
+
     captured_at = as_of or timezone.now()
     for student in included:
         record_attendance_event(
@@ -1020,6 +1072,14 @@ def close_section(*, section, event_date, actor, as_of=None):
             captured_at=captured_at,
             actor=actor,
         )
+    SectionClosureLog.objects.create(
+        section=section,
+        event_date=event_date,
+        declared_by=actor,
+        is_covering=is_covering,
+        included_count=len(included),
+        omitted_count=len(omitted),
+    )
     record_event(
         actor=actor,
         action="attendance.section_closure.confirmed",
@@ -1029,11 +1089,40 @@ def close_section(*, section, event_date, actor, as_of=None):
             "event_date": str(event_date),
             "included_count": len(included),
             "omitted_count": len(omitted),
+            "is_covering": is_covering,
         },
     )
     return SectionClosureResult(
-        section=section, event_date=event_date, included=included, omitted=omitted
+        section=section,
+        event_date=event_date,
+        included=included,
+        omitted=omitted,
+        is_covering=is_covering,
     )
+
+
+def coverage_closure_ratio(*, section=None, date_from=None, date_to=None):
+    """
+    RF-ASI-013: the share of confirmed section closures declared by a
+    covering (non-assigned) teacher, out of every confirmed closure in
+    scope -- read straight from ``SectionClosureLog``, never by re-deriving
+    who was assigned on each past date.
+    """
+    queryset = SectionClosureLog.objects.all()
+    if section is not None:
+        queryset = queryset.filter(section=section)
+    if date_from is not None:
+        queryset = queryset.filter(event_date__gte=date_from)
+    if date_to is not None:
+        queryset = queryset.filter(event_date__lte=date_to)
+
+    total_closures = queryset.count()
+    covering_closures = queryset.filter(is_covering=True).count()
+    return {
+        "total_closures": total_closures,
+        "covering_closures": covering_closures,
+        "coverage_ratio": (covering_closures / total_closures) if total_closures else None,
+    }
 
 
 # --------------------------------------------------------------------------- #

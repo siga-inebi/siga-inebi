@@ -24,12 +24,18 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.academics.models import TeachingAssignment
 from apps.attendance import services
 from apps.attendance.models import AttendanceAlert, AttendanceEvent, CaptureBatch, StudentCredential
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
-from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    SectionFactory,
+    ShiftFactory,
+    SubjectFactory,
+)
 from tests.factories.attendance import (
     AttendanceEventFactory,
     CaptureBatchFactory,
@@ -42,6 +48,7 @@ from tests.factories.identity import (
     RoleAssignmentFactory,
     RoleFactory,
     ScopeGrantFactory,
+    UserFactory,
 )
 from tests.factories.students import StudentFactory
 
@@ -519,7 +526,11 @@ def test_section_closure_confirms_declared_exit_for_eligible_students(auth_clien
 
     response = auth_client.post(
         reverse("attendance-section-closure"),
-        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        {
+            "section_id": str(section.public_id),
+            "event_date": str(parameters.effective_from),
+            "confirmed": True,
+        },
         content_type="application/json",
     )
 
@@ -563,7 +574,11 @@ def test_section_closure_omits_a_student_who_already_has_an_exit(auth_client):
 
     response = auth_client.post(
         reverse("attendance-section-closure"),
-        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        {
+            "section_id": str(section.public_id),
+            "event_date": str(parameters.effective_from),
+            "confirmed": True,
+        },
         content_type="application/json",
     )
 
@@ -578,6 +593,140 @@ def test_section_closure_omits_a_student_who_already_has_an_exit(auth_client):
         ).count()
         == 1
     )
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-013 — trazabilidad y confirmacion del cierre por cobertura
+# --------------------------------------------------------------------------- #
+
+
+def _assign_teacher(*, parameters, section, teacher):
+    TeachingAssignment.objects.create(
+        academic_cycle=parameters.academic_cycle,
+        section=section,
+        subject=SubjectFactory(institution=parameters.academic_cycle.institution),
+        teacher=teacher.person,
+        starts_on=parameters.academic_cycle.starts_on,
+    )
+
+
+def test_section_closure_requires_confirmation_from_a_covering_teacher(auth_client):
+    """
+    Escenario 1 (RF-ASI-013): GIVEN una seccion cuyo docente asignado no es
+    quien declara el cierre, WHEN ese docente de cobertura lo declara sin
+    confirmar, THEN la API no registra nada, AND responde que se necesita
+    confirmacion, mostrando la seccion, el grado y los estudiantes
+    involucrados.
+    """
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+
+    response = auth_client.post(
+        reverse("attendance-section-closure"),
+        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["confirmation_required"] is True
+    assert data["is_covering"] is True
+    assert data["grade_name"] == section.offering.grade.name
+    assert data["included"] == [{"student_id": str(student.public_id)}]
+    assert not AttendanceEvent.objects.filter(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    ).exists()
+
+
+def test_section_closure_does_not_require_confirmation_from_the_assigned_teacher(auth_client):
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+    _assign_teacher(parameters=parameters, section=section, teacher=auth_client.user)
+
+    response = auth_client.post(
+        reverse("attendance-section-closure"),
+        {"section_id": str(section.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["confirmation_required"] is False
+    assert data["is_covering"] is False
+    assert AttendanceEvent.objects.filter(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    ).exists()
+
+
+def test_coverage_ratio_requires_permission(auth_client):
+    response = auth_client.get(reverse("attendance-section-closure-coverage-ratio"))
+
+    assert response.status_code == 403
+
+
+def test_coverage_ratio_reflects_confirmed_closures(auth_client):
+    """
+    Escenario 3 (RF-ASI-013): GIVEN cierres ya confirmados por docentes
+    asignados y de cobertura, WHEN un usuario autorizado consulta la
+    proporcion, THEN la API la calcula de lo ya registrado.
+    """
+    _grant(auth_client.user, CONFIGURE_PERMISSION)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    assigned_teacher = UserFactory()
+    _assign_teacher(parameters=parameters, section=section, teacher=assigned_teacher)
+    covering_teacher = UserFactory()
+    services.close_section(
+        section=section, event_date=parameters.effective_from, actor=assigned_teacher
+    )
+    services.close_section(
+        section=section,
+        event_date=parameters.effective_from,
+        actor=covering_teacher,
+        confirmed=True,
+    )
+
+    response = auth_client.get(
+        f"{reverse('attendance-section-closure-coverage-ratio')}?section_id={section.public_id}"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_closures"] == 2
+    assert data["covering_closures"] == 1
+    assert data["coverage_ratio"] == 0.5
 
 
 # --------------------------------------------------------------------------- #

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
-from apps.documents.models import DocumentTemplate, DocumentTemplateVersion
+from apps.documents.models import DocumentDeliveryReceipt, DocumentTemplate, DocumentTemplateVersion
+from apps.students.models import Guardian, Student
 
 
 class InstitutionalHeaderSerializer(serializers.Serializer):
@@ -74,6 +75,46 @@ class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = DocumentTemplateVersion
         fields = ["public_id", "sequence", "name", "kind", "description", "content", "created_at"]
+
+
+class DocumentDeliveryReceiptSerializer(serializers.ModelSerializer):
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    guardian_id = serializers.UUIDField(source="guardian.public_id", read_only=True)
+
+    class Meta:
+        model = DocumentDeliveryReceipt
+        fields = [
+            "public_id",
+            "student_id",
+            "guardian_id",
+            "document_type",
+            "folio",
+            "recipient_name",
+            "delivered_at",
+            "notes",
+        ]
+
+
+class DocumentDeliveryReceiptCreateSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField()
+    guardian_id = serializers.UUIDField()
+    document_type = serializers.CharField(max_length=100)
+    folio = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    recipient_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        student_id = attrs["student_id"]
+        guardian_id = attrs["guardian_id"]
+        student = Student.objects.filter(public_id=student_id).first()
+        guardian = Guardian.objects.filter(public_id=guardian_id).first()
+        if student is None:
+            raise serializers.ValidationError({"student_id": "No existe el estudiante indicado."})
+        if guardian is None:
+            raise serializers.ValidationError({"guardian_id": "No existe el encargado indicado."})
+        attrs["student"] = student
+        attrs["guardian"] = guardian
+        return attrs
 
 
 class OfficialDocumentEligibilityQuerySerializer(serializers.Serializer):

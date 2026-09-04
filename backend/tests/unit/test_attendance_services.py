@@ -22,6 +22,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
+from apps.academics.models import TeachingAssignment
 from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
@@ -30,6 +31,7 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     RecalculationReason,
+    SectionClosureLog,
     StudentCredential,
 )
 from apps.audit.models import AuditEvent
@@ -41,6 +43,7 @@ from tests.factories.academic import (
     CampusFactory,
     SectionFactory,
     ShiftFactory,
+    SubjectFactory,
 )
 from tests.factories.attendance import (
     AttendanceAlertFactory,
@@ -707,7 +710,7 @@ def test_close_section_declares_exit_for_eligible_students_and_audits():
     actor = UserFactory()
 
     result = services.close_section(
-        section=section, event_date=parameters.effective_from, actor=actor
+        section=section, event_date=parameters.effective_from, actor=actor, confirmed=True
     )
 
     assert result.included == [student]
@@ -731,7 +734,7 @@ def test_close_section_omits_a_student_with_no_entry_without_creating_an_event()
     student = _enrol_in_section(parameters, section)
 
     result = services.close_section(
-        section=section, event_date=parameters.effective_from, actor=UserFactory()
+        section=section, event_date=parameters.effective_from, actor=UserFactory(), confirmed=True
     )
 
     assert result.included == []
@@ -762,7 +765,7 @@ def test_close_section_does_not_duplicate_an_existing_exit():
     )
 
     result = services.close_section(
-        section=section, event_date=parameters.effective_from, actor=UserFactory()
+        section=section, event_date=parameters.effective_from, actor=UserFactory(), confirmed=True
     )
 
     assert result.included == []
@@ -772,6 +775,166 @@ def test_close_section_does_not_duplicate_an_existing_exit():
         ).count()
         == 1
     )
+
+
+# --------------------------------------------------------------------------- #
+# RF-ASI-013 — trazabilidad y confirmacion del cierre por cobertura
+# --------------------------------------------------------------------------- #
+
+
+def _assign_teacher(*, parameters, section, teacher):
+    TeachingAssignment.objects.create(
+        academic_cycle=parameters.academic_cycle,
+        section=section,
+        subject=SubjectFactory(institution=parameters.academic_cycle.institution),
+        teacher=teacher.person,
+        starts_on=parameters.academic_cycle.starts_on,
+    )
+
+
+def test_close_section_requires_confirmation_from_a_covering_teacher():
+    """
+    Escenario 1 (RF-ASI-013): GIVEN una seccion cuyo docente asignado no es
+    quien declara el cierre, WHEN ese docente de cobertura intenta cerrar
+    sin confirmar, THEN el sistema no registra nada, AND responde que se
+    necesita confirmacion, mostrando la seccion, el grado y la cantidad de
+    estudiantes involucrados.
+    """
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    covering_teacher = UserFactory()
+
+    result = services.close_section(
+        section=section, event_date=parameters.effective_from, actor=covering_teacher
+    )
+
+    assert result.confirmation_required is True
+    assert result.is_covering is True
+    assert result.included == [student]
+    assert not AttendanceEvent.objects.filter(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    ).exists()
+    assert not SectionClosureLog.objects.exists()
+
+
+def test_close_section_proceeds_once_a_covering_teacher_confirms():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    covering_teacher = UserFactory()
+
+    result = services.close_section(
+        section=section,
+        event_date=parameters.effective_from,
+        actor=covering_teacher,
+        confirmed=True,
+    )
+
+    assert result.confirmation_required is False
+    assert result.is_covering is True
+    assert AttendanceEvent.objects.filter(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    ).exists()
+    log = SectionClosureLog.objects.get(section=section, event_date=parameters.effective_from)
+    assert log.declared_by == covering_teacher
+    assert log.is_covering is True
+    assert log.included_count == 1
+    assert log.omitted_count == 0
+
+
+def test_close_section_does_not_require_confirmation_from_the_assigned_teacher():
+    """
+    Escenario 2 (RF-ASI-013): GIVEN una seccion cuyo docente asignado es
+    quien declara el cierre, WHEN lo cierra sin marcar confirmacion, THEN el
+    sistema lo registra de inmediato, sin pedir un paso adicional.
+    """
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = _enrol_in_section(parameters, section)
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(parameters.effective_from, 7, 0),
+    )
+    assigned_teacher = UserFactory()
+    _assign_teacher(parameters=parameters, section=section, teacher=assigned_teacher)
+
+    result = services.close_section(
+        section=section, event_date=parameters.effective_from, actor=assigned_teacher
+    )
+
+    assert result.confirmation_required is False
+    assert result.is_covering is False
+    assert AttendanceEvent.objects.filter(
+        student=student, movement_type=AttendanceEvent.MovementType.EXIT
+    ).exists()
+    log = SectionClosureLog.objects.get(section=section, event_date=parameters.effective_from)
+    assert log.is_covering is False
+
+
+def test_coverage_closure_ratio_computes_the_share_declared_by_covering_teachers():
+    """
+    Escenario 3 (RF-ASI-013): GIVEN varios cierres ya confirmados, algunos
+    por el docente asignado y otros por cobertura, WHEN un usuario
+    autorizado consulta la proporcion, THEN el sistema la calcula
+    directamente de los cierres registrados, sin inspeccionar el horario.
+    """
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    assigned_teacher = UserFactory()
+    _assign_teacher(parameters=parameters, section=section, teacher=assigned_teacher)
+    covering_teacher = UserFactory()
+
+    services.close_section(
+        section=section, event_date=parameters.effective_from, actor=assigned_teacher
+    )
+    services.close_section(
+        section=section,
+        event_date=parameters.effective_from,
+        actor=covering_teacher,
+        confirmed=True,
+    )
+    services.close_section(
+        section=section,
+        event_date=parameters.effective_from,
+        actor=covering_teacher,
+        confirmed=True,
+    )
+
+    result = services.coverage_closure_ratio(section=section)
+
+    assert result["total_closures"] == 3
+    assert result["covering_closures"] == 2
+    assert result["coverage_ratio"] == 2 / 3
+
+
+def test_coverage_closure_ratio_with_no_closures_returns_a_null_ratio():
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+
+    result = services.coverage_closure_ratio(section=section)
+
+    assert result == {"total_closures": 0, "covering_closures": 0, "coverage_ratio": None}
 
 
 # --------------------------------------------------------------------------- #

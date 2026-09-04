@@ -229,6 +229,32 @@ class DocumentDownloadToken(TimeStampedModel):
         return f"Download token for {self.document_id}"
 
 
+class DocumentDeliveryReceipt(TimeStampedModel):
+    """Immutable acknowledgement that a printed document was delivered to a guardian."""
+
+    student = models.ForeignKey(
+        "students.Student",
+        on_delete=models.PROTECT,
+        related_name="document_delivery_receipts",
+    )
+    guardian = models.ForeignKey(
+        "students.Guardian",
+        on_delete=models.PROTECT,
+        related_name="document_delivery_receipts",
+    )
+    document_type = models.CharField(max_length=100)
+    folio = models.CharField(max_length=100, blank=True)
+    recipient_name = models.CharField(max_length=150, blank=True)
+    delivered_at = models.DateTimeField(default=timezone.now)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-delivered_at", "-created_at"]
+
+    def __str__(self):
+        return f"{self.document_type} entregado a {self.guardian_id}"
+
+
 class OfficialFolio(TimeStampedModel):
     """Institutional counter for the official document folio sequence."""
 
