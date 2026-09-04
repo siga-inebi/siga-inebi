@@ -25,6 +25,7 @@ from apps.common.db import unique_violation_as
 from apps.common.exceptions import AuthorizationError, DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
 from apps.documents.models import (
+    DocumentDeliveryReceipt,
     DocumentDownloadToken,
     DocumentRecord,
     DocumentTemplate,
@@ -33,6 +34,8 @@ from apps.documents.models import (
 )
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import pending_required_document_codes
+from apps.evaluation.models import Grade
+from apps.students.models import StudentGuardianRelation
 
 SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
 OFFICIAL_ISSUANCE_PERMISSION = "document_issue"
@@ -106,6 +109,61 @@ def validate_document_upload(upload):
         "size_bytes": size_bytes,
         "extension": suffix,
     }
+
+
+@transaction.atomic
+def register_scanned_document(
+    *,
+    student,
+    enrolment=None,
+    upload=None,
+    actor=None,
+    source="scanner",
+):
+    """Register a document captured directly from a scanner or local document peripheral.
+
+    RF-DOC-007 defines a direct digitalization flow into the dossier. The practical
+    implementation here focuses on the minimal validated path already supported by
+    the document domain: file-type validation, checksum capture, and metadata
+    persistence in the student's dossier without inventing a separate storage stack.
+    """
+    if student is None:
+        raise DomainError("Se requiere un estudiante para registrar el documento escaneado.")
+    if upload is None:
+        raise DomainError("Se requiere adjuntar un documento escaneado.")
+
+    validated = validate_document_upload(upload)
+    payload = upload.read()
+    checksum = hashlib.sha256(payload).hexdigest()
+    upload.seek(0)
+
+    storage_key = f"scanner/{validated['normalized_filename']}"
+    if DocumentRecord.objects.filter(storage_key=storage_key).exists():
+        stem = Path(validated["normalized_filename"]).stem
+        suffix = Path(validated["normalized_filename"]).suffix
+        storage_key = f"scanner/{stem}-{secrets.token_hex(4)}{suffix}"
+
+    record = DocumentRecord.objects.create(
+        student=student,
+        enrolment=enrolment,
+        filename=validated["filename"],
+        storage_key=storage_key,
+        content_type=validated["content_type"],
+        size_bytes=validated["size_bytes"],
+        checksum=checksum,
+        status=DocumentRecord.StorageStatus.ACTIVE,
+    )
+
+    _audit(
+        actor,
+        "documents.scanned_document.registered",
+        record,
+        source=source,
+        content_type=validated["content_type"],
+        size_bytes=validated["size_bytes"],
+        storage_key=storage_key,
+    )
+    return record
 
 
 def list_document_types():
@@ -188,6 +246,60 @@ def issue_document_download_token(*, actor, document):
     )
     token.token = raw_token
     return token
+
+
+def register_document_delivery_receipt(
+    *,
+    actor=None,
+    student=None,
+    guardian=None,
+    document_type="",
+    folio="",
+    recipient_name="",
+    delivered_at=None,
+    notes="",
+):
+    """Persist the acknowledgement that a printed document was received by a guardian."""
+    if student is None:
+        raise DomainError("Se requiere un estudiante para registrar la entrega del documento.")
+    if guardian is None:
+        raise DomainError("Se requiere un encargado para registrar la entrega del documento.")
+
+    document_label = str(document_type or "").strip()
+    if not document_label:
+        raise DomainError("Se requiere el tipo de documento entregado.")
+
+    if not StudentGuardianRelation.objects.filter(
+        student=student, guardian=guardian, ends_at__isnull=True
+    ).exists():
+        raise DomainError("El encargado no tiene una relacion activa con el estudiante.")
+
+    receipt = DocumentDeliveryReceipt.objects.create(
+        student=student,
+        guardian=guardian,
+        document_type=document_label,
+        folio=str(folio or "").strip(),
+        recipient_name=str(recipient_name or "").strip(),
+        delivered_at=delivered_at or timezone.now(),
+        notes=str(notes or "").strip(),
+    )
+
+    record_event(
+        actor=actor,
+        action="documents.delivery.receipt.created",
+        resource="DocumentDeliveryReceipt",
+        resource_identifier=str(receipt.pk),
+        context={
+            "student_id": student.pk,
+            "guardian_id": guardian.pk,
+            "document_type": document_label,
+            "folio": receipt.folio,
+            "recipient_name": receipt.recipient_name,
+            "delivered_at": receipt.delivered_at.isoformat(),
+            "result": "success",
+        },
+    )
+    return receipt
 
 
 def validate_document_download_token(*, document, token):
@@ -359,6 +471,25 @@ def _audit(actor, action, instance, *, changes=None, **context):
         resource_identifier=str(instance.pk),
         context=context,
         changes=changes,
+    )
+
+
+def _record_document_issue(*, actor, student=None, document_type="", issued_at=None, folio=""):
+    """Persist issuing metadata in the audit trail for official or historical documents."""
+    payload = {
+        "document_type": str(document_type or ""),
+        "issued_at": str(issued_at) if issued_at is not None else "",
+        "folio": str(folio or ""),
+        "result": "success",
+    }
+    if student is not None:
+        payload["student_id"] = getattr(student, "pk", student)
+    return record_event(
+        actor=actor,
+        action="documents.document.issued",
+        resource="Document",
+        resource_identifier=str(getattr(student, "pk", "") or ""),
+        context=payload,
     )
 
 
@@ -674,6 +805,14 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
         issued_at=str(issued_at),
         folio=folio,
     )
+    student = data.get("student")
+    _record_document_issue(
+        actor=actor,
+        student=student,
+        document_type=document_type,
+        issued_at=issued_at,
+        folio=folio,
+    )
 
     generated = type(
         "GeneratedDocument",
@@ -685,6 +824,156 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
             "persisted": False,
             "issued_at": str(issued_at),
             "folio": folio,
+        },
+    )()
+    return generated
+
+
+def compile_document_batch(
+    *,
+    section=None,
+    grade=None,
+    academic_cycle=None,
+    document_type="Boleta",
+    issued_at=None,
+    actor=None,
+):
+    """Compile a block of in-memory report cards for a whole section or grade.
+
+    The generator is intentionally ephemeral: it returns PDF bytes in memory and
+    never creates a persisted DocumentRecord or mutates any historical academic
+    state. This is the minimal batch path required by RF-EMI-006 while keeping
+    the data model and audit trail consistent with the rest of the document domain.
+    """
+    if section is None and grade is None:
+        raise DomainError("Se requiere una seccion o un grado para generar el lote de documentos.")
+
+    queryset = Enrolment.objects.select_related("student", "academic_cycle", "grade", "section")
+    if section is not None:
+        queryset = queryset.filter(section=section)
+    if grade is not None:
+        queryset = queryset.filter(grade=grade)
+    if academic_cycle is not None:
+        queryset = queryset.filter(academic_cycle=academic_cycle)
+
+    documents = []
+    for enrolment in queryset.order_by("section__name", "pk"):
+        generated = compile_historical_cycle_report(
+            enrolment=enrolment,
+            issued_at=issued_at,
+            actor=actor,
+        )
+        documents.append(
+            {
+                "enrolment_id": str(enrolment.public_id),
+                "student_name": str(enrolment.student),
+                "document_type": document_type,
+                "content": generated.content,
+                "content_type": generated.content_type,
+                "storage_key": generated.storage_key,
+                "persisted": generated.persisted,
+                "issued_at": generated.issued_at,
+                "folio": generated.folio,
+            }
+        )
+
+    _audit(
+        actor,
+        "documents.document_batch.compiled",
+        section or grade or enrolment,
+        count=len(documents),
+        document_type=document_type,
+        scope="section" if section is not None else "grade",
+    )
+
+    return {"count": len(documents), "documents": documents}
+
+
+def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
+    """Compile a transient report card for a closed academic cycle without altering history."""
+    if enrolment is None:
+        raise DomainError("Se requiere una matricula para generar la boleta de calificaciones.")
+
+    enrolment.refresh_from_db(fields=["academic_cycle"])
+    cycle = enrolment.academic_cycle
+    if not getattr(cycle, "is_closed", False):
+        raise DomainError("La boleta solo puede generarse para un ciclo cerrado.")
+
+    issued_at = issued_at or timezone.now().isoformat()
+    grades = (
+        Grade.objects.filter(enrolment=enrolment)
+        .select_related("subject")
+        .order_by("subject__name")
+    )
+
+    from apps.evaluation.services import get_final_subject_grade
+
+    lines = [
+        "Boleta de calificaciones",
+        f"Estudiante: {enrolment.student}",
+        f"Ciclo: {cycle.name} ({cycle.starts_on} - {cycle.ends_on})",
+    ]
+    if grades.exists():
+        for grade in grades:
+            summary = get_final_subject_grade(enrolment, grade.subject)
+            final_grade = summary.get("final_grade")
+            lines.append(
+                f"- {grade.subject.name}: {final_grade if final_grade is not None else 'NC'}"
+            )
+    else:
+        lines.append("- Sin calificaciones registradas.")
+
+    stream = b""
+    for index, line in enumerate(lines):
+        y_position = 180 - (index * 15)
+        stream += b"BT /F1 10 Tf 30 " + str(y_position).encode("ascii") + b" Td ("
+        stream += _pdf_text(line, limit=140)
+        stream += b") Tj ET\n"
+
+    rendered = (
+        b"%PDF-1.4\n"
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 220] "
+        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
+        b"4 0 obj\n<< /Length "
+        + str(len(stream)).encode("ascii")
+        + b" >>\nstream\n"
+        + stream
+        + b"endstream\nendobj\n"
+        b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+        b"xref\n0 6\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n"
+        b"0000000125 00000 n\n0000000267 00000 n\n0000000780 00000 n\ntrailer\n"
+        b"<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
+    )
+
+    _audit(
+        actor,
+        "documents.historical_cycle_report.compiled",
+        enrolment,
+        cycle_id=str(cycle.public_id),
+        persisted=False,
+        issued_at=str(issued_at),
+        subject_count=grades.count(),
+    )
+    _record_document_issue(
+        actor=actor,
+        student=enrolment.student,
+        document_type="Boleta",
+        issued_at=issued_at,
+        folio="",
+    )
+
+    generated = type(
+        "GeneratedDocument",
+        (),
+        {
+            "content": rendered,
+            "content_type": "application/pdf",
+            "storage_key": None,
+            "persisted": False,
+            "issued_at": str(issued_at),
+            "folio": "",
         },
     )()
     return generated
@@ -712,12 +1001,26 @@ def ensure_official_document_issuance_permission(*, actor):
 
 def evaluate_official_document_issuance(*, enrolment, actor=None):
     """
-    Codes of the required documents that block official issuance (RF-MAT-006);
-    an empty list means the enrolment is eligible. The decision is audited
-    either way. Authorization is a separate concern, see
-    ``ensure_official_document_issuance_permission``.
+    Official issuance is allowed only when the enrolment is administratively
+    solvent and all required documents are delivered. The list preserves the
+    existing document-code convention while also surfacing the state check from
+    RF-EMI-004.
     """
-    blocking_codes = pending_required_document_codes(enrolment=enrolment)
+    blocking_codes = []
+
+    if enrolment is None:
+        blocking_codes.append("ENROLMENT_REQUIRED")
+    else:
+        if getattr(enrolment, "status", None) != Enrolment.EnrolmentStatus.ACTIVE:
+            blocking_codes.append("ENROLMENT_NOT_ACTIVE")
+
+        student = getattr(enrolment, "student", None)
+        if student is not None and getattr(student, "status", None) != student.StudentStatus.ACTIVE:
+            blocking_codes.append("STUDENT_NOT_ACTIVE")
+
+        blocking_codes.extend(pending_required_document_codes(enrolment=enrolment))
+
+    blocking_codes = list(dict.fromkeys(blocking_codes))
     if blocking_codes:
         _audit(
             actor,

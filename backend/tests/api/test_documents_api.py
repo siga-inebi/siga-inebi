@@ -13,7 +13,7 @@ from tests.factories.identity import (
     RoleFactory,
     UserFactory,
 )
-from tests.factories.students import StudentFactory
+from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -71,6 +71,30 @@ def test_document_template_response_includes_institutional_header(auth_client, i
     assert header["institution_name"] == institution.name
     assert header["institution_short_name"] == institution.short_name
     assert header["logo_url"] is None
+
+
+def test_document_delivery_receipt_can_be_created(auth_client):
+    student = StudentFactory()
+    guardian = GuardianFactory()
+    StudentGuardianRelationFactory(student=student, guardian=guardian, is_primary=True)
+
+    response = auth_client.post(
+        reverse("document-delivery-receipt-create"),
+        {
+            "student_id": str(student.public_id),
+            "guardian_id": str(guardian.public_id),
+            "document_type": "Certificado",
+            "recipient_name": "Ana López",
+            "folio": "DOC-2026-0001",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["document_type"] == "Certificado"
+    assert body["student_id"] == str(student.public_id)
+    assert body["guardian_id"] == str(guardian.public_id)
 
 
 def test_document_template_header_ignores_submitted_value_on_create(auth_client, institution):
