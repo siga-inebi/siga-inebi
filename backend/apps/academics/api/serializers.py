@@ -449,6 +449,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
     schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
     day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
     teacher_id = serializers.SerializerMethodField()
+    classroom_id = serializers.UUIDField(source="classroom.public_id", read_only=True, allow_null=True)
 
     class Meta:
         model = ClassSession
@@ -460,6 +461,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
             "subject",
             "schedule_block",
             "teacher_id",
+            "classroom_id",
         ]
 
     def get_teacher_id(self, obj):
@@ -474,6 +476,7 @@ class ClassSessionCreateSerializer(serializers.Serializer):
     day_of_week = serializers.ChoiceField(
         choices=ClassSession.Weekday.choices, help_text="Dia ISO: 1=lunes .. 7=domingo."
     )
+    classroom_id = serializers.UUIDField(required=False, allow_null=True)
 
 
 # --------------------------------------------------------------------------- #
