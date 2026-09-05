@@ -12,10 +12,13 @@ import hashlib
 import os
 import re
 import secrets
+import uuid
 from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import models, transaction
 from django.db.models import Max
 from django.utils import timezone
@@ -40,6 +43,7 @@ from apps.students.models import StudentGuardianRelation
 SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
 OFFICIAL_ISSUANCE_PERMISSION = "document_issue"
 DOCUMENT_READ_PERMISSION = "document_read"
+DOCUMENT_UPLOAD_PERMISSION = "document_upload"
 DOCUMENT_TYPE_CATALOG = DocumentTemplate.TemplateKind.choices
 ALLOWED_DOCUMENT_CONTENT_TYPES = {
     "application/pdf": {".pdf"},
@@ -137,21 +141,13 @@ def register_scanned_document(
     checksum = hashlib.sha256(payload).hexdigest()
     upload.seek(0)
 
-    storage_key = f"scanner/{validated['normalized_filename']}"
-    if DocumentRecord.objects.filter(storage_key=storage_key).exists():
-        stem = Path(validated["normalized_filename"]).stem
-        suffix = Path(validated["normalized_filename"]).suffix
-        storage_key = f"scanner/{stem}-{secrets.token_hex(4)}{suffix}"
-
-    record = DocumentRecord.objects.create(
+    record = _create_document_record(
         student=student,
         enrolment=enrolment,
-        filename=validated["filename"],
-        storage_key=storage_key,
-        content_type=validated["content_type"],
-        size_bytes=validated["size_bytes"],
+        payload=payload,
+        validated=validated,
         checksum=checksum,
-        status=DocumentRecord.StorageStatus.ACTIVE,
+        storage_prefix="scanner",
     )
 
     _audit(
@@ -161,9 +157,111 @@ def register_scanned_document(
         source=source,
         content_type=validated["content_type"],
         size_bytes=validated["size_bytes"],
-        storage_key=storage_key,
+        storage_key=record.storage_key,
     )
     return record
+
+
+def _ensure_document_upload_access(*, actor, student):
+    if not actor or not getattr(actor, "is_authenticated", False):
+        raise AuthorizationError("Debe estar autenticado para adjuntar documentos.")
+    if actor.is_superuser:
+        return True
+    allowed = actor.has_scoped_permission(DOCUMENT_UPLOAD_PERMISSION, scope={"student": student})
+    if allowed:
+        return True
+    record_event(
+        actor=actor,
+        action="documents.document.upload_denied",
+        resource="StudentDocument",
+        resource_identifier=str(student.pk),
+        context={"result": "denied", "reason": "missing_permission_or_scope"},
+    )
+    raise AuthorizationError("El actor no tiene permiso y alcance para adjuntar documentos.")
+
+
+def _storage_key(*, student, normalized_filename, prefix="documents"):
+    suffix = Path(normalized_filename).suffix
+    return f"{prefix}/{student.public_id}/{secrets.token_urlsafe(18)}{suffix}"
+
+
+def _create_document_record(
+    *, student, enrolment, payload, validated, checksum, supersedes=None, storage_prefix="documents"
+):
+    storage_key = _storage_key(
+        student=student,
+        normalized_filename=validated["normalized_filename"],
+        prefix=storage_prefix,
+    )
+    saved_key = default_storage.save(storage_key, ContentFile(payload))
+    try:
+        return DocumentRecord.objects.create(
+            student=student,
+            enrolment=enrolment,
+            filename=validated["filename"],
+            storage_key=saved_key,
+            content_type=validated["content_type"],
+            size_bytes=validated["size_bytes"],
+            checksum=checksum,
+            status=DocumentRecord.StorageStatus.ACTIVE,
+            version_group_id=supersedes.version_group_id if supersedes else uuid.uuid4(),
+            version_number=(supersedes.version_number + 1) if supersedes else 1,
+            supersedes=supersedes,
+        )
+    except Exception:
+        default_storage.delete(saved_key)
+        raise
+
+
+@transaction.atomic
+def upload_document_record(*, actor, student, enrolment=None, upload):
+    """Store an attachment outside the database after permission and checksum validation."""
+    _ensure_document_upload_access(actor=actor, student=student)
+    if enrolment is not None and enrolment.student_id != student.pk:
+        raise DomainError("La matricula indicada no pertenece al estudiante del documento.")
+    validated = validate_document_upload(upload)
+    payload = upload.read()
+    upload.seek(0)
+    record = _create_document_record(
+        student=student,
+        enrolment=enrolment,
+        payload=payload,
+        validated=validated,
+        checksum=hashlib.sha256(payload).hexdigest(),
+    )
+    _audit(actor, "documents.document.uploaded", record, version=record.version_number)
+    return record
+
+
+@transaction.atomic
+def replace_document_record(*, actor, record, upload):
+    """Create a new immutable attachment version and retain the prior version."""
+    record = DocumentRecord.objects.select_for_update().get(pk=record.pk)
+    _ensure_document_upload_access(actor=actor, student=record.student)
+    if not record.is_active:
+        raise DomainError("Solo se puede reemplazar la version vigente del documento.")
+    validated = validate_document_upload(upload)
+    payload = upload.read()
+    upload.seek(0)
+    replacement = _create_document_record(
+        student=record.student,
+        enrolment=record.enrolment,
+        payload=payload,
+        validated=validated,
+        checksum=hashlib.sha256(payload).hexdigest(),
+        supersedes=record,
+    )
+    record.status = DocumentRecord.StorageStatus.ARCHIVED
+    record.is_active = False
+    record.save(update_fields=["status", "is_active", "updated_at"])
+    _audit(
+        actor,
+        "documents.document.version_created",
+        replacement,
+        supersedes_id=str(record.public_id),
+        version=replacement.version_number,
+    )
+    return replacement
 
 
 def list_document_types():
@@ -721,6 +819,19 @@ def validate_document_checksum(*, document, payload):
     actual = hashlib.sha256(payload).hexdigest()
     if expected != actual:
         raise DomainError("El checksum del documento no coincide con el contenido almacenado.")
+    return True
+
+
+def verify_stored_document_checksum(*, actor, document):
+    """Read stored bytes and prove their checksum still matches immutable metadata."""
+    ensure_document_access(actor=actor, document=document)
+    try:
+        with default_storage.open(document.storage_key, "rb") as stored_file:
+            payload = stored_file.read()
+    except OSError as exc:
+        raise DomainError("El contenido almacenado del documento no esta disponible.") from exc
+    validate_document_checksum(document=document, payload=payload)
+    _audit(actor, "documents.document.integrity_verified", document, result="success")
     return True
 
 

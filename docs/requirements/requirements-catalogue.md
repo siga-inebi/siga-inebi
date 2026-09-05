@@ -48,8 +48,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CRE-006 | Resolucion de identificador | Debe | attendance-capture | Not implemented | #138 | TBD | Lookup seguro |
 | RF-ARC-001 | Tipos de archivo admitidos | Debe | file-storage | Not implemented | #78 | TBD | Catalogo permitido |
 | RF-ARC-002 | Limite de tamaño y normalizacion de imagenes | Debe | file-storage | Not implemented | #79 | TBD | Requiere pipeline controlado |
-| RF-ARC-003 | Integridad del archivo | Deberia | file-storage | Not implemented | #80 | TBD | Checksum y verificacion |
-| RF-ARC-004 | Versiones del documento | Deberia | document-management | Not implemented | #81 | TBD | Modelo versionado |
+| RF-ARC-003 | Integridad del archivo | Deberia | file-storage | In progress | #80 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | SHA-256, validacion de tipo/tamano y verificacion autorizada; pendiente de integracion por PR |
+| RF-ARC-004 | Versiones del documento | Deberia | document-management | In progress | #81 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Versiones inmutables enlazadas, historial autorizado y auditoria; pendiente de integracion por PR |
 | RF-ARC-005 | Consumo de almacenamiento consultable | Deberia | file-storage | Not implemented | #82 | TBD | Para monitoreo |
 | RF-ARC-006 | Retencion de adjuntos de justificacion | Deberia | document-management | Not implemented | #83 | TBD | Depende politica legal |
 | RF-ARC-007 | Los documentos no se eliminan | Debe | document-management | Implemented | #84 | backend/apps/documents/models.py; backend/apps/enrolments/models.py; backend/tests/unit/test_documents_services.py | Preferir estados |
@@ -125,7 +125,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PLA-003 | Campos sensibles excluidos por omision | Debe | document-generation | Implemented | #250 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Seguridad y privacidad; mecanismo de exclusion por marca `sensitive` + permiso `student.view_sensitive`, sin campos medicos reales todavia |
 | RF-PLA-004 | Encabezado institucional obligatorio | Debe | document-generation | Implemented | #251 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Regla documental; encabezado derivado (no almacenado) de Institution, logo_url pendiente del dominio file-storage |
 | RF-PLA-005 | Versiones de la plantilla | Podria | document-generation | Implemented | #252 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Historial inmutable via DocumentTemplateVersion; snapshot automatico en creacion y en cada update con cambios |
-| RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | Not implemented | #253 | TBD | UX posterior |
+| RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | In progress | #253 | backend/tests/api/test_documents_api.py; frontend/src/test/newModulePages.test.jsx | Vista previa con datos de muestra sin persistir ni emitir; pendiente de integracion por PR |
 | RF-PLA-007 | Plantilla activa por tipo | Debe | document-generation | Implemented | #254 | backend/apps/documents/models.py; backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Regla central |
 | RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Not implemented | #99 | TBD | Fase posterior |
 | RF-AUL-002 | Aula habitual de la seccion | Deberia | institutional-structure | Not implemented | #100 | TBD | Fase posterior |
