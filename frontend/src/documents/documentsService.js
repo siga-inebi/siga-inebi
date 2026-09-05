@@ -42,10 +42,12 @@ export const documentsService = {
       withQuery(`${ROOT}/enrolments/${enrolmentId}/records/`, params)
     ),
   uploadRecord: (payload) => apiClient.post(`${ROOT}/records/`, payload),
+  scanRecord: (payload) => apiClient.post(`${ROOT}/records/scan/`, payload),
   replaceRecord: (publicId, payload) =>
     apiClient.post(`${ROOT}/records/${publicId}/versions/`, payload),
   verifyRecord: (publicId) =>
     apiClient.post(`${ROOT}/records/${publicId}/verify/`),
+  storageConsumption: () => apiClient.get(`${ROOT}/storage-consumption/`),
 
   /**
    * Catalogo cerrado de etiquetas dinamicas (RF-PLA-002/003).
