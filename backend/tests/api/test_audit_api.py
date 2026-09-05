@@ -195,6 +195,8 @@ def test_declaring_data_retention_without_permission_is_denied(auth_client):
 
     assert response.status_code == 403
     assert not AuditEvent.objects.filter(action="compliance.retention.declared").exists()
+
+
 def test_reading_a_students_family_contacts_via_the_api_is_audited(auth_client):
     """RF-BIT-003: consulting one identified student's family contact data is a sensitive read."""
     student = StudentFactory()

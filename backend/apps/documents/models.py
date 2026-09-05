@@ -347,6 +347,8 @@ class DocumentBatchRun(TimeStampedModel):
 
     def __str__(self):
         return self.client_batch_id or f"batch-run-{self.pk}"
+
+
 class DocumentVerificationCode(TimeStampedModel):
     """
     Public verification record for an emitted document (RF-EMI-009).

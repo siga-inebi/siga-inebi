@@ -9,12 +9,12 @@ from apps.identity.api.views import (
     ActivationChallengeReissueView,
     AtomicPermissionListView,
     MyWeeklyScheduleView,
+    PasswordResetConsumeView,
+    PasswordResetIssueView,
     RoleAssignmentCreateView,
     RoleAssignmentRevokeView,
     RoleDetailView,
     RoleListCreateView,
-    PasswordResetConsumeView,
-    PasswordResetIssueView,
 )
 
 urlpatterns = [

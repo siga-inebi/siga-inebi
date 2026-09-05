@@ -726,7 +726,9 @@ class CaptureBatchOpenView(GenericAPIView):
 
     def post(self, request):
         _require_permission(request, "attendance_scan")
-        capture_batch = services.open_capture_batch(operator=request.user, session_key=request.session.session_key or "")
+        capture_batch = services.open_capture_batch(
+            operator=request.user, session_key=request.session.session_key or ""
+        )
         return Response(CaptureBatchSerializer(capture_batch).data)
 
 

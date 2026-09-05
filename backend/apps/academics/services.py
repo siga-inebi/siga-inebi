@@ -1679,10 +1679,18 @@ def create_class_session(
         raise DomainError(
             "La seccion ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
         )
-    if classroom is not None and ClassSession.objects.filter(
-        classroom=classroom, day_of_week=day_of_week, schedule_block=schedule_block, is_active=True
-    ).exists():
-        raise DomainError("El aula ya tiene otra sesion agendada en ese dia y bloque: cruce de horario.")
+    if (
+        classroom is not None
+        and ClassSession.objects.filter(
+            classroom=classroom,
+            day_of_week=day_of_week,
+            schedule_block=schedule_block,
+            is_active=True,
+        ).exists()
+    ):
+        raise DomainError(
+            "El aula ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
+        )
 
     with unique_violation_as(_class_session_conflicts()):
         session = ClassSession.objects.create(
