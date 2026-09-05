@@ -1,4 +1,5 @@
 import pytest
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
@@ -556,6 +557,22 @@ def test_document_verification_rejects_an_unknown_code(client):
 
     assert response.status_code == 200
     assert response.json() == {"valid": False}
+
+
+@pytest.mark.security
+def test_document_verification_is_rate_limited_per_ip(client):
+    """RNF-SEG-006: a burst against the public endpoint receives a 429 response."""
+    cache.clear()
+
+    responses = [client.get(reverse("document-verify", args=["does-not-exist"])) for _ in range(20)]
+    blocked = client.get(reverse("document-verify", args=["does-not-exist"]))
+
+    assert all(response.status_code == 200 for response in responses)
+    assert blocked.status_code == 429
+
+    cache.clear()
+
+
 def test_official_document_eligibility_allows_superuser_without_role(client):
     enrolment = _enrolment()
     client.force_login(UserFactory(is_superuser=True))

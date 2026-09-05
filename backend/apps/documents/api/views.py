@@ -17,6 +17,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 
 from apps.academics.api.views import (
     CatalogueDetailView,
@@ -358,6 +359,12 @@ class DocumentDeliveryReceiptCreateView(GenericAPIView):
         return Response(DocumentDeliveryReceiptSerializer(receipt).data, status=201)
 
 
+class DocumentVerificationThrottle(AnonRateThrottle):
+    """Limit public verification attempts independently from authenticated API traffic."""
+
+    scope = "document_verification"
+
+
 @extend_schema_view(
     get=extend_schema(
         summary="Verificar la autenticidad de un documento emitido",
@@ -372,6 +379,7 @@ class DocumentDeliveryReceiptCreateView(GenericAPIView):
 )
 class DocumentVerificationView(GenericAPIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [DocumentVerificationThrottle]
     serializer_class = DocumentVerificationResponseSerializer
 
     def get(self, request, code):
