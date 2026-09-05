@@ -2,6 +2,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
+from apps.academics.services import close_academic_cycle
 from apps.audit.models import AuditEvent
 from apps.documents.field_catalog import FIELD_TAG_CODES
 from apps.documents.models import DocumentTemplate
@@ -420,6 +421,57 @@ def test_official_document_eligibility_requires_issue_permission(auth_client):
 
     assert response.status_code == 403
     assert AuditEvent.objects.filter(action="documents.official_issuance.denied").exists()
+
+
+def _historical_cycle_report(client, enrolment_id):
+    return client.get(
+        reverse("document-historical-cycle-report"), {"enrolment_id": str(enrolment_id)}
+    )
+
+
+def test_historical_cycle_report_is_generated_for_a_closed_cycle(auth_client):
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    close_academic_cycle(cycle=section.academic_cycle)
+    _grant_document_issue(auth_client.user)
+
+    response = _historical_cycle_report(auth_client, enrolment.public_id)
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "application/pdf"
+    assert b"Boleta" in response.content
+
+
+def test_historical_cycle_report_rejects_an_open_cycle(auth_client):
+    enrolment = _enrolment()
+    _grant_document_issue(auth_client.user)
+
+    response = _historical_cycle_report(auth_client, enrolment.public_id)
+
+    assert response.status_code == 400
+    assert "cerrado" in _detail(response)
+
+
+def test_historical_cycle_report_returns_404_for_unknown_enrolment(auth_client):
+    _grant_document_issue(auth_client.user)
+
+    response = _historical_cycle_report(auth_client, MISSING_UUID)
+
+    assert response.status_code == 404
+
+
+@pytest.mark.security
+def test_historical_cycle_report_requires_issue_permission(auth_client):
+    enrolment = _enrolment()
+
+    response = _historical_cycle_report(auth_client, enrolment.public_id)
+
+    assert response.status_code == 403
 
 
 def test_official_document_eligibility_allows_superuser_without_role(client):

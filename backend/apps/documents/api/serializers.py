@@ -135,6 +135,10 @@ class OfficialDocumentEligibilityResponseSerializer(serializers.Serializer):
     )
 
 
+class HistoricalCycleReportQuerySerializer(serializers.Serializer):
+    enrolment_id = serializers.UUIDField(help_text="Public ID de la matricula.")
+
+
 class DocumentTemplatePreviewSerializer(serializers.Serializer):
     payload = serializers.DictField(
         child=serializers.CharField(allow_blank=True),

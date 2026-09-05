@@ -11,6 +11,8 @@ resources in the repo (``apps.academics.api.views``), so it is reused here
 rather than duplicated.
 """
 
+from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
@@ -40,6 +42,7 @@ from .serializers import (
     DocumentTemplateVersionSerializer,
     DocumentUploadSerializer,
     FieldTagSerializer,
+    HistoricalCycleReportQuerySerializer,
     OfficialDocumentEligibilityQuerySerializer,
     OfficialDocumentEligibilityResponseSerializer,
 )
@@ -271,6 +274,34 @@ class OfficialDocumentEligibilityView(GenericAPIView):
             enrolment=enrolment, actor=request.user
         )
         return Response({"eligible": not blocking_codes, "blocking_document_codes": blocking_codes})
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Generar boleta de un ciclo cerrado",
+        description=(
+            "Genera en memoria la boleta de calificaciones de una matricula cuyo ciclo "
+            "academico ya esta cerrado (RF-EMI-005). No persiste ningun registro ni "
+            "altera el historial academico."
+        ),
+        tags=OFFICIAL_ISSUANCE,
+        parameters=[ENROLMENT_ID],
+        responses={200: OpenApiTypes.BINARY},
+    ),
+)
+class HistoricalCycleReportView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = HistoricalCycleReportQuerySerializer
+
+    def get(self, request):
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        enrolment = queries.enrolment_or_404(query.validated_data["enrolment_id"])
+        report = services.compile_historical_cycle_report(enrolment=enrolment, actor=request.user)
+        response = HttpResponse(report.content, content_type=report.content_type)
+        response["Content-Disposition"] = 'attachment; filename="boleta.pdf"'
+        return response
 
 
 class DocumentDeliveryReceiptCreateView(GenericAPIView):
