@@ -34,11 +34,14 @@ from apps.documents.services import (
     record_document_read_audit,
     register_document_delivery_receipt,
     register_scanned_document,
+    replace_document_record,
     student_document_dossier,
     update_document_template,
+    upload_document_record,
     validate_document_checksum,
     validate_document_download_token,
     validate_document_upload,
+    verify_stored_document_checksum,
 )
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import create_enrolment, set_document_requirement
@@ -405,6 +408,39 @@ def test_validate_document_checksum_accepts_matching_payload():
     document.save(update_fields=["checksum", "updated_at"])
 
     assert validate_document_checksum(document=document, payload=payload) is True
+
+
+def test_uploaded_document_can_be_verified_and_replaced_without_losing_history(tmp_path, settings):
+    settings.MEDIA_ROOT = tmp_path
+    student = StudentFactory()
+    upload_permission = PermissionFactory(codename="document_upload")
+    read_permission = PermissionFactory(codename="document_read")
+    actor = UserFactory()
+    assignment = RoleAssignmentFactory(
+        user=actor,
+        role=RoleFactory(permissions=[upload_permission, read_permission]),
+    )
+    ScopeGrantFactory(assignment=assignment, student=student)
+    original = upload_document_record(
+        actor=actor,
+        student=student,
+        upload=SimpleUploadedFile("respaldo.pdf", b"version one", content_type="application/pdf"),
+    )
+
+    assert verify_stored_document_checksum(actor=actor, document=original) is True
+
+    replacement = replace_document_record(
+        actor=actor,
+        record=original,
+        upload=SimpleUploadedFile("respaldo.pdf", b"version two", content_type="application/pdf"),
+    )
+    original.refresh_from_db()
+
+    assert original.is_active is False
+    assert original.status == DocumentRecord.StorageStatus.ARCHIVED
+    assert replacement.supersedes_id == original.pk
+    assert replacement.version_group_id == original.version_group_id
+    assert replacement.version_number == 2
 
 
 def test_document_storage_usage_summary_counts_and_sums_document_records():

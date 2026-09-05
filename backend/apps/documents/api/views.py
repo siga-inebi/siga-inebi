@@ -12,7 +12,7 @@ rather than duplicated.
 """
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import permissions
+from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
@@ -29,11 +29,16 @@ from apps.documents import queries, services
 from .serializers import (
     DocumentDeliveryReceiptCreateSerializer,
     DocumentDeliveryReceiptSerializer,
+    DocumentRecordSerializer,
+    DocumentReplaceSerializer,
     DocumentTemplateCreateSerializer,
+    DocumentTemplatePreviewResponseSerializer,
+    DocumentTemplatePreviewSerializer,
     DocumentTemplateSerializer,
     DocumentTemplateTypeSerializer,
     DocumentTemplateUpdateSerializer,
     DocumentTemplateVersionSerializer,
+    DocumentUploadSerializer,
     FieldTagSerializer,
     OfficialDocumentEligibilityQuerySerializer,
     OfficialDocumentEligibilityResponseSerializer,
@@ -166,6 +171,27 @@ class DocumentTemplateVersionListView(CatalogueView):
         return self.get_paginated_response(serializer.data)
 
 
+class DocumentTemplatePreviewView(CatalogueView):
+    """Render a safe sample preview without mutating a template or issuing a document."""
+
+    @extend_schema(
+        summary="Vista previa de plantilla sin guardar",
+        request=DocumentTemplatePreviewSerializer,
+        responses={200: DocumentTemplatePreviewResponseSerializer},
+        tags=CATALOGUE,
+    )
+    def post(self, request, public_id):
+        template = queries.document_template_or_404(self.institution, public_id)
+        serializer = DocumentTemplatePreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        preview = services.preview_document_template(
+            template=template,
+            payload=serializer.validated_data.get("payload"),
+            actor=request.user,
+        )
+        return Response(preview)
+
+
 @extend_schema_view(
     get=extend_schema(
         summary="Listar etiquetas dinamicas",
@@ -264,3 +290,71 @@ class DocumentDeliveryReceiptCreateView(GenericAPIView):
             notes=serializer.validated_data.get("notes", ""),
         )
         return Response(DocumentDeliveryReceiptSerializer(receipt).data, status=201)
+
+
+class DocumentRecordUploadView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentUploadSerializer
+
+    @extend_schema(
+        request=DocumentUploadSerializer,
+        responses={201: DocumentRecordSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        record = services.upload_document_record(
+            actor=request.user,
+            student=serializer.validated_data["student"],
+            enrolment=serializer.validated_data.get("enrolment"),
+            upload=serializer.validated_data["file"],
+        )
+        return Response(DocumentRecordSerializer(record).data, status=status.HTTP_201_CREATED)
+
+
+class EnrolmentDocumentRecordListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentRecordSerializer
+
+    @extend_schema(
+        responses={200: DocumentRecordSerializer(many=True)},
+        tags=["documents: records"],
+    )
+    def get(self, request, enrolment_id):
+        enrolment = queries.enrolment_or_404(enrolment_id)
+        services.ensure_document_access(actor=request.user, student=enrolment.student)
+        page = self.paginate_queryset(queries.document_records_for_enrolment(enrolment))
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+
+class DocumentRecordVersionCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentReplaceSerializer
+
+    @extend_schema(
+        request=DocumentReplaceSerializer,
+        responses={201: DocumentRecordSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request, public_id):
+        record = queries.document_record_or_404(public_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        replacement = services.replace_document_record(
+            actor=request.user,
+            record=record,
+            upload=serializer.validated_data["file"],
+        )
+        return Response(DocumentRecordSerializer(replacement).data, status=status.HTTP_201_CREATED)
+
+
+class DocumentRecordIntegrityVerifyView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentRecordSerializer
+
+    @extend_schema(responses={204: None}, tags=["documents: records"])
+    def post(self, request, public_id):
+        record = queries.document_record_or_404(public_id)
+        services.verify_stored_document_checksum(actor=request.user, document=record)
+        return Response(status=status.HTTP_204_NO_CONTENT)
