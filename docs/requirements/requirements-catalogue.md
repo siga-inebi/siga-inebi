@@ -91,9 +91,9 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CAL-002 | Escala y validacion de la nota | Debe | academic-evaluation | Not implemented | #119 | TBD | Regla central |
 | RF-CAL-003 | Distincion entre sin calificar y cero | Debe | academic-evaluation | Not implemented | #120 | TBD | Invariante importante |
 | RF-CAL-004 | Carga masiva desde archivo | Deberia | academic-evaluation | Not implemented | #121 | TBD | Posterior |
-| RF-CAL-005 | Correccion de notas registradas | Debe | academic-evaluation | Not implemented | #122 | TBD | Trazabilidad necesaria |
+| RF-CAL-005 | Correccion de notas registradas | Debe | academic-evaluation | Implemented | #122 | backend/tests/{unit/test_evaluation_services.py,api/test_evaluation_api.py,integration/test_evaluation.py} | Correccion auditada bajo ventana o brecha vigente |
 | RF-CAL-006 | Alcance del docente sobre las notas | Debe | identity-access | Not implemented | #123 | TBD | Asignacion docente |
-| RF-CAL-007 | Visibilidad de las notas | Debe | academic-evaluation | Not implemented | #124 | TBD | Segun rol y alcance |
+| RF-CAL-007 | Visibilidad de las notas | Debe | academic-evaluation | Implemented | #124 | backend/tests/{api/test_evaluation_api.py,integration/test_evaluation.py} | Consulta acotada por estudiante, rol y alcance |
 | RF-CAL-008 | Seguimiento de notas pendientes | Deberia | academic-evaluation | Not implemented | #125 | TBD | Posterior |
 | RF-EVC-001 | Estructura de unidades del ciclo | Debe | academic-evaluation | Not implemented | #178 | TBD | Nucleo academico |
 | RF-EVC-002 | Ventana de captura de notas | Debe | academic-evaluation | Not implemented | #179 | TBD | Regla temporal |
@@ -101,7 +101,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EVC-004 | Brecha excepcional autorizada | Deberia | academic-evaluation | Not implemented | #181 | TBD | Control especial |
 | RF-EVC-005 | Configuracion global heredable | Deberia | academic-evaluation | Not implemented | #182 | TBD | Parametrizacion posterior |
 | RF-EVC-006 | Clonacion de la configuracion entre ciclos | Podria | academic-evaluation | Not implemented | #183 | TBD | Posterior |
-| RF-EVC-007 | Estados de la unidad | Debe | academic-evaluation | Not implemented | #184 | TBD | Invariante |
+| RF-EVC-007 | Estados de la unidad | Debe | academic-evaluation | Implemented | #184 | backend/tests/{unit/test_evaluation_services.py,api/test_evaluation_api.py,integration/test_evaluation.py} | Cierre explícito y auditado bloquea captura sin excepción vigente |
 | RF-RES-001 | Nota final de la subarea | Debe | academic-evaluation | Not implemented | #255 | TBD | Resultado derivado |
 | RF-RES-002 | Punto unico de redondeo | Debe | academic-evaluation | Not implemented | #256 | TBD | Regla critica |
 | RF-RES-003 | Aprobacion de la subarea | Debe | academic-evaluation | Not implemented | #257 | TBD | Regla de negocio |
@@ -127,7 +127,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PLA-005 | Versiones de la plantilla | Podria | document-generation | Implemented | #252 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Historial inmutable via DocumentTemplateVersion; snapshot automatico en creacion y en cada update con cambios |
 | RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | In progress | #253 | backend/tests/api/test_documents_api.py; frontend/src/test/newModulePages.test.jsx | Vista previa con datos de muestra sin persistir ni emitir; pendiente de integracion por PR |
 | RF-PLA-007 | Plantilla activa por tipo | Debe | document-generation | Implemented | #254 | backend/apps/documents/models.py; backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Regla central |
-| RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Not implemented | #99 | TBD | Fase posterior |
+| RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Implemented | #99 | backend/tests/{unit/test_classroom_services.py,api/test_classrooms_api.py}; frontend/src/academics/RoomsPage.jsx | Catálogo por sede, unicidad, baja lógica y auditoría |
 | RF-AUL-002 | Aula habitual de la seccion | Deberia | institutional-structure | Not implemented | #100 | TBD | Fase posterior |
 | RF-AUL-003 | Sesiones sin aula asignada | Deberia | institutional-structure | Not implemented | #101 | TBD | Fase posterior |
 | RF-AUL-004 | Capacidad del aula como advertencia | Podria | institutional-structure | Not implemented | #102 | TBD | Fase posterior |
@@ -212,7 +212,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-MAT-008 | Historial de inscripciones | Debe | enrollment-lifecycle | Not implemented | #232 | TBD | Historia obligatoria |
 | RF-MOV-001 | Distincion entre cambio de seccion y traslado | Debe | enrollment-lifecycle | Implemented | #233 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Operaciones autorizadas separan cambio interno, traslado de ingreso y traslado de salida; salida usa estado transferred, cierra permanencia y revoca credencial |
 | RF-MOV-002 | Cambio de seccion sin perdida de informacion | Debe | enrollment-lifecycle | Implemented | #234 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Cierra la matricula vigente, crea la nueva y conserva calificaciones, asistencia e historial mediante StudentMovement |
-| RF-MOV-003 | Fecha de efecto distinta de la fecha de registro | Debe | enrollment-lifecycle | In Progress | #235 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | StudentMovement conserva effective_on y created_at por separado; semantica de ejecucion futura pendiente |
+| RF-MOV-003 | Fecha de efecto distinta de la fecha de registro | Debe | enrollment-lifecycle | Implemented | #235 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; frontend/src/enrolments/MovementHistoryWindow.jsx | StudentMovement conserva effective_on y created_at por separado y la interfaz los expone con etiquetas distintas |
 | RF-MOV-004 | Retiro del estudiante | Debe | enrollment-lifecycle | Implemented | #236 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Retiro atomico con causa y fecha, estados withdrawn, movimiento inmutable y exclusion de listas activas |
 | RF-MOV-005 | Revocacion de la credencial al cerrar la permanencia | Debe | attendance-capture | Implemented | #237 | backend/tests/{integration/test_enrolments.py,permissions/test_guardian_derived_scope.py} | Evento sincronico revoca credencial; estudiante pierde permisos efectivos y encargado solo alcance del retirado |
 | RF-MOV-006 | Promocion y repitencia | Debe | enrollment-lifecycle | Not implemented | #238 | TBD | Cruza resultados |

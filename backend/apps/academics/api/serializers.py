@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    Classroom,
     ClassScheduleBlock,
     ClassSchedulePublication,
     ClassSession,
@@ -84,6 +85,28 @@ class CampusRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = Campus
         fields = ["public_id", "name", "code"]
+
+
+class ClassroomSerializer(serializers.ModelSerializer):
+    campus = CampusRefSerializer(read_only=True)
+
+    class Meta:
+        model = Classroom
+        fields = ["public_id", "name", "code", "location", "capacity", "is_active", "campus"]
+
+
+class ClassroomCreateSerializer(serializers.Serializer):
+    campus_id = serializers.UUIDField(help_text="Public ID de la sede del aula.")
+    name = serializers.CharField(max_length=150)
+    code = serializers.CharField(max_length=30)
+    location = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    capacity = serializers.IntegerField(min_value=0, required=False, default=0)
+
+
+class ClassroomUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150, required=False)
+    location = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    capacity = serializers.IntegerField(min_value=0, required=False)
 
 
 class ShiftRefSerializer(serializers.ModelSerializer):

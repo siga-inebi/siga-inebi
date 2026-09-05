@@ -32,6 +32,17 @@ export const academicsService = {
   deactivateCampus: (campusId) =>
     apiClient.del(`${ROOT}/campuses/${campusId}/`),
 
+  // aulas: espacios fisicos asociados a una sede (RF-AUL-001)
+  listClassrooms: (params) =>
+    apiClient.get(withQuery(`${ROOT}/classrooms/`, params)),
+  getClassroom: (classroomId) =>
+    apiClient.get(`${ROOT}/classrooms/${classroomId}/`),
+  createClassroom: (payload) => apiClient.post(`${ROOT}/classrooms/`, payload),
+  updateClassroom: (classroomId, payload) =>
+    apiClient.patch(`${ROOT}/classrooms/${classroomId}/`, payload),
+  deactivateClassroom: (classroomId) =>
+    apiClient.del(`${ROOT}/classrooms/${classroomId}/`),
+
   // jornadas: siempre se crean dentro de una sede
   listCampusShifts: (campusId, params) =>
     apiClient.get(withQuery(`${ROOT}/campuses/${campusId}/shifts/`, params)),
