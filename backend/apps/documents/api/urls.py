@@ -6,6 +6,8 @@ from .views import (
     DocumentRecordIntegrityVerifyView,
     DocumentRecordUploadView,
     DocumentRecordVersionCreateView,
+    ScannedDocumentUploadView,
+    StorageConsumptionView,
     DocumentTemplateDetailView,
     DocumentTemplateListCreateView,
     DocumentTemplatePreviewView,
@@ -38,6 +40,8 @@ urlpatterns = [
         name="document-template-preview",
     ),
     path("records/", DocumentRecordUploadView.as_view(), name="document-record-upload"),
+    path("records/scan/", ScannedDocumentUploadView.as_view(), name="document-record-scan"),
+    path("storage-consumption/", StorageConsumptionView.as_view(), name="document-storage-consumption"),
     path(
         "records/<uuid:public_id>/versions/",
         DocumentRecordVersionCreateView.as_view(),

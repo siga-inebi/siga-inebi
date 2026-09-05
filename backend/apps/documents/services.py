@@ -780,6 +780,20 @@ def deactivate_document_record(*, record, actor=None):
     return record
 
 
+def storage_consumption_summary(*, actor):
+    """RF-ARC-005: auditable total of persisted attachment storage."""
+    if not actor or not getattr(actor, "is_authenticated", False):
+        raise AuthorizationError("Debe estar autenticado para consultar el almacenamiento.")
+    summary = DocumentRecord.objects.aggregate(
+        total_bytes=models.Sum("size_bytes"),
+        file_count=models.Count("pk"),
+        retained_count=models.Count("pk", filter=models.Q(status=DocumentRecord.StorageStatus.RETAINED)),
+    )
+    result = {"total_bytes": summary["total_bytes"] or 0, "file_count": summary["file_count"] or 0, "retained_count": summary["retained_count"] or 0}
+    record_event(actor=actor, action="documents.storage_consumption.read", resource="DocumentRecord", context={"result": "success", **result})
+    return result
+
+
 def issue_official_document_folio(*, institution, document_type="", issued_at=None):
     """Allocate the next institutional sequential folio for an official document."""
     if institution is None:

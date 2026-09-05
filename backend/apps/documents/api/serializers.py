@@ -84,6 +84,12 @@ class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
         fields = ["public_id", "sequence", "name", "kind", "description", "content", "created_at"]
 
 
+class StorageConsumptionSerializer(serializers.Serializer):
+    total_bytes = serializers.IntegerField()
+    file_count = serializers.IntegerField()
+    retained_count = serializers.IntegerField()
+
+
 class DocumentDeliveryReceiptSerializer(serializers.ModelSerializer):
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     guardian_id = serializers.UUIDField(source="guardian.public_id", read_only=True)
