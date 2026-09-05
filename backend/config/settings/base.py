@@ -112,6 +112,11 @@ else:
             "PASSWORD": env("DATABASE_PASSWORD", "siga_inebi_dev_password"),
             "HOST": env("DATABASE_HOST", "localhost"),
             "PORT": env("DATABASE_PORT", "5432"),
+            # RNF-CAP-001: en 1 vCPU / 2 GB abrir una conexion TCP por
+            # request compite por la misma CPU que atiende la peticion.
+            # Reusar la conexion durante este tiempo evita ese costo sin
+            # agotar el limite de conexiones de un Postgres de un solo nodo.
+            "CONN_MAX_AGE": env_int("DATABASE_CONN_MAX_AGE", 60),
         }
     }
 
