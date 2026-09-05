@@ -8,8 +8,12 @@ create/update/deactivate in one place.
 import pytest
 from django.urls import reverse
 
+from apps.academics.services import close_academic_cycle
 from apps.audit.models import AuditEvent
+from apps.documents.services import compile_historical_cycle_report
+from apps.enrolments.services import create_enrolment
 from apps.identity.services import disable_account
+from tests.factories.academic import SectionFactory
 from tests.factories.documents import DocumentTemplateFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -122,6 +126,38 @@ def test_exporting_audit_events_via_the_api_generates_a_file_and_is_itself_audit
     assert export_event.action == "audit.export.created"
     assert export_event.actor_id == auth_client.user.id
     assert export_event.context["count"] >= 1
+
+
+def test_emitted_document_history_is_queryable_by_student(auth_client, institution):
+    """
+    RF-EMI-007: the system stores a log of emitted documents showing user,
+    date, document type and student -- and it must be queryable by student.
+    """
+    _grant_audit_permission(auth_client.user)
+    section = SectionFactory(academic_cycle__institution=institution)
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    close_academic_cycle(cycle=section.academic_cycle)
+    compile_historical_cycle_report(enrolment=enrolment, actor=auth_client.user)
+
+    response = auth_client.get(
+        reverse("audit-event-list"),
+        {"resource": "Document", "resource_identifier": str(enrolment.student.pk)},
+    )
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert len(results) == 1
+    event = results[0]
+    assert event["action"] == "documents.document.issued"
+    assert event["actor_username"] == auth_client.user.username
+    assert event["context"]["document_type"] == "Boleta"
+    assert event["context"]["student_id"] == enrolment.student.pk
+    assert "created_at" in event
 
 
 def test_declaring_data_retention_via_the_api_records_an_audit_event(auth_client):

@@ -152,6 +152,20 @@ def test_list_audit_events_filters_by_actor_resource_action_and_date_range():
     assert list(results) == [matching]
 
 
+def test_list_audit_events_filters_by_resource_identifier():
+    """RF-EMI-007: the emission log must be queryable by the affected student."""
+    matching = record_event(
+        actor=None, action="documents.document.issued", resource="Document", resource_identifier="7"
+    )
+    record_event(
+        actor=None, action="documents.document.issued", resource="Document", resource_identifier="8"
+    )
+
+    results = list_audit_events(resource="Document", resource_identifier="7")
+
+    assert list(results) == [matching]
+
+
 def test_list_audit_events_without_filters_returns_everything():
     record_event(actor=None, action="a", resource="R")
     record_event(actor=None, action="b", resource="R")

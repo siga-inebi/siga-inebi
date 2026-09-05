@@ -68,17 +68,31 @@ def record_event(
     )
 
 
-def list_audit_events(*, actor_id=None, resource=None, action=None, date_from=None, date_to=None):
+def list_audit_events(
+    *,
+    actor_id=None,
+    resource=None,
+    resource_identifier=None,
+    action=None,
+    date_from=None,
+    date_to=None,
+):
     """
     RF-BIT-006: the filterable read of the audit trail. Callers must already
     have verified the actor holds the audit-read permission before calling
     this -- it applies the filters, it does not authorize the read.
+
+    ``resource_identifier`` is what RF-EMI-007 needs to answer "que se le
+    emitio a este estudiante": ``_record_document_issue`` already stamps it
+    with the student's pk on every ``documents.document.issued`` event.
     """
     queryset = AuditEvent.objects.all()
     if actor_id is not None:
         queryset = queryset.filter(actor_id=actor_id)
     if resource:
         queryset = queryset.filter(resource=resource)
+    if resource_identifier:
+        queryset = queryset.filter(resource_identifier=resource_identifier)
     if action:
         queryset = queryset.filter(action=action)
     if date_from:
