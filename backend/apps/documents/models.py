@@ -320,3 +320,30 @@ class OfficialFolio(TimeStampedModel):
 
     def __str__(self):
         return self.folio_code
+
+
+class DocumentBatchRun(TimeStampedModel):
+    """
+    Idempotency marker for a batch emission (RF-EMI-006, ampliado a pedido
+    del usuario -- el issue original no lo exige). Reports themselves stay
+    ephemeral (never persisted, per ``compile_document_batch``'s contract);
+    this only records that a client-identified batch already ran, so a
+    retry with the same ``client_batch_id`` is recognised and skipped
+    instead of re-emitting the same documents and audit events.
+    """
+
+    client_batch_id = models.CharField(max_length=100, blank=True, default="")
+    document_type = models.CharField(max_length=100)
+    enrolment_count = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["client_batch_id"],
+                condition=~models.Q(client_batch_id=""),
+                name="unique_document_batch_run_client_batch_id",
+            )
+        ]
+
+    def __str__(self):
+        return self.client_batch_id or f"batch-run-{self.pk}"

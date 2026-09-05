@@ -1075,6 +1075,47 @@ def test_document_batch_for_section_generates_one_in_memory_report_per_enrolment
     }
 
 
+def test_document_batch_with_client_batch_id_is_not_repeated_on_retry():
+    """
+    Ampliacion a pedido del usuario (no exigida por #161): reenviar el mismo
+    client_batch_id no debe re-emitir el lote ni duplicar el evento de
+    auditoria de la primera ejecucion.
+    """
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    create_enrolment(
+        student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+    )
+    close_academic_cycle(cycle=cycle)
+    cycle.refresh_from_db()
+
+    first = compile_document_batch(section=section, client_batch_id="retry-key-1")
+    second = compile_document_batch(section=section, client_batch_id="retry-key-1")
+
+    assert first["count"] == 1
+    assert first.get("replayed", False) is False
+    assert second["count"] == 1
+    assert second["replayed"] is True
+    assert second["documents"] == []
+    assert AuditEvent.objects.filter(action="documents.document_batch.compiled").count() == 1
+
+
+def test_document_batch_without_client_batch_id_can_run_repeatedly():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    create_enrolment(
+        student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+    )
+    close_academic_cycle(cycle=cycle)
+    cycle.refresh_from_db()
+
+    first = compile_document_batch(section=section)
+    second = compile_document_batch(section=section)
+
+    assert first["count"] == second["count"] == 1
+    assert AuditEvent.objects.filter(action="documents.document_batch.compiled").count() == 2
+
+
 def test_issue_official_document_folio_increments_by_institution():
     institution = InstitutionFactory(short_name="INEBI")
 

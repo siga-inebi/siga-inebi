@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.academics.models import Grade, Section
 from apps.documents.models import (
     DocumentDeliveryReceipt,
     DocumentRecord,
@@ -137,6 +138,49 @@ class OfficialDocumentEligibilityResponseSerializer(serializers.Serializer):
 
 class HistoricalCycleReportQuerySerializer(serializers.Serializer):
     enrolment_id = serializers.UUIDField(help_text="Public ID de la matricula.")
+
+
+class DocumentBatchCompileSerializer(serializers.Serializer):
+    section_id = serializers.UUIDField(required=False, help_text="Public ID de la seccion.")
+    grade_id = serializers.UUIDField(required=False, help_text="Public ID del grado.")
+    document_type = serializers.CharField(max_length=100, required=False, default="Boleta")
+    client_batch_id = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Identificador generado por el cliente. Reenviar el mismo tras un fallo de red "
+            "devuelve el resultado ya registrado en lugar de repetir la emision."
+        ),
+    )
+
+    def validate(self, attrs):
+        section_id = attrs.get("section_id")
+        grade_id = attrs.get("grade_id")
+        if not section_id and not grade_id:
+            raise serializers.ValidationError("Se requiere section_id o grade_id.")
+
+        section = None
+        if section_id:
+            section = Section.objects.filter(public_id=section_id).first()
+            if section is None:
+                raise serializers.ValidationError({"section_id": "No existe la seccion indicada."})
+
+        grade = None
+        if grade_id:
+            grade = Grade.objects.filter(public_id=grade_id).first()
+            if grade is None:
+                raise serializers.ValidationError({"grade_id": "No existe el grado indicado."})
+
+        attrs["section"] = section
+        attrs["grade"] = grade
+        return attrs
+
+
+class DocumentBatchCompileResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    replayed = serializers.BooleanField(default=False)
 
 
 class DocumentTemplatePreviewSerializer(serializers.Serializer):

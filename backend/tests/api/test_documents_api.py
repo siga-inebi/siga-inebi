@@ -474,6 +474,65 @@ def test_historical_cycle_report_requires_issue_permission(auth_client):
     assert response.status_code == 403
 
 
+def _compile_batch(client, **payload):
+    return client.post(reverse("document-batch-compile"), payload, content_type="application/json")
+
+
+def test_document_batch_compile_generates_report_for_whole_section(auth_client):
+    section = SectionFactory()
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    close_academic_cycle(cycle=section.academic_cycle)
+    _grant_document_issue(auth_client.user)
+
+    response = _compile_batch(auth_client, section_id=str(section.public_id))
+
+    assert response.status_code == 200
+    assert response.json() == {"count": 1, "replayed": False}
+
+
+def test_document_batch_compile_requires_section_or_grade(auth_client):
+    _grant_document_issue(auth_client.user)
+
+    response = _compile_batch(auth_client)
+
+    assert response.status_code == 400
+
+
+def test_document_batch_compile_requires_issue_permission(auth_client):
+    section = SectionFactory()
+
+    response = _compile_batch(auth_client, section_id=str(section.public_id))
+
+    assert response.status_code == 403
+
+
+def test_document_batch_compile_is_idempotent_via_client_batch_id(auth_client):
+    section = SectionFactory()
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    close_academic_cycle(cycle=section.academic_cycle)
+    _grant_document_issue(auth_client.user)
+
+    first = _compile_batch(
+        auth_client, section_id=str(section.public_id), client_batch_id="retry-abc"
+    )
+    second = _compile_batch(
+        auth_client, section_id=str(section.public_id), client_batch_id="retry-abc"
+    )
+
+    assert first.json() == {"count": 1, "replayed": False}
+    assert second.json() == {"count": 1, "replayed": True}
+
+
 def test_official_document_eligibility_allows_superuser_without_role(client):
     enrolment = _enrolment()
     client.force_login(UserFactory(is_superuser=True))
