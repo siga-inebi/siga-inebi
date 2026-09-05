@@ -846,6 +846,48 @@ def test_document_download_tokens_are_issued_and_validated():
         validate_document_download_token(document=document, token="invalid-token")
 
 
+def test_document_access_audits_an_unauthenticated_download_attempt():
+    student = StudentFactory()
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="justificacion.pdf",
+        storage_key="local/justificacion.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    with pytest.raises(AuthorizationError, match="autenticado"):
+        ensure_document_access(actor=None, document=document, access_type="download")
+
+    event = AuditEvent.objects.get(action="documents.document.read_denied")
+    assert event.resource == "DocumentRecord"
+    assert event.resource_identifier == str(document.pk)
+    assert event.context["reason"] == "unauthenticated"
+    assert event.context["access_type"] == "download"
+
+
+def test_superuser_document_download_is_audited_from_the_central_guard():
+    actor = UserFactory(is_superuser=True)
+    student = StudentFactory()
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="justificacion.pdf",
+        storage_key="local/justificacion-superuser.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    issue_document_download_token(actor=actor, document=document)
+
+    event = AuditEvent.objects.get(action="documents.document.read")
+    assert event.actor == actor
+    assert event.resource == "DocumentRecord"
+    assert event.resource_identifier == str(document.pk)
+    assert event.context["access_type"] == "download"
+
+
 def test_register_document_delivery_receipt_records_guardian_acknowledgement():
     actor = UserFactory()
     student = StudentFactory()

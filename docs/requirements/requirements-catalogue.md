@@ -17,7 +17,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ASI-009 | Lote de captura recuperable | Debe | attendance-capture | Not implemented | #93 | TBD | Requiere persistencia de lote |
 | RF-ASI-010 | Idempotencia de lotes y elementos | Debe | attendance-capture | Not implemented | #94 | TBD | Critico para reintentos |
 | RF-ASI-011 | Cierre declarado por seccion | Deberia | attendance-governance | Not implemented | #95 | TBD | Posterior a base de captura |
-| RF-ASI-013 | Trazabilidad y confirmacion del cierre por cobertura | Debe | attendance-governance | Not implemented | #97 | TBD | Auditoria obligatoria |
+| RF-ASI-013 | Trazabilidad y confirmacion del cierre por cobertura | Debe | attendance-governance | Implemented | #97 | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py}; frontend/src/test/AttendancePage.test.jsx | Confirmacion visible, auditoria obligatoria |
 | RF-ASI-012 | Registro manual autorizado | Debe | attendance-capture | Not implemented | #96 | TBD | Requiere permiso explicito |
 | RF-ASI-014 | Rendimiento del punto de control | Debe | attendance-capture | Not implemented | #98 | TBD | Atado a RNF-REN |
 | RF-JOR-001 | Parametros de jornada configurables | Debe | attendance-governance | Not implemented | #205 | TBD | Configurable, no hardcoded |
@@ -244,11 +244,11 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RNF-PRI-001 | El codigo QR no codifica datos personales | Debe | attendance-capture | Not implemented | #280 | TBD | Privacidad |
 | RNF-PRI-002 | La pantalla de escaneo no expone informacion de salud, academica ni de contacto | Debe | attendance-capture | Not implemented | #281 | TBD | Minimizacion visual |
 | RNF-PRI-003 | No se almacenan datos personales de menores en el dispositivo del operador | Debe | attendance-capture | Not implemented | #282 | TBD | Seguridad local |
-| RNF-PRI-004 | La lectura de documentos de respaldo queda auditada | Debe | audit-compliance | Not implemented | #283 | TBD | Justificaciones |
+| RNF-PRI-004 | La lectura de documentos de respaldo queda auditada | Debe | audit-compliance | Implemented | #283 | backend/tests/unit/test_documents_services.py | Lectura, descarga y denegacion auditadas en el guard central |
 | RNF-PRI-005 | Revelacion minima en la verificacion publica de documentos: tipo, folio, fecha y vigencia | Debe | document-generation | Not implemented | #284 | TBD | Si se habilita verificacion publica |
 | RNF-REN-001 | Percentil 95 de la confirmacion de escaneo en 2 s o menos, sobre la infraestructura objetivo | Debe | attendance-capture | Not implemented | #285 | TBD | Metica clave |
 | RNF-REN-002 | Capacidad de pico del porton segun operadores concurrentes y tasa por operador | Debe | attendance-capture | Not implemented | #286 | TBD | Pendiente medicion sitio |
-| RNF-REN-003 | Ninguna operacion sincrona excede el tiempo de espera del servidor web; los lotes se encolan | Debe | platform | Not implemented | #287 | TBD | Worker requerido |
+| RNF-REN-003 | Ninguna operacion sincrona excede el tiempo de espera del servidor web; los lotes se encolan | Debe | platform | Deferred | #287 | docs/decisions/ADR-0009-deferred-background-processing.md | Worker diferido hasta decision aprobada |
 | RNF-REN-004 | El proceso trabajador opera con concurrencia de uno y ventana configurable fuera del horario de escaneo | Debe | platform | Not implemented | #288 | TBD | Sin Celery por ahora |
 | RNF-RES-001 | El respaldo de la base de datos es independiente del de archivos y se restaura en la infraestructura objetivo | Debe | platform | Not implemented | #289 | TBD | Estrategia recovery |
 | RNF-RES-002 | Punto y tiempo objetivo de recuperacion declarados y probados antes de la entrega | Debe | platform | Not implemented | #290 | TBD | Pendiente definir con Direccion |
