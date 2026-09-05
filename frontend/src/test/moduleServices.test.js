@@ -70,8 +70,12 @@ describe("servicios de los modulos", () => {
 
     test("el historial viaja siempre con el estudiante, que el backend exige", async () => {
       await enrolmentsService.listHistory({ page: 1, student_id: STUDENT });
+      await enrolmentsService.listMovements({ page: 1, student_id: STUDENT });
       expect(apiClient.get).toHaveBeenCalledWith(
         `/enrolments/history/?page=1&student_id=${STUDENT}`
+      );
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/movements/?page=1&student_id=${STUDENT}`
       );
     });
 

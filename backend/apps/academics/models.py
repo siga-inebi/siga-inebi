@@ -46,6 +46,27 @@ class Campus(TimeStampedModel):
         return f"{self.name} ({self.code})"
 
 
+class Classroom(TimeStampedModel):
+    """Physical classroom, laboratory, or other teaching space (RF-AUL-001)."""
+
+    campus = models.ForeignKey(Campus, on_delete=models.PROTECT, related_name="classrooms")
+    name = models.CharField(max_length=150)
+    code = models.CharField(max_length=30)
+    location = models.CharField(max_length=255, blank=True)
+    capacity = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["campus__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campus", "code"], name="unique_classroom_code_per_campus"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
 class AcademicCycle(TimeStampedModel):
     class CycleStatus(models.TextChoices):
         DRAFT = "draft", "Draft"

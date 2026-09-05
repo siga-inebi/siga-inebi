@@ -19,6 +19,7 @@ import CoPresentOutlinedIcon from "@mui/icons-material/CoPresentOutlined";
 import FamilyRestroomOutlinedIcon from "@mui/icons-material/FamilyRestroomOutlined";
 import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import ApartmentOutlinedIcon from "@mui/icons-material/ApartmentOutlined";
+import MeetingRoomOutlinedIcon from "@mui/icons-material/MeetingRoomOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
@@ -126,6 +127,15 @@ export const NAV_GROUPS = [
         icon: ApartmentOutlinedIcon,
         canView: canViewSedes,
         load: () => import("@academics/CampusesPage.jsx"),
+      },
+      {
+        key: "aulas",
+        label: "Aulas",
+        description: "Aulas, laboratorios y espacios de aprendizaje.",
+        path: "/app/aulas",
+        icon: MeetingRoomOutlinedIcon,
+        canView: canViewSedes,
+        load: () => import("@academics/RoomsPage.jsx"),
       },
       {
         key: "niveles",
