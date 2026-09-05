@@ -13,6 +13,7 @@ import LockResetIcon from "@mui/icons-material/LockReset";
 import LogoutIcon from "@mui/icons-material/Logout";
 
 import { ChangePasswordWindow } from "@auth/ChangePasswordWindow.jsx";
+import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
 import { formatFullName } from "@shared/utils/format.js";
 
 /** Iniciales para el avatar cuando no hay foto. */
@@ -32,14 +33,32 @@ function initials(name) {
  * @param {object}   props
  * @param {object}   props.user
  * @param {Function} props.onLogout
+ * @param {Function} props.onLogoutAll
  */
-export function UserMenu({ onLogout, user }) {
+export function UserMenu({ onLogout, onLogoutAll, user }) {
   const [anchor, setAnchor] = useState(null);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [logoutAllOpen, setLogoutAllOpen] = useState(false);
+  const [closingAll, setClosingAll] = useState(false);
+  const [logoutAllError, setLogoutAllError] = useState("");
   const displayName =
     formatFullName(user?.person) !== "—"
       ? formatFullName(user.person)
       : (user?.username ?? "Sesion");
+
+  const closeAllSessions = async () => {
+    setClosingAll(true);
+    setLogoutAllError("");
+    try {
+      await onLogoutAll();
+    } catch (error) {
+      setLogoutAllError(
+        error?.message || "No fue posible cerrar las sesiones."
+      );
+    } finally {
+      setClosingAll(false);
+    }
+  };
 
   return (
     <>
@@ -114,6 +133,17 @@ export function UserMenu({ onLogout, user }) {
         <MenuItem
           onClick={() => {
             setAnchor(null);
+            setLogoutAllOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <LogoutIcon fontSize="small" />
+          </ListItemIcon>
+          Cerrar sesiones en todos los dispositivos
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchor(null);
             onLogout();
           }}
         >
@@ -127,6 +157,20 @@ export function UserMenu({ onLogout, user }) {
       <ChangePasswordWindow
         onClose={() => setChangePasswordOpen(false)}
         open={changePasswordOpen}
+      />
+      <ConfirmDialog
+        busy={closingAll}
+        confirmColor="error"
+        confirmText="Cerrar todas"
+        errorText={logoutAllError}
+        message="Se cerrará su sesión actual y cualquier otra sesión abierta en otros dispositivos. Deberá iniciar sesión nuevamente."
+        onClose={() => {
+          setLogoutAllError("");
+          setLogoutAllOpen(false);
+        }}
+        onConfirm={closeAllSessions}
+        open={logoutAllOpen}
+        title="Cerrar todas las sesiones"
       />
     </>
   );

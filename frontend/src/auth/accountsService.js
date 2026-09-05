@@ -22,4 +22,6 @@ export const accountsService = {
   list: (params) => apiClient.get(withQuery(`${ROOT}/accounts/list/`, params)),
   disable: (accountId, { force = false } = {}) =>
     apiClient.post(`${ROOT}/accounts/${accountId}/disable/`, { force }),
+  closeSessions: (accountId) =>
+    apiClient.post(`${ROOT}/accounts/${accountId}/sessions/close/`, {}),
 };

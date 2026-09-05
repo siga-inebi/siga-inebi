@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { vi } from "vitest";
@@ -18,6 +18,7 @@ const authServiceMock = vi.hoisted(() => ({
   me: vi.fn().mockResolvedValue({ authenticated: false, user: null }),
   login: vi.fn(),
   logout: vi.fn(),
+  logoutAll: vi.fn(),
   csrf: vi.fn(),
 }));
 
@@ -31,6 +32,7 @@ describe("app shell", () => {
     authServiceMock.csrf.mockResolvedValue(undefined);
     authServiceMock.login.mockResolvedValue(authenticatedSession.user);
     authServiceMock.logout.mockResolvedValue(undefined);
+    authServiceMock.logoutAll.mockResolvedValue(undefined);
   });
 
   test("renders home screen", async () => {
@@ -87,9 +89,46 @@ describe("app shell", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Cuenta" }));
-    await user.click(screen.getByRole("menuitem", { name: /Cerrar sesion/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Cerrar sesion" }));
 
     expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  test("confirms before closing every active session", async () => {
+    const user = userEvent.setup();
+    const onLogoutAll = vi.fn().mockResolvedValue(undefined);
+    renderWithRouter(
+      <AppShell
+        onLogout={() => {}}
+        onLogoutAll={onLogoutAll}
+        user={authenticatedSession.user}
+      >
+        <div>Contenido</div>
+      </AppShell>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Cuenta" }));
+    await user.click(
+      screen.getByRole("menuitem", { name: /Cerrar sesiones en todos/i })
+    );
+    expect(
+      screen.getByRole("heading", { name: "Cerrar todas las sesiones" })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cerrar todas" }));
+
+    expect(onLogoutAll).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns to login when the server reports session expiry", async () => {
+    authServiceMock.me.mockResolvedValueOnce(authenticatedSession);
+    renderWithRouter(<App />, { route: "/app" });
+
+    expect(await screen.findByText(/Buen dia, Demo/i)).toBeInTheDocument();
+    act(() => window.dispatchEvent(new Event("siga:session-expired")));
+
+    expect(
+      await screen.findByRole("heading", { name: /Iniciar sesion/i })
+    ).toBeInTheDocument();
   });
 
   test("renders login page", async () => {

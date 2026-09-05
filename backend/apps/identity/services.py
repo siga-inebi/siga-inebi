@@ -183,14 +183,34 @@ def list_roles(*, actor):
     return Role.objects.prefetch_related("permissions").order_by("name")
 
 
-def create_role(*, actor, name, slug, description="", permission_codenames=()):
+def create_role(
+    *,
+    actor,
+    name,
+    slug,
+    description="",
+    permission_codenames=(),
+    session_idle_timeout_minutes=None,
+):
     if not _can_manage_roles(actor):
         _audit_role_denied(actor=actor, action="create")
         raise AuthorizationError("El actor no tiene permiso para crear roles.")
 
+    timeout_minutes = (
+        settings.DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES
+        if session_idle_timeout_minutes is None
+        else session_idle_timeout_minutes
+    )
+    if timeout_minutes < 1:
+        raise DomainError("La duración de inactividad debe ser de al menos un minuto.")
     permissions = _resolve_atomic_permissions(permission_codenames)
     with transaction.atomic():
-        role = Role.objects.create(name=name, slug=slug, description=description)
+        role = Role.objects.create(
+            name=name,
+            slug=slug,
+            description=description,
+            session_idle_timeout_minutes=timeout_minutes,
+        )
         role.permissions.set(permissions)
         record_event(
             actor=actor,
@@ -201,12 +221,21 @@ def create_role(*, actor, name, slug, description="", permission_codenames=()):
                 "result": "success",
                 "role_slug": role.slug,
                 "permissions": sorted(permission_codenames),
+                "session_idle_timeout_minutes": role.session_idle_timeout_minutes,
             },
         )
     return role
 
 
-def update_role(*, actor, role, name=None, description=None, permission_codenames=None):
+def update_role(
+    *,
+    actor,
+    role,
+    name=None,
+    description=None,
+    permission_codenames=None,
+    session_idle_timeout_minutes=None,
+):
     if not _can_manage_roles(actor):
         _audit_role_denied(actor=actor, action="update", role=role)
         raise AuthorizationError("El actor no tiene permiso para modificar roles.")
@@ -227,6 +256,7 @@ def update_role(*, actor, role, name=None, description=None, permission_codename
         before = {
             "name": locked_role.name,
             "description": locked_role.description,
+            "session_idle_timeout_minutes": locked_role.session_idle_timeout_minutes,
             "permissions": sorted(locked_role.permissions.values_list("codename", flat=True)),
         }
         update_fields = []
@@ -236,6 +266,12 @@ def update_role(*, actor, role, name=None, description=None, permission_codename
         if description is not None and description != locked_role.description:
             locked_role.description = description
             update_fields.append("description")
+        if (
+            session_idle_timeout_minutes is not None
+            and session_idle_timeout_minutes != locked_role.session_idle_timeout_minutes
+        ):
+            locked_role.session_idle_timeout_minutes = session_idle_timeout_minutes
+            update_fields.append("session_idle_timeout_minutes")
         if update_fields:
             locked_role.save(update_fields=[*update_fields, "updated_at"])
         if permissions is not None:
@@ -244,6 +280,7 @@ def update_role(*, actor, role, name=None, description=None, permission_codename
         after = {
             "name": locked_role.name,
             "description": locked_role.description,
+            "session_idle_timeout_minutes": locked_role.session_idle_timeout_minutes,
             "permissions": sorted(locked_role.permissions.values_list("codename", flat=True)),
         }
         record_event(
@@ -276,7 +313,7 @@ def _can_create_account(actor):
     return _has_identity_permission(actor, ACCOUNT_CREATE_PERMISSION)
 
 
-def _audit_account_create_denied(*, actor, person):
+def _audit_account_create_denied(*, actor, person, reason="missing_permission"):
     record_event(
         actor=actor,
         action="identity.account.create_denied",
@@ -284,19 +321,40 @@ def _audit_account_create_denied(*, actor, person):
         context={
             "person_id": getattr(person, "pk", None),
             "result": "denied",
-            "reason": "missing_permission",
+            "reason": reason,
         },
     )
 
 
-def create_account(*, actor, person, username, email=""):
+def _ensure_account_person_is_eligible(*, person, account_kind):
+    if person is None:
+        raise DomainError("Se requiere una persona institucional.")
+    if account_kind not in {"institutional", "guardian"}:
+        raise DomainError("El tipo de cuenta indicado no es válido.")
+    if account_kind == "guardian":
+        guardian = getattr(person, "guardian_profile", None)
+        if guardian is None or not guardian.is_active:
+            raise DomainError(
+                "La persona debe registrarse primero como encargado antes de recibir "
+                "una cuenta de encargado."
+            )
+
+
+def create_account(*, actor, person, username, email="", account_kind="institutional"):
     is_authorized = _can_create_account(actor)
     if not is_authorized:
         _audit_account_create_denied(actor=actor, person=person)
         raise AuthorizationError("El actor no tiene permiso para crear cuentas.")
 
-    if person is None:
-        raise DomainError("Se requiere una persona institucional.")
+    try:
+        _ensure_account_person_is_eligible(person=person, account_kind=account_kind)
+    except DomainError:
+        _audit_account_create_denied(
+            actor=actor,
+            person=person,
+            reason=("guardian_not_registered" if account_kind == "guardian" else "person_required"),
+        )
+        raise
     if hasattr(person, "user_account"):
         raise DomainError("Esa persona institucional ya tiene cuenta.")
 
@@ -318,6 +376,7 @@ def create_account(*, actor, person, username, email=""):
             context={
                 "target_user_id": account.pk,
                 "person_id": person.pk,
+                "account_kind": account_kind,
                 "status": account.status,
                 "result": "success",
             },
@@ -372,7 +431,9 @@ def _issue_activation_challenge(*, actor, account, reason):
     return challenge, code
 
 
-def provision_account_with_activation(*, actor, person, username, email=""):
+def provision_account_with_activation(
+    *, actor, person, username, email="", account_kind="institutional"
+):
     if not _can_create_account(actor):
         _audit_account_create_denied(actor=actor, person=person)
         raise AuthorizationError("El actor no tiene permiso para crear cuentas.")
@@ -383,6 +444,7 @@ def provision_account_with_activation(*, actor, person, username, email=""):
             person=person,
             username=username,
             email=email,
+            account_kind=account_kind,
         )
         challenge, code = _issue_activation_challenge(
             actor=actor,
@@ -845,15 +907,97 @@ def disable_account(*, actor, user, force=False, reason=""):
         return {"account": account, "disabled": True, "warnings": deps}
 
 
-def _invalidate_other_user_sessions(*, user, current_session_key=None):
-    """Cierra todas las demás sesiones activas de la cuenta."""
+def _session_keys_for_user(*, user):
+    """Return live server-side session keys owned by ``user`` without exposing their data."""
     user_id_str = str(user.pk)
+    keys = []
     for session in Session.objects.filter(expire_date__gte=timezone.now()):
         data = session.get_decoded()
         if str(data.get("_auth_user_id")) == user_id_str:
-            if current_session_key and session.session_key == current_session_key:
-                continue
-            session.delete()
+            keys.append(session.session_key)
+    return keys
+
+
+def close_account_sessions(*, actor, user, current_session_key=None, administrative=False):
+    """Close every active session for an account and audit the security operation."""
+    is_self_service = actor and actor.pk == user.pk
+    if not is_self_service and not _has_identity_permission(actor, ACCOUNT_DISABLE_PERMISSION):
+        record_event(
+            actor=actor,
+            action="identity.session.close_denied",
+            resource="UserAccount",
+            resource_identifier=str(user.pk),
+            context={"target_user_id": user.pk, "result": "denied", "reason": "missing_permission"},
+        )
+        raise AuthorizationError(
+            "El actor no tiene permiso para cerrar las sesiones de esta cuenta."
+        )
+
+    session_keys = _session_keys_for_user(user=user)
+    if session_keys:
+        Session.objects.filter(session_key__in=session_keys).delete()
+
+    action = "identity.session.closed_all"
+    if administrative and not is_self_service:
+        action = "identity.session.closed_administratively"
+    record_event(
+        actor=actor,
+        action=action,
+        resource="UserAccount",
+        resource_identifier=str(user.pk),
+        context={
+            "target_user_id": user.pk,
+            "closed_session_count": len(session_keys),
+            "current_session_included": bool(current_session_key in session_keys),
+            "result": "success",
+        },
+    )
+    return len(session_keys)
+
+
+def close_other_user_sessions(*, user, current_session_key=None):
+    """Password changes preserve the current session while invalidating the rest."""
+    session_keys = [key for key in _session_keys_for_user(user=user) if key != current_session_key]
+    if session_keys:
+        Session.objects.filter(session_key__in=session_keys).delete()
+    return len(session_keys)
+
+
+def record_current_session_logout(*, user):
+    if getattr(user, "is_authenticated", False):
+        record_event(
+            actor=user,
+            action="identity.session.closed_current",
+            resource="UserAccount",
+            resource_identifier=str(user.pk),
+            context={"target_user_id": user.pk, "result": "success"},
+        )
+
+
+def effective_session_idle_timeout_minutes(*, user, when=None):
+    """Use the widest timeout among active roles to avoid interrupting capture work."""
+    when = when or timezone.now()
+    timeouts = (
+        RoleAssignment.objects.active_at(when)
+        .filter(
+            user=user,
+            is_active=True,
+            role__is_active=True,
+        )
+        .values_list("role__session_idle_timeout_minutes", flat=True)
+    )
+    return max(timeouts, default=settings.DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES)
+
+
+def refresh_session_activity(*, request, user, now=None):
+    """Roll server-side session expiry after an authenticated request or fresh login."""
+    if not getattr(user, "is_authenticated", False) or not hasattr(request, "session"):
+        return None
+    now = now or timezone.now()
+    timeout_minutes = effective_session_idle_timeout_minutes(user=user, when=now)
+    request.session["identity.session_last_activity_at"] = now.isoformat()
+    request.session.set_expiry(timeout_minutes * 60)
+    return timeout_minutes
 
 
 def change_password(*, user, current_password, new_password, request=None):
@@ -880,7 +1024,7 @@ def change_password(*, user, current_password, new_password, request=None):
     user.save(update_fields=["password"])
 
     current_session_key = getattr(getattr(request, "session", None), "session_key", None)
-    _invalidate_other_user_sessions(user=user, current_session_key=current_session_key)
+    close_other_user_sessions(user=user, current_session_key=current_session_key)
 
     if request and hasattr(request, "session") and getattr(request, "user", None) == user:
         update_session_auth_hash(request, user)

@@ -5,6 +5,7 @@ from apps.identity.api.views import (
     AccountDisableView,
     AccountListView,
     AccountProvisionView,
+    AccountSessionCloseView,
     ActivationChallengeReissueView,
     AtomicPermissionListView,
     MyWeeklyScheduleView,
@@ -41,5 +42,10 @@ urlpatterns = [
         "accounts/<int:account_id>/disable/",
         AccountDisableView.as_view(),
         name="identity-account-disable",
+    ),
+    path(
+        "accounts/<int:account_id>/sessions/close/",
+        AccountSessionCloseView.as_view(),
+        name="identity-account-sessions-close",
     ),
 ]

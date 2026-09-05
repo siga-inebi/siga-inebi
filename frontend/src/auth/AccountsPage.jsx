@@ -16,6 +16,7 @@ import { accountsService } from "@auth/accountsService.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
+import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 
@@ -69,6 +70,7 @@ export function AccountsPage() {
   const [warnings, setWarnings] = useState(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [sessionTarget, setSessionTarget] = useState(null);
 
   const handleDisableClick = async (account) => {
     setActionError("");
@@ -108,6 +110,19 @@ export function AccountsPage() {
     setWarnings(null);
   };
 
+  const closeAccountSessions = async () => {
+    setBusy(true);
+    setActionError("");
+    try {
+      await accountsService.closeSessions(sessionTarget.id);
+      setSessionTarget(null);
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -125,15 +140,25 @@ export function AccountsPage() {
         list={list}
         renderActions={(account) =>
           account.status !== "disabled" ? (
-            <Button
-              color="error"
-              disabled={busy}
-              onClick={() => handleDisableClick(account)}
-              size="small"
-              variant="text"
-            >
-              Desactivar
-            </Button>
+            <Stack direction="row" spacing={0.5}>
+              <Button
+                disabled={busy}
+                onClick={() => setSessionTarget(account)}
+                size="small"
+                variant="text"
+              >
+                Cerrar sesiones
+              </Button>
+              <Button
+                color="error"
+                disabled={busy}
+                onClick={() => handleDisableClick(account)}
+                size="small"
+                variant="text"
+              >
+                Desactivar
+              </Button>
+            </Stack>
           ) : null
         }
         subtitle="Cuentas de usuario"
@@ -170,6 +195,17 @@ export function AccountsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        busy={busy}
+        confirmColor="error"
+        confirmText="Cerrar sesiones"
+        errorText={actionError}
+        message={`Se cerrarán todas las sesiones activas de ${sessionTarget?.person_name || sessionTarget?.username || "esta cuenta"}. Esta acción no desactiva la cuenta.`}
+        onClose={() => setSessionTarget(null)}
+        onConfirm={closeAccountSessions}
+        open={Boolean(sessionTarget)}
+        title="Cerrar sesiones activas"
+      />
     </>
   );
 }

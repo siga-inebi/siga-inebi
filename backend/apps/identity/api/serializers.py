@@ -25,9 +25,19 @@ from apps.students.models import Student
 
 
 class AccountProvisionSerializer(serializers.Serializer):
+    ACCOUNT_KIND_CHOICES = (
+        ("institutional", "Cuenta institucional"),
+        ("guardian", "Cuenta de encargado"),
+    )
+
     person = serializers.PrimaryKeyRelatedField(queryset=Person.objects.all())
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField(required=False, allow_blank=True)
+    account_kind = serializers.ChoiceField(
+        choices=ACCOUNT_KIND_CHOICES,
+        default="institutional",
+        required=False,
+    )
 
     def validate_username(self, value):
         if get_user_model().objects.filter(username=value).exists():
@@ -78,6 +88,7 @@ class RoleSerializer(serializers.Serializer):
     slug = serializers.SlugField()
     description = serializers.CharField()
     is_system = serializers.BooleanField()
+    session_idle_timeout_minutes = serializers.IntegerField()
     permissions = serializers.SerializerMethodField()
 
     def get_permissions(self, obj):
@@ -92,6 +103,7 @@ class RoleWriteSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150, required=False)
     slug = serializers.SlugField(max_length=150, required=False)
     description = serializers.CharField(required=False, allow_blank=True)
+    session_idle_timeout_minutes = serializers.IntegerField(min_value=1, required=False)
     permissions = serializers.ListField(
         child=serializers.ChoiceField(choices=[code for code, _name in ATOMIC_PERMISSIONS]),
         required=False,
