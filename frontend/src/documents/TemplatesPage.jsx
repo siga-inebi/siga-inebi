@@ -6,6 +6,7 @@ import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import LabelOutlinedIcon from "@mui/icons-material/LabelOutlined";
+import PreviewOutlinedIcon from "@mui/icons-material/PreviewOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
@@ -25,6 +26,7 @@ import { ActiveCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
 import { FieldTagsWindow } from "./FieldTagsWindow.jsx";
 import { TemplateVersionsWindow } from "./TemplateVersionsWindow.jsx";
+import { TemplatePreviewWindow } from "./TemplatePreviewWindow.jsx";
 
 const TEMPLATE_COLUMNS = [
   { key: "name", label: "Plantilla", render: (row) => row.name },
@@ -86,6 +88,13 @@ const CREATE_FIELDS = [
     required: true,
   },
   { name: "description", label: "Descripcion (opcional)", span: "full" },
+  {
+    name: "content",
+    label: "Contenido de la plantilla",
+    type: "textarea",
+    help: "Use únicamente etiquetas disponibles, por ejemplo {{student.full_name}}.",
+    span: "full",
+  },
 ];
 
 /** El codigo es inmutable despues del alta: el backend no acepta cambiarlo. */
@@ -110,6 +119,7 @@ export function TemplatesPage() {
   const [creating, setCreating] = useState(false);
   const [versionsFor, setVersionsFor] = useState(null);
   const [showTags, setShowTags] = useState(false);
+  const [previewing, setPreviewing] = useState(null);
   const [actionError, setActionError] = useState("");
 
   const handleCreate = async (payload) => {
@@ -171,6 +181,12 @@ export function TemplatesPage() {
         renderActions={(template) => (
           <Stack direction="row" gap={0.5} justifyContent="flex-end">
             <ActionIconButton
+              label="Vista previa"
+              onClick={() => setPreviewing(template)}
+            >
+              <PreviewOutlinedIcon fontSize="small" />
+            </ActionIconButton>
+            <ActionIconButton
               label="Historial de versiones"
               onClick={() => setVersionsFor(template)}
             >
@@ -205,6 +221,7 @@ export function TemplatesPage() {
           code: "",
           kind: "certificate",
           description: "",
+          content: "",
         }}
         key={creating ? "template-create-open" : "template-create-closed"}
         onCancel={() => setCreating(false)}
@@ -222,6 +239,7 @@ export function TemplatesPage() {
             name: editing.name,
             kind: editing.kind ?? "other",
             description: editing.description ?? "",
+            content: editing.content ?? "",
           }}
           key={editing.public_id}
           onCancel={() => setEditing(null)}
@@ -241,6 +259,12 @@ export function TemplatesPage() {
       ) : null}
 
       {showTags ? <FieldTagsWindow onClose={() => setShowTags(false)} /> : null}
+      {previewing ? (
+        <TemplatePreviewWindow
+          onClose={() => setPreviewing(null)}
+          template={previewing}
+        />
+      ) : null}
     </>
   );
 }

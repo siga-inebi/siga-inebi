@@ -9,6 +9,7 @@ class Person(TimeStampedModel):
     email = models.EmailField(blank=True)
     phone_number = models.CharField(max_length=30, blank=True)
     institutional_identifier = models.CharField(max_length=100, blank=True)
+    birth_date = models.DateField(null=True, blank=True)
 
     class Meta:
         ordering = ["last_name", "first_name"]

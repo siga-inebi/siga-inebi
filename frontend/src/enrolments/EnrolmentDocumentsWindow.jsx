@@ -20,6 +20,7 @@ import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { BooleanCell, CodeCell } from "@ui/table/cells.jsx";
+import { formatDateTime } from "@shared/utils/format.js";
 
 const DOCUMENT_FIELDS = [
   {
@@ -71,6 +72,31 @@ const COLUMNS = [
   },
 ];
 
+const RECORD_COLUMNS = [
+  { key: "filename", label: "Archivo", render: (row) => row.filename },
+  {
+    key: "version_number",
+    label: "Versión",
+    align: "right",
+    render: (row) => `v${row.version_number}`,
+  },
+  {
+    key: "status",
+    label: "Estado",
+    render: (row) => (
+      <StatusChip
+        label={row.status === "active" ? "Vigente" : "Histórico"}
+        variant={row.status === "active" ? "success" : "neutral"}
+      />
+    ),
+  },
+  {
+    key: "created_at",
+    label: "Registrado",
+    render: (row) => formatDateTime(row.created_at),
+  },
+];
+
 /**
  * Requisitos documentales de una matricula y su efecto en la emision oficial.
  *
@@ -91,6 +117,16 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
   const [eligibility, setEligibility] = useState(null);
   const [eligibilityError, setEligibilityError] = useState("");
   const [adding, setAdding] = useState(false);
+  const loadRecords = useCallback(
+    (params) =>
+      documentsService.listEnrolmentRecords(enrolment.public_id, params),
+    [enrolment.public_id]
+  );
+  const records = usePaginatedList(loadRecords, {
+    canIncludeInactive: false,
+    pageSize: PAGE_SIZE,
+  });
+  const [uploading, setUploading] = useState(false);
 
   // La elegibilidad se recalcula cada vez que cambia la lista de requisitos:
   // entregar el ultimo documento pendiente es justo lo que desbloquea la emision.
@@ -118,6 +154,16 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
     list.refresh();
   };
 
+  const handleUpload = async ({ file }) => {
+    const payload = new FormData();
+    payload.set("student_id", enrolment.student_id);
+    payload.set("enrolment_id", enrolment.public_id);
+    payload.set("file", file);
+    await documentsService.uploadRecord(payload);
+    setUploading(false);
+    records.refresh();
+  };
+
   return (
     <>
       <FloatingWindow
@@ -133,6 +179,13 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
               variant="contained"
             >
               Agregar requisito
+            </Button>
+            <Button
+              onClick={() => setUploading(true)}
+              startIcon={<AddIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Adjuntar respaldo
             </Button>
           </>
         }
@@ -170,6 +223,25 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
             pagination={list.pagination}
             rows={list.items}
           />
+
+          <Stack gap={1}>
+            <Typography variant="subtitle2">
+              Archivos adjuntos e historial
+            </Typography>
+            {records.error ? (
+              <Alert severity="warning">
+                No se pudo consultar el historial autorizado: {records.error}
+              </Alert>
+            ) : null}
+            <DataTable
+              columns={RECORD_COLUMNS}
+              emptyMessage="No hay archivos adjuntos para esta matrícula."
+              getRowKey={(row) => row.public_id}
+              loading={records.loading}
+              pagination={records.pagination}
+              rows={records.items}
+            />
+          </Stack>
         </Stack>
       </FloatingWindow>
 
@@ -189,6 +261,27 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
           open
           submitLabel="Agregar requisito"
           title="Nuevo requisito documental"
+        />
+      ) : null}
+      {uploading ? (
+        <EntityFormWindow
+          description="El archivo se valida, se guarda fuera de la base de datos y queda asociado a esta matrícula. Una sustitución posterior conserva el historial."
+          fields={[
+            {
+              name: "file",
+              label: "Archivo de respaldo",
+              type: "file",
+              accept: ".pdf,.jpg,.jpeg,.png",
+              required: true,
+            },
+          ]}
+          initialValues={{ file: null }}
+          key="upload-document-record"
+          onCancel={() => setUploading(false)}
+          onSubmit={handleUpload}
+          open
+          submitLabel="Adjuntar archivo"
+          title="Adjuntar respaldo documental"
         />
       ) : null}
     </>

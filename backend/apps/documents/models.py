@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import timedelta
 
 from django.db import models
@@ -64,6 +65,15 @@ class DocumentRecord(TimeStampedModel):
     content_type = models.CharField(max_length=100)
     size_bytes = models.PositiveBigIntegerField()
     checksum = models.CharField(max_length=128)
+    version_group_id = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
+    version_number = models.PositiveIntegerField(default=1)
+    supersedes = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="replacement_versions",
+        null=True,
+        blank=True,
+    )
     status = models.CharField(
         max_length=20,
         choices=StorageStatus.choices,
@@ -72,26 +82,51 @@ class DocumentRecord(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["version_group_id", "version_number"],
+                name="unique_document_record_version_in_group",
+            ),
+        ]
 
     def __str__(self):
         return self.filename
 
     def save(self, *args, **kwargs):
-        if self.pk and ("student_id" in self.__dict__ or "enrolment_id" in self.__dict__):
+        if self.pk:
             original = (
                 DocumentRecord.objects.filter(pk=self.pk)
-                .values_list("student_id", "enrolment_id")
+                .values(
+                    "student_id",
+                    "enrolment_id",
+                    "filename",
+                    "storage_key",
+                    "content_type",
+                    "size_bytes",
+                    "checksum",
+                    "version_group_id",
+                    "version_number",
+                    "supersedes_id",
+                )
                 .first()
             )
             if original is not None:
-                previous_student_id, previous_enrolment_id = original
-                current_student_id = self.student_id
-                current_enrolment_id = self.enrolment_id
-                if (
-                    previous_student_id != current_student_id
-                    or previous_enrolment_id != current_enrolment_id
-                ):
-                    raise RuntimeError("Document record links cannot be modified after creation.")
+                immutable_fields = {
+                    "student_id": self.student_id,
+                    "enrolment_id": self.enrolment_id,
+                    "filename": self.filename,
+                    "storage_key": self.storage_key,
+                    "content_type": self.content_type,
+                    "size_bytes": self.size_bytes,
+                    "checksum": self.checksum,
+                    "version_group_id": self.version_group_id,
+                    "version_number": self.version_number,
+                    "supersedes_id": self.supersedes_id,
+                }
+                if any(original[field] != value for field, value in immutable_fields.items()):
+                    raise RuntimeError(
+                        "Document record metadata cannot be modified after creation."
+                    )
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -312,8 +347,6 @@ class DocumentBatchRun(TimeStampedModel):
 
     def __str__(self):
         return self.client_batch_id or f"batch-run-{self.pk}"
-
-
 class DocumentVerificationCode(TimeStampedModel):
     """
     Public verification record for an emitted document (RF-EMI-009).

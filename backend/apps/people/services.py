@@ -29,6 +29,7 @@ def create_person(
     email="",
     phone_number="",
     institutional_identifier="",
+    birth_date=None,
 ):
     """Register an institutional person. Optional fields default to blank."""
     with transaction.atomic():
@@ -38,6 +39,7 @@ def create_person(
             email=email,
             phone_number=phone_number,
             institutional_identifier=institutional_identifier,
+            birth_date=birth_date,
         )
         _audit(actor, "people.person.created", person)
     return person
@@ -52,6 +54,7 @@ def update_person(
     email=None,
     phone_number=None,
     institutional_identifier=None,
+    birth_date=None,
 ):
     """
     Apply only the fields the caller actually supplied, and audit what changed.
@@ -64,6 +67,7 @@ def update_person(
         "email": email,
         "phone_number": phone_number,
         "institutional_identifier": institutional_identifier,
+        "birth_date": birth_date,
     }
     fields = [name for name, value in candidates.items() if value is not None]
     if not fields:
