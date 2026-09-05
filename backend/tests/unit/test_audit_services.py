@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from apps.audit.models import AuditEvent
 from apps.audit.services import (
+    declare_data_retention,
     diff_fields,
     list_audit_events,
     record_audit_export,
@@ -13,6 +14,7 @@ from apps.audit.services import (
     record_sensitive_read,
     sanitize_context,
 )
+from apps.common.exceptions import DomainError
 from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 
@@ -299,3 +301,45 @@ def test_actor_label_does_not_follow_later_username_changes():
 
     event.refresh_from_db()
     assert event.actor_label == "original-name"
+
+
+# declare_data_retention -- RNF-LEG-001
+# --------------------------------------------------------------------------- #
+
+
+def test_declare_data_retention_records_an_audit_event():
+    actor = UserFactory()
+
+    event = declare_data_retention(
+        actor=actor,
+        category="student.health_notes",
+        period_days=1825,
+        legal_basis="Reglamento interno de proteccion de datos, art. 12",
+        applies_to_minors=True,
+    )
+
+    assert event.action == "compliance.retention.declared"
+    assert event.resource == "DataRetentionDeclaration"
+    assert event.resource_identifier == "student.health_notes"
+    assert event.context["period_days"] == 1825
+    assert event.context["applies_to_minors"] is True
+
+
+def test_declare_data_retention_rejects_non_positive_period():
+    with pytest.raises(DomainError):
+        declare_data_retention(
+            actor=UserFactory(),
+            category="student.health_notes",
+            period_days=0,
+            legal_basis="Reglamento interno",
+        )
+
+
+def test_declare_data_retention_requires_legal_basis():
+    with pytest.raises(DomainError):
+        declare_data_retention(
+            actor=UserFactory(),
+            category="student.health_notes",
+            period_days=30,
+            legal_basis="",
+        )

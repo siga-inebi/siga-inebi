@@ -5,6 +5,7 @@ from apps.academics.models import Campus, Grade, Level, Subject
 from tests.factories.academic import (
     AcademicCycleFactory,
     CampusFactory,
+    ClassroomFactory,
     ClassScheduleBlockFactory,
     GradeFactory,
     GradeOfferingFactory,
@@ -42,6 +43,16 @@ def test_catalog_endpoints_require_authentication(client, url_name):
     response = client.get(reverse(url_name))
 
     assert response.status_code in (401, 403)
+
+
+def test_classroom_endpoints_require_authentication(client, institution):
+    classroom = ClassroomFactory(campus=CampusFactory(institution=institution))
+
+    list_response = client.get(reverse("classroom-list-create"))
+    detail_response = client.get(reverse("classroom-detail", args=[classroom.public_id]))
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)
 
 
 @pytest.mark.security

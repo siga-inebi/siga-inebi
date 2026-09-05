@@ -75,6 +75,12 @@ export const attendanceService = {
   closeJornada: (payload) =>
     apiClient.post(`${ROOT}/jornada-closures/`, payload),
 
+  /** Previsualizacion y cierre declarado por seccion (RF-ASI-011/013). */
+  previewSectionClosure: (params) =>
+    apiClient.get(withQuery(`${ROOT}/section-closures/preview/`, params)),
+  closeSection: (payload) =>
+    apiClient.post(`${ROOT}/section-closures/`, payload),
+
   listAlerts: (params) => apiClient.get(withQuery(`${ROOT}/alerts/`, params)),
 
   /** Catalogo de puntos de control; alta por Django admin (RF-ASI-002). */

@@ -34,6 +34,18 @@ export const documentsService = {
   /** Historial inmutable de versiones de una plantilla (RF-PLA-005). */
   listTemplateVersions: (publicId, params) =>
     apiClient.get(withQuery(`${ROOT}/templates/${publicId}/versions/`, params)),
+  previewTemplate: (publicId, payload) =>
+    apiClient.post(`${ROOT}/templates/${publicId}/preview/`, { payload }),
+
+  listEnrolmentRecords: (enrolmentId, params) =>
+    apiClient.get(
+      withQuery(`${ROOT}/enrolments/${enrolmentId}/records/`, params)
+    ),
+  uploadRecord: (payload) => apiClient.post(`${ROOT}/records/`, payload),
+  replaceRecord: (publicId, payload) =>
+    apiClient.post(`${ROOT}/records/${publicId}/versions/`, payload),
+  verifyRecord: (publicId) =>
+    apiClient.post(`${ROOT}/records/${publicId}/verify/`),
 
   /**
    * Catalogo cerrado de etiquetas dinamicas (RF-PLA-002/003).

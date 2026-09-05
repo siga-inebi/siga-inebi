@@ -24,6 +24,19 @@ class AuditEventSerializer(serializers.ModelSerializer):
         ]
 
 
+class DataRetentionDeclarationSerializer(serializers.Serializer):
+    category = serializers.CharField(
+        help_text="Categoria de datos a la que aplica la retencion, p. ej. student.health_notes."
+    )
+    period_days = serializers.IntegerField(
+        min_value=1, help_text="Plazo de retencion declarado, en dias."
+    )
+    legal_basis = serializers.CharField(
+        help_text="Justificacion legal o institucional del plazo declarado."
+    )
+    applies_to_minors = serializers.BooleanField(default=False)
+
+
 class AuditEventQuerySerializer(serializers.Serializer):
     actor_id = serializers.IntegerField(required=False, help_text="Usuario autor del asiento.")
     resource = serializers.CharField(required=False, help_text="Capacidad o recurso afectado.")

@@ -5,6 +5,7 @@ from django.db.models import Count, Prefetch, Q
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    Classroom,
     ClassScheduleBlock,
     ClassSchedulePublication,
     ClassSession,
@@ -63,6 +64,22 @@ def campuses(institution, *, include_inactive=False):
 
 def campus_or_404(institution, public_id):
     return _get(campuses_all(institution), public_id, "Campus")
+
+
+def classrooms(institution, *, include_inactive=False, campus_id=None):
+    queryset = Classroom.objects.filter(campus__institution=institution).select_related("campus")
+    queryset = _filter_active(queryset, include_inactive=include_inactive)
+    if campus_id:
+        queryset = queryset.filter(campus__public_id=campus_id)
+    return queryset
+
+
+def classroom_or_404(institution, public_id):
+    return _get(
+        Classroom.objects.filter(campus__institution=institution).select_related("campus"),
+        public_id,
+        "Classroom",
+    )
 
 
 def shifts(campus, *, include_inactive=False):
