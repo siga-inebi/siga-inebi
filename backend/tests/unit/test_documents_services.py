@@ -392,6 +392,27 @@ def test_preview_document_template_rejects_unknown_markers():
         preview_document_template(template=template, payload={"student.health_note": "abc"})
 
 
+def test_preview_document_template_never_evaluates_marker_content():
+    """
+    RNF-SEG-004: the engine only does str.replace against a closed marker
+    catalogue -- it must never interpret a payload value as code, no matter
+    how code-like the value looks.
+    """
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Constancia",
+        code="CONST",
+        content="Nombre: {{student.full_name}}",
+    )
+
+    preview = preview_document_template(
+        template=template,
+        payload={"student.full_name": "{{7*7}}__import__('os').system('id')"},
+    )
+
+    assert preview["content"] == "Nombre: {{7*7}}__import__('os').system('id')"
+
+
 def test_validate_document_checksum_accepts_matching_payload():
     payload = b"archivo"
     document = DocumentRecord.objects.create(
