@@ -30,6 +30,7 @@ from apps.academics.cycle_policies import (
 from apps.academics.models import (
     AcademicCycle,
     Campus,
+    Classroom,
     ClassScheduleBlock,
     ClassSchedulePublication,
     ClassSession,
@@ -82,6 +83,77 @@ def _has_open_cycle_usage(offering_queryset):
     return offering_queryset.exclude(
         academic_cycle__status=AcademicCycle.CycleStatus.CLOSED
     ).exists()
+
+
+def _classroom_conflicts(code):
+    return {
+        "unique_classroom_code_per_campus": (
+            f"El codigo de aula '{code}' ya existe en la sede indicada."
+        )
+    }
+
+
+@transaction.atomic
+def create_classroom(*, campus, name, code, location="", capacity=0, actor=None):
+    _require_active(campus, "la sede")
+    name = _clean_name(name, field="nombre del aula")
+    code = _clean_code(code, field="codigo del aula")
+    location = (location or "").strip()
+    if capacity < 0:
+        raise DomainError("La capacidad del aula no puede ser negativa.")
+    with unique_violation_as(_classroom_conflicts(code)):
+        classroom = Classroom.objects.create(
+            campus=campus,
+            name=name,
+            code=code,
+            location=location,
+            capacity=capacity,
+        )
+    _audit(actor, "academics.classroom.created", classroom, code=code, campus_id=campus.pk)
+    return classroom
+
+
+@transaction.atomic
+def update_classroom(*, classroom, name=None, location=None, capacity=None, actor=None):
+    candidates = {}
+    if name is not None:
+        candidates["name"] = _clean_name(name, field="nombre del aula")
+    if location is not None:
+        candidates["location"] = location.strip()
+    if capacity is not None:
+        if capacity < 0:
+            raise DomainError("La capacidad del aula no puede ser negativa.")
+        candidates["capacity"] = capacity
+
+    changes = {
+        field: {"before": getattr(classroom, field), "after": value}
+        for field, value in candidates.items()
+        if getattr(classroom, field) != value
+    }
+    if not changes:
+        return classroom
+
+    for field, change in changes.items():
+        setattr(classroom, field, change["after"])
+    classroom.save(update_fields=[*changes, "updated_at"])
+    record_event(
+        actor=actor,
+        action="academics.classroom.updated",
+        resource=type(classroom).__name__,
+        resource_identifier=str(classroom.pk),
+        changes=changes,
+    )
+    return classroom
+
+
+@transaction.atomic
+def deactivate_classroom(*, classroom, actor=None):
+    if not classroom.is_active:
+        return classroom
+    classroom.is_active = False
+    classroom.save(update_fields=["is_active", "updated_at"])
+    _audit(actor, "academics.classroom.deactivated", classroom, code=classroom.code)
+    return classroom
 
 
 # --------------------------------------------------------------------------- #

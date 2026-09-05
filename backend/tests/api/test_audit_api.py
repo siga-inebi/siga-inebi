@@ -32,6 +32,11 @@ def _grant_audit_permission(user):
     RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
 
 
+def _grant_retention_policy_declare(user):
+    permission = PermissionFactory(codename="retention_policy_declare")
+    RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+
+
 def _grant_sensitive_student_read(user, student):
     permission = PermissionFactory(codename="student_view_sensitive")
     assignment = RoleAssignmentFactory(
@@ -155,6 +160,41 @@ def test_emitted_document_history_is_queryable_by_student(auth_client, instituti
     assert "created_at" in event
 
 
+def test_declaring_data_retention_via_the_api_records_an_audit_event(auth_client):
+    """RNF-LEG-001: declaring a retention period is itself an audited operation."""
+    _grant_retention_policy_declare(auth_client.user)
+
+    response = auth_client.post(
+        reverse("audit-retention-declaration-create"),
+        {
+            "category": "student.health_notes",
+            "period_days": 1825,
+            "legal_basis": "Reglamento interno de proteccion de datos, art. 12",
+            "applies_to_minors": True,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    event = AuditEvent.objects.get(action="compliance.retention.declared")
+    assert event.actor_id == auth_client.user.id
+    assert event.context["period_days"] == 1825
+    assert event.context["applies_to_minors"] is True
+
+
+def test_declaring_data_retention_without_permission_is_denied(auth_client):
+    response = auth_client.post(
+        reverse("audit-retention-declaration-create"),
+        {
+            "category": "student.health_notes",
+            "period_days": 1825,
+            "legal_basis": "Reglamento interno",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert not AuditEvent.objects.filter(action="compliance.retention.declared").exists()
 def test_reading_a_students_family_contacts_via_the_api_is_audited(auth_client):
     """RF-BIT-003: consulting one identified student's family contact data is a sensitive read."""
     student = StudentFactory()

@@ -14,4 +14,5 @@ Registrar decisiones base y condiciones para revisarlas cuando requerimientos ca
 - [ADR-0006 Soft Delete and History](ADR-0006-soft-delete-and-history.md)
 - [ADR-0007 Docker and Local Development Environments](ADR-0007-docker-and-local-environments.md)
 - [ADR-0008 Application Layer Boundaries](ADR-0008-application-layer-boundaries.md)
+- [ADR-0009 Deferred Background Processing](ADR-0009-deferred-background-processing.md)
 - [Pending Decisions](pending-decisions.md)

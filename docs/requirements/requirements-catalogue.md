@@ -17,7 +17,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ASI-009 | Lote de captura recuperable | Debe | attendance-capture | Not implemented | #93 | TBD | Requiere persistencia de lote |
 | RF-ASI-010 | Idempotencia de lotes y elementos | Debe | attendance-capture | Not implemented | #94 | TBD | Critico para reintentos |
 | RF-ASI-011 | Cierre declarado por seccion | Deberia | attendance-governance | Not implemented | #95 | TBD | Posterior a base de captura |
-| RF-ASI-013 | Trazabilidad y confirmacion del cierre por cobertura | Debe | attendance-governance | Not implemented | #97 | TBD | Auditoria obligatoria |
+| RF-ASI-013 | Trazabilidad y confirmacion del cierre por cobertura | Debe | attendance-governance | Implemented | #97 | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py}; frontend/src/test/AttendancePage.test.jsx | Confirmacion visible, auditoria obligatoria |
 | RF-ASI-012 | Registro manual autorizado | Debe | attendance-capture | Not implemented | #96 | TBD | Requiere permiso explicito |
 | RF-ASI-014 | Rendimiento del punto de control | Debe | attendance-capture | Not implemented | #98 | TBD | Atado a RNF-REN |
 | RF-JOR-001 | Parametros de jornada configurables | Debe | attendance-governance | Not implemented | #205 | TBD | Configurable, no hardcoded |
@@ -48,8 +48,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CRE-006 | Resolucion de identificador | Debe | attendance-capture | Not implemented | #138 | TBD | Lookup seguro |
 | RF-ARC-001 | Tipos de archivo admitidos | Debe | file-storage | Not implemented | #78 | TBD | Catalogo permitido |
 | RF-ARC-002 | Limite de tamaño y normalizacion de imagenes | Debe | file-storage | Not implemented | #79 | TBD | Requiere pipeline controlado |
-| RF-ARC-003 | Integridad del archivo | Deberia | file-storage | Not implemented | #80 | TBD | Checksum y verificacion |
-| RF-ARC-004 | Versiones del documento | Deberia | document-management | Not implemented | #81 | TBD | Modelo versionado |
+| RF-ARC-003 | Integridad del archivo | Deberia | file-storage | In progress | #80 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | SHA-256, validacion de tipo/tamano y verificacion autorizada; pendiente de integracion por PR |
+| RF-ARC-004 | Versiones del documento | Deberia | document-management | In progress | #81 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Versiones inmutables enlazadas, historial autorizado y auditoria; pendiente de integracion por PR |
 | RF-ARC-005 | Consumo de almacenamiento consultable | Deberia | file-storage | Not implemented | #82 | TBD | Para monitoreo |
 | RF-ARC-006 | Retencion de adjuntos de justificacion | Deberia | document-management | Not implemented | #83 | TBD | Depende politica legal |
 | RF-ARC-007 | Los documentos no se eliminan | Debe | document-management | Implemented | #84 | backend/apps/documents/models.py; backend/apps/enrolments/models.py; backend/tests/unit/test_documents_services.py | Preferir estados |
@@ -91,9 +91,9 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-CAL-002 | Escala y validacion de la nota | Debe | academic-evaluation | Not implemented | #119 | TBD | Regla central |
 | RF-CAL-003 | Distincion entre sin calificar y cero | Debe | academic-evaluation | Not implemented | #120 | TBD | Invariante importante |
 | RF-CAL-004 | Carga masiva desde archivo | Deberia | academic-evaluation | Not implemented | #121 | TBD | Posterior |
-| RF-CAL-005 | Correccion de notas registradas | Debe | academic-evaluation | Not implemented | #122 | TBD | Trazabilidad necesaria |
+| RF-CAL-005 | Correccion de notas registradas | Debe | academic-evaluation | Implemented | #122 | backend/tests/{unit/test_evaluation_services.py,api/test_evaluation_api.py,integration/test_evaluation.py} | Correccion auditada bajo ventana o brecha vigente |
 | RF-CAL-006 | Alcance del docente sobre las notas | Debe | identity-access | Not implemented | #123 | TBD | Asignacion docente |
-| RF-CAL-007 | Visibilidad de las notas | Debe | academic-evaluation | Not implemented | #124 | TBD | Segun rol y alcance |
+| RF-CAL-007 | Visibilidad de las notas | Debe | academic-evaluation | Implemented | #124 | backend/tests/{api/test_evaluation_api.py,integration/test_evaluation.py} | Consulta acotada por estudiante, rol y alcance |
 | RF-CAL-008 | Seguimiento de notas pendientes | Deberia | academic-evaluation | Not implemented | #125 | TBD | Posterior |
 | RF-EVC-001 | Estructura de unidades del ciclo | Debe | academic-evaluation | Not implemented | #178 | TBD | Nucleo academico |
 | RF-EVC-002 | Ventana de captura de notas | Debe | academic-evaluation | Not implemented | #179 | TBD | Regla temporal |
@@ -101,7 +101,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EVC-004 | Brecha excepcional autorizada | Deberia | academic-evaluation | Not implemented | #181 | TBD | Control especial |
 | RF-EVC-005 | Configuracion global heredable | Deberia | academic-evaluation | Not implemented | #182 | TBD | Parametrizacion posterior |
 | RF-EVC-006 | Clonacion de la configuracion entre ciclos | Podria | academic-evaluation | Not implemented | #183 | TBD | Posterior |
-| RF-EVC-007 | Estados de la unidad | Debe | academic-evaluation | Not implemented | #184 | TBD | Invariante |
+| RF-EVC-007 | Estados de la unidad | Debe | academic-evaluation | Implemented | #184 | backend/tests/{unit/test_evaluation_services.py,api/test_evaluation_api.py,integration/test_evaluation.py} | Cierre explícito y auditado bloquea captura sin excepción vigente |
 | RF-RES-001 | Nota final de la subarea | Debe | academic-evaluation | Not implemented | #255 | TBD | Resultado derivado |
 | RF-RES-002 | Punto unico de redondeo | Debe | academic-evaluation | Not implemented | #256 | TBD | Regla critica |
 | RF-RES-003 | Aprobacion de la subarea | Debe | academic-evaluation | Not implemented | #257 | TBD | Regla de negocio |
@@ -125,9 +125,9 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PLA-003 | Campos sensibles excluidos por omision | Debe | document-generation | Implemented | #250 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Seguridad y privacidad; mecanismo de exclusion por marca `sensitive` + permiso `student.view_sensitive`, sin campos medicos reales todavia |
 | RF-PLA-004 | Encabezado institucional obligatorio | Debe | document-generation | Implemented | #251 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Regla documental; encabezado derivado (no almacenado) de Institution, logo_url pendiente del dominio file-storage |
 | RF-PLA-005 | Versiones de la plantilla | Podria | document-generation | Implemented | #252 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Historial inmutable via DocumentTemplateVersion; snapshot automatico en creacion y en cada update con cambios |
-| RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | Not implemented | #253 | TBD | UX posterior |
+| RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | In progress | #253 | backend/tests/api/test_documents_api.py; frontend/src/test/newModulePages.test.jsx | Vista previa con datos de muestra sin persistir ni emitir; pendiente de integracion por PR |
 | RF-PLA-007 | Plantilla activa por tipo | Debe | document-generation | Implemented | #254 | backend/apps/documents/models.py; backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Regla central |
-| RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Not implemented | #99 | TBD | Fase posterior |
+| RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Implemented | #99 | backend/tests/{unit/test_classroom_services.py,api/test_classrooms_api.py}; frontend/src/academics/RoomsPage.jsx | Catálogo por sede, unicidad, baja lógica y auditoría |
 | RF-AUL-002 | Aula habitual de la seccion | Deberia | institutional-structure | Not implemented | #100 | TBD | Fase posterior |
 | RF-AUL-003 | Sesiones sin aula asignada | Deberia | institutional-structure | Not implemented | #101 | TBD | Fase posterior |
 | RF-AUL-004 | Capacidad del aula como advertencia | Podria | institutional-structure | Not implemented | #102 | TBD | Fase posterior |
@@ -212,7 +212,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-MAT-008 | Historial de inscripciones | Debe | enrollment-lifecycle | Not implemented | #232 | TBD | Historia obligatoria |
 | RF-MOV-001 | Distincion entre cambio de seccion y traslado | Debe | enrollment-lifecycle | Implemented | #233 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Operaciones autorizadas separan cambio interno, traslado de ingreso y traslado de salida; salida usa estado transferred, cierra permanencia y revoca credencial |
 | RF-MOV-002 | Cambio de seccion sin perdida de informacion | Debe | enrollment-lifecycle | Implemented | #234 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Cierra la matricula vigente, crea la nueva y conserva calificaciones, asistencia e historial mediante StudentMovement |
-| RF-MOV-003 | Fecha de efecto distinta de la fecha de registro | Debe | enrollment-lifecycle | In Progress | #235 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | StudentMovement conserva effective_on y created_at por separado; semantica de ejecucion futura pendiente |
+| RF-MOV-003 | Fecha de efecto distinta de la fecha de registro | Debe | enrollment-lifecycle | Implemented | #235 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; frontend/src/enrolments/MovementHistoryWindow.jsx | StudentMovement conserva effective_on y created_at por separado y la interfaz los expone con etiquetas distintas |
 | RF-MOV-004 | Retiro del estudiante | Debe | enrollment-lifecycle | Implemented | #236 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Retiro atomico con causa y fecha, estados withdrawn, movimiento inmutable y exclusion de listas activas |
 | RF-MOV-005 | Revocacion de la credencial al cerrar la permanencia | Debe | attendance-capture | Implemented | #237 | backend/tests/{integration/test_enrolments.py,permissions/test_guardian_derived_scope.py} | Evento sincronico revoca credencial; estudiante pierde permisos efectivos y encargado solo alcance del retirado |
 | RF-MOV-006 | Promocion y repitencia | Debe | enrollment-lifecycle | Not implemented | #238 | TBD | Cruza resultados |
@@ -244,11 +244,11 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RNF-PRI-001 | El codigo QR no codifica datos personales | Debe | attendance-capture | Not implemented | #280 | TBD | Privacidad |
 | RNF-PRI-002 | La pantalla de escaneo no expone informacion de salud, academica ni de contacto | Debe | attendance-capture | Not implemented | #281 | TBD | Minimizacion visual |
 | RNF-PRI-003 | No se almacenan datos personales de menores en el dispositivo del operador | Debe | attendance-capture | Not implemented | #282 | TBD | Seguridad local |
-| RNF-PRI-004 | La lectura de documentos de respaldo queda auditada | Debe | audit-compliance | Not implemented | #283 | TBD | Justificaciones |
+| RNF-PRI-004 | La lectura de documentos de respaldo queda auditada | Debe | audit-compliance | Implemented | #283 | backend/tests/unit/test_documents_services.py | Lectura, descarga y denegacion auditadas en el guard central |
 | RNF-PRI-005 | Revelacion minima en la verificacion publica de documentos: tipo, folio, fecha y vigencia | Debe | document-generation | Not implemented | #284 | TBD | Si se habilita verificacion publica |
 | RNF-REN-001 | Percentil 95 de la confirmacion de escaneo en 2 s o menos, sobre la infraestructura objetivo | Debe | attendance-capture | Not implemented | #285 | TBD | Metica clave |
 | RNF-REN-002 | Capacidad de pico del porton segun operadores concurrentes y tasa por operador | Debe | attendance-capture | Not implemented | #286 | TBD | Pendiente medicion sitio |
-| RNF-REN-003 | Ninguna operacion sincrona excede el tiempo de espera del servidor web; los lotes se encolan | Debe | platform | Not implemented | #287 | TBD | Worker requerido |
+| RNF-REN-003 | Ninguna operacion sincrona excede el tiempo de espera del servidor web; los lotes se encolan | Debe | platform | Deferred | #287 | docs/decisions/ADR-0009-deferred-background-processing.md | Worker diferido hasta decision aprobada |
 | RNF-REN-004 | El proceso trabajador opera con concurrencia de uno y ventana configurable fuera del horario de escaneo | Debe | platform | Not implemented | #288 | TBD | Sin Celery por ahora |
 | RNF-RES-001 | El respaldo de la base de datos es independiente del de archivos y se restaura en la infraestructura objetivo | Debe | platform | Not implemented | #289 | TBD | Estrategia recovery |
 | RNF-RES-002 | Punto y tiempo objetivo de recuperacion declarados y probados antes de la entrega | Debe | platform | Not implemented | #290 | TBD | Pendiente definir con Direccion |

@@ -1,5 +1,6 @@
 import pytest
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 from apps.academics.services import close_academic_cycle
@@ -14,6 +15,7 @@ from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
     RoleFactory,
+    ScopeGrantFactory,
     UserFactory,
 )
 from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
@@ -290,6 +292,53 @@ def test_document_template_versions_returns_404_for_another_institution(auth_cli
     assert response.status_code == 404
 
 
+def test_document_template_preview_is_ephemeral_and_uses_sample_payload(auth_client, institution):
+    template = DocumentTemplateFactory(
+        institution=institution,
+        content="Constancia para {{student.full_name}} de {{institution.name}}",
+    )
+
+    response = auth_client.post(
+        reverse("document-template-preview", args=[template.public_id]),
+        {"payload": {"student.full_name": "Ana", "institution.name": "INEBI"}},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content"] == "Constancia para Ana de INEBI"
+    template.refresh_from_db()
+    assert template.content == "Constancia para {{student.full_name}} de {{institution.name}}"
+
+
+def test_document_upload_requires_permission_and_scope(auth_client):
+    student = StudentFactory()
+    upload = SimpleUploadedFile("respaldo.pdf", b"pdf content", content_type="application/pdf")
+
+    denied = auth_client.post(
+        reverse("document-record-upload"),
+        {"student_id": str(student.public_id), "file": upload},
+    )
+    assert denied.status_code == 403
+
+    permission = PermissionFactory(codename="document_upload")
+    assignment = RoleAssignmentFactory(
+        user=auth_client.user, role=RoleFactory(permissions=[permission])
+    )
+    ScopeGrantFactory(assignment=assignment, student=student)
+    accepted = auth_client.post(
+        reverse("document-record-upload"),
+        {
+            "student_id": str(student.public_id),
+            "file": SimpleUploadedFile(
+                "respaldo.pdf", b"pdf content", content_type="application/pdf"
+            ),
+        },
+    )
+
+    assert accepted.status_code == 201
+    assert accepted.json()["version_number"] == 1
+
+
 # --------------------------------------------------------------------------- #
 # field tags
 # --------------------------------------------------------------------------- #
@@ -512,7 +561,7 @@ def test_document_verification_rejects_an_unknown_code(client):
 
 @pytest.mark.security
 def test_document_verification_is_rate_limited_per_ip(client):
-    """RNF-SEG-006: a burst against the only public, unauthenticated endpoint gets a 429."""
+    """RNF-SEG-006: a burst against the public endpoint receives a 429 response."""
     cache.clear()
 
     responses = [client.get(reverse("document-verify", args=["does-not-exist"])) for _ in range(20)]

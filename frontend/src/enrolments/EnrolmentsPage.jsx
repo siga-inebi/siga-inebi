@@ -8,6 +8,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
 import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
@@ -38,6 +39,7 @@ import { MutedCell, NameCell } from "@ui/table/cells.jsx";
 
 import { BulkEnrolmentWindow } from "./BulkEnrolmentWindow.jsx";
 import { EnrolmentDocumentsWindow } from "./EnrolmentDocumentsWindow.jsx";
+import { MovementHistoryWindow } from "./MovementHistoryWindow.jsx";
 
 const EMPTY_ENROLMENT = {
   student_id: "",
@@ -70,6 +72,7 @@ export function EnrolmentsPage() {
   const [creating, setCreating] = useState(null);
   const [bulkEnrolling, setBulkEnrolling] = useState(false);
   const [documentsFor, setDocumentsFor] = useState(null);
+  const [movementStudentId, setMovementStudentId] = useState("");
 
   const students = useStudentCatalog();
   const cycles = useCycleCatalog();
@@ -255,6 +258,14 @@ export function EnrolmentsPage() {
         action={
           <Stack direction="row" flexWrap="wrap" gap={1}>
             <Button
+              disabled={!studentFilter}
+              onClick={() => setMovementStudentId(studentFilter)}
+              startIcon={<HistoryOutlinedIcon fontSize="small" />}
+              variant="text"
+            >
+              Movimientos
+            </Button>
+            <Button
               onClick={() => setBulkEnrolling(true)}
               startIcon={<PlaylistAddCheckOutlinedIcon fontSize="small" />}
               variant="outlined"
@@ -379,6 +390,14 @@ export function EnrolmentsPage() {
           enrolment={documentsFor}
           key={documentsFor.public_id}
           onClose={() => setDocumentsFor(null)}
+        />
+      ) : null}
+
+      {movementStudentId ? (
+        <MovementHistoryWindow
+          key={movementStudentId}
+          onClose={() => setMovementStudentId("")}
+          studentId={movementStudentId}
         />
       ) : null}
     </>

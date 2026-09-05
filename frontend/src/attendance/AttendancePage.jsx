@@ -8,6 +8,7 @@ import AddIcon from "@mui/icons-material/Add";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import PhotoCameraOutlinedIcon from "@mui/icons-material/PhotoCameraOutlined";
 import QrCodeScannerOutlinedIcon from "@mui/icons-material/QrCodeScannerOutlined";
+import TaskAltOutlinedIcon from "@mui/icons-material/TaskAltOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 
 import {
@@ -46,6 +47,7 @@ import { AttendancePresenceWindow } from "./AttendancePresenceWindow.jsx";
 import { DayStatusProbe } from "./DayStatusProbe.jsx";
 import { JornadaParametersWindow } from "./JornadaParametersWindow.jsx";
 import { ScanCaptureWindow } from "./ScanCaptureWindow.jsx";
+import { SectionClosureWindow } from "./SectionClosureWindow.jsx";
 
 const eventColumns = (names) => [
   {
@@ -252,6 +254,7 @@ export function AttendancePage() {
   const [showParameters, setShowParameters] = useState(false);
   const [showScan, setShowScan] = useState(false);
   const [showPresence, setShowPresence] = useState(false);
+  const [showSectionClosure, setShowSectionClosure] = useState(false);
 
   const handleCreateEvent = async (payload) => {
     await attendanceService.createEvent(payload);
@@ -293,6 +296,13 @@ export function AttendancePage() {
               variant="outlined"
             >
               Registrar movimiento
+            </Button>
+            <Button
+              onClick={() => setShowSectionClosure(true)}
+              startIcon={<TaskAltOutlinedIcon fontSize="small" />}
+              variant="outlined"
+            >
+              Cerrar seccion
             </Button>
             <Button
               onClick={() => setShowScan(true)}
@@ -404,6 +414,16 @@ export function AttendancePage() {
 
       {showPresence ? (
         <AttendancePresenceWindow onClose={() => setShowPresence(false)} />
+      ) : null}
+
+      {showSectionClosure ? (
+        <SectionClosureWindow
+          onClosed={() => {
+            events.refresh();
+            alerts.refresh();
+          }}
+          onClose={() => setShowSectionClosure(false)}
+        />
       ) : null}
     </>
   );

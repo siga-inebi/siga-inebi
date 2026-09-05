@@ -31,6 +31,9 @@ from .serializers import (
     CampusCreateSerializer,
     CampusSerializer,
     CampusUpdateSerializer,
+    ClassroomCreateSerializer,
+    ClassroomSerializer,
+    ClassroomUpdateSerializer,
     ClassScheduleBlockCreateSerializer,
     ClassScheduleBlockSerializer,
     ClassScheduleBlockUpdateSerializer,
@@ -359,6 +362,67 @@ class CampusDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDet
 
     def deactivate(self, request, campus):
         services.deactivate_campus(campus=campus, actor=request.user)
+
+
+# --------------------------------------------------------------------------- #
+# classrooms ("aulas")
+# --------------------------------------------------------------------------- #
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar aulas",
+        tags=CATALOGUE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: ClassroomSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar aula",
+        tags=CATALOGUE,
+        request=ClassroomCreateSerializer,
+        responses={201: ClassroomSerializer},
+    ),
+)
+class ClassroomListCreateView(CatalogueListCreateView):
+    list_serializer = ClassroomSerializer
+    create_serializer = ClassroomCreateSerializer
+
+    def list_queryset(self, request):
+        return queries.classrooms(
+            self.institution,
+            include_inactive=_include_inactive(request),
+            campus_id=request.query_params.get("campus_id"),
+        )
+
+    def create(self, request, payload):
+        campus = queries.campus_or_404(self.institution, payload.pop("campus_id"))
+        return services.create_classroom(campus=campus, actor=request.user, **payload)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar aula", tags=CATALOGUE, responses={200: ClassroomSerializer}
+    ),
+    patch=extend_schema(
+        summary="Actualizar aula",
+        tags=CATALOGUE,
+        request=ClassroomUpdateSerializer,
+        responses={200: ClassroomSerializer},
+    ),
+    delete=extend_schema(summary="Desactivar aula", tags=CATALOGUE, responses={204: None}),
+)
+class ClassroomDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = ClassroomSerializer
+    update_serializer = ClassroomUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.classroom_or_404(self.institution, public_id)
+
+    def update(self, request, classroom, payload):
+        services.update_classroom(classroom=classroom, actor=request.user, **payload)
+
+    def deactivate(self, request, classroom):
+        services.deactivate_classroom(classroom=classroom, actor=request.user)
 
 
 # --------------------------------------------------------------------------- #
