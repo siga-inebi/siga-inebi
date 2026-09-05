@@ -1,4 +1,5 @@
 import { apiClient } from "@shared/api/apiClient.js";
+import { vi } from "vitest";
 
 describe("apiClient", () => {
   test("includes credentials in requests", async () => {
@@ -124,6 +125,29 @@ describe("apiClient", () => {
       status: 401,
       message: "No autenticado.",
     });
+  });
+
+  test("notifies the application when the backend expires a session", async () => {
+    const onExpired = vi.fn();
+    window.addEventListener("siga:session-expired", onExpired);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: new Headers({
+        "content-type": "application/json",
+        "X-SIGA-Session-Expired": "1",
+      }),
+      json: async () => ({
+        error: { detail: "La sesión expiró por inactividad." },
+      }),
+    });
+
+    await expect(apiClient.get("/students/")).rejects.toThrow(
+      "La sesión expiró por inactividad."
+    );
+
+    expect(onExpired).toHaveBeenCalledTimes(1);
+    window.removeEventListener("siga:session-expired", onExpired);
   });
 
   test("handles 403 responses", async () => {

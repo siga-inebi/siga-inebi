@@ -62,11 +62,16 @@ function PrivateRoute({ children }) {
 
 /** Shell privado con la sesion ya resuelta. */
 function PrivateLayout({ children }) {
-  const { isAuthenticated, logout, user } = useAuth();
+  const { isAuthenticated, logout, logoutAll, user } = useAuth();
   const counts = useModuleCounts(isAuthenticated);
 
   return (
-    <AppShell counts={counts} onLogout={logout} user={user}>
+    <AppShell
+      counts={counts}
+      onLogout={logout}
+      onLogoutAll={logoutAll}
+      user={user}
+    >
       <Suspense fallback={<RouteFallback />}>{children}</Suspense>
     </AppShell>
   );

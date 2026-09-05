@@ -1,5 +1,6 @@
 import logging
 
+from django.contrib.auth import logout
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import DatabaseError, connection
 from django.utils.decorators import method_decorator
@@ -17,7 +18,11 @@ from apps.identity.serializers import (
     LoginSerializer,
     PasswordChangeSerializer,
 )
-from apps.identity.services import change_password
+from apps.identity.services import (
+    change_password,
+    close_account_sessions,
+    record_current_session_logout,
+)
 from config.api.serializers import EmptySerializer, HealthSerializer
 
 logger = logging.getLogger(__name__)
@@ -88,7 +93,23 @@ class LogoutView(GenericAPIView):
 
     @extend_schema(responses={204: OpenApiResponse(description="Session closed")})
     def post(self, request):
-        request.session.flush()
+        record_current_session_logout(user=request.user)
+        logout(request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class LogoutAllSessionsView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EmptySerializer
+
+    @extend_schema(responses={204: OpenApiResponse(description="All sessions closed")})
+    def post(self, request):
+        close_account_sessions(
+            actor=request.user,
+            user=request.user,
+            current_session_key=request.session.session_key,
+        )
+        logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

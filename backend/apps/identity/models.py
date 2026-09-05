@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, Permission
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -17,8 +18,6 @@ class UserAccount(AbstractUser):
         "people.Person",
         on_delete=models.PROTECT,
         related_name="user_account",
-        null=True,
-        blank=True,
     )
     status = models.CharField(
         max_length=20,
@@ -88,6 +87,11 @@ class Role(TimeStampedModel):
     slug = models.SlugField(max_length=150, unique=True)
     description = models.TextField(blank=True)
     is_system = models.BooleanField(default=False)
+    session_idle_timeout_minutes = models.PositiveIntegerField(
+        default=30,
+        validators=[MinValueValidator(1)],
+        help_text="Minutos máximos de inactividad antes de cerrar la sesión.",
+    )
     permissions = models.ManyToManyField(Permission, blank=True, related_name="siga_roles")
 
     class Meta:

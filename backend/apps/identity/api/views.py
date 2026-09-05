@@ -1,5 +1,5 @@
 from django.conf import settings
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
@@ -24,6 +24,7 @@ from apps.identity.api.serializers import (
 from apps.identity.services import (
     activate_account,
     assign_role,
+    close_account_sessions,
     create_role,
     disable_account,
     list_atomic_permissions,
@@ -256,3 +257,18 @@ class AccountDisableView(GenericAPIView):
         if not result["disabled"]:
             return Response(result, status=status.HTTP_409_CONFLICT)
         return Response(AccountListSerializer(result["account"]).data)
+
+
+class AccountSessionCloseView(GenericAPIView):
+    """Account administrators can invalidate every active session of another account."""
+
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "account_disable"
+    permission_scope = {"module_key": "identity"}
+    serializer_class = AccountListSerializer
+
+    @extend_schema(request=None, responses={204: OpenApiResponse(description="Sessions closed")})
+    def post(self, request, account_id):
+        account = queries.account_or_404(account_id)
+        close_account_sessions(actor=request.user, user=account, administrative=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)

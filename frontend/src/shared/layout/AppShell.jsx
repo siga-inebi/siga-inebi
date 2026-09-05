@@ -34,10 +34,11 @@ const TOOLBAR_HEIGHT = 52;
  * @param {object}   props
  * @param {object}   props.user
  * @param {Function} props.onLogout
+ * @param {Function} props.onLogoutAll
  * @param {object}  [props.counts]  Conteos por modulo para los badges del menu.
  * @param {ReactNode} props.children
  */
-export function AppShell({ children, counts, onLogout, user }) {
+export function AppShell({ children, counts, onLogout, onLogoutAll, user }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -100,7 +101,11 @@ export function AppShell({ children, counts, onLogout, user }) {
 
           <Stack direction="row" gap={1} sx={{ ml: "auto" }}>
             <ColorModeToggle />
-            <UserMenu onLogout={onLogout} user={user} />
+            <UserMenu
+              onLogout={onLogout}
+              onLogoutAll={onLogoutAll}
+              user={user}
+            />
           </Stack>
         </Toolbar>
       </AppBar>

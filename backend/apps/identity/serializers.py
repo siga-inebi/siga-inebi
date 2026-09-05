@@ -6,6 +6,7 @@ from apps.identity.services import (
     AccountTemporarilyLockedError,
     InvalidCredentialsError,
     authenticate_account,
+    refresh_session_activity,
 )
 
 
@@ -56,6 +57,7 @@ class LoginSerializer(serializers.Serializer):
         request = self.context["request"]
         user = self.validated_data["user"]
         login(request, user)
+        refresh_session_activity(request=request, user=user)
         return user
 
 

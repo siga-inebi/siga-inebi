@@ -32,6 +32,13 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    const handleSessionExpired = () => setUser(null);
+    window.addEventListener("siga:session-expired", handleSessionExpired);
+    return () =>
+      window.removeEventListener("siga:session-expired", handleSessionExpired);
+  }, []);
+
   const login = async (credentials) => {
     await authService.csrf();
     const currentUser = await authService.login(credentials);
@@ -44,9 +51,21 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const logoutAll = async () => {
+    await authService.logoutAll();
+    setUser(null);
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, isAuthenticated: Boolean(user), login, logout }}
+      value={{
+        user,
+        loading,
+        isAuthenticated: Boolean(user),
+        login,
+        logout,
+        logoutAll,
+      }}
     >
       {children}
     </AuthContext.Provider>

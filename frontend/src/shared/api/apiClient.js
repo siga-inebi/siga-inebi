@@ -27,6 +27,9 @@ async function parseResponse(response) {
   const data = isJson ? await response.json() : null;
 
   if (!response.ok) {
+    if (response.headers.get("X-SIGA-Session-Expired") === "1") {
+      window.dispatchEvent(new Event("siga:session-expired"));
+    }
     // El backend responde de tres formas segun la capa que rechaza: la de
     // dominio manda `{error: {detail}}`, las vistas de permisos mandan
     // `{error: "texto"}` y DRF manda los errores por campo (`{campo: [...]}`).
