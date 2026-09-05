@@ -498,7 +498,7 @@ def record_scan_batch(*, items, operator, actor=None):
 # --------------------------------------------------------------------------- #
 
 
-def open_capture_batch(*, operator):
+def open_capture_batch(*, operator, session_key=""):
     """
     RF-ASI-009: start, or resume, the operator's accumulating batch.
 
@@ -511,7 +511,7 @@ def open_capture_batch(*, operator):
     existing = recover_open_capture_batch(operator=operator)
     if existing is not None:
         return existing
-    return CaptureBatch.objects.create(operator=operator, status=CaptureBatch.Status.OPEN)
+    return CaptureBatch.objects.create(operator=operator, status=CaptureBatch.Status.OPEN, session_key=session_key)
 
 
 def recover_open_capture_batch(*, operator):
@@ -903,6 +903,7 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
             )
         )
 
+    _close_capture_turns(shift=shift, event_date=event_date, actor=actor)
     return JornadaClosureResult(
         shift=shift,
         academic_cycle=academic_cycle,
@@ -911,6 +912,21 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
         statuses=statuses,
         alerts=alerts,
     )
+
+
+def _close_capture_turns(*, shift, event_date, actor):
+    """RF-AUT-005: jornada closure revokes capture turns and their bound sessions."""
+    from apps.identity.services import close_session_key
+
+    batches = CaptureBatch.objects.filter(status=CaptureBatch.Status.OPEN, events__shift=shift, events__event_date=event_date).distinct()
+    for batch in batches:
+        batch.status = CaptureBatch.Status.CONFIRMED
+        batch.confirmed_at = timezone.now()
+        batch.closed_at = batch.confirmed_at
+        batch.save(update_fields=["status", "confirmed_at", "closed_at", "updated_at"])
+        if batch.session_key:
+            close_session_key(session_key=batch.session_key, actor=actor or batch.operator, target=batch.operator, reason="jornada_closed")
+        record_event(actor=actor, action="attendance.capture_turn.closed", resource="CaptureBatch", resource_identifier=str(batch.public_id), context={"shift_id": str(shift.public_id), "event_date": str(event_date), "result": "success"})
 
 
 # --------------------------------------------------------------------------- #

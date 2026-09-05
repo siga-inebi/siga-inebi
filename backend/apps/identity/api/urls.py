@@ -13,6 +13,8 @@ from apps.identity.api.views import (
     RoleAssignmentRevokeView,
     RoleDetailView,
     RoleListCreateView,
+    PasswordResetConsumeView,
+    PasswordResetIssueView,
 )
 
 urlpatterns = [
@@ -48,4 +50,6 @@ urlpatterns = [
         AccountSessionCloseView.as_view(),
         name="identity-account-sessions-close",
     ),
+    path("accounts/<int:account_id>/password-resets/", PasswordResetIssueView.as_view()),
+    path("password-resets/consume/", PasswordResetConsumeView.as_view()),
 ]

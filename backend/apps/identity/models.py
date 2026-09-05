@@ -82,6 +82,27 @@ class ActivationChallenge(TimeStampedModel):
         )
 
 
+class PasswordResetChallenge(TimeStampedModel):
+    """One-use, time-limited password-reset secret; only its HMAC is stored."""
+
+    account = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="password_reset_challenges",
+    )
+    token_digest = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def is_usable(self, when=None):
+        when = when or timezone.now()
+        return bool(self.is_active and self.used_at is None and self.revoked_at is None and self.expires_at > when)
+
+
 class Role(TimeStampedModel):
     name = models.CharField(max_length=150, unique=True)
     slug = models.SlugField(max_length=150, unique=True)

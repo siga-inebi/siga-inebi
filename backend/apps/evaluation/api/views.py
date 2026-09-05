@@ -54,7 +54,7 @@ from apps.evaluation.services import (
     set_recovery_window,
     update_global_evaluation_config,
 )
-from apps.identity.scopes import can_access_student, teaching_assignment_queryset
+from apps.identity.scopes import can_access_student, can_read_historical_student, teaching_assignment_queryset
 
 EVALUATION_CONFIGURE_PERMISSION = "evaluation_configure_units"
 STUDENT_VIEW_PERMISSION = "student_view_basic"
@@ -834,9 +834,13 @@ class EnrolmentGradesView(APIView):
         if enrolment is None:
             raise ResourceNotFoundError("Enrolment not found.")
 
-        if not can_access_student(
-            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=enrolment.student
-        ):
+        if not can_read_historical_student(
+            user=request.user,
+            codename=STUDENT_VIEW_PERMISSION,
+            student=enrolment.student,
+            academic_cycle=enrolment.academic_cycle,
+            section=enrolment.section,
+        ) and not can_access_student(user=request.user, codename=STUDENT_VIEW_PERMISSION, student=enrolment.student):
             raise AuthorizationError(
                 "Permission denied. No hay una asociacion vigente con este estudiante."
             )

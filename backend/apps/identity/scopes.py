@@ -157,6 +157,17 @@ def can_access_student(*, user, codename, student, when=None):
         return False
 
 
+def can_read_historical_student(*, user, codename, student, academic_cycle, section):
+    """RF-ALC-004: only a past assignment in this cycle may unlock its history."""
+    if not user.has_atomic_permission(codename):
+        _audit_student_access_denied(user=user, codename=codename, reason="missing_permission")
+        return False
+    allowed = historical_teaching_assignment_queryset(user=user, academic_cycle=academic_cycle).filter(section=section).exists()
+    if not allowed:
+        _audit_student_access_denied(user=user, codename=codename, reason="missing_historical_scope")
+    return allowed
+
+
 def own_class_session_queryset(*, user, when=None):
     """
     Sessions a teacher account currently teaches (RF-HOR-010), derived from
@@ -263,8 +274,17 @@ def teaching_assignment_queryset(*, user, when=None):
     ).filter(Q(ends_on__isnull=True) | Q(ends_on__gte=current_date))
 
 
+def historical_teaching_assignment_queryset(*, user, academic_cycle):
+    """RF-ALC-004: read history comes from assignments in the target cycle."""
+    person = getattr(user, "person", None)
+    if person is None:
+        return TeachingAssignment.objects.none()
+    return TeachingAssignment.objects.filter(teacher=person, academic_cycle=academic_cycle, is_active=True)
+
+
 def _teacher_matches_scope(*, user, scope, when=None):
-    assignments = teaching_assignment_queryset(user=user, when=when)
+    cycle = _scope_context(scope).get("academic_cycle")
+    assignments = historical_teaching_assignment_queryset(user=user, academic_cycle=cycle) if cycle is not None and getattr(cycle, "status", None) != AcademicCycle.CycleStatus.ACTIVE else teaching_assignment_queryset(user=user, when=when)
     teaching_assignment = scope.get("teaching_assignment")
     if teaching_assignment is not None:
         assignment_id = getattr(teaching_assignment, "pk", teaching_assignment)

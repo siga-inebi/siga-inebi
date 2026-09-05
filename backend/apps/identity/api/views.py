@@ -16,6 +16,7 @@ from apps.identity.api.serializers import (
     AtomicPermissionSerializer,
     MyClassSessionSerializer,
     ProvisionedAccountSerializer,
+    PasswordResetConsumeSerializer,
     RoleAssignmentSerializer,
     RoleAssignmentWriteSerializer,
     RoleSerializer,
@@ -31,6 +32,8 @@ from apps.identity.services import (
     list_roles,
     my_weekly_schedule,
     provision_account_with_activation,
+    issue_password_reset,
+    consume_password_reset,
     reissue_activation_challenge,
     revoke_role_assignment,
     update_role,
@@ -272,3 +275,29 @@ class AccountSessionCloseView(GenericAPIView):
         account = queries.account_or_404(account_id)
         close_account_sessions(actor=request.user, user=account, administrative=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PasswordResetIssueView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "account_disable"
+    permission_scope = {"module_key": "identity"}
+
+    def post(self, request, account_id):
+        account = queries.account_or_404(account_id)
+        challenge, token = issue_password_reset(actor=request.user, account=account)
+        response = Response({"token": token, "expires_at": challenge.expires_at}, status=status.HTTP_201_CREATED)
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class PasswordResetConsumeView(GenericAPIView):
+    permission_classes = [permissions.AllowAny]
+    serializer_class = PasswordResetConsumeSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        consume_password_reset(token=serializer.validated_data["token"], new_password=serializer.validated_data["password"])
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        response["Cache-Control"] = "no-store"
+        return response

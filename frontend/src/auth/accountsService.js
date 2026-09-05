@@ -24,4 +24,6 @@ export const accountsService = {
     apiClient.post(`${ROOT}/accounts/${accountId}/disable/`, { force }),
   closeSessions: (accountId) =>
     apiClient.post(`${ROOT}/accounts/${accountId}/sessions/close/`, {}),
+  issuePasswordReset: (accountId) =>
+    apiClient.post(`${ROOT}/accounts/${accountId}/password-resets/`, {}),
 };
