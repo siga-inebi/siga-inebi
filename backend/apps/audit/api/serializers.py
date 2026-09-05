@@ -27,6 +27,13 @@ class AuditEventSerializer(serializers.ModelSerializer):
 class AuditEventQuerySerializer(serializers.Serializer):
     actor_id = serializers.IntegerField(required=False, help_text="Usuario autor del asiento.")
     resource = serializers.CharField(required=False, help_text="Capacidad o recurso afectado.")
+    resource_identifier = serializers.CharField(
+        required=False,
+        help_text=(
+            "Identificador del recurso afectado, p. ej. el pk del estudiante para "
+            "resource=Document (RF-EMI-007)."
+        ),
+    )
     action = serializers.CharField(
         required=False, help_text="Tipo de accion exacto, p. ej. documents.template.created."
     )
