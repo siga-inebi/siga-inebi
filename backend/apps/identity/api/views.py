@@ -16,6 +16,7 @@ from apps.identity.api.serializers import (
     AtomicPermissionSerializer,
     MyClassSessionSerializer,
     PasswordResetConsumeSerializer,
+    PasswordResetIssueResultSerializer,
     ProvisionedAccountSerializer,
     RoleAssignmentSerializer,
     RoleAssignmentWriteSerializer,
@@ -281,7 +282,9 @@ class PasswordResetIssueView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
     permission_codename = "account_disable"
     permission_scope = {"module_key": "identity"}
+    serializer_class = PasswordResetIssueResultSerializer
 
+    @extend_schema(request=None, responses={201: PasswordResetIssueResultSerializer})
     def post(self, request, account_id):
         account = queries.account_or_404(account_id)
         challenge, token = issue_password_reset(actor=request.user, account=account)
