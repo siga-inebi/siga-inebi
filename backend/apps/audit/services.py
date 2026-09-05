@@ -102,9 +102,7 @@ def record_audit_export(*, actor, date_from, date_to, count):
     )
 
 
-def declare_data_retention(
-    *, actor, category, period_days, legal_basis, applies_to_minors=False
-):
+def declare_data_retention(*, actor, category, period_days, legal_basis, applies_to_minors=False):
     """
     RNF-LEG-001: records a retention period for a category of data, with its
     legal/institutional justification. Declarative only -- this does not
