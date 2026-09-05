@@ -7,6 +7,7 @@ from .views import (
     DocumentTemplateVersionListView,
     DocumentTypeListView,
     FieldTagListView,
+    HistoricalCycleReportView,
     OfficialDocumentEligibilityView,
 )
 
@@ -30,6 +31,11 @@ urlpatterns = [
         "official-issuance/eligibility/",
         OfficialDocumentEligibilityView.as_view(),
         name="document-official-issuance-eligibility",
+    ),
+    path(
+        "historical-cycle-reports/",
+        HistoricalCycleReportView.as_view(),
+        name="document-historical-cycle-report",
     ),
     path(
         "delivery-receipts/",
