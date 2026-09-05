@@ -191,25 +191,55 @@ def get_active_document_template(*, institution, kind):
     return templates.get()
 
 
-def ensure_document_access(*, actor, student=None, document=None):
-    """Guard document reads by permission and explicit student scope."""
+def ensure_document_access(*, actor, student=None, document=None, access_type="read"):
+    """Guard and audit every document read or download from one boundary."""
     target_student = student or getattr(document, "student", None)
+    resource_identifier = str(getattr(document, "pk", "") or getattr(target_student, "pk", ""))
+    context = {
+        "result": "success",
+        "access_type": access_type,
+        "student_id": str(getattr(target_student, "pk", "")),
+    }
+    if document is not None:
+        context["document_id"] = str(document.pk)
+
     if target_student is None:
+        record_event(
+            actor=actor,
+            action="documents.document.read_denied",
+            resource="DocumentRecord",
+            resource_identifier=resource_identifier,
+            context={"result": "denied", "access_type": access_type, "reason": "missing_student"},
+        )
         raise AuthorizationError("El acceso a documentos requiere un estudiante como destino.")
 
     if not actor or not getattr(actor, "is_authenticated", False):
+        record_event(
+            actor=actor,
+            action="documents.document.read_denied",
+            resource="DocumentRecord",
+            resource_identifier=resource_identifier,
+            context={**context, "result": "denied", "reason": "unauthenticated"},
+        )
         raise AuthorizationError("Debe estar autenticado para leer documentos.")
 
     if actor.is_superuser:
+        record_event(
+            actor=actor,
+            action="documents.document.read",
+            resource="DocumentRecord",
+            resource_identifier=resource_identifier,
+            context=context,
+        )
         return True
 
     if not actor.has_atomic_permission(DOCUMENT_READ_PERMISSION):
         record_event(
             actor=actor,
             action="documents.document.read_denied",
-            resource="StudentDocument",
-            resource_identifier=str(target_student.pk),
-            context={"result": "denied", "reason": "missing_permission"},
+            resource="DocumentRecord",
+            resource_identifier=resource_identifier,
+            context={**context, "result": "denied", "reason": "missing_permission"},
         )
         raise AuthorizationError("El actor no tiene permiso para leer documentos.")
 
@@ -217,25 +247,25 @@ def ensure_document_access(*, actor, student=None, document=None):
         record_event(
             actor=actor,
             action="documents.document.read_denied",
-            resource="StudentDocument",
-            resource_identifier=str(target_student.pk),
-            context={"result": "denied", "reason": "missing_scope"},
+            resource="DocumentRecord",
+            resource_identifier=resource_identifier,
+            context={**context, "result": "denied", "reason": "missing_scope"},
         )
         raise AuthorizationError("El actor no tiene el alcance requerido para leer documentos.")
 
     record_event(
         actor=actor,
         action="documents.document.read",
-        resource="StudentDocument",
-        resource_identifier=str(target_student.pk),
-        context={"result": "success"},
+        resource="DocumentRecord",
+        resource_identifier=resource_identifier,
+        context=context,
     )
     return True
 
 
 def issue_document_download_token(*, actor, document):
     """Issue a brief signed document download token."""
-    ensure_document_access(actor=actor, document=document)
+    ensure_document_access(actor=actor, document=document, access_type="download")
     raw_token = secrets.token_urlsafe(24)
     expires_at = timezone.now() + timedelta(minutes=5)
     token = DocumentDownloadToken.objects.create(

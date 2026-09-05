@@ -207,6 +207,19 @@ describe("servicios de los modulos", () => {
         { shift_id: SHIFT }
       );
 
+      await attendanceService.previewSectionClosure({
+        section_id: "section-1",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/section-closures/preview/?section_id=section-1"
+      );
+
+      await attendanceService.closeSection({ section_id: "section-1" });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/attendance/section-closures/",
+        { section_id: "section-1" }
+      );
+
       await attendanceService.listAlerts();
       expect(apiClient.get).toHaveBeenCalledWith("/attendance/alerts/");
 
