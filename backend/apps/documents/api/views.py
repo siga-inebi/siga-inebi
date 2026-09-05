@@ -42,6 +42,7 @@ from .serializers import (
     DocumentTemplateTypeSerializer,
     DocumentTemplateUpdateSerializer,
     DocumentTemplateVersionSerializer,
+    DocumentVerificationResponseSerializer,
     DocumentUploadSerializer,
     FieldTagSerializer,
     HistoricalCycleReportQuerySerializer,
@@ -51,6 +52,7 @@ from .serializers import (
 
 CATALOGUE = ["documents: catalogue"]
 OFFICIAL_ISSUANCE = ["documents: official issuance"]
+PUBLIC_VERIFICATION = ["documents: public verification"]
 
 INCLUDE_INACTIVE = OpenApiParameter(
     name="include_inactive",
@@ -354,6 +356,27 @@ class DocumentDeliveryReceiptCreateView(GenericAPIView):
             notes=serializer.validated_data.get("notes", ""),
         )
         return Response(DocumentDeliveryReceiptSerializer(receipt).data, status=201)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Verificar la autenticidad de un documento emitido",
+        description=(
+            "Consulta publica y sin autenticacion (RF-EMI-009): confirma si un codigo "
+            "impreso en un documento emitido es genuino. No revela a quien se emitio el "
+            "documento, solo el tipo y la fecha de emision."
+        ),
+        tags=PUBLIC_VERIFICATION,
+        responses={200: DocumentVerificationResponseSerializer},
+    ),
+)
+class DocumentVerificationView(GenericAPIView):
+    permission_classes = [permissions.AllowAny]
+    serializer_class = DocumentVerificationResponseSerializer
+
+    def get(self, request, code):
+        result = services.verify_document(code=code)
+        return Response(result)
 
 
 class DocumentRecordUploadView(GenericAPIView):

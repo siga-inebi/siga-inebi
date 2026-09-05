@@ -347,3 +347,32 @@ class DocumentBatchRun(TimeStampedModel):
 
     def __str__(self):
         return self.client_batch_id or f"batch-run-{self.pk}"
+class DocumentVerificationCode(TimeStampedModel):
+    """
+    Public verification record for an emitted document (RF-EMI-009).
+
+    Unlike ``OfficialFolio.folio_code``, ``code`` is a random, unguessable
+    token (``secrets.token_urlsafe``), never sequential -- a public lookup
+    must not let anyone enumerate issued documents by walking a counter.
+    Deliberately carries no student reference: the public endpoint only
+    needs to confirm authenticity, and keeping the model minimal means it
+    cannot leak more than that even by accident.
+    """
+
+    code = models.CharField(max_length=64, unique=True)
+    document_type = models.CharField(max_length=100, blank=True)
+    issued_at = models.CharField(max_length=50, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.code
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Document verification codes cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document verification codes cannot be deleted.")

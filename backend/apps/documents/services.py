@@ -34,6 +34,7 @@ from apps.documents.models import (
     DocumentRecord,
     DocumentTemplate,
     DocumentTemplateVersion,
+    DocumentVerificationCode,
     OfficialFolio,
 )
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
@@ -604,22 +605,37 @@ def _audit(actor, action, instance, *, changes=None, **context):
 
 
 def _record_document_issue(*, actor, student=None, document_type="", issued_at=None, folio=""):
-    """Persist issuing metadata in the audit trail for official or historical documents."""
+    """
+    Persist issuing metadata in the audit trail for official or historical
+    documents, and mint the public verification code for RF-EMI-009. The
+    code is random and unique (``DocumentVerificationCode.code``), never
+    derived from the folio's sequential counter, so a public lookup cannot
+    enumerate issued documents.
+    """
+    verification_code = secrets.token_urlsafe(24)
+    DocumentVerificationCode.objects.create(
+        code=verification_code,
+        document_type=str(document_type or ""),
+        issued_at=str(issued_at) if issued_at is not None else "",
+    )
+
     payload = {
         "document_type": str(document_type or ""),
         "issued_at": str(issued_at) if issued_at is not None else "",
         "folio": str(folio or ""),
+        "verification_code": verification_code,
         "result": "success",
     }
     if student is not None:
         payload["student_id"] = getattr(student, "pk", student)
-    return record_event(
+    record_event(
         actor=actor,
         action="documents.document.issued",
         resource="Document",
         resource_identifier=str(getattr(student, "pk", "") or ""),
         context=payload,
     )
+    return verification_code
 
 
 def _changed(instance, actor, action, **candidates):
@@ -907,9 +923,29 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
     title = f"{document_type}: {student_name}"
     issued_at = data.get("issued_at") or timezone.now().isoformat()
     folio = data.get("folio") or ""
+    student = data.get("student")
+
+    _audit(
+        actor,
+        "documents.generated_document.compiled",
+        template,
+        document_type=getattr(template, "kind", "other"),
+        persisted=False,
+        issued_at=str(issued_at),
+        folio=folio,
+    )
+    verification_code = _record_document_issue(
+        actor=actor,
+        student=student,
+        document_type=document_type,
+        issued_at=issued_at,
+        folio=folio,
+    )
+
     metadata_line = f"Emitido: {issued_at}"
     if folio:
         metadata_line = f"{metadata_line} | Folio: {folio}"
+    verification_line = f"Codigo de verificacion: {verification_code}"
     # El pie de emision se DIBUJA: se construia y se descartaba, asi que el folio
     # no aparecia en el documento que alguien firma o archiva — el numero que
     # hace rastreable una certificacion vivia solo en la bitacora.
@@ -919,6 +955,9 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
         + b") Tj ET\n"
         + b"BT /F1 9 Tf 30 90 Td ("
         + _pdf_text(metadata_line, limit=120)
+        + b") Tj ET\n"
+        + b"BT /F1 8 Tf 30 75 Td ("
+        + _pdf_text(verification_line, limit=140)
         + b") Tj ET\n"
     )
     rendered = (
@@ -938,24 +977,6 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
         b"<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
     )
 
-    _audit(
-        actor,
-        "documents.generated_document.compiled",
-        template,
-        document_type=getattr(template, "kind", "other"),
-        persisted=False,
-        issued_at=str(issued_at),
-        folio=folio,
-    )
-    student = data.get("student")
-    _record_document_issue(
-        actor=actor,
-        student=student,
-        document_type=document_type,
-        issued_at=issued_at,
-        folio=folio,
-    )
-
     generated = type(
         "GeneratedDocument",
         (),
@@ -966,6 +987,7 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
             "persisted": False,
             "issued_at": str(issued_at),
             "folio": folio,
+            "verification_code": verification_code,
         },
     )()
     return generated
@@ -1076,6 +1098,23 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
 
     from apps.evaluation.services import get_final_subject_grade
 
+    _audit(
+        actor,
+        "documents.historical_cycle_report.compiled",
+        enrolment,
+        cycle_id=str(cycle.public_id),
+        persisted=False,
+        issued_at=str(issued_at),
+        subject_count=grades.count(),
+    )
+    verification_code = _record_document_issue(
+        actor=actor,
+        student=enrolment.student,
+        document_type="Boleta",
+        issued_at=issued_at,
+        folio="",
+    )
+
     lines = [
         "Boleta de calificaciones",
         f"Estudiante: {enrolment.student}",
@@ -1090,6 +1129,7 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
             )
     else:
         lines.append("- Sin calificaciones registradas.")
+    lines.append(f"Codigo de verificacion: {verification_code}")
 
     stream = b""
     for index, line in enumerate(lines):
@@ -1115,23 +1155,6 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
         b"<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
     )
 
-    _audit(
-        actor,
-        "documents.historical_cycle_report.compiled",
-        enrolment,
-        cycle_id=str(cycle.public_id),
-        persisted=False,
-        issued_at=str(issued_at),
-        subject_count=grades.count(),
-    )
-    _record_document_issue(
-        actor=actor,
-        student=enrolment.student,
-        document_type="Boleta",
-        issued_at=issued_at,
-        folio="",
-    )
-
     generated = type(
         "GeneratedDocument",
         (),
@@ -1142,9 +1165,33 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
             "persisted": False,
             "issued_at": str(issued_at),
             "folio": "",
+            "verification_code": verification_code,
         },
     )()
     return generated
+
+
+def verify_document(*, code):
+    """
+    Public, unauthenticated lookup for RF-EMI-009: confirms whether a code
+    printed on an emitted document is genuine. Deliberately returns only
+    ``document_type``/``issued_at`` on a match and ``{"valid": False}``
+    otherwise -- never a distinct "malformed" vs "not found" answer, and
+    never who the document was for, so the response cannot be used to
+    enumerate or identify students.
+    """
+    if not code:
+        return {"valid": False}
+
+    record = DocumentVerificationCode.objects.filter(code=code).first()
+    if record is None:
+        return {"valid": False}
+
+    return {
+        "valid": True,
+        "document_type": record.document_type,
+        "issued_at": record.issued_at,
+    }
 
 
 def ensure_official_document_issuance_permission(*, actor):

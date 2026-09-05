@@ -11,6 +11,7 @@ from .views import (
     DocumentTemplatePreviewView,
     DocumentTemplateVersionListView,
     DocumentTypeListView,
+    DocumentVerificationView,
     EnrolmentDocumentRecordListView,
     FieldTagListView,
     HistoricalCycleReportView,
@@ -73,5 +74,10 @@ urlpatterns = [
         "official-issuance/batches/",
         DocumentBatchCompileView.as_view(),
         name="document-batch-compile",
+    ),
+    path(
+        "verify/<str:code>/",
+        DocumentVerificationView.as_view(),
+        name="document-verify",
     ),
 ]

@@ -198,6 +198,12 @@ class DocumentTemplatePreviewResponseSerializer(serializers.Serializer):
     marker_count = serializers.IntegerField()
 
 
+class DocumentVerificationResponseSerializer(serializers.Serializer):
+    valid = serializers.BooleanField()
+    document_type = serializers.CharField(required=False)
+    issued_at = serializers.CharField(required=False)
+
+
 class DocumentRecordSerializer(serializers.ModelSerializer):
     enrolment_id = serializers.UUIDField(
         source="enrolment.public_id", allow_null=True, read_only=True

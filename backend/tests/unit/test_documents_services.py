@@ -11,7 +11,7 @@ from apps.audit.models import AuditEvent
 from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
-from apps.documents.models import DocumentRecord, DocumentTemplate
+from apps.documents.models import DocumentRecord, DocumentTemplate, DocumentVerificationCode
 from apps.documents.services import (
     compile_document_batch,
     compile_generated_document,
@@ -41,6 +41,7 @@ from apps.documents.services import (
     validate_document_checksum,
     validate_document_download_token,
     validate_document_upload,
+    verify_document,
     verify_stored_document_checksum,
 )
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
@@ -1003,6 +1004,55 @@ def test_generated_documents_are_logged_in_the_emission_history():
     assert event.context["folio"] == folio
 
 
+def test_generated_document_prints_a_verification_code():
+    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+
+    generated = compile_generated_document(
+        template=template,
+        payload={"student_name": "Ana López", "document_type": "Certificado"},
+    )
+
+    assert generated.verification_code
+    assert generated.verification_code.encode() in generated.content
+    assert DocumentVerificationCode.objects.filter(code=generated.verification_code).exists()
+
+
+def test_verify_document_confirms_a_genuine_code():
+    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+    generated = compile_generated_document(
+        template=template,
+        payload={"student_name": "Ana López", "document_type": "Certificado"},
+    )
+
+    result = verify_document(code=generated.verification_code)
+
+    assert result == {
+        "valid": True,
+        "document_type": "Certificado",
+        "issued_at": DocumentVerificationCode.objects.get(
+            code=generated.verification_code
+        ).issued_at,
+    }
+
+
+def test_verify_document_rejects_an_unknown_code():
+    assert verify_document(code="not-a-real-code") == {"valid": False}
+
+
+def test_verify_document_rejects_an_empty_code():
+    assert verify_document(code="") == {"valid": False}
+
+
+def test_verification_codes_are_never_sequential_or_guessable():
+    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+
+    first = compile_generated_document(template=template, payload={})
+    second = compile_generated_document(template=template, payload={})
+
+    assert first.verification_code != second.verification_code
+    assert len(first.verification_code) >= 24
+
+
 def test_closed_cycle_history_report_is_generated_without_altering_historical_data():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
     section = SectionFactory(academic_cycle=cycle)
@@ -1036,6 +1086,8 @@ def test_closed_cycle_history_report_is_generated_without_altering_historical_da
 
     report = compile_historical_cycle_report(enrolment=enrolment)
 
+    assert report.verification_code
+    assert report.verification_code.encode() in report.content
     assert report.persisted is False
     assert report.storage_key is None
     assert b"Boleta" in report.content
