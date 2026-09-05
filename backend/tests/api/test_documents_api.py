@@ -5,6 +5,7 @@ from apps.academics.services import close_academic_cycle
 from apps.audit.models import AuditEvent
 from apps.documents.field_catalog import FIELD_TAG_CODES
 from apps.documents.models import DocumentTemplate
+from apps.documents.services import compile_generated_document
 from apps.enrolments.services import create_enrolment, set_document_requirement
 from tests.factories.academic import SectionFactory
 from tests.factories.documents import DocumentTemplateFactory, DocumentTemplateVersionFactory
@@ -482,6 +483,30 @@ def test_document_batch_compile_is_idempotent_via_client_batch_id(auth_client):
 
     assert first.json() == {"count": 1, "replayed": False}
     assert second.json() == {"count": 1, "replayed": True}
+
+
+def test_document_verification_is_public_and_confirms_a_genuine_code(client):
+    """RF-EMI-009: no authentication required, per the issue's own acceptance criteria."""
+    template = DocumentTemplateFactory()
+    generated = compile_generated_document(
+        template=template, payload={"document_type": "Certificado"}
+    )
+
+    response = client.get(reverse("document-verify", args=[generated.verification_code]))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": True,
+        "document_type": "Certificado",
+        "issued_at": generated.issued_at,
+    }
+
+
+def test_document_verification_rejects_an_unknown_code(client):
+    response = client.get(reverse("document-verify", args=["does-not-exist"]))
+
+    assert response.status_code == 200
+    assert response.json() == {"valid": False}
 
 
 def test_official_document_eligibility_allows_superuser_without_role(client):

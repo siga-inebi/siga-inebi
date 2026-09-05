@@ -190,3 +190,9 @@ class DocumentTemplatePreviewResponseSerializer(serializers.Serializer):
     content = serializers.CharField()
     markers = serializers.ListField(child=serializers.CharField())
     marker_count = serializers.IntegerField()
+
+
+class DocumentVerificationResponseSerializer(serializers.Serializer):
+    valid = serializers.BooleanField()
+    document_type = serializers.CharField(required=False)
+    issued_at = serializers.CharField(required=False)
