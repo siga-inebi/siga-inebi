@@ -1,6 +1,9 @@
+from datetime import date
+
 import pytest
 
 from apps.audit.models import AuditEvent
+from apps.people.queries import is_minor
 from apps.people.services import create_person, deactivate_person, update_person
 from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
@@ -133,3 +136,54 @@ def test_deactivate_person_is_idempotent():
 
     assert result is person
     assert AuditEvent.objects.filter(resource="Person").count() == 0
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_create_person_persists_birth_date():
+    person = create_person(
+        actor=None, first_name="Ana", last_name="Gomez", birth_date=date(2015, 3, 1)
+    )
+
+    person.refresh_from_db()
+    assert person.birth_date == date(2015, 3, 1)
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_update_person_can_set_birth_date():
+    person = PersonFactory(birth_date=None)
+
+    update_person(person=person, actor=None, birth_date=date(2010, 6, 15))
+
+    person.refresh_from_db()
+    assert person.birth_date == date(2010, 6, 15)
+
+
+@pytest.mark.unit
+def test_is_minor_returns_none_for_unknown_birth_date():
+    assert is_minor(None) is None
+
+
+@pytest.mark.unit
+def test_is_minor_is_true_below_threshold_age():
+    today = date(2026, 9, 5)
+    birth_date = date(2015, 9, 6)  # turns 18 the day after `today`
+
+    assert is_minor(birth_date, as_of=today) is True
+
+
+@pytest.mark.unit
+def test_is_minor_is_false_on_18th_birthday():
+    today = date(2026, 9, 5)
+    birth_date = date(2008, 9, 5)  # turns 18 exactly on `today`
+
+    assert is_minor(birth_date, as_of=today) is False
+
+
+@pytest.mark.unit
+def test_is_minor_is_false_well_above_threshold_age():
+    today = date(2026, 9, 5)
+    birth_date = date(1990, 1, 1)
+
+    assert is_minor(birth_date, as_of=today) is False

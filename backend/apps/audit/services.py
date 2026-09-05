@@ -2,6 +2,7 @@ from collections.abc import Mapping
 
 from apps.audit.middleware import get_audit_context
 from apps.audit.models import AuditEvent
+from apps.common.exceptions import DomainError
 
 SENSITIVE_CONTEXT_KEYS = {
     "password",
@@ -97,6 +98,32 @@ def record_audit_export(*, actor, date_from, date_to, count):
             "date_from": date_from.isoformat() if date_from else None,
             "date_to": date_to.isoformat() if date_to else None,
             "count": count,
+        },
+    )
+
+
+def declare_data_retention(*, actor, category, period_days, legal_basis, applies_to_minors=False):
+    """
+    RNF-LEG-001: records a retention period for a category of data, with its
+    legal/institutional justification. Declarative only -- this does not
+    enforce or schedule any purge; the institution's retention policy is not
+    yet finalized, so automated deletion is out of scope until it is.
+    """
+    if period_days <= 0:
+        raise DomainError("El plazo de retencion debe ser un numero de dias mayor a cero.")
+    if not legal_basis:
+        raise DomainError("Debe declararse un fundamento legal para el plazo de retencion.")
+
+    return record_event(
+        actor=actor,
+        action="compliance.retention.declared",
+        resource="DataRetentionDeclaration",
+        resource_identifier=category,
+        context={
+            "category": category,
+            "period_days": period_days,
+            "legal_basis": legal_basis,
+            "applies_to_minors": applies_to_minors,
         },
     )
 
