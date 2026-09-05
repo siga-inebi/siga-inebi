@@ -34,11 +34,14 @@ from apps.documents.services import (
     record_document_read_audit,
     register_document_delivery_receipt,
     register_scanned_document,
+    replace_document_record,
     student_document_dossier,
     update_document_template,
+    upload_document_record,
     validate_document_checksum,
     validate_document_download_token,
     validate_document_upload,
+    verify_stored_document_checksum,
 )
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import create_enrolment, set_document_requirement
@@ -392,6 +395,27 @@ def test_preview_document_template_rejects_unknown_markers():
         preview_document_template(template=template, payload={"student.health_note": "abc"})
 
 
+def test_preview_document_template_never_evaluates_marker_content():
+    """
+    RNF-SEG-004: the engine only does str.replace against a closed marker
+    catalogue -- it must never interpret a payload value as code, no matter
+    how code-like the value looks.
+    """
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Constancia",
+        code="CONST",
+        content="Nombre: {{student.full_name}}",
+    )
+
+    preview = preview_document_template(
+        template=template,
+        payload={"student.full_name": "{{7*7}}__import__('os').system('id')"},
+    )
+
+    assert preview["content"] == "Nombre: {{7*7}}__import__('os').system('id')"
+
+
 def test_validate_document_checksum_accepts_matching_payload():
     payload = b"archivo"
     document = DocumentRecord.objects.create(
@@ -405,6 +429,39 @@ def test_validate_document_checksum_accepts_matching_payload():
     document.save(update_fields=["checksum", "updated_at"])
 
     assert validate_document_checksum(document=document, payload=payload) is True
+
+
+def test_uploaded_document_can_be_verified_and_replaced_without_losing_history(tmp_path, settings):
+    settings.MEDIA_ROOT = tmp_path
+    student = StudentFactory()
+    upload_permission = PermissionFactory(codename="document_upload")
+    read_permission = PermissionFactory(codename="document_read")
+    actor = UserFactory()
+    assignment = RoleAssignmentFactory(
+        user=actor,
+        role=RoleFactory(permissions=[upload_permission, read_permission]),
+    )
+    ScopeGrantFactory(assignment=assignment, student=student)
+    original = upload_document_record(
+        actor=actor,
+        student=student,
+        upload=SimpleUploadedFile("respaldo.pdf", b"version one", content_type="application/pdf"),
+    )
+
+    assert verify_stored_document_checksum(actor=actor, document=original) is True
+
+    replacement = replace_document_record(
+        actor=actor,
+        record=original,
+        upload=SimpleUploadedFile("respaldo.pdf", b"version two", content_type="application/pdf"),
+    )
+    original.refresh_from_db()
+
+    assert original.is_active is False
+    assert original.status == DocumentRecord.StorageStatus.ARCHIVED
+    assert replacement.supersedes_id == original.pk
+    assert replacement.version_group_id == original.version_group_id
+    assert replacement.version_number == 2
 
 
 def test_document_storage_usage_summary_counts_and_sums_document_records():
@@ -808,6 +865,48 @@ def test_document_download_tokens_are_issued_and_validated():
     assert validate_document_download_token(document=document, token=token.token) is True
     with pytest.raises(DomainError, match="valid|token"):
         validate_document_download_token(document=document, token="invalid-token")
+
+
+def test_document_access_audits_an_unauthenticated_download_attempt():
+    student = StudentFactory()
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="justificacion.pdf",
+        storage_key="local/justificacion.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    with pytest.raises(AuthorizationError, match="autenticado"):
+        ensure_document_access(actor=None, document=document, access_type="download")
+
+    event = AuditEvent.objects.get(action="documents.document.read_denied")
+    assert event.resource == "DocumentRecord"
+    assert event.resource_identifier == str(document.pk)
+    assert event.context["reason"] == "unauthenticated"
+    assert event.context["access_type"] == "download"
+
+
+def test_superuser_document_download_is_audited_from_the_central_guard():
+    actor = UserFactory(is_superuser=True)
+    student = StudentFactory()
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="justificacion.pdf",
+        storage_key="local/justificacion-superuser.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    issue_document_download_token(actor=actor, document=document)
+
+    event = AuditEvent.objects.get(action="documents.document.read")
+    assert event.actor == actor
+    assert event.resource == "DocumentRecord"
+    assert event.resource_identifier == str(document.pk)
+    assert event.context["access_type"] == "download"
 
 
 def test_register_document_delivery_receipt_records_guardian_acknowledgement():

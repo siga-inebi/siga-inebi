@@ -21,13 +21,19 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions
 from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
 
 from apps.audit import services
 from apps.common.exceptions import AuthorizationError
 
-from .serializers import AuditEventQuerySerializer, AuditEventSerializer
+from .serializers import (
+    AuditEventQuerySerializer,
+    AuditEventSerializer,
+    DataRetentionDeclarationSerializer,
+)
 
 AUDIT_READ_PERMISSION = "audit_read"
+RETENTION_POLICY_DECLARE_PERMISSION = "retention_policy_declare"
 
 TAGS = ["audit: bitacora"]
 
@@ -118,3 +124,28 @@ class AuditEventExportView(GenericAPIView):
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="audit-events.csv"'
         return response
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Declarar plazo de retencion de una categoria de datos",
+        description=(
+            "RNF-LEG-001: registra en la bitacora el plazo de retencion declarado "
+            "para una categoria de datos, con su justificacion legal. Declarativo "
+            "unicamente -- no programa ni ejecuta ninguna purga."
+        ),
+        tags=TAGS,
+        request=DataRetentionDeclarationSerializer,
+        responses={201: DataRetentionDeclarationSerializer},
+    ),
+)
+class DataRetentionDeclarationView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DataRetentionDeclarationSerializer
+
+    def post(self, request):
+        _require_permission(request, RETENTION_POLICY_DECLARE_PERMISSION)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        services.declare_data_retention(actor=request.user, **serializer.validated_data)
+        return Response(serializer.validated_data, status=201)

@@ -1,7 +1,13 @@
 from rest_framework import serializers
 
 from apps.academics.models import Grade, Section
-from apps.documents.models import DocumentDeliveryReceipt, DocumentTemplate, DocumentTemplateVersion
+from apps.documents.models import (
+    DocumentDeliveryReceipt,
+    DocumentRecord,
+    DocumentTemplate,
+    DocumentTemplateVersion,
+)
+from apps.enrolments.models import Enrolment
 from apps.students.models import Guardian, Student
 
 
@@ -190,3 +196,54 @@ class DocumentTemplatePreviewResponseSerializer(serializers.Serializer):
     content = serializers.CharField()
     markers = serializers.ListField(child=serializers.CharField())
     marker_count = serializers.IntegerField()
+
+
+class DocumentRecordSerializer(serializers.ModelSerializer):
+    enrolment_id = serializers.UUIDField(
+        source="enrolment.public_id", allow_null=True, read_only=True
+    )
+    supersedes_id = serializers.UUIDField(
+        source="supersedes.public_id", allow_null=True, read_only=True
+    )
+
+    class Meta:
+        model = DocumentRecord
+        fields = [
+            "public_id",
+            "enrolment_id",
+            "filename",
+            "content_type",
+            "size_bytes",
+            "checksum",
+            "status",
+            "is_active",
+            "version_group_id",
+            "version_number",
+            "supersedes_id",
+            "created_at",
+        ]
+
+
+class DocumentUploadSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField()
+    enrolment_id = serializers.UUIDField(required=False, allow_null=True)
+    file = serializers.FileField()
+
+    def validate(self, attrs):
+        student = Student.objects.filter(public_id=attrs["student_id"]).first()
+        if student is None:
+            raise serializers.ValidationError({"student_id": "No existe el estudiante indicado."})
+        enrolment = None
+        if attrs.get("enrolment_id"):
+            enrolment = Enrolment.objects.filter(public_id=attrs["enrolment_id"]).first()
+            if enrolment is None:
+                raise serializers.ValidationError(
+                    {"enrolment_id": "No existe la matricula indicada."}
+                )
+        attrs["student"] = student
+        attrs["enrolment"] = enrolment
+        return attrs
+
+
+class DocumentReplaceSerializer(serializers.Serializer):
+    file = serializers.FileField()

@@ -41,6 +41,9 @@ const documentsServiceMock = vi.hoisted(() => ({
   deactivateTemplate: vi.fn(),
   listTemplateVersions: vi.fn(),
   listFieldTags: vi.fn(),
+  listEnrolmentRecords: vi.fn(),
+  previewTemplate: vi.fn(),
+  uploadRecord: vi.fn(),
   issuanceEligibility: vi.fn(),
 }));
 
@@ -306,6 +309,15 @@ describe("pantallas de los modulos con backend previo", () => {
       .mockReset()
       .mockResolvedValue(paged([]));
     documentsServiceMock.listFieldTags.mockReset().mockResolvedValue(paged([]));
+    documentsServiceMock.listEnrolmentRecords
+      .mockReset()
+      .mockResolvedValue(paged([]));
+    documentsServiceMock.previewTemplate.mockReset().mockResolvedValue({
+      content: "",
+      markers: [],
+      marker_count: 0,
+    });
+    documentsServiceMock.uploadRecord.mockReset().mockResolvedValue({});
 
     attendanceServiceMock.listEvents.mockReset().mockResolvedValue(paged([]));
     attendanceServiceMock.listAlerts.mockReset().mockResolvedValue(paged([]));
@@ -699,6 +711,33 @@ describe("pantallas de los modulos con backend previo", () => {
       expect(documentsServiceMock.listFieldTags).toHaveBeenCalledWith(
         expect.objectContaining({ include_sensitive: true })
       );
+    });
+
+    test("la vista previa usa datos de muestra sin guardar ni emitir", async () => {
+      documentsServiceMock.previewTemplate.mockResolvedValue({
+        content: "Constancia para Estudiante de ejemplo",
+        markers: ["student.full_name"],
+        marker_count: 1,
+      });
+      const user = userEvent.setup();
+      renderWithRouter(<TemplatesPage />);
+      await screen.findByText("Constancia de inscripcion");
+
+      await user.click(screen.getByRole("button", { name: "Vista previa" }));
+
+      expect(
+        await screen.findByRole("dialog", {
+          name: "Vista previa: Constancia de inscripcion",
+        })
+      ).toBeInTheDocument();
+      expect(documentsServiceMock.previewTemplate).toHaveBeenCalledWith(
+        "tpl-1",
+        expect.objectContaining({
+          "student.full_name": "Estudiante de ejemplo",
+        })
+      );
+      expect(documentsServiceMock.createTemplate).not.toHaveBeenCalled();
+      expect(documentsServiceMock.updateTemplate).not.toHaveBeenCalled();
     });
   });
 

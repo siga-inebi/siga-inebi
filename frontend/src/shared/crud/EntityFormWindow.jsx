@@ -166,7 +166,10 @@ export function EntityFormWindow({
 /** Campos que nunca se parten a media reja. */
 function isFullWidth(field) {
   return (
-    field.span === "full" || field.type === "file" || field.type === "checkbox"
+    field.span === "full" ||
+    field.type === "file" ||
+    field.type === "checkbox" ||
+    field.type === "textarea"
   );
 }
 
@@ -250,6 +253,8 @@ function EntityField({ disabled, field, onChange, value }) {
       onChange={(event) => onChange(field.name, event.target.value)}
       placeholder={field.placeholder}
       required={field.required}
+      multiline={field.type === "textarea"}
+      minRows={field.type === "textarea" ? (field.rows ?? 5) : undefined}
       slotProps={{
         ...(field.type === "number" && field.min != null
           ? { htmlInput: { min: field.min } }
