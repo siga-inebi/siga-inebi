@@ -500,6 +500,13 @@ class ClassSession(TimeStampedModel):
     schedule_block = models.ForeignKey(
         ClassScheduleBlock, on_delete=models.PROTECT, related_name="class_sessions"
     )
+    classroom = models.ForeignKey(
+        Classroom,
+        on_delete=models.PROTECT,
+        related_name="class_sessions",
+        null=True,
+        blank=True,
+    )
     day_of_week = models.PositiveSmallIntegerField(choices=Weekday.choices)
 
     class Meta:

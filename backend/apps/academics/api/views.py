@@ -975,12 +975,18 @@ class SectionClassSessionListCreateView(CatalogueListCreateView):
         schedule_block = queries.class_schedule_block_for_payload(
             self.institution, payload["schedule_block_id"]
         )
+        classroom = (
+            queries.classroom_or_404(self.institution, payload["classroom_id"])
+            if payload.get("classroom_id")
+            else None
+        )
         return services.create_class_session(
             academic_cycle=section.academic_cycle,
             section=section,
             subject=subject,
             schedule_block=schedule_block,
             day_of_week=payload["day_of_week"],
+            classroom=classroom,
             actor=request.user,
         )
 
