@@ -25,6 +25,7 @@ from apps.common.db import unique_violation_as
 from apps.common.exceptions import AuthorizationError, DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
 from apps.documents.models import (
+    DocumentBatchRun,
     DocumentDeliveryReceipt,
     DocumentDownloadToken,
     DocumentRecord,
@@ -837,6 +838,7 @@ def compile_document_batch(
     document_type="Boleta",
     issued_at=None,
     actor=None,
+    client_batch_id=None,
 ):
     """Compile a block of in-memory report cards for a whole section or grade.
 
@@ -844,9 +846,19 @@ def compile_document_batch(
     never creates a persisted DocumentRecord or mutates any historical academic
     state. This is the minimal batch path required by RF-EMI-006 while keeping
     the data model and audit trail consistent with the rest of the document domain.
+
+    ``client_batch_id`` makes a retry idempotent: a caller who resends the same
+    id after a network failure gets the recorded outcome back (count only, no
+    regenerated PDFs) instead of the batch running -- and being audited -- a
+    second time. Ampliacion a pedido del usuario; RF-EMI-006 no la exige.
     """
     if section is None and grade is None:
         raise DomainError("Se requiere una seccion o un grado para generar el lote de documentos.")
+
+    if client_batch_id:
+        existing = DocumentBatchRun.objects.filter(client_batch_id=client_batch_id).first()
+        if existing is not None:
+            return {"count": existing.enrolment_count, "documents": [], "replayed": True}
 
     queryset = Enrolment.objects.select_related("student", "academic_cycle", "grade", "section")
     if section is not None:
@@ -876,6 +888,21 @@ def compile_document_batch(
                 "folio": generated.folio,
             }
         )
+
+    if client_batch_id:
+        try:
+            with unique_violation_as({"unique_document_batch_run_client_batch_id": "replayed"}):
+                DocumentBatchRun.objects.create(
+                    client_batch_id=client_batch_id,
+                    document_type=document_type,
+                    enrolment_count=len(documents),
+                )
+        except DomainError:
+            # Lost the race to a concurrent identical request: that request's
+            # audit event already covers this batch, so this one must not add
+            # a second. Return its recorded outcome instead.
+            existing = DocumentBatchRun.objects.get(client_batch_id=client_batch_id)
+            return {"count": existing.enrolment_count, "documents": [], "replayed": True}
 
     _audit(
         actor,

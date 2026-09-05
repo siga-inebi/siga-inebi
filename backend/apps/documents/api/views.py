@@ -29,6 +29,8 @@ from apps.academics.api.views import (
 from apps.documents import queries, services
 
 from .serializers import (
+    DocumentBatchCompileResponseSerializer,
+    DocumentBatchCompileSerializer,
     DocumentDeliveryReceiptCreateSerializer,
     DocumentDeliveryReceiptSerializer,
     DocumentTemplateCreateSerializer,
@@ -276,6 +278,37 @@ class HistoricalCycleReportView(GenericAPIView):
         response = HttpResponse(report.content, content_type=report.content_type)
         response["Content-Disposition"] = 'attachment; filename="boleta.pdf"'
         return response
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Emitir documentos por lote",
+        description=(
+            "Genera en memoria las boletas de calificaciones de toda una seccion o grado "
+            "(RF-EMI-006). Reenviar el mismo client_batch_id tras un fallo de red devuelve "
+            "el resultado ya registrado en lugar de repetir la emision."
+        ),
+        tags=OFFICIAL_ISSUANCE,
+        request=DocumentBatchCompileSerializer,
+        responses={200: DocumentBatchCompileResponseSerializer},
+    ),
+)
+class DocumentBatchCompileView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentBatchCompileSerializer
+
+    def post(self, request):
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = services.compile_document_batch(
+            section=serializer.validated_data["section"],
+            grade=serializer.validated_data["grade"],
+            document_type=serializer.validated_data["document_type"],
+            client_batch_id=serializer.validated_data["client_batch_id"],
+            actor=request.user,
+        )
+        return Response({"count": result["count"], "replayed": result.get("replayed", False)})
 
 
 class DocumentDeliveryReceiptCreateView(GenericAPIView):
