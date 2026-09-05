@@ -29,6 +29,21 @@ export const DOCUMENT_STATUS_VARIANT = {
   delivered: "success",
 };
 
+/** Tipos de movimiento que devuelve el historial institucional (RF-MOV-003). */
+export const MOVEMENT_TYPE_LABEL = {
+  section_change: "Cambio de seccion",
+  transfer_in: "Traslado de ingreso",
+  transfer_out: "Traslado de egreso",
+  withdrawal: "Retiro",
+};
+
+export const MOVEMENT_TYPE_VARIANT = {
+  section_change: "primary",
+  transfer_in: "success",
+  transfer_out: "warning",
+  withdrawal: "danger",
+};
+
 /**
  * Matricula y su historial.
  *
@@ -45,6 +60,10 @@ export const enrolmentsService = {
 
   /** Historial completo de un estudiante, activas e inactivas (RF-MAT-008). */
   listHistory: (params) => apiClient.get(withQuery(`${ROOT}/history/`, params)),
+
+  /** Movimientos inmutables, con fecha efectiva y fecha de registro separadas. */
+  listMovements: (params) =>
+    apiClient.get(withQuery(`${ROOT}/movements/`, params)),
 
   create: (payload) => apiClient.post(`${ROOT}/`, payload),
   matriculate: (payload) => apiClient.post(`${ROOT}/matriculations/`, payload),

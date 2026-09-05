@@ -14,6 +14,8 @@ const attendanceServiceMock = vi.hoisted(() => ({
   eventResolution: vi.fn(),
   dayStatus: vi.fn(),
   closeJornada: vi.fn(),
+  previewSectionClosure: vi.fn(),
+  closeSection: vi.fn(),
   listAlerts: vi.fn(),
   listControlPoints: vi.fn(),
   recordScan: vi.fn(),
@@ -216,6 +218,77 @@ describe("AttendancePage — captura por escaneo", () => {
       attendanceServiceMock.recordScan.mock.calls[1][0].items[0]
         .client_event_id;
     expect(secondId).toBe(firstId);
+  }, 10000);
+});
+
+describe("AttendancePage — cierre declarado por cobertura", () => {
+  test("muestra la confirmacion visible antes del cierre por cobertura", async () => {
+    attendanceServiceMock.previewSectionClosure.mockResolvedValue({
+      section_id: "section-1",
+      grade_name: "Primero Basico",
+      event_date: "2026-09-05",
+      included: [{ student_id: "student-1" }],
+      omitted: [],
+      is_covering: false,
+      confirmation_required: false,
+    });
+    attendanceServiceMock.closeSection
+      .mockResolvedValueOnce({
+        section_id: "section-1",
+        grade_name: "Primero Basico",
+        event_date: "2026-09-05",
+        included: [{ student_id: "student-1" }],
+        omitted: [],
+        is_covering: true,
+        confirmation_required: true,
+      })
+      .mockResolvedValueOnce({
+        section_id: "section-1",
+        grade_name: "Primero Basico",
+        event_date: "2026-09-05",
+        included: [{ student_id: "student-1" }],
+        omitted: [],
+        is_covering: true,
+        confirmation_required: false,
+      });
+    const user = userEvent.setup();
+    renderWithRouter(<AttendancePage />);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar seccion" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Cierre declarado por seccion",
+    });
+    await selectOption(user, /^Seccion/, /Primero Basico A/, dialog);
+    await user.click(
+      within(dialog).getByRole("button", { name: "Previsualizar cierre" })
+    );
+    expect(await within(dialog).findByText("1 por cerrar")).toBeInTheDocument();
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Declarar cierre" })
+    );
+    const confirmation = await screen.findByRole("dialog", {
+      name: "Confirmar cierre por cobertura",
+    });
+    expect(
+      within(confirmation).getByText(/Actuara como docente de cobertura/)
+    ).toBeInTheDocument();
+
+    await user.click(
+      within(confirmation).getByRole("button", { name: "Confirmar cierre" })
+    );
+    await waitFor(() =>
+      expect(attendanceServiceMock.closeSection).toHaveBeenLastCalledWith({
+        section_id: "section-1",
+        event_date: expect.any(String),
+        confirmed: true,
+      })
+    );
+    expect(
+      await within(dialog).findByText(
+        "El cierre se registro y quedo en auditoria."
+      )
+    ).toBeInTheDocument();
   }, 10000);
 });
 

@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 import pytest
 from django.urls import reverse
@@ -115,3 +116,35 @@ def test_unauthenticated_request_is_rejected(client):
     response = client.get(reverse("person-list"))
 
     assert response.status_code == 403
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_create_person_never_exposes_birth_date(logged_in_client):
+    payload = {
+        "first_name": "Ana",
+        "last_name": "Gomez",
+        "birth_date": "2015-03-01",
+    }
+
+    response = logged_in_client.post(reverse("person-list"), payload)
+
+    assert response.status_code == 201
+    data = response.json()
+    assert "birth_date" not in data
+    assert data["is_minor"] is True
+    person = Person.objects.get(public_id=data["public_id"])
+    assert person.birth_date == date(2015, 3, 1)
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_retrieve_person_never_exposes_birth_date(logged_in_client):
+    person = PersonFactory(birth_date=date(1990, 1, 1))
+
+    response = logged_in_client.get(reverse("person-detail", args=[person.public_id]))
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "birth_date" not in data
+    assert data["is_minor"] is False

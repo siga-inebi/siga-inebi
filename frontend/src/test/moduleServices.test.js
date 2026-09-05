@@ -70,8 +70,12 @@ describe("servicios de los modulos", () => {
 
     test("el historial viaja siempre con el estudiante, que el backend exige", async () => {
       await enrolmentsService.listHistory({ page: 1, student_id: STUDENT });
+      await enrolmentsService.listMovements({ page: 1, student_id: STUDENT });
       expect(apiClient.get).toHaveBeenCalledWith(
         `/enrolments/history/?page=1&student_id=${STUDENT}`
+      );
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/movements/?page=1&student_id=${STUDENT}`
       );
     });
 
@@ -160,6 +164,39 @@ describe("servicios de los modulos", () => {
         `/documents/official-issuance/eligibility/?enrolment_id=${ENROLMENT}`
       );
     });
+
+    test("vista previa y adjuntos usan rutas separadas sin emitir documentos", async () => {
+      const payload = { "student.full_name": "Estudiante de ejemplo" };
+      const upload = new FormData();
+
+      await documentsService.previewTemplate(TEMPLATE, payload);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/documents/templates/${TEMPLATE}/preview/`,
+        { payload }
+      );
+
+      await documentsService.listEnrolmentRecords(ENROLMENT, { page: 1 });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/documents/enrolments/${ENROLMENT}/records/?page=1`
+      );
+
+      await documentsService.uploadRecord(upload);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/documents/records/",
+        upload
+      );
+
+      await documentsService.replaceRecord(TEMPLATE, upload);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/documents/records/${TEMPLATE}/versions/`,
+        upload
+      );
+
+      await documentsService.verifyRecord(TEMPLATE);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/documents/records/${TEMPLATE}/verify/`
+      );
+    });
   });
 
   describe("attendanceService", () => {
@@ -205,6 +242,19 @@ describe("servicios de los modulos", () => {
       expect(apiClient.post).toHaveBeenCalledWith(
         "/attendance/jornada-closures/",
         { shift_id: SHIFT }
+      );
+
+      await attendanceService.previewSectionClosure({
+        section_id: "section-1",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/section-closures/preview/?section_id=section-1"
+      );
+
+      await attendanceService.closeSection({ section_id: "section-1" });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/attendance/section-closures/",
+        { section_id: "section-1" }
       );
 
       await attendanceService.listAlerts();
