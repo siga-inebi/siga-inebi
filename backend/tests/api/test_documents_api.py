@@ -1,4 +1,5 @@
 import pytest
+from django.core.cache import cache
 from django.urls import reverse
 
 from apps.academics.services import close_academic_cycle
@@ -507,6 +508,20 @@ def test_document_verification_rejects_an_unknown_code(client):
 
     assert response.status_code == 200
     assert response.json() == {"valid": False}
+
+
+@pytest.mark.security
+def test_document_verification_is_rate_limited_per_ip(client):
+    """RNF-SEG-006: a burst against the only public, unauthenticated endpoint gets a 429."""
+    cache.clear()
+
+    responses = [client.get(reverse("document-verify", args=["does-not-exist"])) for _ in range(20)]
+    blocked = client.get(reverse("document-verify", args=["does-not-exist"]))
+
+    assert all(response.status_code == 200 for response in responses)
+    assert blocked.status_code == 429
+
+    cache.clear()
 
 
 def test_official_document_eligibility_allows_superuser_without_role(client):

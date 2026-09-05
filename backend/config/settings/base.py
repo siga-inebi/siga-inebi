@@ -161,6 +161,13 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 25,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "config.api.exception_handler.api_exception_handler",
+    # RNF-SEG-006: limite por IP para el unico endpoint publico y sin
+    # autenticacion del catalogo (verificacion de documentos, RF-EMI-009).
+    # Generoso para el uso legitimo de consultar un documento propio, bajo
+    # para frenar raspado/enumeracion de codigos.
+    "DEFAULT_THROTTLE_RATES": {
+        "document_verification": "20/min",
+    },
 }
 
 SPECTACULAR_SETTINGS = {
