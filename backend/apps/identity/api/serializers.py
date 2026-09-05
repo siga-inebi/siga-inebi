@@ -223,6 +223,11 @@ class AccountDisableSerializer(serializers.Serializer):
     )
 
 
+class PasswordResetConsumeSerializer(serializers.Serializer):
+    token = serializers.CharField(write_only=True, trim_whitespace=False)
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
 class MyClassSessionSerializer(serializers.ModelSerializer):
     """RF-HOR-010: one row of the caller's own weekly schedule."""
 

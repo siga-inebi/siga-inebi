@@ -109,6 +109,8 @@ class CaptureBatch(TimeStampedModel):
     )
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    session_key = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
         constraints = [

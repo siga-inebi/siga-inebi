@@ -71,6 +71,7 @@ export function AccountsPage() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [sessionTarget, setSessionTarget] = useState(null);
+  const [resetLink, setResetLink] = useState("");
 
   const handleDisableClick = async (account) => {
     setActionError("");
@@ -123,6 +124,19 @@ export function AccountsPage() {
     }
   };
 
+  const issuePasswordReset = async (account) => {
+    setBusy(true);
+    setActionError("");
+    try {
+      const result = await accountsService.issuePasswordReset(account.id);
+      setResetLink(result.token);
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -141,6 +155,14 @@ export function AccountsPage() {
         renderActions={(account) =>
           account.status !== "disabled" ? (
             <Stack direction="row" spacing={0.5}>
+              <Button
+                disabled={busy}
+                onClick={() => issuePasswordReset(account)}
+                size="small"
+                variant="text"
+              >
+                Restablecer acceso
+              </Button>
               <Button
                 disabled={busy}
                 onClick={() => setSessionTarget(account)}
@@ -206,6 +228,14 @@ export function AccountsPage() {
         open={Boolean(sessionTarget)}
         title="Cerrar sesiones activas"
       />
+      <Dialog maxWidth="sm" fullWidth onClose={() => setResetLink("")} open={Boolean(resetLink)}>
+        <DialogTitle>Enlace temporal de restablecimiento</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning">Comparta esta clave temporal solo con la persona titular. Se muestra una sola vez y no revela ninguna contraseña.</Alert>
+          <List dense><ListItem><ListItemText primary={resetLink} sx={{ overflowWrap: "anywhere" }} /></ListItem></List>
+        </DialogContent>
+        <DialogActions><Button onClick={() => setResetLink("")}>Cerrar</Button></DialogActions>
+      </Dialog>
     </>
   );
 }
