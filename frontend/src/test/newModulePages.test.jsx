@@ -1050,6 +1050,34 @@ describe("pantallas de los modulos con backend previo", () => {
       });
     });
 
+    test("abrir Asignar por lotes no vuelve a pedir los catalogos que la pagina ya cargo", async () => {
+      // Antes de la cache compartida, este modal llamaba a sus propios
+      // useCycleCatalog/useSectionCatalog/useSubjectCatalog/useTeacherCatalog
+      // y volvia a pedir los 4 catalogos desde cero al abrirse, aunque la
+      // pagina ya los tuviera. Con useCatalogOptions respaldado por
+      // react-query, ambos consumidores resuelven contra la misma query.
+      const user = userEvent.setup();
+      renderWithRouter(<TeachingAssignmentsPage />);
+      await screen.findByText("Vigente");
+
+      expect(cyclesServiceMock.list).toHaveBeenCalledTimes(1);
+      expect(academicsServiceMock.listSections).toHaveBeenCalledTimes(1);
+      expect(academicsServiceMock.listSubjects).toHaveBeenCalledTimes(1);
+      expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(1);
+
+      await user.click(
+        screen.getByRole("button", { name: "Asignar por lotes" })
+      );
+      await screen.findByRole("dialog", {
+        name: "Asignacion docente por lotes",
+      });
+
+      expect(cyclesServiceMock.list).toHaveBeenCalledTimes(1);
+      expect(academicsServiceMock.listSections).toHaveBeenCalledTimes(1);
+      expect(academicsServiceMock.listSubjects).toHaveBeenCalledTimes(1);
+      expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(1);
+    });
+
     test("clonar trae el ciclo anterior resuelto y espera confirmacion", async () => {
       const user = userEvent.setup();
       // Misma seccion en los dos ciclos: identificador distinto, pero el mismo
