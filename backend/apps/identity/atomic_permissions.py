@@ -28,6 +28,7 @@ ATOMIC_PERMISSIONS = (
     ("reporting.absence_threshold.configure", "Can configure the absence threshold"),
     ("grade.write", "Can write grades"),
     ("grade.correct", "Can correct grades"),
+    ("academic_cycle.reopen", "Can reopen a closed academic cycle"),
     ("document.upload", "Can upload documents"),
     ("document.read", "Can read documents"),
     ("document.download", "Can download documents"),
