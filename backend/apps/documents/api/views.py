@@ -35,7 +35,6 @@ from .serializers import (
     DocumentDeliveryReceiptCreateSerializer,
     DocumentDeliveryReceiptSerializer,
     DocumentRecordSerializer,
-    StorageConsumptionSerializer,
     DocumentReplaceSerializer,
     DocumentTemplateCreateSerializer,
     DocumentTemplatePreviewResponseSerializer,
@@ -44,12 +43,13 @@ from .serializers import (
     DocumentTemplateTypeSerializer,
     DocumentTemplateUpdateSerializer,
     DocumentTemplateVersionSerializer,
-    DocumentVerificationResponseSerializer,
     DocumentUploadSerializer,
+    DocumentVerificationResponseSerializer,
     FieldTagSerializer,
     HistoricalCycleReportQuerySerializer,
     OfficialDocumentEligibilityQuerySerializer,
     OfficialDocumentEligibilityResponseSerializer,
+    StorageConsumptionSerializer,
 )
 
 CATALOGUE = ["documents: catalogue"]
@@ -411,14 +411,24 @@ class DocumentRecordUploadView(GenericAPIView):
 
 class ScannedDocumentUploadView(GenericAPIView):
     """RF-DOC-007: direct scanner upload reuses the immutable record pipeline."""
+
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DocumentUploadSerializer
 
-    @extend_schema(request=DocumentUploadSerializer, responses={201: DocumentRecordSerializer}, tags=["documents: records"])
+    @extend_schema(
+        request=DocumentUploadSerializer,
+        responses={201: DocumentRecordSerializer},
+        tags=["documents: records"],
+    )
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        record = services.register_scanned_document(actor=request.user, student=serializer.validated_data["student"], enrolment=serializer.validated_data.get("enrolment"), upload=serializer.validated_data["file"])
+        record = services.register_scanned_document(
+            actor=request.user,
+            student=serializer.validated_data["student"],
+            enrolment=serializer.validated_data.get("enrolment"),
+            upload=serializer.validated_data["file"],
+        )
         return Response(DocumentRecordSerializer(record).data, status=status.HTTP_201_CREATED)
 
 

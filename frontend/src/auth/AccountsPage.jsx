@@ -228,13 +228,30 @@ export function AccountsPage() {
         open={Boolean(sessionTarget)}
         title="Cerrar sesiones activas"
       />
-      <Dialog maxWidth="sm" fullWidth onClose={() => setResetLink("")} open={Boolean(resetLink)}>
+      <Dialog
+        maxWidth="sm"
+        fullWidth
+        onClose={() => setResetLink("")}
+        open={Boolean(resetLink)}
+      >
         <DialogTitle>Enlace temporal de restablecimiento</DialogTitle>
         <DialogContent>
-          <Alert severity="warning">Comparta esta clave temporal solo con la persona titular. Se muestra una sola vez y no revela ninguna contraseña.</Alert>
-          <List dense><ListItem><ListItemText primary={resetLink} sx={{ overflowWrap: "anywhere" }} /></ListItem></List>
+          <Alert severity="warning">
+            Comparta esta clave temporal solo con la persona titular. Se muestra
+            una sola vez y no revela ninguna contraseña.
+          </Alert>
+          <List dense>
+            <ListItem>
+              <ListItemText
+                primary={resetLink}
+                sx={{ overflowWrap: "anywhere" }}
+              />
+            </ListItem>
+          </List>
         </DialogContent>
-        <DialogActions><Button onClick={() => setResetLink("")}>Cerrar</Button></DialogActions>
+        <DialogActions>
+          <Button onClick={() => setResetLink("")}>Cerrar</Button>
+        </DialogActions>
       </Dialog>
     </>
   );

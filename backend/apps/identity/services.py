@@ -966,7 +966,13 @@ def close_session_key(*, session_key, actor, target, reason):
     """Close a specific server-side session without exposing its payload."""
     if session_key:
         Session.objects.filter(session_key=session_key).delete()
-    record_event(actor=actor, action="identity.session.closed", resource="UserAccount", resource_identifier=str(target.pk), context={"target_user_id": target.pk, "reason": reason, "result": "success"})
+    record_event(
+        actor=actor,
+        action="identity.session.closed",
+        resource="UserAccount",
+        resource_identifier=str(target.pk),
+        context={"target_user_id": target.pk, "reason": reason, "result": "success"},
+    )
 
 
 def close_other_user_sessions(*, user, current_session_key=None):
@@ -1061,25 +1067,52 @@ def _reset_token_digest(token):
 def issue_password_reset(*, actor, account):
     """RF-CTA-005: issue one opaque secret without ever handling a password."""
     if not _has_identity_permission(actor, ACCOUNT_DISABLE_PERMISSION):
-        record_event(actor=actor, action="identity.password_reset.issue_denied", resource="UserAccount", resource_identifier=str(account.pk), context={"result": "denied"})
+        record_event(
+            actor=actor,
+            action="identity.password_reset.issue_denied",
+            resource="UserAccount",
+            resource_identifier=str(account.pk),
+            context={"result": "denied"},
+        )
         raise AuthorizationError("El actor no tiene permiso para administrar esta cuenta.")
-    PasswordResetChallenge.objects.filter(account=account, used_at__isnull=True, revoked_at__isnull=True).update(revoked_at=timezone.now())
+    PasswordResetChallenge.objects.filter(
+        account=account, used_at__isnull=True, revoked_at__isnull=True
+    ).update(revoked_at=timezone.now())
     token = secrets.token_urlsafe(32)
     challenge = PasswordResetChallenge.objects.create(
         account=account,
         token_digest=_reset_token_digest(token),
         expires_at=timezone.now() + timedelta(minutes=PASSWORD_RESET_TTL_MINUTES),
     )
-    record_event(actor=actor, action="identity.password_reset.issued", resource="UserAccount", resource_identifier=str(account.pk), context={"target_user_id": account.pk, "challenge_id": str(challenge.public_id), "result": "success"})
+    record_event(
+        actor=actor,
+        action="identity.password_reset.issued",
+        resource="UserAccount",
+        resource_identifier=str(account.pk),
+        context={
+            "target_user_id": account.pk,
+            "challenge_id": str(challenge.public_id),
+            "result": "success",
+        },
+    )
     return challenge, token
 
 
 @transaction.atomic
 def consume_password_reset(*, token, new_password):
     """Consume a reset secret once and invalidate every pre-existing session."""
-    challenge = PasswordResetChallenge.objects.select_related("account").filter(token_digest=_reset_token_digest(token)).first()
+    challenge = (
+        PasswordResetChallenge.objects.select_related("account")
+        .filter(token_digest=_reset_token_digest(token))
+        .first()
+    )
     if challenge is None or not challenge.is_usable():
-        record_event(actor=None, action="identity.password_reset.consume_denied", resource="PasswordResetChallenge", context={"result": "denied"})
+        record_event(
+            actor=None,
+            action="identity.password_reset.consume_denied",
+            resource="PasswordResetChallenge",
+            context={"result": "denied"},
+        )
         raise DomainError("El enlace de restablecimiento no es valido o ya vencio.")
     account = challenge.account
     validate_password(new_password, user=account)
@@ -1088,7 +1121,13 @@ def consume_password_reset(*, token, new_password):
     close_account_sessions(actor=account, user=account)
     challenge.used_at = timezone.now()
     challenge.save(update_fields=["used_at", "updated_at"])
-    record_event(actor=account, action="identity.password_reset.consumed", resource="UserAccount", resource_identifier=str(account.pk), context={"challenge_id": str(challenge.public_id), "result": "success"})
+    record_event(
+        actor=account,
+        action="identity.password_reset.consumed",
+        resource="UserAccount",
+        resource_identifier=str(account.pk),
+        context={"challenge_id": str(challenge.public_id), "result": "success"},
+    )
     return account
 
 

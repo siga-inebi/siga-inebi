@@ -100,7 +100,12 @@ class PasswordResetChallenge(TimeStampedModel):
 
     def is_usable(self, when=None):
         when = when or timezone.now()
-        return bool(self.is_active and self.used_at is None and self.revoked_at is None and self.expires_at > when)
+        return bool(
+            self.is_active
+            and self.used_at is None
+            and self.revoked_at is None
+            and self.expires_at > when
+        )
 
 
 class Role(TimeStampedModel):

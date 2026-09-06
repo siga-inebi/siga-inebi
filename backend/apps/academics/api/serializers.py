@@ -449,7 +449,9 @@ class ClassSessionSerializer(serializers.ModelSerializer):
     schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
     day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
     teacher_id = serializers.SerializerMethodField()
-    classroom_id = serializers.UUIDField(source="classroom.public_id", read_only=True, allow_null=True)
+    classroom_id = serializers.UUIDField(
+        source="classroom.public_id", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = ClassSession

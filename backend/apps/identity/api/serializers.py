@@ -223,6 +223,11 @@ class AccountDisableSerializer(serializers.Serializer):
     )
 
 
+class PasswordResetIssueResultSerializer(serializers.Serializer):
+    token = serializers.CharField(read_only=True)
+    expires_at = serializers.DateTimeField(read_only=True)
+
+
 class PasswordResetConsumeSerializer(serializers.Serializer):
     token = serializers.CharField(write_only=True, trim_whitespace=False)
     password = serializers.CharField(write_only=True, trim_whitespace=False)

@@ -787,10 +787,21 @@ def storage_consumption_summary(*, actor):
     summary = DocumentRecord.objects.aggregate(
         total_bytes=models.Sum("size_bytes"),
         file_count=models.Count("pk"),
-        retained_count=models.Count("pk", filter=models.Q(status=DocumentRecord.StorageStatus.RETAINED)),
+        retained_count=models.Count(
+            "pk", filter=models.Q(status=DocumentRecord.StorageStatus.RETAINED)
+        ),
     )
-    result = {"total_bytes": summary["total_bytes"] or 0, "file_count": summary["file_count"] or 0, "retained_count": summary["retained_count"] or 0}
-    record_event(actor=actor, action="documents.storage_consumption.read", resource="DocumentRecord", context={"result": "success", **result})
+    result = {
+        "total_bytes": summary["total_bytes"] or 0,
+        "file_count": summary["file_count"] or 0,
+        "retained_count": summary["retained_count"] or 0,
+    }
+    record_event(
+        actor=actor,
+        action="documents.storage_consumption.read",
+        resource="DocumentRecord",
+        context={"result": "success", **result},
+    )
     return result
 
 
