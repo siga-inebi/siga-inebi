@@ -361,6 +361,40 @@ def test_create_section_rejects_grade_from_other_institution():
         create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A")
 
 
+def test_create_section_accepts_a_default_classroom():
+    """RF-AUL-002 (#100): aula habitual de referencia para la seccion."""
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=cycle.institution)
+    shift = ShiftFactory(campus__institution=cycle.institution)
+    classroom = ClassroomFactory(campus=shift.campus)
+
+    section = create_section(
+        academic_cycle=cycle,
+        grade=grade,
+        shift=shift,
+        name="A",
+        default_classroom=classroom,
+    )
+
+    assert section.default_classroom_id == classroom.pk
+
+
+def test_create_section_rejects_default_classroom_from_another_campus():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=cycle.institution)
+    shift = ShiftFactory(campus__institution=cycle.institution)
+    other_campus_classroom = ClassroomFactory()
+
+    with pytest.raises(DomainError, match="misma sede"):
+        create_section(
+            academic_cycle=cycle,
+            grade=grade,
+            shift=shift,
+            name="A",
+            default_classroom=other_campus_classroom,
+        )
+
+
 def test_update_section_renames_and_changes_capacity():
     draft = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
     section = SectionFactory(academic_cycle=draft)
@@ -369,6 +403,26 @@ def test_update_section_renames_and_changes_capacity():
 
     assert updated.name == "B"
     assert updated.capacity == 40
+
+
+def test_update_section_sets_the_default_classroom():
+    """RF-AUL-002 (#100)."""
+    draft = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    section = SectionFactory(academic_cycle=draft)
+    classroom = ClassroomFactory(campus=section.offering.shift.campus)
+
+    updated = update_section(section=section, default_classroom=classroom)
+
+    assert updated.default_classroom_id == classroom.pk
+
+
+def test_update_section_rejects_default_classroom_from_another_campus():
+    draft = AcademicCycleFactory(status=AcademicCycle.CycleStatus.DRAFT)
+    section = SectionFactory(academic_cycle=draft)
+    other_campus_classroom = ClassroomFactory()
+
+    with pytest.raises(DomainError, match="misma sede"):
+        update_section(section=section, default_classroom=other_campus_classroom)
 
 
 def test_update_section_rejects_when_cycle_is_closed():

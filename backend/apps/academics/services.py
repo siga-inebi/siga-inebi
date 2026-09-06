@@ -1317,7 +1317,15 @@ def _validate_capacity(capacity):
 
 
 @transaction.atomic
-def create_section(*, academic_cycle, grade, shift, name, capacity=0, actor=None):
+def _validate_default_classroom(classroom, shift):
+    """RF-AUL-002: a section's habitual classroom must sit at its own campus."""
+    if classroom is not None and classroom.campus_id != shift.campus_id:
+        raise DomainError("El aula habitual debe pertenecer a la misma sede que la seccion.")
+
+
+def create_section(
+    *, academic_cycle, grade, shift, name, capacity=0, default_classroom=None, actor=None
+):
     """
     Register a section inside a grade offering (RF-EST-007).
 
@@ -1329,18 +1337,28 @@ def create_section(*, academic_cycle, grade, shift, name, capacity=0, actor=None
     - The offering is resolved or created as a side effect; see
       ``_resolve_or_create_grade_offering``.
     - Name unique within the offering; capacity 0 means uncapped.
+    - ``default_classroom`` (RF-AUL-002) is optional and, when given, must
+      belong to the section's own campus. It only records a habitual
+      reference; it does not make any ``ClassSession`` require a classroom
+      (RF-AUL-003 keeps that optional) or use it automatically.
     """
     require_cycle_academic_writes(cycle=academic_cycle, operation="section.create")
     require_cycle_planning_writes(cycle=academic_cycle, operation="section.create")
     name = _clean_name(name)
     _validate_capacity(capacity)
+    _validate_default_classroom(default_classroom, shift)
 
     offering = _resolve_or_create_grade_offering(
         academic_cycle=academic_cycle, grade=grade, shift=shift, actor=actor
     )
 
     with unique_violation_as(_section_conflicts(name)):
-        section = Section.objects.create(offering=offering, name=name, capacity=capacity or 0)
+        section = Section.objects.create(
+            offering=offering,
+            name=name,
+            capacity=capacity or 0,
+            default_classroom=default_classroom,
+        )
 
     _audit(
         actor,
@@ -1351,20 +1369,30 @@ def create_section(*, academic_cycle, grade, shift, name, capacity=0, actor=None
         grade_id=grade.pk,
         shift_id=shift.pk,
         capacity=section.capacity,
+        default_classroom_id=getattr(default_classroom, "pk", None),
     )
     return section
 
 
-def update_section(*, section, name=None, capacity=None, actor=None):
-    """Rename a section or change its declared capacity. Planning-only (RF-EST-011)."""
+def update_section(*, section, name=None, capacity=None, default_classroom=None, actor=None):
+    """Rename a section, change its declared capacity, or set its habitual
+    classroom (RF-AUL-002). Planning-only (RF-EST-011)."""
     require_cycle_academic_writes(cycle=section.academic_cycle, operation="section.update")
     require_cycle_planning_writes(cycle=section.academic_cycle, operation="section.update")
     if name is not None:
         name = _clean_name(name)
     _validate_capacity(capacity)
+    _validate_default_classroom(default_classroom, section.shift)
 
     with unique_violation_as(_section_conflicts(name or section.name)):
-        return _changed(section, actor, "academics.section.updated", name=name, capacity=capacity)
+        return _changed(
+            section,
+            actor,
+            "academics.section.updated",
+            name=name,
+            capacity=capacity,
+            default_classroom=default_classroom,
+        )
 
 
 @transaction.atomic

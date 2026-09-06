@@ -8,6 +8,7 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    CampusFactory,
     ClassroomFactory,
     ClassScheduleBlockFactory,
     ClassSessionFactory,
@@ -166,6 +167,67 @@ def test_create_section_api_rejects_when_cycle_is_active(auth_client, institutio
 
     assert response.status_code == 400
     assert "en preparacion" in response.json()["error"]["detail"]
+
+
+def test_create_section_api_accepts_a_default_classroom(auth_client, institution):
+    """RF-AUL-002 (#100): aula habitual de referencia para la seccion."""
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    classroom = ClassroomFactory(campus=shift.campus)
+
+    response = auth_client.post(
+        reverse("section-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "shift_id": str(shift.public_id),
+            "name": "A",
+            "default_classroom_id": str(classroom.public_id),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["default_classroom_id"] == str(classroom.public_id)
+
+
+def test_create_section_api_rejects_default_classroom_from_another_campus(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    other_campus_classroom = ClassroomFactory(campus=CampusFactory(institution=institution))
+
+    response = auth_client.post(
+        reverse("section-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "shift_id": str(shift.public_id),
+            "name": "A",
+            "default_classroom_id": str(other_campus_classroom.public_id),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "misma sede" in response.json()["error"]["detail"]
+
+
+def test_update_section_api_sets_the_default_classroom(auth_client, institution):
+    """RF-AUL-002 (#100)."""
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    section = SectionFactory(academic_cycle=cycle)
+    classroom = ClassroomFactory(campus=section.offering.shift.campus)
+
+    response = auth_client.patch(
+        reverse("section-detail", args=[section.public_id]),
+        {"default_classroom_id": str(classroom.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["default_classroom_id"] == str(classroom.public_id)
 
 
 def test_deactivate_section_api_contract(auth_client, institution):

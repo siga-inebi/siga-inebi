@@ -14,6 +14,7 @@ from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_class_session,
     create_curriculum_plan,
     create_section,
     create_teaching_assignment,
@@ -25,6 +26,8 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassroomFactory,
+    ClassScheduleBlockFactory,
     GradeFactory,
     InstitutionFactory,
     SectionFactory,
@@ -361,3 +364,57 @@ def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():
     assert historical._enrolment_total == 1
     assert historical._enrolment_completed == 1
     assert Enrolment.objects.filter(pk=enrolment.pk).exists()
+
+
+def test_section_default_classroom_is_a_reference_only_not_a_requirement():
+    """RF-AUL-002 (#100): el aula habitual queda registrada en la seccion y
+    en la bitacora, pero es solo una referencia -- no obliga a las sesiones
+    de esa seccion a llevar aula (RF-AUL-003 sigue vigente sin cambios) ni
+    bloquea la activacion del ciclo (RF-CIC-003)."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2028,
+        name="Ciclo 2028",
+        starts_on=date(2028, 1, 1),
+        ends_on=date(2028, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    classroom = ClassroomFactory(campus=shift.campus)
+    section = create_section(
+        academic_cycle=cycle,
+        grade=grade,
+        shift=shift,
+        name="A",
+        default_classroom=classroom,
+        actor=actor,
+    )
+    subject = SubjectFactory(institution=institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=TeacherFactory().person,
+        actor=actor,
+    )
+    block = ClassScheduleBlockFactory(shift=shift)
+    session = create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+        actor=actor,
+    )
+
+    activated = activate_academic_cycle(cycle=cycle, actor=actor)
+
+    assert activated.status == AcademicCycle.CycleStatus.ACTIVE
+    assert section.default_classroom_id == classroom.pk
+    assert session.classroom_id is None  # sigue sin exigirse (RF-AUL-003)
+    creation_event = AuditEvent.objects.get(action="academics.section.created")
+    assert creation_event.context["default_classroom_id"] == classroom.pk
