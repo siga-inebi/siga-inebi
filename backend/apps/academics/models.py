@@ -316,6 +316,18 @@ class Section(TimeStampedModel):
     offering = models.ForeignKey(GradeOffering, on_delete=models.CASCADE, related_name="sections")
     name = models.CharField(max_length=50)
     capacity = models.PositiveIntegerField(default=0)
+    default_classroom = models.ForeignKey(
+        Classroom,
+        on_delete=models.PROTECT,
+        related_name="default_for_sections",
+        null=True,
+        blank=True,
+        help_text=(
+            "Aula habitual de referencia para las clases de esta seccion (RF-AUL-002). "
+            "No obliga a las sesiones individuales a usarla: cada ClassSession sigue "
+            "llevando su propia aula, opcional (RF-AUL-003)."
+        ),
+    )
 
     class Meta:
         ordering = ["offering__grade__level__sequence", "offering__grade__sequence", "name"]

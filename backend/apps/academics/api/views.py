@@ -926,12 +926,18 @@ class SectionListCreateView(CacheableListMixin, CatalogueListCreateView):
         )
         grade = queries.grade_for_payload(self.institution, payload["grade_id"])
         shift = queries.shift_for_payload(self.institution, payload["shift_id"])
+        default_classroom = (
+            queries.classroom_or_404(self.institution, payload["default_classroom_id"])
+            if payload.get("default_classroom_id")
+            else None
+        )
         section = services.create_section(
             academic_cycle=academic_cycle,
             grade=grade,
             shift=shift,
             name=payload["name"],
             capacity=payload.get("capacity", 0),
+            default_classroom=default_classroom,
             actor=request.user,
         )
         return queries.section_or_404(self.institution, section.public_id)
@@ -965,7 +971,15 @@ class SectionDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDe
         return queries.section_or_404(self.institution, public_id)
 
     def update(self, request, section, payload):
-        services.update_section(section=section, actor=request.user, **payload)
+        default_classroom_id = payload.pop("default_classroom_id", None)
+        default_classroom = (
+            queries.classroom_or_404(self.institution, default_classroom_id)
+            if default_classroom_id
+            else None
+        )
+        services.update_section(
+            section=section, default_classroom=default_classroom, actor=request.user, **payload
+        )
 
     def deactivate(self, request, section):
         services.deactivate_section(section=section, actor=request.user)

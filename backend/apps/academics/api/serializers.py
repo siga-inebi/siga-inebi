@@ -422,6 +422,9 @@ class SectionSerializer(serializers.ModelSerializer):
     )
     grade = GradeRefSerializer(source="offering.grade", read_only=True)
     shift = ShiftRefSerializer(source="offering.shift", read_only=True)
+    default_classroom_id = serializers.UUIDField(
+        source="default_classroom.public_id", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = Section
@@ -433,6 +436,7 @@ class SectionSerializer(serializers.ModelSerializer):
             "academic_cycle_id",
             "grade",
             "shift",
+            "default_classroom_id",
         ]
 
 
@@ -447,11 +451,19 @@ class SectionCreateSerializer(serializers.Serializer):
         default=0,
         help_text="Cupo maximo declarado. 0 significa sin limite.",
     )
+    default_classroom_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Opcional. Public ID del aula habitual de la seccion (RF-AUL-002); "
+            "debe pertenecer a la misma sede que la jornada."
+        ),
+    )
 
 
 class SectionUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=50, required=False)
     capacity = serializers.IntegerField(min_value=0, required=False)
+    default_classroom_id = serializers.UUIDField(required=False)
 
 
 # --------------------------------------------------------------------------- #
