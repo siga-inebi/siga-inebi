@@ -39,6 +39,7 @@ from .views import (
     SectionClassSessionListCreateView,
     SectionDetailView,
     SectionListCreateView,
+    SectionWeeklyLoadView,
     ShiftClassScheduleBlockListCreateView,
     ShiftDetailView,
     SubjectDetailView,
@@ -181,6 +182,11 @@ urlpatterns = [
         "class-sessions/<uuid:public_id>/",
         ClassSessionDetailView.as_view(),
         name="class-session-detail",
+    ),
+    path(
+        "sections/<uuid:public_id>/weekly-load/",
+        SectionWeeklyLoadView.as_view(),
+        name="section-weekly-load",
     ),
     path(
         "curriculum-plans/",

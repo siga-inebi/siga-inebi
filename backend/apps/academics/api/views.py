@@ -70,6 +70,7 @@ from .serializers import (
     TeachingAssignmentCreateSerializer,
     TeachingAssignmentReassignSerializer,
     TeachingAssignmentSerializer,
+    WeeklyLoadRowSerializer,
 )
 
 CATALOGUE = ["academics: catalogue"]
@@ -1044,6 +1045,25 @@ class ClassSessionDetailView(RetrieveMixin, DeactivateMixin, CatalogueDetailView
 
     def deactivate(self, request, session):
         services.deactivate_class_session(session=session, actor=request.user)
+
+
+class SectionWeeklyLoadView(CatalogueView):
+    @extend_schema(
+        summary="Verificar carga horaria semanal de la seccion",
+        description=(
+            "RF-HOR-007. Por cada subarea del plan de estudios del grado, compara "
+            "las horas semanales declaradas (LevelSubject, RF-EST-006) contra los "
+            "periodos activos realmente agendados para esta seccion. Una subarea "
+            "sin horas declaradas a nivel de nivel educativo devuelve "
+            "declared_weekly_hours y matches en null: no hay con que comparar."
+        ),
+        tags=CATALOGUE,
+        responses={200: WeeklyLoadRowSerializer(many=True)},
+    )
+    def get(self, request, public_id):
+        section = queries.section_or_404(self.institution, public_id)
+        rows = queries.weekly_load_report(section)
+        return Response(WeeklyLoadRowSerializer(rows, many=True).data)
 
 
 @extend_schema_view(

@@ -252,6 +252,50 @@ def class_session_or_404(institution, public_id):
     )
 
 
+def weekly_load_report(section):
+    """
+    RF-HOR-007: for every subject in the section's grade study plan, compare
+    the weekly hours declared for that (level, subject) pair against the
+    periods actually scheduled for this section (active class sessions).
+
+    The declared load lives on ``LevelSubject.weekly_hours`` (RF-EST-006),
+    not on ``CurriculumPlan`` itself, which only says a subject belongs to
+    the grade's plan for this cycle -- not how many periods a week. A
+    subject in the plan but not linked at the level has no declared load to
+    compare against, so ``declared_weekly_hours`` and ``matches`` come back
+    ``None`` rather than treating it as a mismatch.
+    """
+    grade = section.grade
+    plans = CurriculumPlan.objects.filter(
+        academic_cycle=section.academic_cycle, grade=grade, is_active=True
+    ).select_related("subject")
+    weekly_hours_by_subject = dict(
+        LevelSubject.objects.filter(
+            level=grade.level, subject_id__in=[plan.subject_id for plan in plans]
+        ).values_list("subject_id", "weekly_hours")
+    )
+    scheduled_by_subject = dict(
+        ClassSession.objects.filter(section=section, is_active=True)
+        .values("subject_id")
+        .annotate(count=Count("id"))
+        .values_list("subject_id", "count")
+    )
+
+    rows = []
+    for plan in plans:
+        declared = weekly_hours_by_subject.get(plan.subject_id)
+        scheduled = scheduled_by_subject.get(plan.subject_id, 0)
+        rows.append(
+            {
+                "subject": plan.subject,
+                "declared_weekly_hours": declared,
+                "scheduled_periods": scheduled,
+                "matches": (declared == scheduled) if declared is not None else None,
+            }
+        )
+    return rows
+
+
 _CURRICULUM_PLAN_RELATED = ("academic_cycle", "grade__level", "subject")
 
 
