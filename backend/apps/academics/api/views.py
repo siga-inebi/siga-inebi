@@ -1022,6 +1022,7 @@ class SectionClassSessionListCreateView(CatalogueListCreateView):
             schedule_block=schedule_block,
             day_of_week=payload["day_of_week"],
             classroom=classroom,
+            starts_on=payload.get("starts_on"),
             actor=request.user,
         )
 

@@ -834,6 +834,63 @@ def test_create_class_session_allows_same_classroom_in_a_different_block():
     assert new_session.classroom_id == classroom.pk
 
 
+def test_create_class_session_defaults_starts_on_to_the_cycle_start():
+    """RF-HOR-008 (#201): sin fecha explicita, la sesion es vigente desde el
+    inicio del ciclo, igual que create_teaching_assignment."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    session = create_class_session(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    assert session.starts_on == section.academic_cycle.starts_on
+
+
+def test_create_class_session_accepts_a_mid_cycle_starts_on():
+    """RF-HOR-008 (#201): reestructuracion a mitad de ciclo -- se agenda con
+    una fecha de vigencia posterior al inicio del ciclo."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    mid_cycle_date = section.academic_cycle.ends_on
+
+    session = create_class_session(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+        starts_on=mid_cycle_date,
+    )
+
+    assert session.starts_on == mid_cycle_date
+
+
+def test_create_class_session_rejects_starts_on_outside_the_cycle():
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    before_cycle = section.academic_cycle.starts_on - timedelta(days=1)
+
+    with pytest.raises(DomainError, match="fecha de vigencia"):
+        create_class_session(
+            academic_cycle=section.academic_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=block,
+            day_of_week=1,
+            starts_on=before_cycle,
+        )
+
+    assert section.class_sessions.count() == 0
+
+
 def test_deactivate_class_session_is_idempotent():
     session = ClassSessionFactory()
 
