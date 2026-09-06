@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 
 /**
  * Catalogo cargado una vez y expuesto como opciones `{value,label}`.
@@ -8,47 +9,26 @@ import { useCallback, useEffect, useState } from "react";
  * porque un desplegable vacio es ambiguo: "todavia no llega" y "no hay nada
  * registrado" son respuestas distintas y el formulario debe poder distinguirlas.
  *
- * `load` debe ser estable (definida a nivel de modulo); el hook la usa como
- * dependencia del efecto. `reloadToken` fuerza la relectura despues de crear un
- * registro del catalogo desde otra pantalla.
+ * `load` debe ser estable (definida a nivel de modulo, con nombre propio): el
+ * hook la usa como parte de la query key, no solo como dependencia de un
+ * efecto. Esto es lo que hace que dos componentes que llaman al mismo catalogo
+ * (p.ej. una pantalla y un modal que abre sobre ella) compartan una sola
+ * peticion en vez de disparar la suya por separado — antes cada instancia de
+ * este hook tenia su propio estado local y su propio fetch.
+ *
+ * `reloadToken` fuerza la relectura despues de crear un registro del catalogo
+ * desde otra pantalla.
  *
  * @param {() => Promise<Array<{value:string,label:string}>>} load
  * @param {number} [reloadToken]
  */
 export function useCatalogOptions(load, reloadToken = 0) {
-  const [options, setOptions] = useState([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const key = queryKeys.catalog(load.name, reloadToken);
+  const { data, loading, error } = useResourceQuery(key, load, {
+    defaultData: [],
+  });
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError("");
-
-    load()
-      .then((collected) => {
-        if (active) {
-          setOptions(collected);
-        }
-      })
-      .catch((requestError) => {
-        if (active) {
-          setOptions([]);
-          setError(requestError.message);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [load, reloadToken]);
-
-  return { options, error, loading };
+  return { options: data, error, loading };
 }
 
 /**
@@ -72,11 +52,16 @@ export function useCatalogsStatus(catalogs) {
  * que no ofrecer ninguna.
  */
 export function useDependentCatalogOptions(buildLoad, dependency) {
-  const load = useCallback(
-    () => (dependency ? buildLoad(dependency) : Promise.resolve([])),
-    [buildLoad, dependency]
+  // No delega en `useCatalogOptions`: esa funcion arma su key con el nombre
+  // de `load`, y aqui `load` es un closure anonimo (mismo nombre para
+  // cualquier dependencia). Incluir `dependency` en la key evita que "secciones
+  // del ciclo A" y "secciones del ciclo B" compartan una cubeta de cache.
+  const key = queryKeys.catalog(`${buildLoad.name}:${dependency ?? ""}`);
+  const { data, loading, error } = useResourceQuery(
+    key,
+    () => buildLoad(dependency),
+    { enabled: Boolean(dependency), defaultData: [] }
   );
 
-  const catalog = useCatalogOptions(load);
-  return { ...catalog, ready: Boolean(dependency) };
+  return { options: data, error, loading, ready: Boolean(dependency) };
 }
