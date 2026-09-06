@@ -13,6 +13,8 @@ which service it calls. OpenAPI text is attached with ``extend_schema_view`` so
 the docs stay per-resource even though the handlers are inherited.
 """
 
+from collections import defaultdict
+
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import permissions, status
@@ -53,6 +55,7 @@ from .serializers import (
     LevelSubjectSerializer,
     LevelSubjectUpdateSerializer,
     LevelUpdateSerializer,
+    LevelWithGradesSerializer,
     SectionCreateSerializer,
     SectionSerializer,
     SectionUpdateSerializer,
@@ -593,6 +596,26 @@ class LevelListCreateView(CatalogueListCreateView):
 
     def list_queryset(self, request):
         return queries.levels(self.institution, include_inactive=_include_inactive(request))
+
+    def get(self, request, **kwargs):
+        # `?expand=grades` existe para el selector de "Presencia en tiempo
+        # real": sin el, listar niveles con sus grados costaba una peticion
+        # por nivel (N+1). Es angosto a proposito -- un solo campo, un solo
+        # call site -- en vez de un mecanismo generico de expand que nadie mas
+        # necesita todavia.
+        if request.query_params.get("expand") != "grades":
+            return super().get(request, **kwargs)
+
+        levels = list(self.list_queryset(request, **kwargs))
+        page = self.paginate_queryset(levels)
+
+        grades_by_level = defaultdict(list)
+        for grade in queries.grades_for_levels(page, include_inactive=_include_inactive(request)):
+            grades_by_level[grade.level_id].append(grade)
+        for level in page:
+            level._expanded_grades = grades_by_level[level.id]
+
+        return self.get_paginated_response(LevelWithGradesSerializer(page, many=True).data)
 
     def create(self, request, payload):
         payload.update(positional(payload, self._sibling))

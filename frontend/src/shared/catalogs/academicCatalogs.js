@@ -125,21 +125,21 @@ async function loadShifts() {
   );
 }
 
-/** Los grados tambien viven dentro de su nivel; se recorren igual que las jornadas. */
+/**
+ * Los grados tambien viven dentro de su nivel. `?expand=grades` los trae
+ * anidados en una sola pasada de niveles: antes esto era una peticion a
+ * `/levels/{id}/grades/` POR NIVEL (N+1), el mismo catalogo que "Presencia en
+ * tiempo real" dispara cada vez que abre.
+ */
 async function loadGrades() {
-  const levels = await collectAllPages(academicsService.listLevels);
-  const perLevel = await Promise.all(
-    levels.map((level) =>
-      collectAllPages((params) =>
-        academicsService.listLevelGrades(level.public_id, params)
-      )
-    )
+  const levels = await collectAllPages((params) =>
+    academicsService.listLevels({ ...params, expand: "grades" })
   );
 
   // Orden pedagogico (Primero, Segundo, Tercero), no alfabetico: "Primero"
   // despues de "Segundo" seria absurdo en un selector de grados.
-  return perLevel
-    .flat()
+  return levels
+    .flatMap((level) => level.grades ?? [])
     .sort(
       (left, right) =>
         (left.level?.sequence ?? 0) - (right.level?.sequence ?? 0) ||

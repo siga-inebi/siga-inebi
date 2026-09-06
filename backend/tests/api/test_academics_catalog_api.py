@@ -449,6 +449,42 @@ def test_list_levels_is_ordered_by_sequence(auth_client, institution):
     assert [item["code"] for item in _items(response)] == ["PRE", "PRI", "DIV"]
 
 
+def test_list_levels_expand_grades_nests_grades_ordered_by_sequence(auth_client, institution):
+    # El selector de "Presencia en tiempo real" dependia de una peticion por
+    # nivel para armar el desplegable de grados; esto lo reemplaza por una
+    # sola llamada con los grados ya anidados.
+    first = LevelFactory(institution=institution, sequence=1)
+    second = LevelFactory(institution=institution, sequence=2)
+    GradeFactory(level=first, code="B", sequence=2)
+    GradeFactory(level=first, code="A", sequence=1)
+    GradeFactory(level=second, code="C", sequence=1)
+
+    response = auth_client.get(reverse("level-list-create"), {"expand": "grades"})
+
+    assert response.status_code == 200
+    items = _items(response)
+    grades_by_level = {item["public_id"]: item["grades"] for item in items}
+    assert [g["code"] for g in grades_by_level[str(first.public_id)]] == ["A", "B"]
+    assert [g["code"] for g in grades_by_level[str(second.public_id)]] == ["C"]
+
+
+def test_list_levels_without_expand_does_not_include_grades(auth_client, institution):
+    LevelFactory(institution=institution)
+
+    response = auth_client.get(reverse("level-list-create"))
+
+    assert "grades" not in _items(response)[0]
+
+
+def test_list_levels_expand_grades_handles_a_level_without_grades(auth_client, institution):
+    LevelFactory(institution=institution)
+
+    response = auth_client.get(reverse("level-list-create"), {"expand": "grades"})
+
+    assert response.status_code == 200
+    assert _items(response)[0]["grades"] == []
+
+
 def test_level_payload_exposes_grade_count(auth_client, institution):
     level = LevelFactory(institution=institution)
     GradeFactory(level=level)

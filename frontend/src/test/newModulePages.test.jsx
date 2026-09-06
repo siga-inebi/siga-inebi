@@ -490,8 +490,11 @@ describe("pantallas de los modulos con backend previo", () => {
     beforeEach(() => {
       studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
       academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
-      academicsServiceMock.listLevels.mockResolvedValue(paged([LEVEL]));
-      academicsServiceMock.listLevelGrades.mockResolvedValue(paged([GRADE]));
+      // El catalogo de grados pide niveles con ?expand=grades, no un
+      // /levels/{id}/grades/ por nivel: el mock ya trae el grado anidado.
+      academicsServiceMock.listLevels.mockResolvedValue(
+        paged([{ ...LEVEL, grades: [GRADE] }])
+      );
     });
 
     test("muestra nombres en vez de identificadores", async () => {

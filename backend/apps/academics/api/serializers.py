@@ -315,6 +315,21 @@ class GradeSerializer(serializers.ModelSerializer):
         fields = ["public_id", "name", "code", "sequence", "is_active", "level"]
 
 
+class LevelWithGradesSerializer(LevelSerializer):
+    """
+    ``LevelSerializer`` mas sus grados anidados, para ``?expand=grades``.
+
+    La vista es quien agrupa los grados de todos los niveles de la pagina en
+    una sola consulta y los cuelga de ``_expanded_grades``; este serializer
+    solo los expone, no vuelve a consultarlos por nivel.
+    """
+
+    grades = GradeSerializer(many=True, read_only=True, source="_expanded_grades")
+
+    class Meta(LevelSerializer.Meta):
+        fields = [*LevelSerializer.Meta.fields, "grades"]
+
+
 class GradeCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, help_text="Ej. Primero Primaria.")
     code = serializers.CharField(
