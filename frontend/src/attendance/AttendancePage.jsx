@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -30,6 +30,11 @@ import {
 } from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import {
+  CAMERA_ERROR_MESSAGES,
+  CameraAccessError,
+  createCameraSession,
+} from "@shared/platform/camera.js";
 import {
   formatDate,
   formatDateTime,
@@ -255,6 +260,31 @@ export function AttendancePage() {
   const [showScan, setShowScan] = useState(false);
   const [showPresence, setShowPresence] = useState(false);
   const [showSectionClosure, setShowSectionClosure] = useState(false);
+  const [cameraPreflightError, setCameraPreflightError] = useState(null);
+
+  // RNF-USA-001: el permiso de camara se verifica al entrar a la captura de
+  // asistencia, no en el primer escaneo. La sesion se libera de inmediato --
+  // solo importa que el navegador haya resuelto el permiso, no mantener el
+  // hardware ocupado antes de que el operador abra la vista previa.
+  useEffect(() => {
+    let disposed = false;
+
+    createCameraSession()
+      .then((session) => {
+        session.stop();
+        if (!disposed) setCameraPreflightError(null);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        const code =
+          error instanceof CameraAccessError ? error.code : "unavailable";
+        setCameraPreflightError(code);
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   const handleCreateEvent = async (payload) => {
     await attendanceService.createEvent(payload);
@@ -317,6 +347,17 @@ export function AttendancePage() {
         subtitle="Movimientos de entrada y salida, alertas de la jornada y consulta del estado del dia de un estudiante."
         title="Asistencia"
       />
+
+      {cameraPreflightError ? (
+        <Alert
+          onClose={() => setCameraPreflightError(null)}
+          severity="warning"
+          sx={{ mb: 2 }}
+        >
+          {CAMERA_ERROR_MESSAGES[cameraPreflightError] ??
+            CAMERA_ERROR_MESSAGES.unavailable}
+        </Alert>
+      ) : null}
 
       <Grid container spacing={2} sx={{ mb: 1 }}>
         <Grid size={{ xs: 12, lg: 6 }}>

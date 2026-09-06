@@ -9,22 +9,12 @@ import Typography from "@mui/material/Typography";
 
 import {
   CAMERA_ERROR,
+  CAMERA_ERROR_MESSAGES,
   CameraAccessError,
   createCameraSession,
 } from "@shared/platform/camera.js";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
-
-const ERROR_COPY = {
-  [CAMERA_ERROR.insecure]:
-    "La camara solo esta disponible desde una conexion segura (HTTPS).",
-  [CAMERA_ERROR.permissionDenied]:
-    "No se pudo acceder a la camara. Habilita el permiso en el navegador y vuelve a intentarlo.",
-  [CAMERA_ERROR.unavailable]:
-    "No hay una camara disponible o esta siendo usada por otra aplicacion.",
-  [CAMERA_ERROR.unsupported]:
-    "Este navegador no admite el acceso requerido a la camara.",
-};
 
 export function CameraPreviewWindow({
   onClose,
@@ -104,7 +94,8 @@ export function CameraPreviewWindow({
 
       {result.status === "error" ? (
         <Alert role="alert" severity="warning">
-          {ERROR_COPY[result.code] ?? ERROR_COPY[CAMERA_ERROR.unavailable]}
+          {CAMERA_ERROR_MESSAGES[result.code] ??
+            CAMERA_ERROR_MESSAGES[CAMERA_ERROR.unavailable]}
         </Alert>
       ) : null}
 

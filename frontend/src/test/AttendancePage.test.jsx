@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
 import { AttendancePage } from "@attendance/AttendancePage.jsx";
+import { CAMERA_ERROR, CameraAccessError } from "@shared/platform/camera.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import { selectOption } from "./helpers/selectOption.jsx";
 
@@ -25,9 +26,18 @@ const attendanceServiceMock = vi.hoisted(() => ({
 
 const studentsServiceMock = vi.hoisted(() => ({ listPage: vi.fn() }));
 
+const createCameraSessionMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@attendance/attendanceService.js", async () => {
   const actual = await vi.importActual("@attendance/attendanceService.js");
   return { ...actual, attendanceService: attendanceServiceMock };
+});
+
+// RNF-USA-001: el chequeo preventivo de camara corre al montar la pagina;
+// sin doble se dispararia una peticion real de getUserMedia en jsdom.
+vi.mock("@shared/platform/camera.js", async () => {
+  const actual = await vi.importActual("@shared/platform/camera.js");
+  return { ...actual, createCameraSession: createCameraSessionMock };
 });
 
 // Los selectores de jornada, grado, seccion y estudiante leen los catalogos, y
@@ -95,6 +105,10 @@ beforeEach(() => {
   academicsServiceMock.listCampusShifts.mockResolvedValue(paged([SHIFT]));
   academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
   studentsServiceMock.listPage.mockReset().mockResolvedValue(paged([STUDENT]));
+
+  createCameraSessionMock
+    .mockReset()
+    .mockResolvedValue({ stream: null, stop: vi.fn() });
 });
 
 async function openScanWindow(user) {
@@ -378,4 +392,37 @@ describe("AttendancePage — porcentaje de asistencia", () => {
       scoped.getByText("9 de 10 dias lectivos transcurridos")
     ).toBeInTheDocument();
   }, 10000);
+});
+
+describe("AttendancePage — verificacion preventiva de camara (RNF-USA-001)", () => {
+  test("camino feliz: el permiso se verifica al entrar y no muestra aviso", async () => {
+    const stop = vi.fn();
+    createCameraSessionMock.mockResolvedValue({ stream: null, stop });
+
+    renderWithRouter(<AttendancePage />);
+
+    await waitFor(() => expect(createCameraSessionMock).toHaveBeenCalled());
+    await waitFor(() => expect(stop).toHaveBeenCalled());
+    expect(
+      screen.queryByText(/No se pudo acceder a la camara/)
+    ).not.toBeInTheDocument();
+  });
+
+  test("rechazo por autorizacion: informa sin bloquear el resto de la pagina", async () => {
+    createCameraSessionMock.mockRejectedValue(
+      new CameraAccessError(CAMERA_ERROR.permissionDenied)
+    );
+    const user = userEvent.setup();
+
+    renderWithRouter(<AttendancePage />);
+
+    const alert = await screen.findByText(
+      "No se pudo acceder a la camara. Habilita el permiso en el navegador y vuelve a intentarlo."
+    );
+    expect(alert).toBeInTheDocument();
+
+    // El aviso no bloquea el resto de la pagina: el operador sigue pudiendo
+    // registrar un movimiento con normalidad.
+    await openScanWindow(user);
+  });
 });

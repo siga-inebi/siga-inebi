@@ -259,4 +259,4 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RNF-SEG-004 | Sin evaluacion de codigo en plantillas: sustitucion de marcadores contra un catalogo cerrado | Debe | document-generation | Not implemented | #295 | TBD | Seguridad |
 | RNF-SEG-005 | Las descargas se resuelven con enlaces de vigencia breve atados al portador; sin rutas directas a archivos | Debe | document-management | Not implemented | #296 | TBD | Seguridad |
 | RNF-SEG-006 | Limitacion de tasa en las consultas publicas sin autenticacion | Debe | document-generation | Not implemented | #297 | TBD | Verificacion publica |
-| RNF-USA-001 | El permiso de camara se verifica al iniciar el turno, no en el primer escaneo | Debe | attendance-capture | Not implemented | #298 | TBD | UX operativa |
+| RNF-USA-001 | El permiso de camara se verifica al iniciar el turno, no en el primer escaneo | Debe | attendance-capture | Implemented | #298 | frontend/src/test/AttendancePage.test.jsx | UX operativa; no existe concepto de "iniciar turno" en la UI, se verifica al montar la pagina de captura de asistencia (el punto de entrada real del operador) |
