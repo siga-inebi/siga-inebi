@@ -15,10 +15,12 @@ import { BatchResultAlert } from "@shared/crud/BatchResultAlert.jsx";
 import { useBatchSubmit } from "@shared/crud/useBatchSubmit.js";
 import {
   sectionsForCycle,
+  studentOption,
   useCycleCatalog,
   useSectionCatalog,
-  useStudentCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
+import { useSearchableCatalog } from "@shared/catalogs/useSearchableCatalog.js";
+import { studentsService } from "@students/studentsService.js";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
@@ -37,6 +39,12 @@ import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
  * backend rechaza la segunda, y mostrar candidatos imposibles solo produce
  * errores que la persona no provoco.
  *
+ * El estudiante se busca por texto en el backend (`?search=`), no se trae el
+ * catalogo completo para filtrar en el cliente: con miles de estudiantes esta
+ * ventana pedia 4 paginas enteras solo para poder escribir un nombre. Por eso
+ * la lista arranca vacia — hay que escribir para ver candidatos, no hay un
+ * listado inicial que mostrar sin pedirlo entero.
+ *
  * Cada alta va por separado — no hay endpoint de lote — y el cupo se valida del
  * lado del servidor: si la seccion se llena a mitad del lote, las que entraron
  * quedan y el resumen dice cuales no.
@@ -44,17 +52,27 @@ import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 export function BulkEnrolmentWindow({ onClose, onCreated }) {
   const cycles = useCycleCatalog();
   const sections = useSectionCatalog();
-  const students = useStudentCatalog();
 
   const [cycleId, setCycleId] = useState("");
   const [sectionId, setSectionId] = useState("");
   const [effectiveOn, setEffectiveOn] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState([]);
+  // Etiqueta capturada al marcar, no al enviar: para cuando se envia el lote,
+  // la busqueda ya pudo cambiar y el estudiante ya no estar entre los
+  // resultados visibles, pero el resumen todavia necesita su nombre.
+  const [selectedLabels, setSelectedLabels] = useState(new Map());
 
   const [enrolled, setEnrolled] = useState(null);
   const [loadingEnrolled, setLoadingEnrolled] = useState(false);
   const [loadError, setLoadError] = useState("");
+
+  const students = useSearchableCatalog(
+    "students",
+    studentsService.listPage,
+    studentOption,
+    search
+  );
 
   const sectionOptions = sectionsForCycle(sections.options, cycleId);
   const section = sectionOptions.find((option) => option.value === sectionId);
@@ -72,10 +90,8 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
     [cycleId, section, sectionId, effectiveOn]
   );
   const describe = useCallback(
-    (studentId) =>
-      students.options.find((option) => option.value === studentId)?.label ??
-      studentId,
-    [students.options]
+    (studentId) => selectedLabels.get(studentId) ?? studentId,
+    [selectedLabels]
   );
   const { run, reset, submitting, result } = useBatchSubmit(
     createOne,
@@ -122,31 +138,37 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
 
   const candidates = useMemo(() => {
     if (!enrolled) return [];
-    const query = search.trim().toLowerCase();
-    return students.options.filter(
-      (student) =>
-        !enrolled.has(student.value) &&
-        (!query || student.label.toLowerCase().includes(query))
-    );
-  }, [enrolled, search, students.options]);
+    return students.options.filter((student) => !enrolled.has(student.value));
+  }, [enrolled, students.options]);
 
   const visibleIds = candidates.map((student) => student.value);
   const allVisibleSelected =
     visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
 
-  const toggle = (studentId) =>
-    setSelected((current) =>
-      current.includes(studentId)
-        ? current.filter((id) => id !== studentId)
-        : [...current, studentId]
-    );
+  const rememberLabels = (rows) =>
+    setSelectedLabels((current) => {
+      const next = new Map(current);
+      for (const row of rows) next.set(row.value, row.label);
+      return next;
+    });
 
-  const toggleAllVisible = () =>
+  const toggle = (student) => {
+    rememberLabels([student]);
+    setSelected((current) =>
+      current.includes(student.value)
+        ? current.filter((id) => id !== student.value)
+        : [...current, student.value]
+    );
+  };
+
+  const toggleAllVisible = () => {
+    rememberLabels(candidates);
     setSelected((current) =>
       allVisibleSelected
         ? current.filter((id) => !visibleIds.includes(id))
         : [...new Set([...current, ...visibleIds])]
     );
+  };
 
   const handleSubmit = async () => {
     const summary = await run(selected);
@@ -252,7 +274,7 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
             Elija ciclo, seccion y fecha de vigencia para ver a los estudiantes
             disponibles.
           </Alert>
-        ) : loadingEnrolled || students.loading ? (
+        ) : loadingEnrolled ? (
           <Stack alignItems="center" sx={{ py: 4 }}>
             <CircularProgress size={24} />
           </Stack>
@@ -265,7 +287,7 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
             >
               <SearchField
                 onChange={setSearch}
-                placeholder="Buscar por nombre o codigo…"
+                placeholder="Buscar por nombre o codigo (minimo 2 letras)…"
                 value={search}
               />
               <FormControlLabel
@@ -287,12 +309,18 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
               </Typography>
             </Stack>
 
-            {candidates.length === 0 ? (
+            {!students.ready ? (
+              <EmptyState message="Escriba al menos 2 letras del nombre o codigo para buscar." />
+            ) : students.loading ? (
+              <Stack alignItems="center" sx={{ py: 4 }}>
+                <CircularProgress size={24} />
+              </Stack>
+            ) : candidates.length === 0 ? (
               <EmptyState
                 message={
-                  search
-                    ? "Ningun estudiante disponible coincide con la busqueda."
-                    : "Todos los estudiantes ya tienen matricula vigente en este ciclo."
+                  students.options.length === 0
+                    ? "Ningun estudiante coincide con la busqueda."
+                    : "Los estudiantes que coinciden ya tienen matricula vigente en este ciclo."
                 }
               />
             ) : (
@@ -314,7 +342,7 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
                     control={
                       <Checkbox
                         checked={selected.includes(student.value)}
-                        onChange={() => toggle(student.value)}
+                        onChange={() => toggle(student)}
                       />
                     }
                     key={student.value}

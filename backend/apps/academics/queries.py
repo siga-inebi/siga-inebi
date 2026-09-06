@@ -151,6 +151,20 @@ def grades(level, *, include_inactive=False):
     )
 
 
+def grades_for_levels(levels, *, include_inactive=False):
+    """
+    Grados de varios niveles en una sola consulta.
+
+    Existe para que ``?expand=grades`` en el listado de niveles no dispare una
+    consulta por nivel (el N+1 que traia el selector de "Presencia en tiempo
+    real"): quien llama agrupa el resultado por ``level_id`` una sola vez.
+    """
+    return _filter_active(
+        Grade.objects.filter(level__in=levels).select_related("level"),
+        include_inactive=include_inactive,
+    )
+
+
 def grade_or_404(institution, public_id):
     return _get(
         Grade.objects.filter(level__institution=institution).select_related("level"),

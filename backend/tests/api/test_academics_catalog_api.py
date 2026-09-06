@@ -439,6 +439,46 @@ def test_create_level_rejects_non_positive_sequence_at_serializer(auth_client, i
     assert "sequence" in _detail(response)
 
 
+def test_list_levels_sends_cache_control_and_etag(auth_client, institution):
+    LevelFactory(institution=institution)
+
+    response = auth_client.get(reverse("level-list-create"))
+
+    assert "max-age=" in response.headers["Cache-Control"]
+    assert "private" in response.headers["Cache-Control"]
+    assert response.headers["ETag"]
+
+
+def test_list_levels_returns_304_when_etag_matches(auth_client, institution):
+    LevelFactory(institution=institution)
+
+    first = auth_client.get(reverse("level-list-create"))
+    etag = first.headers["ETag"]
+
+    revalidated = auth_client.get(reverse("level-list-create"), HTTP_IF_NONE_MATCH=etag)
+
+    assert revalidated.status_code == 304
+
+
+def test_list_levels_etag_changes_when_data_changes(auth_client, institution):
+    LevelFactory(institution=institution, sequence=1)
+    first_etag = auth_client.get(reverse("level-list-create")).headers["ETag"]
+
+    LevelFactory(institution=institution, sequence=2)
+    second_etag = auth_client.get(reverse("level-list-create")).headers["ETag"]
+
+    assert first_etag != second_etag
+
+
+def test_teaching_assignment_history_does_not_send_cache_headers(auth_client, institution):
+    # A diferencia de los catalogos de baja rotacion, el historial de
+    # asignaciones muta seguido: no debe quedar cacheado por accidente.
+    response = auth_client.get(reverse("teaching-assignment-history"))
+
+    assert "Cache-Control" not in response.headers
+    assert "ETag" not in response.headers
+
+
 def test_list_levels_is_ordered_by_sequence(auth_client, institution):
     LevelFactory(institution=institution, code="DIV", sequence=4)
     LevelFactory(institution=institution, code="PRE", sequence=1)
@@ -447,6 +487,42 @@ def test_list_levels_is_ordered_by_sequence(auth_client, institution):
     response = auth_client.get(reverse("level-list-create"))
 
     assert [item["code"] for item in _items(response)] == ["PRE", "PRI", "DIV"]
+
+
+def test_list_levels_expand_grades_nests_grades_ordered_by_sequence(auth_client, institution):
+    # El selector de "Presencia en tiempo real" dependia de una peticion por
+    # nivel para armar el desplegable de grados; esto lo reemplaza por una
+    # sola llamada con los grados ya anidados.
+    first = LevelFactory(institution=institution, sequence=1)
+    second = LevelFactory(institution=institution, sequence=2)
+    GradeFactory(level=first, code="B", sequence=2)
+    GradeFactory(level=first, code="A", sequence=1)
+    GradeFactory(level=second, code="C", sequence=1)
+
+    response = auth_client.get(reverse("level-list-create"), {"expand": "grades"})
+
+    assert response.status_code == 200
+    items = _items(response)
+    grades_by_level = {item["public_id"]: item["grades"] for item in items}
+    assert [g["code"] for g in grades_by_level[str(first.public_id)]] == ["A", "B"]
+    assert [g["code"] for g in grades_by_level[str(second.public_id)]] == ["C"]
+
+
+def test_list_levels_without_expand_does_not_include_grades(auth_client, institution):
+    LevelFactory(institution=institution)
+
+    response = auth_client.get(reverse("level-list-create"))
+
+    assert "grades" not in _items(response)[0]
+
+
+def test_list_levels_expand_grades_handles_a_level_without_grades(auth_client, institution):
+    LevelFactory(institution=institution)
+
+    response = auth_client.get(reverse("level-list-create"), {"expand": "grades"})
+
+    assert response.status_code == 200
+    assert _items(response)[0]["grades"] == []
 
 
 def test_level_payload_exposes_grade_count(auth_client, institution):

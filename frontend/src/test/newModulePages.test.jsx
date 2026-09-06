@@ -490,8 +490,11 @@ describe("pantallas de los modulos con backend previo", () => {
     beforeEach(() => {
       studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
       academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
-      academicsServiceMock.listLevels.mockResolvedValue(paged([LEVEL]));
-      academicsServiceMock.listLevelGrades.mockResolvedValue(paged([GRADE]));
+      // El catalogo de grados pide niveles con ?expand=grades, no un
+      // /levels/{id}/grades/ por nivel: el mock ya trae el grado anidado.
+      academicsServiceMock.listLevels.mockResolvedValue(
+        paged([{ ...LEVEL, grades: [GRADE] }])
+      );
     });
 
     test("muestra nombres en vez de identificadores", async () => {
@@ -572,6 +575,13 @@ describe("pantallas de los modulos con backend previo", () => {
       await user.type(
         within(window).getByLabelText(/Vigente desde/),
         "2026-03-02"
+      );
+
+      // El picker ya no trae el listado completo: hay que escribir para que
+      // pida al backend (aqui, el mock) las coincidencias.
+      await user.type(
+        within(window).getByPlaceholderText(/Buscar por nombre o codigo/),
+        "ines"
       );
 
       expect(
@@ -1048,6 +1058,34 @@ describe("pantallas de los modulos con backend previo", () => {
         teacher_id: "teacher-1",
         starts_on: "2026-03-02",
       });
+    });
+
+    test("abrir Asignar por lotes no vuelve a pedir los catalogos que la pagina ya cargo", async () => {
+      // Antes de la cache compartida, este modal llamaba a sus propios
+      // useCycleCatalog/useSectionCatalog/useSubjectCatalog/useTeacherCatalog
+      // y volvia a pedir los 4 catalogos desde cero al abrirse, aunque la
+      // pagina ya los tuviera. Con useCatalogOptions respaldado por
+      // react-query, ambos consumidores resuelven contra la misma query.
+      const user = userEvent.setup();
+      renderWithRouter(<TeachingAssignmentsPage />);
+      await screen.findByText("Vigente");
+
+      expect(cyclesServiceMock.list).toHaveBeenCalledTimes(1);
+      expect(academicsServiceMock.listSections).toHaveBeenCalledTimes(1);
+      expect(academicsServiceMock.listSubjects).toHaveBeenCalledTimes(1);
+      expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(1);
+
+      await user.click(
+        screen.getByRole("button", { name: "Asignar por lotes" })
+      );
+      await screen.findByRole("dialog", {
+        name: "Asignacion docente por lotes",
+      });
+
+      expect(cyclesServiceMock.list).toHaveBeenCalledTimes(1);
+      expect(academicsServiceMock.listSections).toHaveBeenCalledTimes(1);
+      expect(academicsServiceMock.listSubjects).toHaveBeenCalledTimes(1);
+      expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(1);
     });
 
     test("clonar trae el ciclo anterior resuelto y espera confirmacion", async () => {

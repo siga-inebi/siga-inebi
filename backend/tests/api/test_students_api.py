@@ -129,6 +129,35 @@ def test_list_students_returns_nested_person(logged_in_client):
 
 @pytest.mark.api
 @pytest.mark.django_db
+def test_list_students_search_filters_by_name_or_code(logged_in_client):
+    # El selector de estudiante de los modales (matricular por lotes,
+    # consultar resultado) depende de esto para no traer el listado completo
+    # solo para poder escribir un nombre en el buscador.
+    ana = StudentFactory(student_code="STU-2001")
+    ana.person.first_name = "Ana"
+    ana.person.last_name = "Gomez"
+    ana.person.save()
+    luis = StudentFactory(student_code="STU-2002")
+    luis.person.first_name = "Luis"
+    luis.person.last_name = "Ramirez"
+    luis.person.save()
+    first_grant = grant_student_permission(logged_in_client.user, student=ana)
+    ScopeGrantFactory(assignment=first_grant.assignment, student=luis)
+
+    by_first_name = logged_in_client.get(reverse("student-list"), {"search": "ana"})
+    by_code = logged_in_client.get(reverse("student-list"), {"search": "2002"})
+
+    assert by_first_name.status_code == 200
+    first_name_ids = [item["id"] for item in by_first_name.json()["results"]]
+    assert first_name_ids == [ana.pk]
+
+    assert by_code.status_code == 200
+    code_ids = [item["id"] for item in by_code.json()["results"]]
+    assert code_ids == [luis.pk]
+
+
+@pytest.mark.api
+@pytest.mark.django_db
 def test_list_students_permission_without_scope_is_denied(logged_in_client):
     permission = PermissionFactory(codename="student_view_basic")
     RoleAssignmentFactory(
