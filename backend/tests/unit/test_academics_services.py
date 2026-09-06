@@ -18,11 +18,13 @@ from apps.academics.services import (
     deactivate_curriculum_plan,
     deactivate_section,
     publish_class_schedule,
+    reopen_academic_cycle,
     unpublish_class_schedule,
     update_class_schedule_block,
     update_curriculum_plan,
     update_section,
 )
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
@@ -39,6 +41,7 @@ from tests.factories.academic import (
     SubjectFactory,
 )
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -90,6 +93,52 @@ def test_close_cycle_succeeds_when_units_are_closed_and_settled():
 def test_close_cycle_succeeds_when_cycle_has_no_evaluation_units():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
     assert close_academic_cycle(cycle=cycle).status == AcademicCycle.CycleStatus.CLOSED
+
+
+def test_reopen_cycle_rejects_when_cycle_is_not_closed():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
+        reopen_academic_cycle(cycle=cycle, reason="Correccion de nota")
+    cycle.refresh_from_db()
+    assert cycle.status == AcademicCycle.CycleStatus.ACTIVE
+
+
+def test_reopen_cycle_rejects_blank_reason():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    with pytest.raises(DomainError, match="motivo"):
+        reopen_academic_cycle(cycle=cycle, reason="   ")
+    cycle.refresh_from_db()
+    assert cycle.status == AcademicCycle.CycleStatus.CLOSED
+
+
+def test_reopen_cycle_rejects_when_another_cycle_is_already_active():
+    institution = InstitutionFactory()
+    AcademicCycleFactory(
+        institution=institution, year=2026, status=AcademicCycle.CycleStatus.ACTIVE
+    )
+    closed = AcademicCycleFactory(
+        institution=institution,
+        year=2025,
+        starts_on=date(2025, 1, 1),
+        ends_on=date(2025, 10, 31),
+        status=AcademicCycle.CycleStatus.CLOSED,
+    )
+    with pytest.raises(DomainError, match="Hay que cerrar el ciclo activo"):
+        reopen_academic_cycle(cycle=closed, reason="Correccion de nota")
+
+
+def test_reopen_cycle_succeeds_and_records_the_reason_in_the_audit_trail():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    actor = UserFactory()
+
+    reopened = reopen_academic_cycle(
+        cycle=cycle, reason="Correccion de una nota mal capturada", actor=actor
+    )
+
+    assert reopened.status == AcademicCycle.CycleStatus.ACTIVE
+    event = AuditEvent.objects.get(action="academics.cycle.reopened")
+    assert event.context["reason"] == "Correccion de una nota mal capturada"
+    assert event.context["status"] == AcademicCycle.CycleStatus.ACTIVE
 
 
 def test_create_cycle_registers_requested_data_in_preparation():

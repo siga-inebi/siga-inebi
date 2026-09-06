@@ -76,6 +76,14 @@ class AcademicCycleCloneSerializer(AcademicCycleCreateSerializer):
     include_teaching_assignments = serializers.BooleanField(required=False, default=False)
 
 
+class AcademicCycleReopenSerializer(serializers.Serializer):
+    """RF-CIC-005: el motivo se valida en el servicio, no aqui, igual que
+    ``grant_capture_exception`` en evaluation — así el mensaje de rechazo
+    queda en espanol sin depender de los mensajes por defecto de DRF."""
+
+    reason = serializers.CharField(max_length=500, allow_blank=True)
+
+
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a catalogue node
 # --------------------------------------------------------------------------- #
