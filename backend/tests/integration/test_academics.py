@@ -14,6 +14,7 @@ from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_class_session,
     create_curriculum_plan,
     create_section,
     create_teaching_assignment,
@@ -25,6 +26,7 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassScheduleBlockFactory,
     GradeFactory,
     InstitutionFactory,
     SectionFactory,
@@ -361,3 +363,66 @@ def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():
     assert historical._enrolment_total == 1
     assert historical._enrolment_completed == 1
     assert Enrolment.objects.filter(pk=enrolment.pk).exists()
+
+
+def test_teacher_shared_across_two_sections_cannot_be_double_booked():
+    """RF-HOR-006 (#199): a teacher assigned to two sections in the same
+    cycle cannot end up scheduled in both at once -- full flow: cycle in
+    preparation, two sections, a teaching assignment for each, one class
+    session scheduled, then a conflicting one for the second section."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section_a = create_section(
+        academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor
+    )
+    section_b = create_section(
+        academic_cycle=cycle, grade=grade, shift=shift, name="B", actor=actor
+    )
+    subject_a = SubjectFactory(institution=institution)
+    subject_b = SubjectFactory(institution=institution)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section_a,
+        subject=subject_a,
+        teacher=teacher.person,
+        actor=actor,
+    )
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section_b,
+        subject=subject_b,
+        teacher=teacher.person,
+        actor=actor,
+    )
+    block = ClassScheduleBlockFactory(shift=shift)
+    create_class_session(
+        academic_cycle=cycle,
+        section=section_a,
+        subject=subject_a,
+        schedule_block=block,
+        day_of_week=1,
+        actor=actor,
+    )
+
+    with pytest.raises(DomainError, match="El docente ya tiene otra seccion agendada"):
+        create_class_session(
+            academic_cycle=cycle,
+            section=section_b,
+            subject=subject_b,
+            schedule_block=block,
+            day_of_week=1,
+            actor=actor,
+        )
+
+    assert section_b.class_sessions.count() == 0

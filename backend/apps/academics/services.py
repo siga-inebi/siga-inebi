@@ -1655,6 +1655,10 @@ def create_class_session(
       #198). The classroom half of that requirement is out of scope here --
       apps.academics has no classroom concept yet (blocked on RF-AUL-001,
       #99) -- and the issue stays open until it does.
+    - A teacher cannot be in two sections at once either: if the section's
+      current teacher for this subject already has another active session
+      in the same day and block, for a different section, that is a
+      conflict too (RF-HOR-006, #199).
     """
     require_cycle_academic_writes(cycle=academic_cycle, operation="class_session.create")
 
@@ -1691,6 +1695,31 @@ def create_class_session(
         raise DomainError(
             "El aula ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
         )
+    current_assignment = (
+        TeachingAssignment.objects.filter(
+            academic_cycle=academic_cycle,
+            section=section,
+            subject=subject,
+            ends_on__isnull=True,
+        )
+        .select_related("teacher")
+        .first()
+    )
+    teacher = current_assignment.teacher if current_assignment else None
+    if teacher is not None:
+        # RF-HOR-006 (#199): the teacher is derived per session (RF-HOR-004),
+        # never stored on ClassSession, so this reads each candidate's own
+        # current assignment rather than a shared column -- same reasoning
+        # as the ``current_teacher`` model property.
+        other_sessions_in_slot = ClassSession.objects.filter(
+            day_of_week=day_of_week,
+            schedule_block=schedule_block,
+            is_active=True,
+        ).exclude(section=section)
+        if any(other.current_teacher == teacher for other in other_sessions_in_slot):
+            raise DomainError(
+                "El docente ya tiene otra seccion agendada en ese dia y bloque: cruce de horario."
+            )
 
     with unique_violation_as(_class_session_conflicts()):
         session = ClassSession.objects.create(

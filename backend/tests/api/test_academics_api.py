@@ -3,6 +3,7 @@ from django.test import Client
 from django.urls import reverse
 
 from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
+from apps.academics.services import create_teaching_assignment
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
@@ -292,6 +293,40 @@ def test_create_class_session_api_rejects_classroom_double_booked_in_the_same_sl
 
     assert response.status_code == 400
     assert "El aula ya tiene otra sesion agendada" in response.json()["error"]["detail"]
+
+
+def test_create_class_session_api_rejects_teacher_double_booked_in_the_same_slot(
+    auth_client, institution
+):
+    """RF-HOR-006 (#199): cruce por docente en el mismo dia y bloque, en dos
+    secciones distintas."""
+    cycle = AcademicCycleFactory(institution=institution)
+    section_a = SectionFactory(academic_cycle=cycle)
+    shift = section_a.offering.shift
+    section_b = SectionFactory(academic_cycle=cycle, shift=shift)
+    subject_a = SubjectFactory(institution=institution)
+    subject_b = SubjectFactory(institution=institution)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=cycle, section=section_a, subject=subject_a, teacher=teacher.person
+    )
+    create_teaching_assignment(
+        academic_cycle=cycle, section=section_b, subject=subject_b, teacher=teacher.person
+    )
+    existing = ClassSessionFactory(section=section_a, subject=subject_a)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section_b.public_id]),
+        {
+            "subject_id": str(subject_b.public_id),
+            "schedule_block_id": str(existing.schedule_block.public_id),
+            "day_of_week": existing.day_of_week,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "El docente ya tiene otra seccion agendada" in response.json()["error"]["detail"]
 
 
 def test_list_class_sessions_is_scoped_to_the_section(auth_client, institution):
