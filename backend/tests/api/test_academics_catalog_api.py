@@ -439,6 +439,46 @@ def test_create_level_rejects_non_positive_sequence_at_serializer(auth_client, i
     assert "sequence" in _detail(response)
 
 
+def test_list_levels_sends_cache_control_and_etag(auth_client, institution):
+    LevelFactory(institution=institution)
+
+    response = auth_client.get(reverse("level-list-create"))
+
+    assert "max-age=" in response.headers["Cache-Control"]
+    assert "private" in response.headers["Cache-Control"]
+    assert response.headers["ETag"]
+
+
+def test_list_levels_returns_304_when_etag_matches(auth_client, institution):
+    LevelFactory(institution=institution)
+
+    first = auth_client.get(reverse("level-list-create"))
+    etag = first.headers["ETag"]
+
+    revalidated = auth_client.get(reverse("level-list-create"), HTTP_IF_NONE_MATCH=etag)
+
+    assert revalidated.status_code == 304
+
+
+def test_list_levels_etag_changes_when_data_changes(auth_client, institution):
+    LevelFactory(institution=institution, sequence=1)
+    first_etag = auth_client.get(reverse("level-list-create")).headers["ETag"]
+
+    LevelFactory(institution=institution, sequence=2)
+    second_etag = auth_client.get(reverse("level-list-create")).headers["ETag"]
+
+    assert first_etag != second_etag
+
+
+def test_teaching_assignment_history_does_not_send_cache_headers(auth_client, institution):
+    # A diferencia de los catalogos de baja rotacion, el historial de
+    # asignaciones muta seguido: no debe quedar cacheado por accidente.
+    response = auth_client.get(reverse("teaching-assignment-history"))
+
+    assert "Cache-Control" not in response.headers
+    assert "ETag" not in response.headers
+
+
 def test_list_levels_is_ordered_by_sequence(auth_client, institution):
     LevelFactory(institution=institution, code="DIV", sequence=4)
     LevelFactory(institution=institution, code="PRE", sequence=1)

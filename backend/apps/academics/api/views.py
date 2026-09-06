@@ -22,6 +22,7 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from apps.academics import queries, services
+from apps.common.api.caching import CacheableListMixin
 from apps.common.exceptions import AuthorizationError, DomainError
 from apps.teachers import queries as teacher_queries
 
@@ -72,6 +73,11 @@ from .serializers import (
 )
 
 CATALOGUE = ["academics: catalogue"]
+
+# Cuanto puede un navegador servir un catalogo de baja rotacion sin volver a
+# pedirlo: niveles, secciones, ciclos, cursos y sedes cambian poco, y cada
+# navegacion los volvia a traer completos aunque nada hubiera cambiado.
+CATALOGUE_CACHE_SECONDS = 300
 
 INCLUDE_INACTIVE = OpenApiParameter(
     name="include_inactive",
@@ -216,9 +222,10 @@ class DeactivateMixin:
         responses={201: AcademicCycleSerializer},
     ),
 )
-class AcademicCycleListCreateView(CatalogueListCreateView):
+class AcademicCycleListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = AcademicCycleSerializer
     create_serializer = AcademicCycleCreateSerializer
+    cache_seconds = CATALOGUE_CACHE_SECONDS
 
     def list_queryset(self, request):
         return queries.academic_cycles(self.institution)
@@ -322,9 +329,10 @@ class AcademicCycleCloneView(CatalogueView):
         responses={201: CampusSerializer},
     ),
 )
-class CampusListCreateView(CatalogueListCreateView):
+class CampusListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = CampusSerializer
     create_serializer = CampusCreateSerializer
+    cache_seconds = CATALOGUE_CACHE_SECONDS
 
     def list_queryset(self, request):
         return queries.campuses(self.institution, include_inactive=_include_inactive(request))
@@ -450,9 +458,10 @@ class ClassroomDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, Catalogue
         responses={201: ShiftSerializer},
     ),
 )
-class CampusShiftListCreateView(CatalogueListCreateView):
+class CampusShiftListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = ShiftSerializer
     create_serializer = ShiftCreateSerializer
+    cache_seconds = CATALOGUE_CACHE_SECONDS
 
     def list_queryset(self, request, public_id):
         return queries.shifts(
@@ -590,9 +599,10 @@ class ClassScheduleBlockDetailView(
         responses={201: LevelSerializer},
     ),
 )
-class LevelListCreateView(CatalogueListCreateView):
+class LevelListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = LevelSerializer
     create_serializer = LevelCreateSerializer
+    cache_seconds = CATALOGUE_CACHE_SECONDS
 
     def list_queryset(self, request):
         return queries.levels(self.institution, include_inactive=_include_inactive(request))
@@ -745,9 +755,10 @@ class GradeDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDeta
         responses={201: SubjectSerializer},
     ),
 )
-class SubjectListCreateView(CatalogueListCreateView):
+class SubjectListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = SubjectSerializer
     create_serializer = SubjectCreateSerializer
+    cache_seconds = CATALOGUE_CACHE_SECONDS
 
     def list_queryset(self, request):
         return queries.subjects(self.institution, include_inactive=_include_inactive(request))
@@ -896,9 +907,10 @@ class LevelSubjectDetailView(UpdateMixin, DeactivateMixin, CatalogueDetailView):
         responses={201: SectionSerializer},
     ),
 )
-class SectionListCreateView(CatalogueListCreateView):
+class SectionListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = SectionSerializer
     create_serializer = SectionCreateSerializer
+    cache_seconds = CATALOGUE_CACHE_SECONDS
 
     def list_queryset(self, request):
         return queries.sections(
