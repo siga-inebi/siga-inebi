@@ -12,15 +12,16 @@ import { useQuery } from "@tanstack/react-query";
  *
  * @param {Array} key - Query key de `queryKeys.js`.
  * @param {() => Promise<any>} fetcher
- * @param {{enabled?: boolean, defaultData?: any}} [options]
+ * @param {{enabled?: boolean, defaultData?: any, staleTime?: number}} [options]
  */
 export function useResourceQuery(key, fetcher, options = {}) {
-  const { enabled = true, defaultData = null } = options;
+  const { enabled = true, defaultData = null, staleTime } = options;
 
   const query = useQuery({
     queryKey: key,
     queryFn: fetcher,
     enabled,
+    ...(staleTime === undefined ? {} : { staleTime }),
   });
 
   return {
