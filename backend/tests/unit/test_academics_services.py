@@ -667,6 +667,25 @@ def test_create_class_session_registers_requested_session():
     assert session.day_of_week == 1
 
 
+def test_create_class_session_does_not_require_a_classroom():
+    """RF-AUL-003 (#101): periodos especiales (ej. Educacion Fisica) se
+    registran sin vincular un aula fisica -- classroom ya es opcional desde
+    RF-HOR-005 (#198, PR #486), sin cambios adicionales."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    session = create_class_session(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    assert session.classroom_id is None
+
+
 def test_create_class_session_rejects_block_from_a_different_shift():
     """Escenario 2 (#196): el bloque debe pertenecer a la jornada de la seccion."""
     section = SectionFactory()

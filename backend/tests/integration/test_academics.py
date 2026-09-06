@@ -14,6 +14,7 @@ from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_class_session,
     create_curriculum_plan,
     create_section,
     create_teaching_assignment,
@@ -25,6 +26,7 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassScheduleBlockFactory,
     GradeFactory,
     InstitutionFactory,
     SectionFactory,
@@ -361,3 +363,45 @@ def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():
     assert historical._enrolment_total == 1
     assert historical._enrolment_completed == 1
     assert Enrolment.objects.filter(pk=enrolment.pk).exists()
+
+
+def test_special_session_without_a_classroom_does_not_block_cycle_activation():
+    """RF-AUL-003 (#101): un periodo especial (ej. Educacion Fisica) sin aula
+    fija no es un hueco estructural -- no aparece entre lo que
+    _academic_cycle_opening_gaps exige para activar el ciclo (RF-CIC-003)."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2028,
+        name="Ciclo 2028",
+        starts_on=date(2028, 1, 1),
+        ends_on=date(2028, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution, name="Educacion Fisica")
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=TeacherFactory().person,
+        actor=actor,
+    )
+    block = ClassScheduleBlockFactory(shift=shift)
+    session = create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+        actor=actor,
+    )
+    assert session.classroom_id is None
+
+    activated = activate_academic_cycle(cycle=cycle, actor=actor)
+
+    assert activated.status == AcademicCycle.CycleStatus.ACTIVE
