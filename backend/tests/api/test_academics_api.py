@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from django.test import Client
 from django.urls import reverse
@@ -207,6 +209,52 @@ def test_create_class_session_api_creates_session(auth_client, institution):
     assert body["subject"]["public_id"] == str(subject.public_id)
     assert body["schedule_block"]["public_id"] == str(block.public_id)
     assert body["teacher_id"] is None  # sin asignacion vigente todavia (RF-HOR-004)
+    assert body["starts_on"] == section.academic_cycle.starts_on.isoformat()
+
+
+def test_create_class_session_api_accepts_a_mid_cycle_starts_on(auth_client, institution):
+    """RF-HOR-008 (#201): fecha de vigencia explicita para una reestructuracion
+    a mitad de ciclo."""
+    cycle = AcademicCycleFactory(institution=institution)
+    section = SectionFactory(academic_cycle=cycle)
+    subject = SubjectFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(subject.public_id),
+            "schedule_block_id": str(block.public_id),
+            "day_of_week": 1,
+            "starts_on": cycle.ends_on.isoformat(),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["starts_on"] == cycle.ends_on.isoformat()
+
+
+def test_create_class_session_api_rejects_starts_on_outside_the_cycle(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    section = SectionFactory(academic_cycle=cycle)
+    subject = SubjectFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    before_cycle = cycle.starts_on - timedelta(days=1)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(subject.public_id),
+            "schedule_block_id": str(block.public_id),
+            "day_of_week": 1,
+            "starts_on": before_cycle.isoformat(),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "fecha de vigencia" in response.json()["error"]["detail"]
 
 
 def test_class_session_api_exposes_the_current_teacher(auth_client, institution):
