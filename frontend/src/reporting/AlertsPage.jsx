@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -14,6 +14,8 @@ import {
   ALERT_VARIANT,
   reportingService,
 } from "@reporting/reportingService.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate, formatDateTime } from "@shared/utils/format.js";
@@ -50,33 +52,23 @@ const TYPE_FILTER_OPTIONS = [
  * Consulta la primera pagina solo para leer `count`: el endpoint pagina, asi que
  * contar en el cliente sobre la pagina visible daria un numero equivocado en
  * cuanto haya mas de una pagina.
+ *
+ * Las tres tarjetas KPI de la pantalla llaman a este hook con filtros
+ * distintos, asi que siguen siendo tres peticiones legitimas — lo que la
+ * cache comun elimina es que cada una se duplique por si sola (StrictMode) o
+ * se repita en cada `refreshAll()` cuando nada de lo que pide cambio.
  */
 function useAlertCount(params, token) {
-  const [count, setCount] = useState(null);
-  // Los filtros se serializan para poder usarlos como dependencia estable: un
-  // objeto literal seria una referencia nueva en cada render y recargaria en bucle.
-  const key = JSON.stringify(params);
+  const key = queryKeys.reporting.alerts({ ...params, countsToken: token });
+  const { data } = useResourceQuery(
+    key,
+    () => reportingService.listAlerts(params),
+    { defaultData: null }
+  );
 
-  useEffect(() => {
-    let active = true;
-    reportingService
-      .listAlerts(JSON.parse(key))
-      .then((page) => {
-        if (active) setCount(page?.count ?? 0);
-      })
-      .catch(() => {
-        // Sin permiso o sin datos: el indicador queda en blanco, la tabla ya
-        // muestra el error real.
-        if (active) setCount(null);
-      });
-    return () => {
-      active = false;
-    };
-    // `token` fuerza el recalculo tras atender una alerta, sin viajar como
-    // parametro de la peticion.
-  }, [key, token]);
-
-  return count;
+  // Sin permiso, sin datos o mientras carga: el indicador queda en blanco
+  // (`null`), la tabla ya muestra el error real.
+  return data?.count ?? null;
 }
 
 export function AlertsPage() {
