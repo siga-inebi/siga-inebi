@@ -13,6 +13,7 @@ from tests.factories.academic import (
     ClassSessionFactory,
     GradeFactory,
     GradeOfferingFactory,
+    LevelSubjectFactory,
     SectionFactory,
     ShiftFactory,
     SubjectFactory,
@@ -330,6 +331,75 @@ def test_class_session_endpoints_require_authentication(client, institution):
 
     assert list_response.status_code == 403
     assert detail_response.status_code == 403
+
+
+def test_weekly_load_api_reports_a_match(auth_client, institution):
+    """RF-HOR-007: los periodos agendados coinciden con la carga declarada."""
+    cycle = AcademicCycleFactory(institution=institution)
+    section = SectionFactory(academic_cycle=cycle)
+    grade = section.grade
+    subject = SubjectFactory(institution=institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
+    LevelSubjectFactory(level=grade.level, subject=subject, weekly_hours=2)
+    block_a = ClassScheduleBlockFactory(shift=section.offering.shift, number=1)
+    block_b = ClassScheduleBlockFactory(shift=section.offering.shift, number=2)
+    ClassSessionFactory(section=section, subject=subject, schedule_block=block_a, day_of_week=1)
+    ClassSessionFactory(section=section, subject=subject, schedule_block=block_b, day_of_week=1)
+
+    response = auth_client.get(reverse("section-weekly-load", args=[section.public_id]))
+
+    assert response.status_code == 200
+    row = next(r for r in response.json() if r["subject"]["public_id"] == str(subject.public_id))
+    assert row["declared_weekly_hours"] == 2
+    assert row["scheduled_periods"] == 2
+    assert row["matches"] is True
+
+
+def test_weekly_load_api_reports_a_mismatch(auth_client, institution):
+    """RF-HOR-007: menos periodos agendados que horas declaradas."""
+    cycle = AcademicCycleFactory(institution=institution)
+    section = SectionFactory(academic_cycle=cycle)
+    grade = section.grade
+    subject = SubjectFactory(institution=institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
+    LevelSubjectFactory(level=grade.level, subject=subject, weekly_hours=3)
+    ClassSessionFactory(section=section, subject=subject)
+
+    response = auth_client.get(reverse("section-weekly-load", args=[section.public_id]))
+
+    assert response.status_code == 200
+    row = next(r for r in response.json() if r["subject"]["public_id"] == str(subject.public_id))
+    assert row["declared_weekly_hours"] == 3
+    assert row["scheduled_periods"] == 1
+    assert row["matches"] is False
+
+
+def test_weekly_load_api_reports_no_declared_hours_as_null(auth_client, institution):
+    """RF-HOR-007: sin carga declarada a nivel de nivel educativo, no hay con
+    que comparar -- declared_weekly_hours y matches quedan en null, no en
+    un falso "no coincide"."""
+    cycle = AcademicCycleFactory(institution=institution)
+    section = SectionFactory(academic_cycle=cycle)
+    grade = section.grade
+    subject = SubjectFactory(institution=institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
+    ClassSessionFactory(section=section, subject=subject)
+
+    response = auth_client.get(reverse("section-weekly-load", args=[section.public_id]))
+
+    assert response.status_code == 200
+    row = next(r for r in response.json() if r["subject"]["public_id"] == str(subject.public_id))
+    assert row["declared_weekly_hours"] is None
+    assert row["scheduled_periods"] == 1
+    assert row["matches"] is None
+
+
+def test_weekly_load_endpoint_requires_authentication(client, institution):
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+
+    response = client.get(reverse("section-weekly-load", args=[section.public_id]))
+
+    assert response.status_code == 403
 
 
 def test_class_schedule_publication_api_lifecycle(auth_client, institution):

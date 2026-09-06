@@ -6,14 +6,16 @@ from apps.academics.models import (
     AcademicCycle,
     CurriculumPlan,
     GradeOffering,
+    LevelSubject,
     Section,
     TeachingAssignment,
 )
-from apps.academics.queries import historical_cycle_or_404
+from apps.academics.queries import historical_cycle_or_404, weekly_load_report
 from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,
     create_academic_cycle,
+    create_class_session,
     create_curriculum_plan,
     create_section,
     create_teaching_assignment,
@@ -25,6 +27,7 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassScheduleBlockFactory,
     GradeFactory,
     InstitutionFactory,
     SectionFactory,
@@ -361,3 +364,54 @@ def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():
     assert historical._enrolment_total == 1
     assert historical._enrolment_completed == 1
     assert Enrolment.objects.filter(pk=enrolment.pk).exists()
+
+
+def test_weekly_load_report_reflects_the_actual_schedule_end_to_end():
+    """RF-HOR-007 (#200): flujo completo -- ciclo, seccion, plan de estudios,
+    carga horaria declarada a nivel de nivel educativo (RF-EST-006), y las
+    sesiones realmente agendadas para esa seccion."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution)
+    create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject, actor=actor)
+    LevelSubject.objects.create(level=grade.level, subject=subject, weekly_hours=2)
+    block_a = ClassScheduleBlockFactory(shift=shift, number=1)
+    block_b = ClassScheduleBlockFactory(shift=shift, number=2)
+    create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block_a,
+        day_of_week=1,
+        actor=actor,
+    )
+
+    report = weekly_load_report(section)
+    row = next(r for r in report if r["subject"].pk == subject.pk)
+    assert row["declared_weekly_hours"] == 2
+    assert row["scheduled_periods"] == 1
+    assert row["matches"] is False
+
+    create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block_b,
+        day_of_week=1,
+        actor=actor,
+    )
+
+    updated_row = next(r for r in weekly_load_report(section) if r["subject"].pk == subject.pk)
+    assert updated_row["scheduled_periods"] == 2
+    assert updated_row["matches"] is True
