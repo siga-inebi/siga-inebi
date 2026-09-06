@@ -574,6 +574,13 @@ describe("pantallas de los modulos con backend previo", () => {
         "2026-03-02"
       );
 
+      // El picker ya no trae el listado completo: hay que escribir para que
+      // pida al backend (aqui, el mock) las coincidencias.
+      await user.type(
+        within(window).getByPlaceholderText(/Buscar por nombre o codigo/),
+        "ines"
+      );
+
       expect(
         await within(window).findByLabelText("Ines Xoy · EST-2")
       ).toBeInTheDocument();

@@ -77,16 +77,26 @@ async function loadTeachers() {
   );
 }
 
+/**
+ * Un estudiante como opcion `{value,label}`.
+ *
+ * Se exporta porque no solo la usa `loadStudents` (el catalogo completo): el
+ * picker de busqueda server-side de "Matricular por lotes" mapea la misma
+ * forma de fila sin traer el listado completo, y no debe duplicar el formato
+ * de la etiqueta.
+ */
+export function studentOption(student) {
+  return {
+    value: student.public_id,
+    label: [personName(student.person), student.student_code]
+      .filter(Boolean)
+      .join(" · "),
+  };
+}
+
 async function loadStudents() {
   const students = await collectAllPages(studentsService.listPage);
-  return byLabel(
-    students.map((student) => ({
-      value: student.public_id,
-      label: [personName(student.person), student.student_code]
-        .filter(Boolean)
-        .join(" · "),
-    }))
-  );
+  return byLabel(students.map(studentOption));
 }
 
 /**

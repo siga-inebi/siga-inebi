@@ -13,9 +13,10 @@
  */
 export const queryKeys = {
   catalog: (name, reloadToken = 0) => ["catalog", name, reloadToken],
+  /** Busqueda server-side generica, para pickers de cualquier entidad. */
+  search: (name, term) => ["search", name, term],
   students: {
     list: (params = {}) => ["students", "list", params],
-    search: (term) => ["students", "search", term],
   },
   teachers: {
     list: (params = {}) => ["teachers", "list", params],

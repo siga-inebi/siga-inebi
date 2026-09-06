@@ -1,5 +1,5 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import generics, permissions, status
+from rest_framework import filters, generics, permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
@@ -56,6 +56,11 @@ class StudentNextCodeView(GenericAPIView):
 
 class StudentListCreateView(generics.ListCreateAPIView):
     serializer_class = StudentSerializer
+    # Sin esto, el selector de estudiante de cada modal (matricular por lotes,
+    # consultar resultado) traia el listado completo paginado solo para poder
+    # escribir un nombre en el buscador. `?search=` deja que el backend filtre.
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["student_code", "person__first_name", "person__last_name"]
 
     def get_queryset(self):
         return authorized_student_queryset(
