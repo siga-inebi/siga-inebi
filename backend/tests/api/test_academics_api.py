@@ -209,6 +209,27 @@ def test_create_class_session_api_creates_session(auth_client, institution):
     assert body["teacher_id"] is None  # sin asignacion vigente todavia (RF-HOR-004)
 
 
+def test_create_class_session_api_does_not_require_a_classroom(auth_client, institution):
+    """RF-AUL-003 (#101): periodos especiales (ej. Educacion Fisica) se
+    registran sin vincular un aula fisica."""
+    section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    subject = SubjectFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(subject.public_id),
+            "schedule_block_id": str(block.public_id),
+            "day_of_week": 1,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["classroom_id"] is None
+
+
 def test_class_session_api_exposes_the_current_teacher(auth_client, institution):
     """RF-HOR-004: el docente se deriva de la asignacion vigente, se muestra en la sesion."""
     cycle = AcademicCycleFactory(institution=institution)
