@@ -28,6 +28,7 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassroomFactory,
     ClassScheduleBlockFactory,
     ClassSessionFactory,
     GradeFactory,
@@ -765,6 +766,72 @@ def test_create_class_session_ignores_a_deactivated_session_in_the_same_slot():
     )
 
     assert new_session.pk != session.pk
+
+
+def test_create_class_session_rejects_classroom_from_a_different_campus():
+    """RF-HOR-005 (#198): el aula debe pertenecer a la sede de la seccion."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    other_campus_classroom = ClassroomFactory()
+
+    with pytest.raises(DomainError, match="misma sede"):
+        create_class_session(
+            academic_cycle=section.academic_cycle,
+            section=section,
+            subject=subject,
+            schedule_block=block,
+            day_of_week=1,
+            classroom=other_campus_classroom,
+        )
+
+    assert section.class_sessions.count() == 0
+
+
+def test_create_class_session_rejects_classroom_double_booked_in_the_same_slot():
+    """Escenario 2 (#198): cruce por aula en el mismo dia y bloque."""
+    section_a = SectionFactory()
+    classroom = ClassroomFactory(campus=section_a.offering.shift.campus)
+    existing = ClassSessionFactory(section=section_a, classroom=classroom)
+    section_b = SectionFactory(
+        academic_cycle=existing.academic_cycle, shift=section_a.offering.shift
+    )
+    other_subject = SubjectFactory(institution=section_a.offering.institution)
+
+    with pytest.raises(DomainError, match="El aula ya tiene otra sesion agendada"):
+        create_class_session(
+            academic_cycle=existing.academic_cycle,
+            section=section_b,
+            subject=other_subject,
+            schedule_block=existing.schedule_block,
+            day_of_week=existing.day_of_week,
+            classroom=classroom,
+        )
+
+    assert section_b.class_sessions.count() == 0
+
+
+def test_create_class_session_allows_same_classroom_in_a_different_block():
+    """El aula ocupada en un dia o bloque distinto no bloquea una nueva sesion."""
+    section_a = SectionFactory()
+    classroom = ClassroomFactory(campus=section_a.offering.shift.campus)
+    existing = ClassSessionFactory(section=section_a, classroom=classroom)
+    section_b = SectionFactory(
+        academic_cycle=existing.academic_cycle, shift=section_a.offering.shift
+    )
+    other_subject = SubjectFactory(institution=section_a.offering.institution)
+    other_block = ClassScheduleBlockFactory(shift=section_b.offering.shift, number=99)
+
+    new_session = create_class_session(
+        academic_cycle=existing.academic_cycle,
+        section=section_b,
+        subject=other_subject,
+        schedule_block=other_block,
+        day_of_week=existing.day_of_week,
+        classroom=classroom,
+    )
+
+    assert new_session.classroom_id == classroom.pk
 
 
 def test_deactivate_class_session_is_idempotent():

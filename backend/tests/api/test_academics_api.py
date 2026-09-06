@@ -8,6 +8,7 @@ from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from tests.factories.academic import (
     AcademicCycleFactory,
+    ClassroomFactory,
     ClassScheduleBlockFactory,
     ClassSessionFactory,
     GradeFactory,
@@ -264,6 +265,33 @@ def test_create_class_session_api_rejects_section_double_booked_in_the_same_slot
 
     assert response.status_code == 400
     assert "cruce de horario" in response.json()["error"]["detail"]
+
+
+def test_create_class_session_api_rejects_classroom_double_booked_in_the_same_slot(
+    auth_client, institution
+):
+    """RF-HOR-005 (#198): cruce por aula en el mismo dia y bloque."""
+    section_a = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
+    classroom = ClassroomFactory(campus=section_a.offering.shift.campus)
+    existing = ClassSessionFactory(section=section_a, classroom=classroom)
+    section_b = SectionFactory(
+        academic_cycle=existing.academic_cycle, shift=section_a.offering.shift
+    )
+    other_subject = SubjectFactory(institution=institution)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section_b.public_id]),
+        {
+            "subject_id": str(other_subject.public_id),
+            "schedule_block_id": str(existing.schedule_block.public_id),
+            "day_of_week": existing.day_of_week,
+            "classroom_id": str(classroom.public_id),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "El aula ya tiene otra sesion agendada" in response.json()["error"]["detail"]
 
 
 def test_list_class_sessions_is_scoped_to_the_section(auth_client, institution):
