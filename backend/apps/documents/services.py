@@ -432,10 +432,12 @@ def register_document_delivery_receipt(
     return receipt
 
 
-def validate_document_download_token(*, document, token):
-    """Validate and reject expired or invalid download tokens."""
+def validate_document_download_token(*, document, token, actor=None):
+    """Validate and reject expired, invalid, or actor-mismatched download tokens."""
     if not token:
         raise DomainError("Se requiere un token de descarga valido.")
+    if actor is not None and not getattr(actor, "is_authenticated", False):
+        raise AuthorizationError("Debe estar autenticado para descargar un documento.")
 
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
     try:
@@ -445,6 +447,9 @@ def validate_document_download_token(*, document, token):
 
     if not download_token.is_valid:
         raise DomainError("El token de descarga proporcionado no es valido o vencio.")
+
+    if actor is not None and download_token.created_by_id != actor.pk:
+        raise DomainError("El token de descarga no corresponde al actor autenticado.")
 
     download_token.used_at = timezone.now()
     download_token.save(update_fields=["used_at", "updated_at"])
@@ -616,6 +621,7 @@ def _record_document_issue(*, actor, student=None, document_type="", issued_at=N
     DocumentVerificationCode.objects.create(
         code=verification_code,
         document_type=str(document_type or ""),
+        folio=str(folio or ""),
         issued_at=str(issued_at) if issued_at is not None else "",
     )
 
@@ -781,20 +787,51 @@ def deactivate_document_record(*, record, actor=None):
 
 
 def storage_consumption_summary(*, actor):
-    """RF-ARC-005: auditable total of persisted attachment storage."""
+    """RF-ARC-005: auditable total of persisted attachment storage.
+
+    The summary exposes both raw totals and the operational capacity signal
+    required by RNF-CAP-002 without inventing a new storage subsystem.
+    """
     if not actor or not getattr(actor, "is_authenticated", False):
         raise AuthorizationError("Debe estar autenticado para consultar el almacenamiento.")
-    summary = DocumentRecord.objects.aggregate(
+
+    queryset = DocumentRecord.objects.all()
+    summary = queryset.aggregate(
         total_bytes=models.Sum("size_bytes"),
         file_count=models.Count("pk"),
         retained_count=models.Count(
             "pk", filter=models.Q(status=DocumentRecord.StorageStatus.RETAINED)
         ),
     )
+    total_bytes = int(summary["total_bytes"] or 0)
+    projected_growth_bytes = getattr(
+        settings, "DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES", 2 * 1024**3
+    )
+    warning_threshold_bytes = getattr(
+        settings,
+        "DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES",
+        projected_growth_bytes,
+    )
+    warning_active = total_bytes >= warning_threshold_bytes
+    threshold_utilization_ratio = (
+        (total_bytes / warning_threshold_bytes) if warning_threshold_bytes else 0
+    )
     result = {
-        "total_bytes": summary["total_bytes"] or 0,
+        "total_bytes": total_bytes,
         "file_count": summary["file_count"] or 0,
         "retained_count": summary["retained_count"] or 0,
+        "projected_growth_bytes_per_cycle": int(projected_growth_bytes),
+        "projected_total_bytes": int(total_bytes + projected_growth_bytes),
+        "warning_threshold_bytes": int(warning_threshold_bytes),
+        "warning_active": warning_active,
+        "warning_level": "warning" if warning_active else "ok",
+        "threshold_utilization_ratio": float(threshold_utilization_ratio),
+        "threshold_utilization_percent": float(threshold_utilization_ratio * 100),
+        "by_content_type": list(
+            queryset.values("content_type").annotate(
+                count=models.Count("id"), size=models.Sum("size_bytes")
+            )
+        ),
     }
     record_event(
         actor=actor,
@@ -907,8 +944,114 @@ def verify_stored_document_checksum(*, actor, document):
     return True
 
 
+def verify_document_storage_integrity(*, actor=None, institution=None):
+    """Audit the persisted document store for missing or corrupted files.
+
+    This is the smallest operational implementation of RNF-RES-003: a single
+    admin-facing integrity scan over the stored document metadata, without
+    introducing a background worker or broader storage subsystem.
+    """
+    if actor is not None:
+        if not getattr(actor, "is_authenticated", False):
+            raise AuthorizationError("Debe estar autenticado para verificar la integridad del archivo.")
+        if not actor.is_superuser and not actor.has_atomic_permission(DOCUMENT_READ_PERMISSION):
+            raise AuthorizationError("El actor no tiene permiso para verificar la integridad del archivo.")
+
+    queryset = DocumentRecord.objects.all()
+    if institution is not None:
+        queryset = queryset.filter(student__enrolments__academic_cycle__institution=institution)
+
+    issues = []
+    ok = 0
+    corrupted = 0
+    unreadable = 0
+    missing = 0
+
+    for record in queryset.select_related("student").order_by("-created_at"):
+        storage_key = record.storage_key
+        if not default_storage.exists(storage_key):
+            missing += 1
+            issues.append(
+                {
+                    "document_id": str(record.public_id),
+                    "student_id": str(record.student.public_id),
+                    "storage_key": storage_key,
+                    "status": "missing",
+                    "message": "El archivo persistido no existe en almacenamiento.",
+                }
+            )
+            continue
+
+        try:
+            with default_storage.open(storage_key, "rb") as stored_file:
+                payload = stored_file.read()
+        except OSError:
+            unreadable += 1
+            issues.append(
+                {
+                    "document_id": str(record.public_id),
+                    "student_id": str(record.student.public_id),
+                    "storage_key": storage_key,
+                    "status": "unreadable",
+                    "message": "El archivo persistido no puede leerse.",
+                }
+            )
+            continue
+
+        actual_checksum = hashlib.sha256(payload).hexdigest()
+        if actual_checksum != record.checksum:
+            corrupted += 1
+            issues.append(
+                {
+                    "document_id": str(record.public_id),
+                    "student_id": str(record.student.public_id),
+                    "storage_key": storage_key,
+                    "status": "corrupted",
+                    "expected_checksum": record.checksum,
+                    "observed_checksum": actual_checksum,
+                    "message": "El archivo persistido no coincide con su checksum registrado.",
+                }
+            )
+            continue
+
+        ok += 1
+
+    result = {
+        "total_checked": ok + corrupted + unreadable + missing,
+        "ok": ok,
+        "corrupted": corrupted,
+        "unreadable": unreadable,
+        "missing": missing,
+        "by_status": {
+            "ok": ok,
+            "corrupted": corrupted,
+            "unreadable": unreadable,
+            "missing": missing,
+        },
+        "issues": issues,
+    }
+    record_event(
+        actor=actor,
+        action="documents.storage.integrity_checked",
+        resource="DocumentRecord",
+        context={
+            "result": "success",
+            "total_checked": result["total_checked"],
+            "ok": ok,
+            "corrupted": corrupted,
+            "unreadable": unreadable,
+            "missing": missing,
+        },
+    )
+    return result
+
+
 def document_storage_usage_summary(*, institution=None):
-    """Summarize stored document usage from metadata only, without direct file access."""
+    """Summarize stored document usage from metadata only, without direct file access.
+
+    RNF-CAP-002 requires a cycle-growth estimate and a warning threshold so the
+    storage policy can be tuned without inventing a separate persistence model.
+    """
     queryset = DocumentRecord.objects.all()
     if institution is not None:
         scoped_queryset = queryset.filter(
@@ -919,9 +1062,31 @@ def document_storage_usage_summary(*, institution=None):
 
     total_files = queryset.count()
     total_size_bytes = queryset.aggregate(total_size=models.Sum("size_bytes"))["total_size"] or 0
+    projected_growth_bytes = getattr(
+        settings, "DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES", 2 * 1024**3
+    )
+    warning_threshold_bytes = getattr(
+        settings,
+        "DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES",
+        projected_growth_bytes,
+    )
+    warning_active = total_size_bytes >= warning_threshold_bytes
+    warning_level = "warning" if warning_active else "ok"
+    threshold_utilization_ratio = (
+        (total_size_bytes / warning_threshold_bytes) if warning_threshold_bytes else 0
+    )
+    threshold_utilization_percent = threshold_utilization_ratio * 100
+
     return {
         "total_files": total_files,
         "total_size_bytes": int(total_size_bytes),
+        "projected_growth_bytes_per_cycle": int(projected_growth_bytes),
+        "projected_total_bytes": int(total_size_bytes + projected_growth_bytes),
+        "warning_threshold_bytes": int(warning_threshold_bytes),
+        "warning_active": warning_active,
+        "warning_level": warning_level,
+        "threshold_utilization_ratio": float(threshold_utilization_ratio),
+        "threshold_utilization_percent": float(threshold_utilization_percent),
         "by_content_type": list(
             queryset.values("content_type").annotate(
                 count=models.Count("id"), size=models.Sum("size_bytes")
@@ -1215,7 +1380,9 @@ def verify_document(*, code):
     return {
         "valid": True,
         "document_type": record.document_type,
+        "folio": record.folio,
         "issued_at": record.issued_at,
+        "vigencia": "vigente" if record.is_active else "revocada",
     }
 
 
