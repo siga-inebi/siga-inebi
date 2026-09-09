@@ -15,6 +15,7 @@ from apps.enrolments.api.serializers import (
     EnrolmentSerializer,
     MatriculationCreateSerializer,
     MatriculationSerializer,
+    PromotionSerializer,
     ReenrolmentCreateSerializer,
     SectionChangeCreateSerializer,
     SectionOccupancyQuerySerializer,
@@ -447,6 +448,26 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
             enrolment=enrolment, actor=request.user, **serializer.validated_data
         )
         return Response(EnrolmentDocumentRequirementSerializer(requirement).data)
+
+
+class PromotionDetailView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PromotionSerializer
+
+    @extend_schema(
+        summary="Consultar promoción al grado siguiente",
+        description=(
+            "Determina si la matrícula queda promovida exigiendo al menos sesenta puntos "
+            "en cada subárea de su plan de estudios, considerando la recuperación cuando "
+            "exista. No promueve con base en un promedio general ni modifica la matrícula."
+        ),
+        responses={200: PromotionSerializer},
+        tags=["enrolments"],
+    )
+    def get(self, request, enrolment_id):
+        enrolment = queries.enrolment_or_404(enrolment_id)
+        result = services.determine_promotion(enrolment)
+        return Response(PromotionSerializer(result).data)
 
 
 def _ensure_enrolment_permission(request, codenames=_ENROLMENT_WRITE_PERMISSIONS):

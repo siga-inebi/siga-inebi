@@ -7,6 +7,7 @@ from apps.enrolments.api.views import (
     EnrolmentDocumentRequirementListCreateView,
     EnrolmentHistoryListView,
     MatriculationCreateView,
+    PromotionDetailView,
     ReenrolmentCreateView,
     SectionChangeCreateView,
     SectionOccupancyListView,
@@ -59,5 +60,10 @@ urlpatterns = [
         "<uuid:enrolment_id>/documents/",
         EnrolmentDocumentRequirementListCreateView.as_view(),
         name="enrolment-document-requirement-list-create",
+    ),
+    path(
+        "<uuid:enrolment_id>/promotion/",
+        PromotionDetailView.as_view(),
+        name="enrolment-promotion",
     ),
 ]
