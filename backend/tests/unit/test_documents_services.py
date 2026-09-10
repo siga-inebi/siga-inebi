@@ -937,9 +937,15 @@ def test_document_download_tokens_are_issued_and_validated():
     token = issue_document_download_token(actor=actor, document=document)
 
     assert token.token
-    assert validate_document_download_token(document=document, token=token.token, actor=actor) is True
+    assert (
+        validate_document_download_token(document=document, token=token.token, actor=actor) is True
+    )
     with pytest.raises(DomainError, match="valid|token"):
-        validate_document_download_token(document=document, token="invalid-token", actor=actor)
+        validate_document_download_token(
+            document=document,
+            token="invalid-token",
+            actor=actor,
+        )
 
 
 def test_document_download_tokens_are_bound_to_the_requesting_actor():

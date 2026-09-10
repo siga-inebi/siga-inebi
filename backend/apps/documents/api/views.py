@@ -14,13 +14,15 @@ rather than duplicated.
 from django.core.files.storage import default_storage
 from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
-
-from apps.common.models import DomainError
 
 from apps.academics.api.views import (
     CatalogueDetailView,
@@ -30,6 +32,7 @@ from apps.academics.api.views import (
     RetrieveMixin,
     UpdateMixin,
 )
+from apps.common.models import DomainError
 from apps.documents import queries, services
 
 from .serializers import (
@@ -378,7 +381,9 @@ class DocumentRecordDownloadView(GenericAPIView):
                 type=str,
                 location=OpenApiParameter.QUERY,
                 required=True,
-                description="Token de descarga temporal emitido por la API para el usuario autenticado.",
+                description=(
+                    "Token de descarga temporal emitido por la API para el usuario autenticado."
+                ),
             )
         ],
         responses={200: OpenApiTypes.BINARY},
@@ -387,7 +392,11 @@ class DocumentRecordDownloadView(GenericAPIView):
     def get(self, request, public_id):
         document = queries.document_record_or_404(public_id)
         token = str(request.query_params.get("token", "") or "").strip()
-        services.validate_document_download_token(document=document, token=token, actor=request.user)
+        services.validate_document_download_token(
+            document=document,
+            token=token,
+            actor=request.user,
+        )
 
         try:
             with default_storage.open(document.storage_key, "rb") as stored_file:

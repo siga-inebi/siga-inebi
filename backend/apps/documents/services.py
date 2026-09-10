@@ -953,9 +953,13 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
     """
     if actor is not None:
         if not getattr(actor, "is_authenticated", False):
-            raise AuthorizationError("Debe estar autenticado para verificar la integridad del archivo.")
+            raise AuthorizationError(
+                "Debe estar autenticado para verificar la integridad del archivo."
+            )
         if not actor.is_superuser and not actor.has_atomic_permission(DOCUMENT_READ_PERMISSION):
-            raise AuthorizationError("El actor no tiene permiso para verificar la integridad del archivo.")
+            raise AuthorizationError(
+                "El actor no tiene permiso para verificar la integridad del archivo."
+            )
 
     queryset = DocumentRecord.objects.all()
     if institution is not None:
