@@ -664,7 +664,12 @@ def test_promotion_crosses_curriculum_plan_grades_and_recovery_domains():
         grade=section.grade,
         section=section,
     )
-    unit = EvaluationUnitFactory(academic_cycle=section.academic_cycle)
+    today = timezone.localdate()
+    unit = EvaluationUnitFactory(
+        academic_cycle=section.academic_cycle,
+        capture_starts_on=today - timedelta(days=5),
+        capture_ends_on=today + timedelta(days=5),
+    )
     approved_subject = SubjectFactory(institution=section.academic_cycle.institution)
     recovered_subject = SubjectFactory(institution=section.academic_cycle.institution)
     for subject in (approved_subject, recovered_subject):

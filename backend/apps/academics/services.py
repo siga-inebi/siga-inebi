@@ -35,6 +35,8 @@ from apps.academics.models import (
     ClassSchedulePublication,
     ClassSession,
     CurriculumPlan,
+    FrozenPromotionResult,
+    FrozenSubjectResult,
     Grade,
     GradeOffering,
     Level,
@@ -44,7 +46,7 @@ from apps.academics.models import (
     Subject,
     TeachingAssignment,
 )
-from apps.audit.services import record_event
+from apps.audit.services import diff_fields, record_event
 from apps.common.codes import (
     create_with_generated_code,
     next_sequential_code,
@@ -52,6 +54,11 @@ from apps.common.codes import (
 )
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
+from apps.enrolments.models import Enrolment
+from apps.enrolments.services import determine_promotion
+from apps.evaluation import queries as evaluation_queries
+from apps.evaluation.models import GRADE_MAX_VALUE, GRADE_MIN_VALUE
+from apps.evaluation.services import SUBJECT_APPROVAL_THRESHOLD, get_final_subject_grade
 from apps.teachers.models import Teacher
 
 # --------------------------------------------------------------------------- #
@@ -511,9 +518,11 @@ def close_academic_cycle(*, cycle, actor=None):
     Close an active cycle once every evaluation unit is settled (RF-CIC-004).
 
     Closing freezes the cycle: ``cycle_policies.require_cycle_academic_writes``
-    already rejects academic mutations once ``status`` is ``CLOSED``, so no
-    separate "freeze results" step exists yet here — there is no results
-    capability implemented in the codebase to freeze (see PR notes).
+    already rejects academic mutations once ``status`` is ``CLOSED``, and
+    ``freeze_cycle_results`` (RF-RES-007) additionally snapshots every active
+    enrolment's subarea results and promotion condition as permanent records,
+    in the same transaction, so a cycle never becomes ``CLOSED`` without its
+    results already frozen.
     """
     locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
     if locked.status != AcademicCycle.CycleStatus.ACTIVE:
@@ -526,7 +535,151 @@ def close_academic_cycle(*, cycle, actor=None):
     locked.status = AcademicCycle.CycleStatus.CLOSED
     locked.save(update_fields=["status", "updated_at"])
     _audit(actor, "academics.cycle.closed", locked, status=locked.status)
+    freeze_cycle_results(locked, actor=actor)
     return locked
+
+
+@transaction.atomic
+def freeze_cycle_results(cycle, actor=None):
+    """
+    Snapshot every active enrolment's subarea results and promotion condition
+    as permanent, immutable records (RF-RES-007).
+
+    Called from ``close_academic_cycle``, inside its transaction. Reads live
+    results ONE LAST TIME here -- ``evaluation.get_final_subject_grade`` and
+    ``enrolments.determine_promotion`` -- and this is the only place, in the
+    ordinary close flow, either function's live result ever gets persisted.
+    Every later read of a closed cycle's result (the boleta of RF-RES-008,
+    the trace of RF-RES-009) must come from ``FrozenSubjectResult`` /
+    ``FrozenPromotionResult``, never recompute: that is what makes the freeze
+    actually mean something once evaluation config or academic structure
+    changes after close (this RF's own Escenario 1).
+
+    Scope decision: only enrolments still ``ACTIVE`` at close time are frozen.
+    A withdrawn or transferred enrolment left before the cycle finished, so
+    "final result" and "promotion" are not meaningful for it the way they are
+    for a student the cycle closed on; RF-RES-007's own scenarios only
+    describe that case. Revisit if a real case needs a frozen result for a
+    withdrawn student.
+
+    Callable again for the same cycle (e.g. a future reopen-then-close, see
+    issue #130's coordination note on RF-CIC-005): every call inserts fresh
+    rows and never touches previous ones, so repeating it is additive, not
+    destructive -- the "extension point" #130 will need is simply calling
+    this function again from wherever its own second close ends up.
+    """
+    enrolments = list(
+        Enrolment.objects.filter(
+            academic_cycle=cycle, status=Enrolment.EnrolmentStatus.ACTIVE
+        ).select_related("grade")
+    )
+    subjects_by_grade = {}
+    for enrolment in enrolments:
+        if enrolment.grade_id not in subjects_by_grade:
+            subjects_by_grade[enrolment.grade_id] = list(
+                evaluation_queries.curriculum_subjects(cycle, enrolment.grade)
+            )
+        for subject in subjects_by_grade[enrolment.grade_id]:
+            summary = get_final_subject_grade(enrolment, subject)
+            FrozenSubjectResult.objects.create(
+                enrolment=enrolment,
+                subject=subject,
+                final_grade=summary["final_grade"],
+                condition=summary["condition"] or "",
+                recovery_grade=summary["recovery_grade"],
+            )
+        promotion = determine_promotion(enrolment)
+        FrozenPromotionResult.objects.create(
+            enrolment=enrolment,
+            promoted=promotion["promoted"],
+            condition=promotion["condition"],
+            failed_subjects=promotion["failed_subjects"],
+        )
+
+    _audit(
+        actor,
+        "academics.cycle.results_frozen",
+        cycle,
+        status=cycle.status,
+        enrolment_count=len(enrolments),
+    )
+
+
+def _corrected_subject_condition(final_grade, recovery_grade):
+    """
+    Mirrors ``evaluation.services._subject_condition``'s tiny rule, duplicated
+    on purpose: a correction's ``final_grade`` never flows back through
+    ``get_final_subject_grade`` (the cycle is closed; nothing there
+    recalculates from it), so there is no call to make there instead.
+    """
+    if recovery_grade is not None:
+        return "approved_by_recovery" if recovery_grade >= SUBJECT_APPROVAL_THRESHOLD else "failed"
+    return "approved" if final_grade >= SUBJECT_APPROVAL_THRESHOLD else "failed"
+
+
+@transaction.atomic
+def correct_frozen_subject_result(*, frozen_result, final_grade, reason, actor):
+    """
+    Correct a subarea's frozen result after cycle close, via the exceptional
+    academic-authorization gap (RF-RES-007, Escenario 2: "una nota que se
+    determino erronea"). Authorization (``grade.correct``) is enforced by the
+    caller (view layer) -- same convention as every other service here; this
+    function only enforces the domain invariant that a reason is mandatory.
+
+    Never mutates ``frozen_result``: inserts a NEW ``FrozenSubjectResult`` row
+    for the same ``(enrolment, subject)``, so the previous congealed value
+    stays a real, queryable row (``queries.frozen_subject_result_history``) --
+    literal conservation of "el resultado congelado anterior", not something
+    reconstructed from the audit event's diff alone. ``condition`` is
+    re-derived from the corrected ``final_grade`` against the same fixed
+    threshold ``get_final_subject_grade`` uses; ``recovery_grade`` carries
+    over unchanged from the row being corrected, since this correction is
+    about the subject's own final grade, not its recovery (a separate fact,
+    RF-RES-005).
+
+    Out of scope, flagged rather than silently handled (AGENTS.md #2): this
+    does not recompute the enrolment's frozen promotion result even when the
+    correction flips this subarea's condition. RF-RES-007's own scenario
+    only describes correcting "una nota", not a promotion cascade; keeping
+    promotion consistent with a corrected subject result is a real gap once
+    this ships -- better tracked as its own issue than solved here in
+    silence.
+
+    Raises:
+        DomainError: if ``reason`` is blank or ``final_grade`` is outside
+            the 0-100 scale.
+    """
+    reason = reason.strip()
+    if not reason:
+        raise DomainError("El motivo de la correccion es obligatorio.")
+    if not GRADE_MIN_VALUE <= final_grade <= GRADE_MAX_VALUE:
+        raise DomainError(
+            f"La nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE} "
+            f"(se recibio {final_grade})."
+        )
+
+    recovery_grade = frozen_result.recovery_grade
+    condition = _corrected_subject_condition(final_grade, recovery_grade)
+    corrected = FrozenSubjectResult.objects.create(
+        enrolment=frozen_result.enrolment,
+        subject=frozen_result.subject,
+        final_grade=final_grade,
+        condition=condition,
+        recovery_grade=recovery_grade,
+        is_correction=True,
+        correction_reason=reason,
+    )
+    _audit(
+        actor,
+        "academics.frozen_subject_result.corrected",
+        corrected,
+        reason=reason,
+        changes=diff_fields(frozen_result, final_grade=final_grade, condition=condition),
+        enrolment_id=str(frozen_result.enrolment.public_id),
+        subject_id=str(frozen_result.subject.public_id),
+        previous_result_id=frozen_result.pk,
+    )
+    return corrected
 
 
 def _changed(instance, actor, action, **candidates):

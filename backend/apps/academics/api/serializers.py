@@ -8,6 +8,8 @@ from apps.academics.models import (
     ClassSchedulePublication,
     ClassSession,
     CurriculumPlan,
+    FrozenPromotionResult,
+    FrozenSubjectResult,
     Grade,
     GradeOffering,
     Level,
@@ -622,6 +624,57 @@ class HistoricalEnrolmentSummarySerializer(serializers.Serializer):
     withdrawn = serializers.IntegerField(source="_enrolment_withdrawn")
     completed = serializers.IntegerField(source="_enrolment_completed")
     cancelled = serializers.IntegerField(source="_enrolment_cancelled")
+
+
+class FrozenSubjectResultSerializer(serializers.ModelSerializer):
+    """Current, authoritative frozen result of one subarea (RF-RES-007)."""
+
+    enrolment_id = serializers.UUIDField(source="enrolment.public_id", read_only=True)
+    subject_id = serializers.UUIDField(source="subject.public_id", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+
+    class Meta:
+        model = FrozenSubjectResult
+        fields = [
+            "public_id",
+            "enrolment_id",
+            "subject_id",
+            "subject_name",
+            "final_grade",
+            "condition",
+            "recovery_grade",
+            "is_correction",
+            "correction_reason",
+            "created_at",
+        ]
+
+
+class FrozenPromotionResultSerializer(serializers.ModelSerializer):
+    """Current, authoritative frozen promotion outcome of an enrolment (RF-RES-007)."""
+
+    enrolment_id = serializers.UUIDField(source="enrolment.public_id", read_only=True)
+
+    class Meta:
+        model = FrozenPromotionResult
+        fields = [
+            "public_id",
+            "enrolment_id",
+            "promoted",
+            "condition",
+            "failed_subjects",
+            "is_correction",
+            "correction_reason",
+            "created_at",
+        ]
+
+
+class FrozenSubjectResultCorrectionSerializer(serializers.Serializer):
+    final_grade = serializers.IntegerField(help_text="Nota final corregida (escala 0-100).")
+    reason = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Motivo obligatorio de la correccion mediante brecha excepcional.",
+    )
 
 
 class HistoricalAcademicCycleSerializer(AcademicCycleSerializer):

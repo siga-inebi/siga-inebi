@@ -1,11 +1,17 @@
+from datetime import timedelta
+
 import pytest
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
+from apps.academics.services import close_academic_cycle
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
+from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.services import close_evaluation_unit, register_unit_grade
 from tests.factories.academic import (
     AcademicCycleFactory,
     ClassroomFactory,
@@ -18,6 +24,8 @@ from tests.factories.academic import (
     SubjectFactory,
 )
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.identity import PermissionFactory, RoleAssignmentFactory, RoleFactory
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -574,3 +582,144 @@ def test_historical_cycle_detail_is_institution_bound_and_requires_authenticatio
         ).status_code
         == 404
     )
+
+
+def _closed_cycle_with_frozen_result(institution, grades):
+    """A closed cycle whose single enrolment has one FrozenSubjectResult row
+    per value in ``grades`` (RF-RES-007), via the real close flow."""
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    today = timezone.localdate()
+    unit = EvaluationUnitFactory(
+        academic_cycle=cycle,
+        status=EvaluationUnit.UnitStatus.OPEN,
+        capture_starts_on=today - timedelta(days=30),
+        capture_ends_on=today + timedelta(days=5),
+        recovery_starts_on=today - timedelta(days=20),
+        recovery_ends_on=today - timedelta(days=5),
+    )
+    section = SectionFactory(academic_cycle=cycle)
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    subjects = []
+    for value in grades:
+        subject = SubjectFactory(institution=institution)
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=PersonFactory(),
+            value=value,
+        )
+        subjects.append(subject)
+    close_evaluation_unit(unit)
+    close_academic_cycle(cycle=cycle)
+    return cycle, enrolment, subjects
+
+
+def _grant_grade_correct(user):
+    permission = PermissionFactory(codename="grade_correct")
+    return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+
+
+def test_frozen_subject_result_endpoint_returns_the_congealed_value(auth_client, institution):
+    cycle, enrolment, subjects = _closed_cycle_with_frozen_result(institution, [90])
+
+    response = auth_client.get(
+        reverse(
+            "frozen-subject-result",
+            kwargs={
+                "cycle_public_id": cycle.public_id,
+                "enrolment_id": enrolment.public_id,
+                "subject_id": subjects[0].public_id,
+            },
+        )
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["final_grade"] == 90
+    assert body["condition"] == "approved"
+    assert body["is_correction"] is False
+
+
+def test_frozen_promotion_result_endpoint_returns_the_congealed_value(auth_client, institution):
+    cycle, enrolment, _subjects = _closed_cycle_with_frozen_result(institution, [90, 55])
+
+    response = auth_client.get(
+        reverse(
+            "frozen-promotion-result",
+            kwargs={"cycle_public_id": cycle.public_id, "enrolment_id": enrolment.public_id},
+        )
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["promoted"] is False
+    assert body["condition"] == "not_promoted"
+
+
+def test_frozen_subject_result_correction_requires_grade_correct_permission(
+    auth_client, institution
+):
+    cycle, enrolment, subjects = _closed_cycle_with_frozen_result(institution, [55])
+    url = reverse(
+        "frozen-subject-result-correct",
+        kwargs={
+            "cycle_public_id": cycle.public_id,
+            "enrolment_id": enrolment.public_id,
+            "subject_id": subjects[0].public_id,
+        },
+    )
+
+    response = auth_client.post(
+        url,
+        {"final_grade": 75, "reason": "Error de digitacion"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_frozen_subject_result_correction_preserves_previous_value(auth_client, institution):
+    cycle, enrolment, subjects = _closed_cycle_with_frozen_result(institution, [55])
+    _grant_grade_correct(auth_client.user)
+    url = reverse(
+        "frozen-subject-result-correct",
+        kwargs={
+            "cycle_public_id": cycle.public_id,
+            "enrolment_id": enrolment.public_id,
+            "subject_id": subjects[0].public_id,
+        },
+    )
+
+    response = auth_client.post(
+        url,
+        {"final_grade": 75, "reason": "Error de digitacion"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["final_grade"] == 75
+    assert body["condition"] == "approved"
+    assert body["is_correction"] is True
+
+    # El resultado congelado anterior sigue disponible via el mismo GET
+    # (siempre devuelve el mas reciente, pero la fila vieja no se altero).
+    get_response = auth_client.get(
+        reverse(
+            "frozen-subject-result",
+            kwargs={
+                "cycle_public_id": cycle.public_id,
+                "enrolment_id": enrolment.public_id,
+                "subject_id": subjects[0].public_id,
+            },
+        )
+    )
+    assert get_response.json()["final_grade"] == 75
+    assert AuditEvent.objects.filter(action="academics.frozen_subject_result.corrected").exists()

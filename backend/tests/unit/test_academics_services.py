@@ -3,11 +3,19 @@ from datetime import date, time, timedelta
 import pytest
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle, CurriculumPlan, GradeOffering, TeachingAssignment
+from apps.academics.models import (
+    AcademicCycle,
+    CurriculumPlan,
+    FrozenPromotionResult,
+    FrozenSubjectResult,
+    GradeOffering,
+    TeachingAssignment,
+)
 from apps.academics.services import (
     activate_academic_cycle,
     clone_academic_cycle,
     close_academic_cycle,
+    correct_frozen_subject_result,
     create_academic_cycle,
     create_class_schedule_block,
     create_class_session,
@@ -17,15 +25,19 @@ from apps.academics.services import (
     deactivate_class_session,
     deactivate_curriculum_plan,
     deactivate_section,
+    freeze_cycle_results,
     publish_class_schedule,
     unpublish_class_schedule,
     update_class_schedule_block,
     update_curriculum_plan,
     update_section,
 )
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
+from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.services import close_evaluation_unit, register_unit_grade
 from tests.factories.academic import (
     AcademicCycleFactory,
     ClassroomFactory,
@@ -39,6 +51,8 @@ from tests.factories.academic import (
     SubjectFactory,
 )
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.identity import UserFactory
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -943,3 +957,188 @@ def test_unpublish_class_schedule_rejects_closed_cycle():
 
     with pytest.raises(DomainError, match="no admite cambios academicos"):
         unpublish_class_schedule(academic_cycle=cycle)
+
+
+class TestFreezeCycleResults:
+    """Tests for RF-RES-007: Congelamiento al cierre del ciclo (issue #261)."""
+
+    def _closeable_cycle_with_graded_enrolment(
+        self, grades, status=Enrolment.EnrolmentStatus.ACTIVE
+    ):
+        cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+        today = timezone.localdate()
+        unit = EvaluationUnitFactory(
+            academic_cycle=cycle,
+            status=EvaluationUnit.UnitStatus.OPEN,
+            capture_starts_on=today - timedelta(days=30),
+            capture_ends_on=today + timedelta(days=5),
+            recovery_starts_on=today - timedelta(days=20),
+            recovery_ends_on=today - timedelta(days=5),
+        )
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        if status != Enrolment.EnrolmentStatus.ACTIVE:
+            enrolment.status = status
+            enrolment.save(update_fields=["status"])
+        subjects = []
+        for value in grades:
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=value,
+            )
+            subjects.append(subject)
+        close_evaluation_unit(unit)
+        return cycle, enrolment, subjects
+
+    def test_closing_a_cycle_freezes_subject_results_and_promotion(self):
+        cycle, enrolment, subjects = self._closeable_cycle_with_graded_enrolment([90, 55])
+
+        close_academic_cycle(cycle=cycle)
+
+        results = {r.subject_id: r for r in FrozenSubjectResult.objects.filter(enrolment=enrolment)}
+        assert results[subjects[0].pk].final_grade == 90
+        assert results[subjects[0].pk].condition == "approved"
+        assert results[subjects[1].pk].final_grade == 55
+        assert results[subjects[1].pk].condition == "failed"
+
+        promotion = FrozenPromotionResult.objects.get(enrolment=enrolment)
+        assert promotion.promoted is False
+        assert promotion.condition == "not_promoted"
+        assert subjects[1].name in promotion.failed_subjects
+
+    def test_freeze_only_covers_enrolments_still_active_at_close(self):
+        """Scope decision: a withdrawn enrolment is not frozen (RF-RES-007 only
+        describes a student the cycle closed on)."""
+        cycle, enrolment, _ = self._closeable_cycle_with_graded_enrolment(
+            [80], status=Enrolment.EnrolmentStatus.WITHDRAWN
+        )
+
+        close_academic_cycle(cycle=cycle)
+
+        assert not FrozenSubjectResult.objects.filter(enrolment=enrolment).exists()
+        assert not FrozenPromotionResult.objects.filter(enrolment=enrolment).exists()
+
+    def test_frozen_result_survives_a_later_configuration_change(self):
+        """
+        Escenario 1: Cambio de configuración posterior al cierre
+        GIVEN un ciclo cerrado con resultados fijados
+        WHEN se modifica la configuración de unidades de la institución
+        THEN los resultados del ciclo cerrado permanecen inalterados
+        """
+        cycle, enrolment, subjects = self._closeable_cycle_with_graded_enrolment([70])
+        close_academic_cycle(cycle=cycle)
+        frozen = FrozenSubjectResult.objects.get(enrolment=enrolment, subject=subjects[0])
+
+        # Cambia la estructura curricular del grado despues del cierre.
+        CurriculumPlan.objects.filter(academic_cycle=cycle, subject=subjects[0]).update(
+            is_active=False
+        )
+        extra_subject = SubjectFactory(institution=cycle.institution)
+        CurriculumPlan.objects.create(
+            academic_cycle=cycle, grade=enrolment.grade, subject=extra_subject
+        )
+
+        frozen.refresh_from_db()
+        assert frozen.final_grade == 70
+        assert frozen.condition == "approved"
+
+    def test_correction_preserves_previous_frozen_value_with_trace(self):
+        """
+        Escenario 2: Corrección posterior al congelamiento
+        GIVEN un ciclo cerrado y una nota que se determino erronea
+        WHEN un usuario con permiso de autorizacion academica la corrige
+             mediante brecha excepcional
+        THEN el sistema registra la correccion y el nuevo resultado
+        AND conserva el resultado congelado anterior con la traza del cambio
+        """
+        cycle, enrolment, subjects = self._closeable_cycle_with_graded_enrolment([55])
+        close_academic_cycle(cycle=cycle)
+        original = FrozenSubjectResult.objects.get(enrolment=enrolment, subject=subjects[0])
+        actor = UserFactory()
+
+        corrected = correct_frozen_subject_result(
+            frozen_result=original,
+            final_grade=75,
+            reason="Error de digitacion en la nota de la tercera unidad",
+            actor=actor,
+        )
+
+        assert corrected.pk != original.pk
+        assert corrected.final_grade == 75
+        assert corrected.condition == "approved"
+        assert corrected.is_correction is True
+        assert corrected.correction_reason == "Error de digitacion en la nota de la tercera unidad"
+
+        # El resultado congelado anterior sigue existiendo y consultable.
+        original.refresh_from_db()
+        assert original.final_grade == 55
+        assert original.condition == "failed"
+
+        # La correccion queda en la bitacora con motivo y autor.
+        event = AuditEvent.objects.get(action="academics.frozen_subject_result.corrected")
+        assert event.actor_id == actor.pk
+        assert event.context["reason"] == "Error de digitacion en la nota de la tercera unidad"
+        assert event.context["changes"]["final_grade"] == {"before": 55, "after": 75}
+
+    def test_correction_requires_a_reason(self):
+        cycle, enrolment, subjects = self._closeable_cycle_with_graded_enrolment([55])
+        close_academic_cycle(cycle=cycle)
+        original = FrozenSubjectResult.objects.get(enrolment=enrolment, subject=subjects[0])
+
+        with pytest.raises(DomainError, match="motivo de la correccion"):
+            correct_frozen_subject_result(
+                frozen_result=original, final_grade=75, reason="   ", actor=None
+            )
+
+    def test_correction_rejects_a_final_grade_outside_the_scale(self):
+        cycle, enrolment, subjects = self._closeable_cycle_with_graded_enrolment([55])
+        close_academic_cycle(cycle=cycle)
+        original = FrozenSubjectResult.objects.get(enrolment=enrolment, subject=subjects[0])
+
+        with pytest.raises(DomainError, match="entre 0 y 100"):
+            correct_frozen_subject_result(
+                frozen_result=original, final_grade=150, reason="Motivo", actor=None
+            )
+
+    def test_frozen_subject_result_is_immutable(self):
+        cycle, enrolment, subjects = self._closeable_cycle_with_graded_enrolment([80])
+        close_academic_cycle(cycle=cycle)
+        frozen = FrozenSubjectResult.objects.get(enrolment=enrolment, subject=subjects[0])
+
+        frozen.final_grade = 10
+        with pytest.raises(RuntimeError, match="no pueden modificarse"):
+            frozen.save()
+        with pytest.raises(RuntimeError, match="no pueden modificarse"):
+            FrozenSubjectResult.objects.filter(pk=frozen.pk).update(final_grade=10)
+        with pytest.raises(RuntimeError, match="no pueden eliminarse"):
+            frozen.delete()
+        with pytest.raises(RuntimeError, match="no pueden eliminarse"):
+            FrozenSubjectResult.objects.filter(pk=frozen.pk).delete()
+
+    def test_calling_freeze_again_is_additive_not_destructive(self):
+        """Extension point noted for #130 (RF-CIC-005): a future reopen-then-close
+        can call freeze_cycle_results again without disturbing prior rows."""
+        cycle, enrolment, subjects = self._closeable_cycle_with_graded_enrolment([80])
+        close_academic_cycle(cycle=cycle)
+        first = FrozenSubjectResult.objects.get(enrolment=enrolment, subject=subjects[0])
+
+        freeze_cycle_results(cycle)
+
+        assert (
+            FrozenSubjectResult.objects.filter(enrolment=enrolment, subject=subjects[0]).count()
+            == 2
+        )
+        first.refresh_from_db()
+        assert first.final_grade == 80
