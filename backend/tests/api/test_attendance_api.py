@@ -26,7 +26,14 @@ from django.utils import timezone
 
 from apps.academics.models import TeachingAssignment
 from apps.attendance import services
-from apps.attendance.models import AttendanceAlert, AttendanceEvent, CaptureBatch, StudentCredential
+from apps.attendance.models import (
+    AttendanceAlert,
+    AttendanceEvent,
+    CaptureBatch,
+    Justification,
+    JustificationPolicy,
+    StudentCredential,
+)
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
@@ -1973,3 +1980,116 @@ def test_scan_by_student_code_of_a_withdrawn_student_is_rejected(auth_client):
     assert "no tiene inscripcion activa" in body[0]["reason"]
     assert body[1]["outcome"] == "created"
     assert not AttendanceEvent.objects.filter(student=withdrawn).exists()
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-003 — contrato del endpoint de justificacion
+# --------------------------------------------------------------------------- #
+
+JUSTIFICATION_REQUEST_PERMISSION = "attendance_justification_request"
+JUSTIFICATION_RESOLVE_PERMISSION = "attendance_justification_resolve"
+
+
+def test_justification_submit_endpoint_requires_permission_and_scope(auth_client):
+    student = StudentFactory()
+
+    response = auth_client.post(
+        reverse("attendance-justification-submit"),
+        {
+            "student_id": str(student.public_id),
+            "absence_date": str(timezone.localdate()),
+            "reason": "Cita medica",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert not Justification.objects.filter(student=student).exists()
+
+
+def test_justification_submit_endpoint_accepts_within_window(auth_client):
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student, codename=JUSTIFICATION_REQUEST_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-justification-submit"),
+        {
+            "student_id": str(student.public_id),
+            "absence_date": str(timezone.localdate() - timedelta(days=1)),
+            "reason": "Cita medica",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["student_id"] == str(student.public_id)
+    assert body["status"] == Justification.Status.PENDING
+
+
+def test_justification_submit_endpoint_rejects_outside_window(auth_client):
+    """
+    Escenario 1 (RF-JUS-003): GIVEN una ventana de justificacion de cinco
+    dias habiles, WHEN un encargado intenta justificar una ausencia de hace
+    dos semanas, THEN el sistema rechaza la solicitud indicando que el plazo
+    vencio.
+    """
+    JustificationPolicy.objects.create(window_business_days=5)
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student, codename=JUSTIFICATION_REQUEST_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-justification-submit"),
+        {
+            "student_id": str(student.public_id),
+            "absence_date": str(timezone.localdate() - timedelta(days=14)),
+            "reason": "Cita medica",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert not Justification.objects.filter(student=student).exists()
+
+
+def test_justification_submit_endpoint_rejects_exception_without_elevated_permission(auth_client):
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student, codename=JUSTIFICATION_REQUEST_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-justification-submit"),
+        {
+            "student_id": str(student.public_id),
+            "absence_date": str(timezone.localdate() - timedelta(days=14)),
+            "reason": "Cita medica",
+            "is_exception": True,
+            "exception_reason": "Encargado sin acceso a la plataforma",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert not Justification.objects.filter(student=student).exists()
+
+
+def test_justification_submit_endpoint_allows_exception_with_elevated_permission(auth_client):
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student, codename=JUSTIFICATION_REQUEST_PERMISSION)
+    _grant(auth_client.user, JUSTIFICATION_RESOLVE_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-justification-submit"),
+        {
+            "student_id": str(student.public_id),
+            "absence_date": str(timezone.localdate() - timedelta(days=14)),
+            "reason": "Cita medica",
+            "is_exception": True,
+            "exception_reason": "Encargado sin acceso a la plataforma",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["is_exception"] is True
+    assert body["exception_reason"] == "Encargado sin acceso a la plataforma"

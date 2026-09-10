@@ -7,6 +7,7 @@ from apps.attendance.models import (
     ControlPoint,
     DayStatus,
     JornadaParameters,
+    Justification,
     ManualRegistrationReason,
     StudentCredential,
 )
@@ -487,3 +488,43 @@ class CredentialPrintContentSerializer(serializers.Serializer):
     academic_cycle_name = serializers.CharField()
     institution_name = serializers.CharField()
     photo_url = serializers.CharField(allow_null=True)
+
+
+class JustificationRequestSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+    absence_date = serializers.DateField(help_text="Fecha de la inasistencia a justificar.")
+    reason = serializers.CharField(help_text="Motivo de la justificacion.")
+    is_exception = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "RF-JUS-003: solo procesable por un usuario con "
+            "attendance_justification_resolve. Registra la justificacion "
+            "fuera de la ventana, documentando el motivo de la excepcion."
+        ),
+    )
+    exception_reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Obligatorio cuando is_exception es verdadero.",
+    )
+
+
+class JustificationSerializer(serializers.ModelSerializer):
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    submitted_by_id = serializers.IntegerField(source="submitted_by.pk", read_only=True)
+
+    class Meta:
+        model = Justification
+        fields = [
+            "public_id",
+            "student_id",
+            "absence_date",
+            "reason",
+            "status",
+            "submitted_by_id",
+            "is_exception",
+            "exception_reason",
+            "created_at",
+        ]

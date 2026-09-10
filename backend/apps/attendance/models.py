@@ -409,3 +409,57 @@ class SectionClosureLog(TimeStampedModel):
 
     def __str__(self):
         return f"Cierre de {self.section} ({self.event_date})"
+
+
+class JustificationPolicy(TimeStampedModel):
+    """
+    RF-JUS-003: how many business days after an absence a guardian may still
+    submit a justification for it. A single global row -- no per-institution
+    scoping yet, since nothing has asked for that -- read via
+    ``services.justification_window_business_days``, which falls back to a
+    sensible default (never creating a row as a side effect, same pattern as
+    ``academics.queries.class_schedule_publication``). Configured through
+    Django admin, matching every other lightweight catalog in this app.
+    """
+
+    window_business_days = models.PositiveIntegerField(default=5)
+
+    def __str__(self):
+        return f"Ventana de justificacion: {self.window_business_days} dias habiles"
+
+
+class Justification(TimeStampedModel):
+    """
+    RF-JUS-003: a guardian's request to justify a student's absence on a
+    given date. Deliberately minimal -- just enough to carry the window rule
+    this RF is about. The fuller submission flow (situation type from a
+    configurable catalog, attachments) is RF-JUS-001; scope enforcement so a
+    guardian only ever sees their own wards is RF-JUS-002 (already covered at
+    the service boundary by reusing ``identity.scopes.can_access_student``,
+    not by anything new here); review/resolution is RF-JUS-004. ``status``
+    already carries the full lifecycle so those RFs need no migration of
+    their own to add a transition -- only ``PENDING`` is ever set by this RF.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        APPROVED = "approved", "Aprobada"
+        REJECTED = "rejected", "Rechazada"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="justifications"
+    )
+    absence_date = models.DateField()
+    reason = models.TextField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    submitted_by = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="justifications_submitted"
+    )
+    is_exception = models.BooleanField(default=False)
+    exception_reason = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Justificacion de {self.student} ({self.absence_date})"
