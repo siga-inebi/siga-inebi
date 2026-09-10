@@ -7,11 +7,13 @@ import pytest
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
-from apps.audit.services import record_event
+from apps.audit.services import get_result_trace, record_event
 from apps.common.exceptions import AuthorizationError
+from apps.enrolments.services import create_enrolment
 from apps.identity.models import Role
 from apps.identity.scopes import authorized_student_queryset
 from apps.identity.services import create_role
+from tests.factories.academic import SectionFactory, SubjectFactory
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -123,3 +125,49 @@ def test_actor_without_the_permission_is_denied_and_audited():
     assert event.action == "identity.authorization.denied"
     assert event.actor_id == user.id
     assert event.context["reason"] == "missing_permission"
+
+
+def test_result_trace_endpoint_is_denied_without_audit_read_permission(auth_client):
+    """
+    RF-RES-009 security note: "dominio sensible -- respetar el control de
+    acceso por rol y alcance". No permission at all -> denied, same as every
+    other audit_read-gated endpoint (audit-event-list, audit-event-export).
+    """
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    subject = SubjectFactory(institution=section.academic_cycle.institution)
+
+    response = auth_client.get(
+        reverse(
+            "result-trace",
+            kwargs={"enrolment_id": enrolment.public_id, "subject_id": subject.public_id},
+        )
+    )
+
+    assert response.status_code == 403
+
+
+def test_result_trace_view_is_recorded_as_a_sensitive_read_naming_the_student():
+    """RF-BIT-003: viewing one identified student's result trace is audited
+    as a sensitive read, regardless of what the trace finds."""
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    subject = SubjectFactory(institution=section.academic_cycle.institution)
+    viewer = UserFactory()
+
+    get_result_trace(enrolment=enrolment, subject=subject, actor=viewer)
+
+    event = AuditEvent.objects.get(action="audit.result_trace.viewed")
+    assert event.actor_id == viewer.id
+    assert event.context["student_id"] == enrolment.student.pk
+    assert event.context["result"] == "success"

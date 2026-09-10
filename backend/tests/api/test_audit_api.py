@@ -5,15 +5,20 @@ contract, not just when a service is called directly (RF-BIT-001). Uses the
 create/update/deactivate in one place.
 """
 
+from datetime import timedelta
+
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 
+from apps.academics.models import CurriculumPlan
 from apps.academics.services import close_academic_cycle
 from apps.audit.models import AuditEvent
 from apps.documents.services import compile_historical_cycle_report
 from apps.enrolments.services import create_enrolment
+from apps.evaluation.services import create_evaluation_unit, register_unit_grade
 from apps.identity.services import disable_account
-from tests.factories.academic import SectionFactory
+from tests.factories.academic import SectionFactory, SubjectFactory
 from tests.factories.documents import DocumentTemplateFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -22,6 +27,7 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
+from tests.factories.people import PersonFactory
 from tests.factories.students import GuardianFactory, StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
@@ -257,3 +263,70 @@ def test_disabling_the_actor_does_not_alter_their_past_audit_events(auth_client,
     event = AuditEvent.objects.get(action="documents.template.created", actor_id=actor_id)
     assert event.actor_id == actor_id
     assert event.actor_label == actor_username
+
+
+def test_result_trace_endpoint_requires_audit_read_permission(auth_client):
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    subject = SubjectFactory(institution=section.academic_cycle.institution)
+
+    response = auth_client.get(
+        reverse(
+            "result-trace",
+            kwargs={"enrolment_id": enrolment.public_id, "subject_id": subject.public_id},
+        )
+    )
+
+    assert response.status_code == 403
+
+
+def test_result_trace_endpoint_returns_unit_grades_and_is_audited_as_a_sensitive_read(auth_client):
+    """RF-RES-009: consultarla exige permiso de auditoria y queda registrada
+    en la bitacora como lectura sensible del estudiante identificado."""
+    today = timezone.localdate()
+    section = SectionFactory()
+    cycle = section.academic_cycle
+    enrolment = create_enrolment(
+        student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+    )
+    subject = SubjectFactory(institution=cycle.institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+    unit = create_evaluation_unit(
+        academic_cycle=cycle,
+        number=1,
+        name="Unidad 1",
+        starts_on=cycle.starts_on,
+        ends_on=cycle.starts_on + timedelta(days=30),
+        capture_starts_on=today - timedelta(days=5),
+        capture_ends_on=today + timedelta(days=5),
+    )
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=85,
+    )
+    _grant_audit_permission(auth_client.user)
+
+    response = auth_client.get(
+        reverse(
+            "result-trace",
+            kwargs={"enrolment_id": enrolment.public_id, "subject_id": subject.public_id},
+        )
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["unit_grades"] == [{"unit_number": 1, "unit_name": "Unidad 1", "value": 85}]
+    assert body["corrections"] == []
+    assert body["recovery_grade"] is None
+
+    event = AuditEvent.objects.get(action="audit.result_trace.viewed")
+    assert event.actor_id == auth_client.user.id
+    assert event.context["student_id"] == enrolment.student.pk

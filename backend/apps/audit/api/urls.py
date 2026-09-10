@@ -4,6 +4,7 @@ from apps.audit.api.views import (
     AuditEventExportView,
     AuditEventListView,
     DataRetentionDeclarationView,
+    ResultTraceView,
 )
 
 urlpatterns = [
@@ -13,5 +14,10 @@ urlpatterns = [
         "retention-declarations/",
         DataRetentionDeclarationView.as_view(),
         name="audit-retention-declaration-create",
+    ),
+    path(
+        "enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/result-trace/",
+        ResultTraceView.as_view(),
+        name="result-trace",
     ),
 ]

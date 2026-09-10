@@ -1,13 +1,17 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
 
+from apps.academics.models import CurriculumPlan
+from apps.academics.queries import latest_frozen_subject_result
+from apps.academics.services import close_academic_cycle, correct_frozen_subject_result
 from apps.audit.models import AuditEvent
 from apps.audit.services import (
     declare_data_retention,
     diff_fields,
+    get_result_trace,
     list_audit_events,
     record_audit_export,
     record_event,
@@ -15,7 +19,16 @@ from apps.audit.services import (
     sanitize_context,
 )
 from apps.common.exceptions import DomainError
+from apps.enrolments.services import create_enrolment
+from apps.evaluation.models import RecoveryGrade
+from apps.evaluation.services import (
+    close_evaluation_unit,
+    create_evaluation_unit,
+    register_unit_grade,
+)
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.identity import UserFactory
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
@@ -343,3 +356,132 @@ def test_declare_data_retention_requires_legal_basis():
             period_days=30,
             legal_basis="",
         )
+
+
+# --------------------------------------------------------------------------- #
+# get_result_trace (RF-RES-009)
+# --------------------------------------------------------------------------- #
+
+
+class TestGetResultTrace:
+    """Tests for RF-RES-009: Trazabilidad del resultado (issue #263)."""
+
+    def test_trace_includes_unit_grades_a_live_correction_and_recovery(self):
+        """
+        Escenario 1: Auditoria de una nota final
+        GIVEN una nota final con una correccion aplicada durante el ciclo
+        WHEN un usuario autorizado consulta su trazabilidad
+        THEN el sistema presenta las notas de unidad, la correccion con su
+             motivo y su autor
+        """
+        cycle = AcademicCycleFactory(status="active")
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unidad 1",
+            starts_on=cycle.starts_on,
+            ends_on=cycle.starts_on + timedelta(days=30),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+        )
+        subject = SubjectFactory(institution=cycle.institution)
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        teacher = PersonFactory()
+        register_unit_grade(
+            enrolment=enrolment, subject=subject, evaluation_unit=unit, teacher=teacher, value=50
+        )
+        corrector = UserFactory()
+        # Correccion "durante el ciclo" (RF-CAL-005): la ventana sigue abierta.
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=teacher,
+            value=70,
+            actor=corrector,
+        )
+        viewer = UserFactory()
+        trace = get_result_trace(enrolment=enrolment, subject=subject, actor=viewer)
+
+        assert trace["enrolment_id"] == str(enrolment.public_id)
+        assert trace["subject_id"] == str(subject.public_id)
+        assert trace["unit_grades"] == [{"unit_number": 1, "unit_name": "Unidad 1", "value": 70}]
+        live_corrections = [c for c in trace["corrections"] if c["stage"] == "live"]
+        assert len(live_corrections) == 1
+        correction = live_corrections[0]
+        assert correction["previous_value"] == 50
+        assert correction["new_value"] == 70
+        assert correction["corrected_by"] == corrector.username
+
+        event = AuditEvent.objects.get(action="audit.result_trace.viewed")
+        assert event.actor_id == viewer.id
+        assert event.context["student_id"] == enrolment.student.pk
+        assert event.context["result"] == "success"
+
+    def test_trace_includes_recovery_grade_when_it_exists(self):
+        cycle = AcademicCycleFactory(status="active")
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+        )
+        subject = SubjectFactory(institution=cycle.institution)
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        RecoveryGrade.objects.create(
+            enrolment=enrolment, subject=subject, value=65, original_final_grade=50
+        )
+
+        trace = get_result_trace(enrolment=enrolment, subject=subject, actor=UserFactory())
+
+        assert trace["recovery_grade"] == 65
+
+    def test_trace_includes_a_post_freeze_correction_with_reason_and_author(self):
+        cycle = AcademicCycleFactory(status="active")
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unidad 1",
+            starts_on=cycle.starts_on,
+            ends_on=cycle.starts_on + timedelta(days=30),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+        )
+        subject = SubjectFactory(institution=cycle.institution)
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=PersonFactory(),
+            value=55,
+        )
+        close_evaluation_unit(unit)
+        close_academic_cycle(cycle=cycle)
+
+        frozen = latest_frozen_subject_result(enrolment=enrolment, subject=subject)
+        corrector = UserFactory()
+        correct_frozen_subject_result(
+            frozen_result=frozen,
+            final_grade=75,
+            reason="Error de digitacion",
+            actor=corrector,
+        )
+
+        trace = get_result_trace(enrolment=enrolment, subject=subject, actor=UserFactory())
+
+        post_freeze = [c for c in trace["corrections"] if c["stage"] == "post_freeze"]
+        assert len(post_freeze) == 1
+        correction = post_freeze[0]
+        assert correction["previous_value"] == 55
+        assert correction["new_value"] == 75
+        assert correction["reason"] == "Error de digitacion"
+        assert correction["corrected_by"] == corrector.username
