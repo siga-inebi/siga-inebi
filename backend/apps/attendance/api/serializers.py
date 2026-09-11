@@ -8,6 +8,7 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     Justification,
+    JustificationNotification,
     ManualRegistrationReason,
     StudentCredential,
 )
@@ -544,3 +545,27 @@ class JustificationResolutionRequestSerializer(serializers.Serializer):
         default="",
         help_text="Obligatorio al rechazar; opcional al aprobar.",
     )
+
+
+class JustificationNotificationSerializer(serializers.ModelSerializer):
+    justification_id = serializers.UUIDField(source="justification.public_id", read_only=True)
+    student_id = serializers.UUIDField(source="justification.student.public_id", read_only=True)
+    absence_date = serializers.DateField(source="justification.absence_date", read_only=True)
+    status = serializers.CharField(source="justification.status", read_only=True)
+    resolution_comment = serializers.CharField(
+        source="justification.resolution_comment", read_only=True
+    )
+    resolved_at = serializers.DateTimeField(source="justification.resolved_at", read_only=True)
+
+    class Meta:
+        model = JustificationNotification
+        fields = [
+            "public_id",
+            "justification_id",
+            "student_id",
+            "absence_date",
+            "status",
+            "resolution_comment",
+            "resolved_at",
+            "created_at",
+        ]

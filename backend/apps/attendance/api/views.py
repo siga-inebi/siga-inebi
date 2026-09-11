@@ -49,6 +49,7 @@ from .serializers import (
     JornadaClosureResultSerializer,
     JornadaParametersCreateSerializer,
     JornadaParametersSerializer,
+    JustificationNotificationSerializer,
     JustificationRequestSerializer,
     JustificationResolutionRequestSerializer,
     JustificationSerializer,
@@ -1015,3 +1016,33 @@ class JustificationResolveView(GenericAPIView):
             actor=request.user,
         )
         return Response(JustificationSerializer(justification).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar mis notificaciones de justificacion",
+        description=(
+            "RF-JUS-006: notificaciones del actor autenticado sobre la "
+            "resolucion de las justificaciones que el mismo presento -- "
+            "aprobadas o rechazadas por igual, con el comentario de quien "
+            "resolvio cuando lo haya. Siempre acotado al propio actor, sin "
+            "permiso ni alcance adicional."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        responses={200: JustificationNotificationSerializer(many=True)},
+    ),
+)
+class JustificationNotificationListView(GenericAPIView):
+    """RF-JUS-006 contract: a guardian's own justification-resolution notifications."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationNotificationSerializer
+
+    def get_queryset(self):
+        return services.list_my_justification_notifications(user=self.request.user)
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(
+            JustificationNotificationSerializer(page, many=True).data
+        )

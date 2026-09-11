@@ -30,6 +30,7 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     Justification,
+    JustificationNotification,
     JustificationPolicy,
     RecalculationReason,
     SectionClosureLog,
@@ -2145,6 +2146,10 @@ def resolve_justification(*, justification, approved, comment, actor):
     that depended on the prior status is reevaluated, exactly the entry
     point ``RecalculationReason.JUSTIFICATION_RESOLVED`` was added for. A
     rejection leaves the derived status untouched, so no recalculation runs.
+
+    RF-JUS-006: either outcome also creates a ``JustificationNotification``
+    for whoever submitted the request, so they can find out what happened
+    even though nothing in this system pushes email or a message yet.
     """
     if justification.status != Justification.Status.PENDING:
         raise DomainError(f"La justificacion '{justification}' ya fue resuelta.")
@@ -2189,4 +2194,24 @@ def resolve_justification(*, justification, approved, comment, actor):
                 reason=RecalculationReason.JUSTIFICATION_RESOLVED,
                 actor=actor,
             )
+    JustificationNotification.objects.create(
+        justification=justification, recipient=justification.submitted_by
+    )
     return justification
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-006 — notificacion del cambio de estado
+# --------------------------------------------------------------------------- #
+
+
+def list_my_justification_notifications(*, user):
+    """
+    RF-JUS-006: the notifications a guardian (or whoever submitted a
+    justification) can see of their own -- always scoped to ``recipient``,
+    never to a broader student scope, since this is inherently "my own"
+    data rather than something ``can_access_student`` needs to gate.
+    """
+    return JustificationNotification.objects.filter(recipient=user).select_related(
+        "justification", "justification__student"
+    )

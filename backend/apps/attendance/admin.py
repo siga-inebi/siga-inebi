@@ -8,6 +8,7 @@ from apps.attendance.models import (
     ControlPoint,
     JornadaParameters,
     Justification,
+    JustificationNotification,
     JustificationPolicy,
     ManualRegistrationReason,
     StudentCredential,
@@ -115,3 +116,11 @@ class JustificationAdmin(admin.ModelAdmin):
     ]
     list_filter = ["status", "is_exception"]
     date_hierarchy = "absence_date"
+
+
+@admin.register(JustificationNotification)
+class JustificationNotificationAdmin(admin.ModelAdmin):
+    """RF-JUS-006: created by ``resolve_justification``, not here."""
+
+    list_display = ["justification", "recipient", "created_at"]
+    date_hierarchy = "created_at"

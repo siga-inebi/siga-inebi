@@ -2254,3 +2254,51 @@ def test_approving_a_justification_is_reflected_in_the_day_status_endpoint(auth_
 
     assert status_response.status_code == 200
     assert status_response.json()["status"] == "ausencia_justificada"
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-006 — contrato del endpoint de notificaciones
+# --------------------------------------------------------------------------- #
+
+
+def test_justification_notification_list_endpoint_returns_only_my_notifications(auth_client):
+    """
+    RF-JUS-006, a nivel de contrato: el encargado autenticado ve la
+    notificacion de la resolucion de su propia justificacion, con el
+    resultado y el comentario, y no ve las de otros encargados.
+    """
+    student = StudentFactory()
+    justification = _submit_pending_justification(auth_client, student)
+    _grant(auth_client.user, JUSTIFICATION_RESOLVE_PERMISSION)
+
+    resolve_response = auth_client.post(
+        reverse("attendance-justification-resolve", args=[justification.public_id]),
+        {"approved": False, "comment": "Sin constancia adjunta"},
+        content_type="application/json",
+    )
+    assert resolve_response.status_code == 200
+
+    other_justification = services.submit_justification(
+        student=StudentFactory(),
+        absence_date=timezone.localdate(),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_justification(
+        justification=other_justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    response = auth_client.get(reverse("attendance-justification-notification-list"))
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert len(results) == 1
+    assert results[0]["justification_id"] == str(justification.public_id)
+    assert results[0]["status"] == Justification.Status.REJECTED
+    assert results[0]["resolution_comment"] == "Sin constancia adjunta"
+
+
+def test_justification_notification_list_endpoint_requires_authentication(client):
+    response = client.get(reverse("attendance-justification-notification-list"))
+
+    assert response.status_code in (401, 403)

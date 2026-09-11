@@ -478,3 +478,35 @@ class Justification(TimeStampedModel):
 
     def __str__(self):
         return f"Justificacion de {self.student} ({self.absence_date})"
+
+
+class JustificationNotification(TimeStampedModel):
+    """
+    RF-JUS-006: a record that the guardian who submitted a justification has
+    been informed of its resolution. Nothing in this system sends email or
+    push yet -- every other alerting surface (``AttendanceAlert``,
+    ``reporting.Alert``) targets school staff, never a guardian -- so this is
+    the minimal channel available: a queryable record the guardian fetches
+    via ``services.list_my_justification_notifications``. A real channel
+    (email, push), if one is ever added, would read from this same table
+    rather than replacing it.
+
+    One row per resolution: ``resolve_justification`` creates it right after
+    saving the resolution, for approval and for rejection alike -- the
+    requirement notifies on either outcome.
+    """
+
+    justification = models.OneToOneField(
+        "attendance.Justification", on_delete=models.CASCADE, related_name="notification"
+    )
+    recipient = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justification_notifications",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Notificacion de {self.justification} para {self.recipient}"

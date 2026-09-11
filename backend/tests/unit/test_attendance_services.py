@@ -31,6 +31,7 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     Justification,
+    JustificationNotification,
     JustificationPolicy,
     RecalculationReason,
     SectionClosureLog,
@@ -3711,3 +3712,73 @@ def test_attendance_percentage_still_counts_a_justified_late_arrival_as_attended
 
     assert result.late_days == 1
     assert result.percentage == 100.0
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-006 — notificacion del cambio de estado
+# --------------------------------------------------------------------------- #
+
+
+def test_approving_a_justification_notifies_the_guardian_who_submitted_it():
+    """
+    Escenario "Notificacion tras resolucion" (RF-JUS-006): GIVEN una
+    solicitud pendiente de un encargado, WHEN un usuario autorizado la
+    resuelve, THEN el encargado recibe la notificacion con el resultado y
+    el comentario asociado.
+    """
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    notification = JustificationNotification.objects.get(justification=justification)
+    assert notification.recipient == guardian
+
+
+def test_rejecting_a_justification_also_notifies_the_guardian():
+    """RF-JUS-006 notifies on either outcome, not only on approval."""
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    services.resolve_justification(
+        justification=justification,
+        approved=False,
+        comment="Sin constancia adjunta",
+        actor=UserFactory(),
+    )
+
+    notification = JustificationNotification.objects.get(justification=justification)
+    assert notification.recipient == guardian
+
+
+def test_list_my_justification_notifications_is_scoped_to_the_recipient():
+    guardian = UserFactory()
+    someone_else = UserFactory()
+    student = StudentFactory()
+    my_justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+    other_justification = services.submit_justification(
+        student=StudentFactory(),
+        absence_date=timezone.localdate(),
+        reason="Cita medica",
+        actor=someone_else,
+    )
+    services.resolve_justification(
+        justification=my_justification, approved=True, comment="", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=other_justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    notifications = services.list_my_justification_notifications(user=guardian)
+
+    assert list(notifications.values_list("justification_id", flat=True)) == [my_justification.pk]
