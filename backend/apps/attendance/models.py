@@ -436,9 +436,13 @@ class Justification(TimeStampedModel):
     configurable catalog, attachments) is RF-JUS-001; scope enforcement so a
     guardian only ever sees their own wards is RF-JUS-002 (already covered at
     the service boundary by reusing ``identity.scopes.can_access_student``,
-    not by anything new here); review/resolution is RF-JUS-004. ``status``
-    already carries the full lifecycle so those RFs need no migration of
-    their own to add a transition -- only ``PENDING`` is ever set by this RF.
+    not by anything new here). ``status`` carries the full lifecycle so later
+    RFs need no migration of their own to add a transition.
+
+    RF-JUS-004: once ``resolved_by``/``resolved_at`` are set the row is
+    immutable (enforced in ``services.resolve_justification``, not here) --
+    a correction is a brand-new ``Justification`` via ``submit_justification``,
+    never an edit of this one (AGENTS.md #12).
     """
 
     class Status(models.TextChoices):
@@ -457,6 +461,15 @@ class Justification(TimeStampedModel):
     )
     is_exception = models.BooleanField(default=False)
     exception_reason = models.CharField(max_length=255, blank=True, default="")
+    resolved_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justifications_resolved",
+        null=True,
+        blank=True,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_comment = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["-created_at"]

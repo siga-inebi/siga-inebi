@@ -50,6 +50,7 @@ from .serializers import (
     JornadaParametersCreateSerializer,
     JornadaParametersSerializer,
     JustificationRequestSerializer,
+    JustificationResolutionRequestSerializer,
     JustificationSerializer,
     ManualRegistrationReasonSerializer,
     PresentStudentSerializer,
@@ -979,3 +980,38 @@ class JustificationSubmitView(GenericAPIView):
             exception_reason=payload["exception_reason"],
         )
         return Response(JustificationSerializer(justification).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Resolver justificacion de inasistencia",
+        description=(
+            "RF-JUS-004: aprueba o rechaza una justificacion pendiente. El "
+            "rechazo exige un comentario. Una vez resuelta, la justificacion "
+            "queda inmutable -- resolverla de nuevo se rechaza; una correccion "
+            "requiere una justificacion nueva (RF-JUS-003)."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        request=JustificationResolutionRequestSerializer,
+        responses={200: JustificationSerializer},
+    ),
+)
+class JustificationResolveView(GenericAPIView):
+    """RF-JUS-004 contract: approve or reject a pending justification."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationSerializer
+
+    def post(self, request, public_id):
+        _require_permission(request, JUSTIFICATION_RESOLVE_PERMISSION)
+        serializer = JustificationResolutionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        justification = queries.justification_for_payload(public_id)
+        justification = services.resolve_justification(
+            justification=justification,
+            approved=payload["approved"],
+            comment=payload["comment"],
+            actor=request.user,
+        )
+        return Response(JustificationSerializer(justification).data)

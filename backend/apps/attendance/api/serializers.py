@@ -514,6 +514,9 @@ class JustificationRequestSerializer(serializers.Serializer):
 class JustificationSerializer(serializers.ModelSerializer):
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     submitted_by_id = serializers.IntegerField(source="submitted_by.pk", read_only=True)
+    resolved_by_id = serializers.IntegerField(
+        source="resolved_by.pk", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = Justification
@@ -526,5 +529,18 @@ class JustificationSerializer(serializers.ModelSerializer):
             "submitted_by_id",
             "is_exception",
             "exception_reason",
+            "resolved_by_id",
+            "resolved_at",
+            "resolution_comment",
             "created_at",
         ]
+
+
+class JustificationResolutionRequestSerializer(serializers.Serializer):
+    approved = serializers.BooleanField(help_text="True para aprobar, False para rechazar.")
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Obligatorio al rechazar; opcional al aprobar.",
+    )

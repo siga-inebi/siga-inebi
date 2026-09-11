@@ -17,6 +17,7 @@ from apps.attendance.api.views import (
     CredentialRevocationView,
     JornadaClosureView,
     JornadaParametersListCreateView,
+    JustificationResolveView,
     JustificationSubmitView,
     ManualRegistrationReasonListView,
     SectionClosurePreviewView,
@@ -135,5 +136,10 @@ urlpatterns = [
         "justifications/",
         JustificationSubmitView.as_view(),
         name="attendance-justification-submit",
+    ),
+    path(
+        "justifications/<uuid:public_id>/resolve/",
+        JustificationResolveView.as_view(),
+        name="attendance-justification-resolve",
     ),
 ]

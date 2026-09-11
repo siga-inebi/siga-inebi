@@ -2058,3 +2058,53 @@ def submit_justification(
         },
     )
     return justification
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-004 — revision y resolucion
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def resolve_justification(*, justification, approved, comment, actor):
+    """
+    RF-JUS-004: approve or reject a pending justification, recording who
+    resolved it and when. A rejection must document why; an approval's
+    comment is optional. Once resolved, the row is immutable -- calling this
+    again on the same justification raises. The only way to "correct" a
+    resolution is a brand-new ``Justification`` via ``submit_justification``
+    (RF-JUS-003), which starts its own audit trail rather than overwriting
+    this one (AGENTS.md #12).
+    """
+    if justification.status != Justification.Status.PENDING:
+        raise DomainError(f"La justificacion '{justification}' ya fue resuelta.")
+    if not approved and not comment:
+        raise DomainError("El rechazo debe indicar un comentario.")
+
+    justification.status = (
+        Justification.Status.APPROVED if approved else Justification.Status.REJECTED
+    )
+    justification.resolved_by = actor
+    justification.resolved_at = timezone.now()
+    justification.resolution_comment = comment
+    justification.save(
+        update_fields=[
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "resolution_comment",
+            "updated_at",
+        ]
+    )
+    record_event(
+        actor=actor,
+        action="attendance.justification.resolved",
+        resource="Justification",
+        resource_identifier=str(justification.public_id),
+        context={
+            "student_id": str(justification.student.public_id),
+            "approved": approved,
+            "comment": comment,
+        },
+    )
+    return justification

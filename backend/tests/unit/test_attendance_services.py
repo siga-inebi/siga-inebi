@@ -3436,3 +3436,82 @@ def test_justification_window_business_days_defaults_without_a_policy_row():
     assert not JustificationPolicy.objects.exists()
 
     assert services.justification_window_business_days() == 5
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-004 — revision y resolucion
+# --------------------------------------------------------------------------- #
+
+
+def _pending_justification(**overrides):
+    student = overrides.pop("student", None) or StudentFactory()
+    guardian = overrides.pop("actor", None) or UserFactory()
+    return services.submit_justification(
+        student=student,
+        absence_date=overrides.pop("absence_date", timezone.localdate()),
+        reason=overrides.pop("reason", "Cita medica"),
+        actor=guardian,
+        **overrides,
+    )
+
+
+def test_resolve_justification_approve_succeeds():
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    resolved = services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=reviewer
+    )
+
+    assert resolved.status == Justification.Status.APPROVED
+    assert resolved.resolved_by == reviewer
+    assert resolved.resolved_at is not None
+
+
+def test_resolve_justification_reject_requires_a_comment():
+    """
+    RF-JUS-004: "rechazo requiere comentario" -- rejecting without stating
+    why is refused.
+    """
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    with pytest.raises(DomainError, match="comentario"):
+        services.resolve_justification(
+            justification=justification, approved=False, comment="", actor=reviewer
+        )
+    justification.refresh_from_db()
+    assert justification.status == Justification.Status.PENDING
+
+
+def test_resolve_justification_reject_with_comment_succeeds():
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    resolved = services.resolve_justification(
+        justification=justification,
+        approved=False,
+        comment="No hay constancia medica adjunta",
+        actor=reviewer,
+    )
+
+    assert resolved.status == Justification.Status.REJECTED
+    assert resolved.resolution_comment == "No hay constancia medica adjunta"
+    assert resolved.resolved_by == reviewer
+
+
+def test_resolve_justification_is_immutable_once_resolved():
+    """
+    RF-JUS-004: "resueltas son inmutables -- correccion requiere una nueva
+    revision." Resolving an already-resolved justification is refused.
+    """
+    justification = _pending_justification()
+    reviewer = UserFactory()
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=reviewer
+    )
+
+    with pytest.raises(DomainError, match="ya fue resuelta"):
+        services.resolve_justification(
+            justification=justification, approved=True, comment="", actor=reviewer
+        )
