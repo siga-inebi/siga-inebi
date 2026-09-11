@@ -3782,3 +3782,66 @@ def test_list_my_justification_notifications_is_scoped_to_the_recipient():
     notifications = services.list_my_justification_notifications(user=guardian)
 
     assert list(notifications.values_list("justification_id", flat=True)) == [my_justification.pk]
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-007 — confidencialidad de los respaldos
+# --------------------------------------------------------------------------- #
+
+
+def _pdf_upload(name="constancia.pdf"):
+    return SimpleUploadedFile(name, b"%PDF-1.4 contenido de prueba", content_type="application/pdf")
+
+
+def test_attach_justification_document_succeeds_for_the_submitter():
+    """
+    Escenario "Solicitud con respaldo" (RF-JUS-001, base de RF-JUS-007): GIVEN
+    una justificacion presentada por un encargado, WHEN el mismo encargado
+    adjunta una constancia medica, THEN el sistema conserva el documento
+    asociado a la solicitud.
+    """
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    attachment = services.attach_justification_document(
+        justification=justification, upload=_pdf_upload(), actor=guardian
+    )
+
+    assert attachment.justification == justification
+    assert attachment.uploaded_by == guardian
+    assert attachment.content_type == "application/pdf"
+    justification.refresh_from_db()
+    assert justification.attachment == attachment
+
+
+def test_attach_justification_document_rejects_a_non_submitter():
+    student = StudentFactory()
+    guardian = UserFactory()
+    someone_else = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    with pytest.raises(DomainError, match="Solo quien presento"):
+        services.attach_justification_document(
+            justification=justification, upload=_pdf_upload(), actor=someone_else
+        )
+
+
+def test_attach_justification_document_rejects_a_second_attachment():
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+    services.attach_justification_document(
+        justification=justification, upload=_pdf_upload(), actor=guardian
+    )
+
+    with pytest.raises(DomainError, match="ya tiene un documento adjunto"):
+        services.attach_justification_document(
+            justification=justification, upload=_pdf_upload("otra.pdf"), actor=guardian
+        )

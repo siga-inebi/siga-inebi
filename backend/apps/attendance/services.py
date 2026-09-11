@@ -15,9 +15,13 @@ module: the credential is what a scan resolves, so it belongs to the same
 attendance-capture domain rather than to a module of its own.
 """
 
+import hashlib
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
@@ -30,6 +34,7 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     Justification,
+    JustificationAttachment,
     JustificationNotification,
     JustificationPolicy,
     RecalculationReason,
@@ -41,6 +46,7 @@ from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
 from apps.common.opaque import generate_opaque_identifier
+from apps.documents.services import validate_document_upload
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import active_enrolments
 from apps.students.models import Student
@@ -2215,3 +2221,61 @@ def list_my_justification_notifications(*, user):
     return JustificationNotification.objects.filter(recipient=user).select_related(
         "justification", "justification__student"
     )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-007 — confidencialidad de los respaldos
+# --------------------------------------------------------------------------- #
+
+
+def _justification_attachment_storage_key(*, justification, extension):
+    return f"justification-attachments/{justification.public_id}/{uuid.uuid4().hex}{extension}"
+
+
+@transaction.atomic
+def attach_justification_document(*, justification, upload, actor):
+    """
+    RF-JUS-007: attach the single supporting document a justification may
+    carry. Only whoever submitted the justification can attach its
+    document -- an ownership invariant of this data, not a permission grant,
+    so it's enforced here rather than left to the view. File-type/size
+    validation reuses ``apps.documents.services.validate_document_upload``
+    (a pure function with no permission side effects) to keep the same
+    rules as every other upload in the system; storage and the record
+    itself stay local to this module (see ``JustificationAttachment``'s
+    docstring for why).
+    """
+    if justification.submitted_by_id != actor.pk:
+        raise DomainError("Solo quien presento la justificacion puede adjuntar su respaldo.")
+    if hasattr(justification, "attachment"):
+        raise DomainError("La justificacion ya tiene un documento adjunto.")
+
+    validated = validate_document_upload(upload)
+    payload = upload.read()
+    upload.seek(0)
+    checksum = hashlib.sha256(payload).hexdigest()
+    storage_key = _justification_attachment_storage_key(
+        justification=justification, extension=validated["extension"]
+    )
+    saved_key = default_storage.save(storage_key, ContentFile(payload))
+    try:
+        attachment = JustificationAttachment.objects.create(
+            justification=justification,
+            uploaded_by=actor,
+            filename=validated["filename"],
+            storage_key=saved_key,
+            content_type=validated["content_type"],
+            size_bytes=validated["size_bytes"],
+            checksum=checksum,
+        )
+    except Exception:
+        default_storage.delete(saved_key)
+        raise
+    record_event(
+        actor=actor,
+        action="attendance.justification_attachment.uploaded",
+        resource="JustificationAttachment",
+        resource_identifier=str(attachment.public_id),
+        context={"justification_id": str(justification.public_id)},
+    )
+    return attachment

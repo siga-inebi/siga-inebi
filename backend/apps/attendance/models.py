@@ -510,3 +510,40 @@ class JustificationNotification(TimeStampedModel):
 
     def __str__(self):
         return f"Notificacion de {self.justification} para {self.recipient}"
+
+
+class JustificationAttachment(TimeStampedModel):
+    """
+    RF-JUS-007: a single supporting document for a justification (e.g. a
+    medical note) -- may carry health information, which is why this
+    deliberately does not reuse ``apps.documents.DocumentRecord``/
+    ``ensure_document_access``: that model grants read to any staff member
+    with ``document_read`` scoped to the student, wider than the "solo quien
+    la cargo o quien tiene permiso de revision" rule this RF requires. Only
+    the pure validation rules (``apps.documents.services.validate_document_upload``)
+    are reused; the record and its narrower access gate
+    (``services.ensure_justification_attachment_access``) live here.
+
+    One attachment per justification -- RF-JUS-001's fuller catalog (several
+    attachments, situation-type metadata) stays out of this minimal cut.
+    """
+
+    justification = models.OneToOneField(
+        "attendance.Justification", on_delete=models.CASCADE, related_name="attachment"
+    )
+    uploaded_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justification_attachments",
+    )
+    filename = models.CharField(max_length=255)
+    storage_key = models.CharField(max_length=500, unique=True)
+    content_type = models.CharField(max_length=100)
+    size_bytes = models.PositiveBigIntegerField()
+    checksum = models.CharField(max_length=128)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Adjunto de {self.justification}: {self.filename}"

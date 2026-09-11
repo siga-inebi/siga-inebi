@@ -8,6 +8,7 @@ from apps.attendance.models import (
     DayStatus,
     JornadaParameters,
     Justification,
+    JustificationAttachment,
     JustificationNotification,
     ManualRegistrationReason,
     StudentCredential,
@@ -569,3 +570,25 @@ class JustificationNotificationSerializer(serializers.ModelSerializer):
             "resolved_at",
             "created_at",
         ]
+
+
+class JustificationAttachmentSerializer(serializers.ModelSerializer):
+    justification_id = serializers.UUIDField(source="justification.public_id", read_only=True)
+    uploaded_by_id = serializers.IntegerField(source="uploaded_by.pk", read_only=True)
+
+    class Meta:
+        model = JustificationAttachment
+        fields = [
+            "public_id",
+            "justification_id",
+            "filename",
+            "content_type",
+            "size_bytes",
+            "checksum",
+            "uploaded_by_id",
+            "created_at",
+        ]
+
+
+class JustificationAttachmentUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="Documento de respaldo (PDF/JPG/PNG).")

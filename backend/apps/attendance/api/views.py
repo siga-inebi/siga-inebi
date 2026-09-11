@@ -49,6 +49,8 @@ from .serializers import (
     JornadaClosureResultSerializer,
     JornadaParametersCreateSerializer,
     JornadaParametersSerializer,
+    JustificationAttachmentSerializer,
+    JustificationAttachmentUploadSerializer,
     JustificationNotificationSerializer,
     JustificationRequestSerializer,
     JustificationResolutionRequestSerializer,
@@ -1045,4 +1047,70 @@ class JustificationNotificationListView(GenericAPIView):
         page = self.paginate_queryset(self.get_queryset())
         return self.get_paginated_response(
             JustificationNotificationSerializer(page, many=True).data
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Leer el documento adjunto de una justificacion",
+        description=(
+            "RF-JUS-007: solo quien presento la justificacion o un usuario con "
+            "attendance_justification_resolve puede leer su documento adjunto -- "
+            "puede contener informacion de salud. Toda lectura queda registrada "
+            "en la bitacora de auditoria."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        responses={200: JustificationAttachmentSerializer},
+    ),
+    post=extend_schema(
+        summary="Adjuntar un documento de respaldo a una justificacion",
+        description=(
+            "RF-JUS-007: solo quien presento la justificacion puede adjuntar su "
+            "respaldo, y solo una vez -- en este corte minimo una justificacion "
+            "admite un unico documento adjunto."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        request=JustificationAttachmentUploadSerializer,
+        responses={201: JustificationAttachmentSerializer},
+    ),
+)
+class JustificationAttachmentView(GenericAPIView):
+    """RF-JUS-007 contract: attach and confidentially read a justification's document."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationAttachmentSerializer
+
+    def get(self, request, public_id):
+        justification = queries.justification_for_payload(public_id)
+        attachment = getattr(justification, "attachment", None)
+        if attachment is None:
+            raise DomainError("La justificacion no tiene un documento adjunto.")
+        is_submitter = justification.submitted_by_id == request.user.pk
+        if not is_submitter and not request.user.has_atomic_permission(
+            JUSTIFICATION_RESOLVE_PERMISSION
+        ):
+            raise AuthorizationError(
+                "Solo quien presento la justificacion o un usuario con permiso de "
+                "revision puede leer este documento adjunto."
+            )
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.justification_attachment.read",
+            resource="JustificationAttachment",
+            resource_identifier=str(attachment.public_id),
+            student=justification.student,
+        )
+        return Response(JustificationAttachmentSerializer(attachment).data)
+
+    def post(self, request, public_id):
+        justification = queries.justification_for_payload(public_id)
+        serializer = JustificationAttachmentUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        attachment = services.attach_justification_document(
+            justification=justification,
+            upload=serializer.validated_data["file"],
+            actor=request.user,
+        )
+        return Response(
+            JustificationAttachmentSerializer(attachment).data, status=status.HTTP_201_CREATED
         )

@@ -19,7 +19,9 @@ from datetime import datetime, time, timedelta
 from urllib.parse import urlencode
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
+from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -2302,3 +2304,107 @@ def test_justification_notification_list_endpoint_requires_authentication(client
     response = client.get(reverse("attendance-justification-notification-list"))
 
     assert response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-007 — contrato de confidencialidad de los respaldos
+# --------------------------------------------------------------------------- #
+
+
+def _pdf_upload(name="constancia.pdf"):
+    return SimpleUploadedFile(name, b"%PDF-1.4 contenido de prueba", content_type="application/pdf")
+
+
+def test_justification_attachment_upload_endpoint_requires_the_submitter(auth_client):
+    student = StudentFactory()
+    justification = _submit_pending_justification(auth_client, student)
+    other_client = Client()
+    other_client.force_login(UserFactory())
+
+    response = other_client.post(
+        reverse("attendance-justification-attachment", args=[justification.public_id]),
+        {"file": _pdf_upload()},
+    )
+
+    assert response.status_code == 400
+    justification.refresh_from_db()
+    assert not hasattr(justification, "attachment")
+
+
+def test_justification_attachment_upload_endpoint_succeeds_for_the_submitter(auth_client):
+    student = StudentFactory()
+    justification = _submit_pending_justification(auth_client, student)
+
+    response = auth_client.post(
+        reverse("attendance-justification-attachment", args=[justification.public_id]),
+        {"file": _pdf_upload()},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["content_type"] == "application/pdf"
+
+
+def test_justification_attachment_read_endpoint_denies_an_unrelated_user(auth_client):
+    """
+    RF-JUS-007: "accesibles unicamente para el encargado que los cargo y
+    para los usuarios con permiso de revision" -- ni siquiera un usuario
+    autenticado cualquiera puede leerlo.
+    """
+    student = StudentFactory()
+    justification = _submit_pending_justification(auth_client, student)
+    auth_client.post(
+        reverse("attendance-justification-attachment", args=[justification.public_id]),
+        {"file": _pdf_upload()},
+    )
+    other_client = Client()
+    other_client.force_login(UserFactory())
+
+    response = other_client.get(
+        reverse("attendance-justification-attachment", args=[justification.public_id])
+    )
+
+    assert response.status_code == 403
+
+
+def test_justification_attachment_read_endpoint_allows_a_reviewer_and_audits_it(auth_client):
+    """
+    Escenario "Lectura auditada de una constancia medica" (RF-JUS-007):
+    GIVEN una solicitud con una constancia medica adjunta, WHEN un usuario
+    con permiso de revision abre el documento, THEN el sistema registra en
+    bitacora la lectura con el usuario, la fecha y la hora.
+    """
+    student = StudentFactory()
+    justification = _submit_pending_justification(auth_client, student)
+    auth_client.post(
+        reverse("attendance-justification-attachment", args=[justification.public_id]),
+        {"file": _pdf_upload()},
+    )
+    reviewer = UserFactory()
+    _grant(reviewer, JUSTIFICATION_RESOLVE_PERMISSION)
+    reviewer_client = Client()
+    reviewer_client.force_login(reviewer)
+
+    response = reviewer_client.get(
+        reverse("attendance-justification-attachment", args=[justification.public_id])
+    )
+
+    assert response.status_code == 200
+    assert response.json()["filename"] == "constancia.pdf"
+    assert AuditEvent.objects.filter(
+        action="attendance.justification_attachment.read", actor=reviewer
+    ).exists()
+
+
+def test_justification_attachment_read_endpoint_allows_the_submitter(auth_client):
+    student = StudentFactory()
+    justification = _submit_pending_justification(auth_client, student)
+    auth_client.post(
+        reverse("attendance-justification-attachment", args=[justification.public_id]),
+        {"file": _pdf_upload()},
+    )
+
+    response = auth_client.get(
+        reverse("attendance-justification-attachment", args=[justification.public_id])
+    )
+
+    assert response.status_code == 200

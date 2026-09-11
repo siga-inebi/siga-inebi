@@ -8,6 +8,7 @@ from apps.attendance.models import (
     ControlPoint,
     JornadaParameters,
     Justification,
+    JustificationAttachment,
     JustificationNotification,
     JustificationPolicy,
     ManualRegistrationReason,
@@ -123,4 +124,16 @@ class JustificationNotificationAdmin(admin.ModelAdmin):
     """RF-JUS-006: created by ``resolve_justification``, not here."""
 
     list_display = ["justification", "recipient", "created_at"]
+    date_hierarchy = "created_at"
+
+
+@admin.register(JustificationAttachment)
+class JustificationAttachmentAdmin(admin.ModelAdmin):
+    """
+    RF-JUS-007: support surface only, uploaded via the API. ``checksum`` and
+    ``storage_key`` are omitted from the list to avoid turning this into a
+    place to browse potentially health-related filenames at a glance.
+    """
+
+    list_display = ["justification", "uploaded_by", "content_type", "created_at"]
     date_hierarchy = "created_at"
