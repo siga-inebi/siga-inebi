@@ -1985,11 +1985,48 @@ def test_scan_by_student_code_of_a_withdrawn_student_is_rejected(auth_client):
 
 
 # --------------------------------------------------------------------------- #
-# RF-JUS-003 — contrato del endpoint de justificacion
+# RF-JUS-002 — alcance del encargado
 # --------------------------------------------------------------------------- #
 
 JUSTIFICATION_REQUEST_PERMISSION = "attendance_justification_request"
 JUSTIFICATION_RESOLVE_PERMISSION = "attendance_justification_resolve"
+
+
+def test_justification_submit_endpoint_rejects_an_unrelated_student_without_leaking_data(
+    auth_client,
+):
+    """
+    Escenario "Intento sobre un estudiante ajeno" (RF-JUS-002): GIVEN un
+    encargado sin asociacion con un estudiante determinado, WHEN intenta
+    registrar una justificacion para ese estudiante, THEN el sistema
+    rechaza la operacion AND no revela informacion alguna sobre ese
+    estudiante. Reutiliza el mismo `can_access_student` que ya protege
+    cada operacion de este dominio (RF-JUS-003 en adelante) -- no hay
+    permiso ni alcance nuevo que construir para este RF, solo la prueba
+    verificable propia que le faltaba.
+    """
+    student = StudentFactory()
+
+    response = auth_client.post(
+        reverse("attendance-justification-submit"),
+        {
+            "student_id": str(student.public_id),
+            "absence_date": str(timezone.localdate()),
+            "reason": "Cita medica",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    body = response.content.decode()
+    assert student.student_code not in body
+    assert str(student.public_id) not in body
+    assert not Justification.objects.filter(student=student).exists()
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-003 — contrato del endpoint de justificacion
+# --------------------------------------------------------------------------- #
 
 
 def test_justification_submit_endpoint_requires_permission_and_scope(auth_client):
