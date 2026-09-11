@@ -52,6 +52,7 @@ from .serializers import (
     JustificationAttachmentSerializer,
     JustificationAttachmentUploadSerializer,
     JustificationNotificationSerializer,
+    JustificationReasonSerializer,
     JustificationRequestSerializer,
     JustificationResolutionRequestSerializer,
     JustificationSerializer,
@@ -974,15 +975,47 @@ class JustificationSubmitView(GenericAPIView):
             raise AuthorizationError(
                 "Registrar una excepcion a la ventana requiere permiso elevado."
             )
+        reason_catalog_id = payload.get("reason_catalog_id")
+        reason_catalog = (
+            queries.justification_reason_for_payload(reason_catalog_id)
+            if reason_catalog_id
+            else None
+        )
         justification = services.submit_justification(
             student=student,
             absence_date=payload["absence_date"],
+            situation_type=payload["situation_type"],
             reason=payload["reason"],
+            reason_catalog=reason_catalog,
             actor=request.user,
             is_exception=is_exception,
             exception_reason=payload["exception_reason"],
         )
         return Response(JustificationSerializer(justification).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar catalogo de motivos de justificacion",
+        description=(
+            "RF-JUS-001: catalogo configurable de motivos para una solicitud de justificacion."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        responses={200: JustificationReasonSerializer(many=True)},
+    ),
+)
+class JustificationReasonListView(GenericAPIView):
+    """Read-only reference catalogue consumed by the justification submission form."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationReasonSerializer
+
+    def get_queryset(self):
+        return queries.justification_reasons()
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(JustificationReasonSerializer(page, many=True).data)
 
 
 @extend_schema_view(

@@ -33,6 +33,7 @@ from apps.attendance.models import (
     Justification,
     JustificationNotification,
     JustificationPolicy,
+    JustificationReason,
     RecalculationReason,
     SectionClosureLog,
     StudentCredential,
@@ -3337,6 +3338,64 @@ def test_an_enrolled_student_still_resolves_by_either_path():
 
     assert by_credential == student
     assert by_code == student
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-001 — solicitud de justificacion por el encargado
+# --------------------------------------------------------------------------- #
+
+
+def test_submit_justification_defaults_to_absence_situation_type():
+    student = StudentFactory()
+
+    justification = services.submit_justification(
+        student=student,
+        absence_date=timezone.localdate(),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+
+    assert justification.situation_type == Justification.SituationType.ABSENCE
+    assert justification.reason_catalog is None
+
+
+def test_submit_justification_accepts_a_late_arrival_situation_type():
+    student = StudentFactory()
+
+    justification = services.submit_justification(
+        student=student,
+        absence_date=timezone.localdate(),
+        reason="Trafico por lluvia",
+        actor=UserFactory(),
+        situation_type=Justification.SituationType.LATE_ARRIVAL,
+    )
+
+    assert justification.situation_type == Justification.SituationType.LATE_ARRIVAL
+
+
+def test_submit_justification_accepts_a_reason_from_the_configurable_catalog():
+    """
+    Escenario "Solicitud con respaldo" (RF-JUS-001): GIVEN un encargado con
+    un estudiante asociado que estuvo ausente el dia anterior, WHEN
+    registra la solicitud indicando fecha, motivo (tomado del catalogo) y
+    adjuntando una constancia medica, THEN el sistema crea la solicitud en
+    estado pendiente. El adjunto en si es RF-JUS-007 (attach_justification_document);
+    esta prueba cubre la parte de fecha + motivo del catalogo.
+    """
+    student = StudentFactory()
+    catalog_reason = JustificationReason.objects.create(name="Cita medica", code="cita-medica")
+    guardian = UserFactory()
+
+    justification = services.submit_justification(
+        student=student,
+        absence_date=timezone.localdate() - timedelta(days=1),
+        reason="Cita medica de control",
+        actor=guardian,
+        reason_catalog=catalog_reason,
+    )
+
+    assert justification.status == Justification.Status.PENDING
+    assert justification.reason_catalog == catalog_reason
 
 
 # --------------------------------------------------------------------------- #

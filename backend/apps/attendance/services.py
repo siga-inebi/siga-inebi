@@ -2073,7 +2073,16 @@ def justification_window_business_days():
 
 @transaction.atomic
 def submit_justification(
-    *, student, absence_date, reason, actor, is_exception=False, exception_reason="", as_of=None
+    *,
+    student,
+    absence_date,
+    reason,
+    actor,
+    is_exception=False,
+    exception_reason="",
+    situation_type=Justification.SituationType.ABSENCE,
+    reason_catalog=None,
+    as_of=None,
 ):
     """
     RF-JUS-003: accept a guardian's justification only within the configured
@@ -2084,11 +2093,18 @@ def submit_justification(
     not this function's concern; this only enforces that the exception is
     never silent.
 
-    Deliberately minimal beyond the window rule: no situation-type catalog,
-    no attachments (RF-JUS-001), no guardian-scope check of its own (RF-JUS-002
-    is already covered at the caller's boundary by reusing
-    ``identity.scopes.can_access_student``), no review/resolution (RF-JUS-004).
-    ``status`` starts and stays ``PENDING`` here.
+    RF-JUS-001: ``situation_type`` (inasistencia/llegada tardia) and
+    ``reason_catalog`` (a ``JustificationReason`` from the configurable
+    catalog) complete the submission flow the spec describes. Both are
+    optional with backward-compatible defaults -- ``reason`` (free text)
+    stays the one truly required field, exactly as it was for every caller
+    written before this RF, so nothing already shipped (RF-JUS-003 through
+    RF-JUS-007) breaks.
+
+    No guardian-scope check of its own (RF-JUS-002 is already covered at
+    the caller's boundary by reusing ``identity.scopes.can_access_student``),
+    no review/resolution (RF-JUS-004). ``status`` starts and stays
+    ``PENDING`` here.
     """
     _require_active(student, "el estudiante")
     if not reason:
@@ -2109,7 +2125,9 @@ def submit_justification(
     justification = Justification.objects.create(
         student=student,
         absence_date=absence_date,
+        situation_type=situation_type,
         reason=reason,
+        reason_catalog=reason_catalog,
         submitted_by=actor,
         is_exception=is_exception,
         exception_reason=exception_reason,
@@ -2122,6 +2140,7 @@ def submit_justification(
         context={
             "student_id": str(student.public_id),
             "absence_date": str(absence_date),
+            "situation_type": situation_type,
             "is_exception": is_exception,
         },
     )

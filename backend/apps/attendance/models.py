@@ -430,16 +430,41 @@ class JustificationPolicy(TimeStampedModel):
         return f"Ventana de justificacion: {self.window_business_days} dias habiles"
 
 
+class JustificationReason(TimeStampedModel):
+    """
+    RF-JUS-001: a configurable catalog entry a guardian selects as the
+    reason for a justification request -- same minimal pattern as
+    ``ManualRegistrationReason``/``ControlPoint`` elsewhere in this app.
+    Retiring one (``is_active=False``) never touches a ``Justification``
+    that already cites it (AGENTS.md #12).
+    """
+
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=30, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
 class Justification(TimeStampedModel):
     """
     RF-JUS-003: a guardian's request to justify a student's absence on a
-    given date. Deliberately minimal -- just enough to carry the window rule
-    this RF is about. The fuller submission flow (situation type from a
-    configurable catalog, attachments) is RF-JUS-001; scope enforcement so a
-    guardian only ever sees their own wards is RF-JUS-002 (already covered at
-    the service boundary by reusing ``identity.scopes.can_access_student``,
-    not by anything new here). ``status`` carries the full lifecycle so later
-    RFs need no migration of their own to add a transition.
+    given date. Scope enforcement so a guardian only ever sees their own
+    wards is RF-JUS-002 (covered at the service boundary by reusing
+    ``identity.scopes.can_access_student``, not by anything new here).
+    ``status`` carries the full lifecycle so later RFs need no migration of
+    their own to add a transition.
+
+    RF-JUS-001: ``situation_type`` and ``reason_catalog`` complete the
+    submission flow the spec describes -- indicating whether it's an
+    absence or a late arrival, and a reason taken from a configurable
+    list. ``reason_catalog`` is optional (``null=True``) rather than
+    replacing the free-text ``reason`` outright: RF-JUS-003 through
+    RF-JUS-007 already shipped against free-text ``reason`` as the sole
+    input, and forcing a catalog selection now would break that already-
+    delivered, already-tested behavior. ``situation_type`` defaults to
+    ``ABSENCE`` for the same reason -- every caller written before this RF
+    existed keeps working unchanged.
 
     RF-JUS-004: once ``resolved_by``/``resolved_at`` are set the row is
     immutable (enforced in ``services.resolve_justification``, not here) --
@@ -452,11 +477,25 @@ class Justification(TimeStampedModel):
         APPROVED = "approved", "Aprobada"
         REJECTED = "rejected", "Rechazada"
 
+    class SituationType(models.TextChoices):
+        ABSENCE = "absence", "Inasistencia"
+        LATE_ARRIVAL = "late_arrival", "Llegada tardia"
+
     student = models.ForeignKey(
         "students.Student", on_delete=models.PROTECT, related_name="justifications"
     )
     absence_date = models.DateField()
+    situation_type = models.CharField(
+        max_length=15, choices=SituationType.choices, default=SituationType.ABSENCE
+    )
     reason = models.TextField()
+    reason_catalog = models.ForeignKey(
+        JustificationReason,
+        on_delete=models.PROTECT,
+        related_name="justifications",
+        null=True,
+        blank=True,
+    )
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     submitted_by = models.ForeignKey(
         "identity.UserAccount", on_delete=models.PROTECT, related_name="justifications_submitted"

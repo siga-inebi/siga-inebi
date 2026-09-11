@@ -10,6 +10,7 @@ from apps.attendance.models import (
     Justification,
     JustificationAttachment,
     JustificationNotification,
+    JustificationReason,
     ManualRegistrationReason,
     StudentCredential,
 )
@@ -492,10 +493,26 @@ class CredentialPrintContentSerializer(serializers.Serializer):
     photo_url = serializers.CharField(allow_null=True)
 
 
+class JustificationReasonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = JustificationReason
+        fields = ["public_id", "name", "code"]
+
+
 class JustificationRequestSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
     absence_date = serializers.DateField(help_text="Fecha de la inasistencia a justificar.")
+    situation_type = serializers.ChoiceField(
+        choices=Justification.SituationType.choices,
+        required=False,
+        default=Justification.SituationType.ABSENCE,
+        help_text="RF-JUS-001: inasistencia o llegada tardia.",
+    )
     reason = serializers.CharField(help_text="Motivo de la justificacion.")
+    reason_catalog_id = serializers.UUIDField(
+        required=False,
+        help_text="RF-JUS-001: Public ID de un motivo del catalogo configurable (opcional).",
+    )
     is_exception = serializers.BooleanField(
         required=False,
         default=False,
@@ -516,6 +533,9 @@ class JustificationRequestSerializer(serializers.Serializer):
 class JustificationSerializer(serializers.ModelSerializer):
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     submitted_by_id = serializers.IntegerField(source="submitted_by.pk", read_only=True)
+    reason_catalog_id = serializers.UUIDField(
+        source="reason_catalog.public_id", read_only=True, allow_null=True
+    )
     resolved_by_id = serializers.IntegerField(
         source="resolved_by.pk", read_only=True, allow_null=True
     )
@@ -526,7 +546,9 @@ class JustificationSerializer(serializers.ModelSerializer):
             "public_id",
             "student_id",
             "absence_date",
+            "situation_type",
             "reason",
+            "reason_catalog_id",
             "status",
             "submitted_by_id",
             "is_exception",

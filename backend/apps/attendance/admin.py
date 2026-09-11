@@ -11,6 +11,7 @@ from apps.attendance.models import (
     JustificationAttachment,
     JustificationNotification,
     JustificationPolicy,
+    JustificationReason,
     ManualRegistrationReason,
     StudentCredential,
 )
@@ -103,6 +104,13 @@ class JustificationPolicyAdmin(admin.ModelAdmin):
     list_display = ["window_business_days", "updated_at"]
 
 
+@admin.register(JustificationReason)
+class JustificationReasonAdmin(admin.ModelAdmin):
+    """RF-JUS-001: configurable catalog offered to a guardian at submission."""
+
+    list_display = ["name", "code", "is_active"]
+
+
 @admin.register(Justification)
 class JustificationAdmin(admin.ModelAdmin):
     """Support surface only: submission goes through the API, not here."""
@@ -110,12 +118,13 @@ class JustificationAdmin(admin.ModelAdmin):
     list_display = [
         "student",
         "absence_date",
+        "situation_type",
         "status",
         "submitted_by",
         "is_exception",
         "created_at",
     ]
-    list_filter = ["status", "is_exception"]
+    list_filter = ["status", "situation_type", "is_exception"]
     date_hierarchy = "absence_date"
 
 

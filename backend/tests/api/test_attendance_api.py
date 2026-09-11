@@ -34,6 +34,7 @@ from apps.attendance.models import (
     CaptureBatch,
     Justification,
     JustificationPolicy,
+    JustificationReason,
     StudentCredential,
 )
 from apps.audit.models import AuditEvent
@@ -1985,11 +1986,81 @@ def test_scan_by_student_code_of_a_withdrawn_student_is_rejected(auth_client):
 
 
 # --------------------------------------------------------------------------- #
-# RF-JUS-002 — alcance del encargado
+# RF-JUS-001 — solicitud de justificacion por el encargado
 # --------------------------------------------------------------------------- #
 
 JUSTIFICATION_REQUEST_PERMISSION = "attendance_justification_request"
 JUSTIFICATION_RESOLVE_PERMISSION = "attendance_justification_resolve"
+
+
+def test_justification_reason_list_endpoint_returns_the_catalogue(auth_client):
+    JustificationReason.objects.create(name="Cita medica", code="cita-medica")
+
+    response = auth_client.get(reverse("attendance-justification-reason-list"))
+
+    assert response.status_code == 200
+    names = {item["name"] for item in response.json()["results"]}
+    assert "Cita medica" in names
+
+
+def test_justification_submit_endpoint_accepts_situation_type_and_reason_catalog(auth_client):
+    """
+    Escenario "Solicitud con respaldo" (RF-JUS-001), a nivel de contrato:
+    el encargado indica fecha, tipo de situacion y un motivo tomado del
+    catalogo configurable.
+    """
+    student = StudentFactory()
+    catalog_reason = JustificationReason.objects.create(name="Cita medica", code="cita-medica")
+    _grant_student_scope(auth_client.user, student, codename=JUSTIFICATION_REQUEST_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-justification-submit"),
+        {
+            "student_id": str(student.public_id),
+            "absence_date": str(timezone.localdate() - timedelta(days=1)),
+            "situation_type": Justification.SituationType.LATE_ARRIVAL,
+            "reason": "Cita medica de control",
+            "reason_catalog_id": str(catalog_reason.public_id),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["situation_type"] == Justification.SituationType.LATE_ARRIVAL
+    assert body["reason_catalog_id"] == str(catalog_reason.public_id)
+
+
+def test_justification_submit_endpoint_defaults_situation_type_without_breaking_existing_callers(
+    auth_client,
+):
+    """
+    Backward compatibility: a submission that only sends the fields
+    RF-JUS-003 through RF-JUS-007 already relied on -- no situation_type,
+    no reason_catalog_id -- keeps working exactly as before.
+    """
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student, codename=JUSTIFICATION_REQUEST_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-justification-submit"),
+        {
+            "student_id": str(student.public_id),
+            "absence_date": str(timezone.localdate() - timedelta(days=1)),
+            "reason": "Cita medica",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["situation_type"] == Justification.SituationType.ABSENCE
+    assert body["reason_catalog_id"] is None
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-002 — alcance del encargado
+# --------------------------------------------------------------------------- #
 
 
 def test_justification_submit_endpoint_rejects_an_unrelated_student_without_leaking_data(
