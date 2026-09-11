@@ -3515,3 +3515,199 @@ def test_resolve_justification_is_immutable_once_resolved():
         services.resolve_justification(
             justification=justification, approved=True, comment="", actor=reviewer
         )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-005 — efecto sobre el estado derivado
+# --------------------------------------------------------------------------- #
+
+
+def _weekday_on_or_after(candidate):
+    while candidate.isoweekday() not in (1, 2, 3, 4, 5):
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def test_approving_a_justification_turns_a_pending_absence_into_a_justified_absence():
+    """
+    Escenario "Aprobacion de una ausencia" (RF-JUS-005): GIVEN un dia con
+    estado derivado de ausencia pendiente de justificar, WHEN se aprueba la
+    justificacion correspondiente, THEN el estado derivado del dia pasa a
+    ausencia justificada, AND el registro original permanece consultable.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    absence_date = _weekday_on_or_after(cycle.starts_on)
+    as_of = _at(absence_date, 16, 1)
+
+    before = services.derive_day_status(
+        student=student, shift=shift, event_date=absence_date, as_of=as_of
+    )
+    assert before.status == DayStatus.ABSENT_PENDING_JUSTIFICATION
+
+    justification = services.submit_justification(
+        student=student, absence_date=absence_date, reason="Cita medica", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    after = services.derive_day_status(
+        student=student, shift=shift, event_date=absence_date, as_of=as_of
+    )
+    assert after.status == DayStatus.JUSTIFIED_ABSENCE
+    assert after.entry_event is None
+    justification.refresh_from_db()
+    assert justification.status == Justification.Status.APPROVED
+
+
+def test_approving_a_justification_turns_a_late_arrival_into_a_justified_late_arrival():
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    late_date = _weekday_on_or_after(cycle.starts_on)
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=late_date,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(late_date, 7, 45),
+    )
+
+    before = services.derive_day_status(student=student, shift=shift, event_date=late_date)
+    assert before.status == DayStatus.LATE
+
+    justification = services.submit_justification(
+        student=student, absence_date=late_date, reason="Trafico por lluvia", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    after = services.derive_day_status(student=student, shift=shift, event_date=late_date)
+    assert after.status == DayStatus.JUSTIFIED_LATE
+    assert after.entry_event is not None
+
+
+def test_rejecting_a_justification_does_not_alter_the_derived_status():
+    """RF-JUS-005: "el rechazo NO DEBE alterar el estado derivado"."""
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    absence_date = _weekday_on_or_after(cycle.starts_on)
+    as_of = _at(absence_date, 16, 1)
+
+    justification = services.submit_justification(
+        student=student, absence_date=absence_date, reason="Cita medica", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=justification,
+        approved=False,
+        comment="Sin constancia adjunta",
+        actor=UserFactory(),
+    )
+
+    result = services.derive_day_status(
+        student=student, shift=shift, event_date=absence_date, as_of=as_of
+    )
+    assert result.status == DayStatus.ABSENT_PENDING_JUSTIFICATION
+
+
+def test_approving_a_justification_recalculates_the_day_with_the_justification_resolved_reason():
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    absence_date = _weekday_on_or_after(cycle.starts_on)
+    justification = services.submit_justification(
+        student=student, absence_date=absence_date, reason="Cita medica", actor=UserFactory()
+    )
+
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    assert AuditEvent.objects.filter(
+        action="attendance.day.recalculated",
+        context__reason=RecalculationReason.JUSTIFICATION_RESOLVED,
+    ).exists()
+
+
+def test_attendance_percentage_still_counts_a_justified_late_arrival_as_attended():
+    """
+    A justified late arrival is still a late arrival that happened -- RF-
+    JOR-009's percentage must keep counting it, the same as an unjustified
+    one, rather than silently dropping it once ``DayStatus.LATE`` becomes
+    ``DayStatus.JUSTIFIED_LATE``.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    late_date = _weekday_on_or_after(cycle.starts_on)
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=late_date,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(late_date, 7, 45),
+    )
+    justification = services.submit_justification(
+        student=student, absence_date=late_date, reason="Trafico por lluvia", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    result = services.compute_attendance_percentage(
+        student=student, shift=shift, as_of_date=late_date
+    )
+
+    assert result.late_days == 1
+    assert result.percentage == 100.0

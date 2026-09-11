@@ -2206,3 +2206,51 @@ def test_justification_resolve_endpoint_rejects_second_resolution(auth_client):
     )
 
     assert second.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-005 — efecto sobre el estado derivado
+# --------------------------------------------------------------------------- #
+
+
+def test_approving_a_justification_is_reflected_in_the_day_status_endpoint(auth_client):
+    """
+    Escenario "Aprobacion de una ausencia" (RF-JUS-005), a nivel de contrato:
+    GIVEN un dia ausente pendiente de justificar, WHEN se aprueba la
+    justificacion via el endpoint de resolucion, THEN una consulta posterior
+    al endpoint de estado diario refleja "ausencia_justificada".
+    """
+    today = timezone.localdate()
+    shift = ShiftFactory()
+    cycle = AcademicCycleFactory(
+        institution=shift.institution, starts_on=today - timedelta(days=30)
+    )
+    parameters = JornadaParametersFactory(
+        shift=shift, academic_cycle=cycle, effective_from=cycle.starts_on, closing_time=time(16, 0)
+    )
+    section = SectionFactory(academic_cycle=cycle, shift=shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+        effective_on=cycle.starts_on,
+    )
+    justification = _submit_pending_justification(auth_client, student)
+    _grant(auth_client.user, JUSTIFICATION_RESOLVE_PERMISSION)
+    _grant_student_scope(auth_client.user, student)
+
+    resolve_response = auth_client.post(
+        reverse("attendance-justification-resolve", args=[justification.public_id]),
+        {"approved": True, "comment": ""},
+        content_type="application/json",
+    )
+    assert resolve_response.status_code == 200
+
+    status_response = auth_client.get(
+        _day_status_url(student, parameters.shift, justification.absence_date)
+    )
+
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "ausencia_justificada"

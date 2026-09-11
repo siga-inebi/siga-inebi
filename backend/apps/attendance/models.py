@@ -303,15 +303,17 @@ class DayStatus(models.TextChoices):
     PRESENT = "presente", "Presente"
     LATE = "tarde", "Tarde"
     ABSENT_PENDING_JUSTIFICATION = "ausente_pendiente_justificar", "Ausente pendiente de justificar"
+    JUSTIFIED_ABSENCE = "ausencia_justificada", "Ausencia justificada"
+    JUSTIFIED_LATE = "tarde_justificada", "Llegada tardia justificada"
 
 
 class RecalculationReason(models.TextChoices):
     """
     Why ``services.recalculate_day`` re-evaluated a day (RF-JOR-006). Not a
     model field: a vocabulary shared by the audit trail and
-    ``DayRecalculationResult``. ``JUSTIFICATION_RESOLVED`` is not wired to
-    any code path yet — it's the value a future asistencia-justificaciones
-    app should pass once that domain exists.
+    ``DayRecalculationResult``. ``JUSTIFICATION_RESOLVED`` (RF-JUS-005) is
+    passed by ``services.resolve_justification`` once an approval changes
+    the day's derived status.
     """
 
     LATE_EVENT = "late_event", "Evento con fecha anterior"
