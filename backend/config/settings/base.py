@@ -103,6 +103,26 @@ DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES = env_int(
     DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES,
 )
 
+# RNF-RES-001 / RNF-RES-002: respaldo y recuperacion.
+#
+# Las dos pilas tienen directorios separados a proposito: el requerimiento pide
+# que los esquemas sean independientes, y compartir destino invita a que un
+# borrado o una rotacion se lleve las dos.
+#
+# RPO y RTO son declaraciones institucionales, no medidas de infraestructura.
+# Los valores por defecto son la declaracion de referencia documentada en
+# `docs/architecture/backup-and-recovery.md` (PD-002) y se ajustan por entorno
+# en cuanto el establecimiento confirme los suyos.
+BACKUP_ROOT = env("BACKUP_ROOT", str(BASE_DIR.parent / "backups"))
+# Los scripts viven en el repositorio, fuera de `backend/`. La imagen del
+# backend solo copia `backend/`, asi que en contenedor se montan aparte y esta
+# variable dice donde quedaron.
+BACKUP_SCRIPTS_DIR = env("BACKUP_SCRIPTS_DIR", str(BASE_DIR.parent / "scripts" / "backup"))
+DATABASE_BACKUP_DIR = env("DATABASE_BACKUP_DIR", f"{BACKUP_ROOT}/database")
+FILES_BACKUP_DIR = env("FILES_BACKUP_DIR", f"{BACKUP_ROOT}/files")
+RECOVERY_POINT_OBJECTIVE_HOURS = env_int("RECOVERY_POINT_OBJECTIVE_HOURS", 24)
+RECOVERY_TIME_OBJECTIVE_HOURS = env_int("RECOVERY_TIME_OBJECTIVE_HOURS", 4)
+
 DATABASE_ENGINE = env("DATABASE_ENGINE", "postgresql")
 SQLITE_PATH = env("SQLITE_PATH", "db.sqlite3")
 

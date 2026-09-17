@@ -43,6 +43,12 @@ services:
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
       TIME_ZONE: America/Guatemala
       TZ: America/Guatemala
+      # RNF-RES-001: las pruebas de respaldo ejecutan los scripts de verdad, y
+      # la imagen solo copia `backend/`. Se montan aparte y esta variable les
+      # dice donde quedaron.
+      BACKUP_SCRIPTS_DIR: /opt/backup
+    volumes:
+      - ./scripts/backup:/opt/backup:ro
     depends_on:
       db-test:
         condition: service_healthy
