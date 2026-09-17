@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 
 import pytest
 from django.db import connection
+from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -1441,6 +1442,49 @@ def test_current_capture_batch_endpoint_recovers_pending_batch_with_original_cap
     assert len(body["events"]) == 12
     recovered_times = {datetime.fromisoformat(event["captured_at"]) for event in body["events"]}
     assert recovered_times == set(captured_times)
+
+
+def test_current_capture_batch_endpoint_recovers_from_a_different_device(auth_client):
+    """
+    Escenario 1 (RNF-CON-002): GIVEN un operador con un lote abierto en
+    curso desde un dispositivo, WHEN se autentica desde un dispositivo
+    distinto -- sin sesion ni cookies compartidas con el primero -- THEN el
+    sistema le presenta el mismo lote pendiente.
+
+    ``auth_client`` reutilizado en la misma prueba solo demuestra
+    recuperacion tras perder sesion en el mismo cliente; esta prueba usa un
+    ``django.test.Client`` completamente aparte, autenticado como el mismo
+    operador, para probar la garantia real de RNF-CON-002: la recuperacion
+    depende de quien es el operador (``CaptureBatch.operator``), nunca de
+    con que dispositivo o sesion abrio el lote.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    student = StudentFactory()
+    _enrol(student, parameters.academic_cycle)
+
+    open_response = auth_client.post(reverse("attendance-capture-batch-open"))
+    capture_batch_id = open_response.json()["public_id"]
+    captured_at = timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0)))
+    item = _scan_item(student, parameters.shift, control_point, "cross-device-1", captured_at)
+    auth_client.post(
+        reverse("attendance-scan"),
+        {"capture_batch_id": capture_batch_id, "items": [item]},
+        content_type="application/json",
+    )
+
+    other_device = Client()
+    other_device.force_login(auth_client.user)
+
+    response = other_device.get(reverse("attendance-capture-batch-current"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["capture_batch"]["public_id"] == capture_batch_id
+    assert len(body["events"]) == 1
+    assert body["events"][0]["client_event_id"] == "cross-device-1"
 
 
 def test_confirm_capture_batch_endpoint_closes_it(auth_client):
