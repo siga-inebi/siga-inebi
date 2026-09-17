@@ -6,10 +6,11 @@ from apps.academics.models import (
     AcademicCycle,
     CurriculumPlan,
     GradeOffering,
+    LevelSubject,
     Section,
     TeachingAssignment,
 )
-from apps.academics.queries import historical_cycle_or_404
+from apps.academics.queries import historical_cycle_or_404, weekly_load_report
 from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,
@@ -18,7 +19,9 @@ from apps.academics.services import (
     create_curriculum_plan,
     create_section,
     create_teaching_assignment,
+    deactivate_class_session,
     reassign_teaching_assignment,
+    reopen_academic_cycle,
 )
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
@@ -81,6 +84,60 @@ def test_active_cycle_closes_after_units_settle_and_then_rejects_academic_writes
             teacher=TeacherFactory().person,
             actor=actor,
         )
+
+
+def test_closed_cycle_reopens_for_a_grading_correction_and_can_close_again():
+    """RF-CIC-005, escenario 'Correccion de un error detectado tras el
+    cierre': reabrir un ciclo cerrado no descarta la estructura que ya tenia
+    congelada (no existe todavia una capacidad de resultados que congelar de
+    forma explicita, ver notas de RF-CIC-004); ambos cierres quedan en la
+    bitacora, ninguno reemplaza al otro."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution)
+    create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject, actor=actor)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher.person,
+        actor=actor,
+    )
+    cycle = activate_academic_cycle(cycle=cycle, actor=actor)
+    cycle = close_academic_cycle(cycle=cycle, actor=actor)
+
+    reopened = reopen_academic_cycle(
+        cycle=cycle, reason="Se detecto una nota mal capturada", actor=actor
+    )
+
+    assert reopened.status == AcademicCycle.CycleStatus.ACTIVE
+    reopen_event = AuditEvent.objects.get(action="academics.cycle.reopened")
+    assert reopen_event.context["reason"] == "Se detecto una nota mal capturada"
+    # La estructura congelada por el primer cierre sigue intacta: reabrir no
+    # descarta nada de lo que ya existia.
+    assert reopened.curriculum_plans.count() == 1
+    assert reopened.teaching_assignments.filter(teacher=teacher.person).exists()
+    assert Section.objects.filter(pk=section.pk, offering__academic_cycle=reopened).exists()
+
+    reclosed = close_academic_cycle(cycle=reopened, actor=actor)
+
+    assert reclosed.status == AcademicCycle.CycleStatus.CLOSED
+    # El nuevo cierre no borra la traza del anterior: los dos quedan en la
+    # bitacora (el "resultado adicional" del criterio de aceptacion depende
+    # de una capacidad de resultados que todavia no existe en el codigo).
+    assert AuditEvent.objects.filter(action="academics.cycle.closed").count() == 2
 
 
 def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
@@ -405,3 +462,171 @@ def test_special_session_without_a_classroom_does_not_block_cycle_activation():
     activated = activate_academic_cycle(cycle=cycle, actor=actor)
 
     assert activated.status == AcademicCycle.CycleStatus.ACTIVE
+
+
+def test_weekly_load_report_reflects_the_actual_schedule_end_to_end():
+    """RF-HOR-007 (#200): flujo completo -- ciclo, seccion, plan de estudios,
+    carga horaria declarada a nivel de nivel educativo (RF-EST-006), y las
+    sesiones realmente agendadas para esa seccion."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution)
+    create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject, actor=actor)
+    LevelSubject.objects.create(level=grade.level, subject=subject, weekly_hours=2)
+    block_a = ClassScheduleBlockFactory(shift=shift, number=1)
+    block_b = ClassScheduleBlockFactory(shift=shift, number=2)
+    create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block_a,
+        day_of_week=1,
+        actor=actor,
+    )
+
+    report = weekly_load_report(section)
+    row = next(r for r in report if r["subject"].pk == subject.pk)
+    assert row["declared_weekly_hours"] == 2
+    assert row["scheduled_periods"] == 1
+    assert row["matches"] is False
+
+    create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block_b,
+        day_of_week=1,
+        actor=actor,
+    )
+
+    updated_row = next(r for r in weekly_load_report(section) if r["subject"].pk == subject.pk)
+    assert updated_row["scheduled_periods"] == 2
+    assert updated_row["matches"] is True
+
+
+def test_teacher_shared_across_two_sections_cannot_be_double_booked():
+    """RF-HOR-006 (#199): a teacher assigned to two sections in the same
+    cycle cannot end up scheduled in both at once -- full flow: cycle in
+    preparation, two sections, a teaching assignment for each, one class
+    session scheduled, then a conflicting one for the second section."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section_a = create_section(
+        academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor
+    )
+    section_b = create_section(
+        academic_cycle=cycle, grade=grade, shift=shift, name="B", actor=actor
+    )
+    subject_a = SubjectFactory(institution=institution)
+    subject_b = SubjectFactory(institution=institution)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section_a,
+        subject=subject_a,
+        teacher=teacher.person,
+        actor=actor,
+    )
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section_b,
+        subject=subject_b,
+        teacher=teacher.person,
+        actor=actor,
+    )
+    block = ClassScheduleBlockFactory(shift=shift)
+    create_class_session(
+        academic_cycle=cycle,
+        section=section_a,
+        subject=subject_a,
+        schedule_block=block,
+        day_of_week=1,
+        actor=actor,
+    )
+
+    with pytest.raises(DomainError, match="El docente ya tiene otra seccion agendada"):
+        create_class_session(
+            academic_cycle=cycle,
+            section=section_b,
+            subject=subject_b,
+            schedule_block=block,
+            day_of_week=1,
+            actor=actor,
+        )
+
+    assert section_b.class_sessions.count() == 0
+
+
+def test_class_session_mid_cycle_restructuring_preserves_the_retired_slot():
+    """RF-HOR-008 (#201): reestructuracion a mitad de ciclo -- se retira la
+    sesion original (soft-delete, no se borra el historial) y se agenda su
+    reemplazo, en otro dia, con una fecha de vigencia posterior. El slot
+    original (seccion, subarea, dia, bloque) no se libera para reuso exacto
+    ni siquiera desactivado -- unique_class_session_registration (RF-HOR-003)
+    no distingue por is_active -- asi que la reestructuracion mueve la
+    sesion a otro dia en vez de reocupar el mismo, tal como se derivaria en
+    la practica de un cambio real de horario."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=shift)
+    original = create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+        actor=actor,
+    )
+    assert original.starts_on == cycle.starts_on
+
+    deactivate_class_session(session=original, actor=actor)
+    restructuring_date = date(2026, 6, 1)
+    replacement = create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=2,
+        starts_on=restructuring_date,
+        actor=actor,
+    )
+
+    original.refresh_from_db()
+    assert original.is_active is False
+    assert original.starts_on == cycle.starts_on  # el historial no cambia
+    assert replacement.starts_on == restructuring_date
+    assert replacement.is_active is True
+    assert section.class_sessions.count() == 2

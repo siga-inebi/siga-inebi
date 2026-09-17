@@ -10,6 +10,7 @@ from apps.attendance.models import (
     ManualRegistrationReason,
     StudentCredential,
 )
+from apps.common.qr import generate_qr_png_base64
 
 
 class JornadaParametersSerializer(serializers.ModelSerializer):
@@ -388,9 +389,18 @@ class StudentCredentialSerializer(serializers.ModelSerializer):
     payload exists: the caller needs the token to print the credential. It is
     returned by the issuance response alone — no listing exposes it, because a
     page of tokens is a page of usable passes.
+
+    RNF-PRI-001: ``qr_code`` is the printable QR image, generated from
+    ``opaque_identifier`` alone via ``generate_qr_png_base64`` -- that
+    function only ever accepts a plain string, never this serializer's
+    instance, so nothing else this payload carries (``student_id`` included)
+    can end up encoded in it.
     """
 
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    qr_code = serializers.SerializerMethodField(
+        help_text="Imagen PNG del codigo QR, en base64, codificando unicamente opaque_identifier."
+    )
 
     class Meta:
         model = StudentCredential
@@ -398,11 +408,15 @@ class StudentCredentialSerializer(serializers.ModelSerializer):
             "public_id",
             "student_id",
             "opaque_identifier",
+            "qr_code",
             "status",
             "issued_at",
             "is_active",
             "created_at",
         ]
+
+    def get_qr_code(self, credential):
+        return generate_qr_png_base64(data=credential.opaque_identifier)
 
 
 class StudentCredentialIssueSerializer(serializers.Serializer):

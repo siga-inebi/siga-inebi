@@ -15,6 +15,7 @@ RF-CRE-001 — contrato del endpoint de emision de credencial.
 RF-CRE-006 — contrato del endpoint de resolucion de identificador.
 """
 
+import base64
 from datetime import datetime, time, timedelta
 from urllib.parse import urlencode
 
@@ -28,6 +29,7 @@ from apps.academics.models import TeachingAssignment
 from apps.attendance import services
 from apps.attendance.models import AttendanceAlert, AttendanceEvent, CaptureBatch, StudentCredential
 from apps.audit.models import AuditEvent
+from apps.common.qr import generate_qr_png
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import (
@@ -1551,6 +1553,35 @@ def test_issue_credential_returns_the_opaque_identifier(auth_client):
     assert body["status"] == StudentCredential.Status.ACTIVE
     assert body["opaque_identifier"]
     assert student.student_code not in body["opaque_identifier"]
+
+
+def test_issue_credential_qr_code_encodes_only_the_opaque_identifier(auth_client):
+    """
+    Escenario 1 (RNF-PRI-001): GIVEN una credencial emitida, WHEN se inspecciona
+    el contenido codificado en el codigo QR, THEN contiene solo el identificador
+    opaco, AND no permite deducir el codigo estudiantil ni ningun otro dato
+    personal del portador.
+
+    ``generate_qr_png`` es una funcion pura de su argumento: si la respuesta
+    trajera algo mas que ``opaque_identifier`` codificado (el nombre del
+    estudiante, su student_id, lo que sea), la imagen no podria coincidir
+    byte a byte con la que se obtiene codificando unicamente ese valor.
+    """
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": str(student.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["qr_code"]
+    expected_png = generate_qr_png(data=body["opaque_identifier"])
+    assert base64.b64decode(body["qr_code"]) == expected_png
 
 
 def test_issue_credential_for_a_student_without_active_enrolment_is_a_bad_request(auth_client):
