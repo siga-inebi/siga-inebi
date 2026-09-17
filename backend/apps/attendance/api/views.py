@@ -49,6 +49,9 @@ from .serializers import (
     JornadaClosureResultSerializer,
     JornadaParametersCreateSerializer,
     JornadaParametersSerializer,
+    JustificationRequestSerializer,
+    JustificationResolutionRequestSerializer,
+    JustificationSerializer,
     ManualRegistrationReasonSerializer,
     PresentStudentSerializer,
     ScanCaptureItemResultSerializer,
@@ -922,3 +925,93 @@ class StudentCredentialResolutionView(GenericAPIView):
             student=resolution.student,
         )
         return Response(CredentialResolutionSerializer(resolution).data)
+
+
+JUSTIFICATION_TAGS = ["attendance: justificaciones"]
+JUSTIFICATION_REQUEST_PERMISSION = "attendance_justification_request"
+JUSTIFICATION_RESOLVE_PERMISSION = "attendance_justification_resolve"
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Enviar justificacion de inasistencia",
+        description=(
+            "RF-JUS-003: acepta la solicitud solo dentro de la ventana "
+            "configurada desde la fecha de inasistencia; fuera de ella la "
+            "rechaza indicando que el plazo vencio, salvo que un usuario con "
+            "attendance_justification_resolve la registre como excepcion "
+            "documentada."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        request=JustificationRequestSerializer,
+        responses={201: JustificationSerializer},
+    ),
+)
+class JustificationSubmitView(GenericAPIView):
+    """RF-JUS-003 contract: submit an absence justification."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationSerializer
+
+    def post(self, request):
+        serializer = JustificationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        if not can_access_student(
+            user=request.user, codename=JUSTIFICATION_REQUEST_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        is_exception = payload["is_exception"]
+        if is_exception and not request.user.has_atomic_permission(
+            JUSTIFICATION_RESOLVE_PERMISSION
+        ):
+            raise AuthorizationError(
+                "Registrar una excepcion a la ventana requiere permiso elevado."
+            )
+        justification = services.submit_justification(
+            student=student,
+            absence_date=payload["absence_date"],
+            reason=payload["reason"],
+            actor=request.user,
+            is_exception=is_exception,
+            exception_reason=payload["exception_reason"],
+        )
+        return Response(JustificationSerializer(justification).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Resolver justificacion de inasistencia",
+        description=(
+            "RF-JUS-004: aprueba o rechaza una justificacion pendiente. El "
+            "rechazo exige un comentario. Una vez resuelta, la justificacion "
+            "queda inmutable -- resolverla de nuevo se rechaza; una correccion "
+            "requiere una justificacion nueva (RF-JUS-003)."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        request=JustificationResolutionRequestSerializer,
+        responses={200: JustificationSerializer},
+    ),
+)
+class JustificationResolveView(GenericAPIView):
+    """RF-JUS-004 contract: approve or reject a pending justification."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationSerializer
+
+    def post(self, request, public_id):
+        _require_permission(request, JUSTIFICATION_RESOLVE_PERMISSION)
+        serializer = JustificationResolutionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        justification = queries.justification_for_payload(public_id)
+        justification = services.resolve_justification(
+            justification=justification,
+            approved=payload["approved"],
+            comment=payload["comment"],
+            actor=request.user,
+        )
+        return Response(JustificationSerializer(justification).data)

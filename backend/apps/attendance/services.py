@@ -15,7 +15,7 @@ module: the credential is what a scan resolves, so it belongs to the same
 attendance-capture domain rather than to a module of its own.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from django.db import transaction
@@ -29,6 +29,8 @@ from apps.attendance.models import (
     CaptureBatch,
     DayStatus,
     JornadaParameters,
+    Justification,
+    JustificationPolicy,
     RecalculationReason,
     SectionClosureLog,
     StudentCredential,
@@ -677,6 +679,30 @@ def _classify_day(*, entry_event, parameters, event_date, as_of):
     return None
 
 
+_JUSTIFIED_STATUS_OVERRIDE = {
+    DayStatus.LATE: DayStatus.JUSTIFIED_LATE,
+    DayStatus.ABSENT_PENDING_JUSTIFICATION: DayStatus.JUSTIFIED_ABSENCE,
+}
+
+
+def _apply_justification_override(result, *, justified):
+    """
+    RF-JUS-005: an approved justification for the day changes its derived
+    status to "justificada" without touching the movement events the
+    classification read -- so this only ever swaps ``result.status`` on an
+    already-computed ``DayStatusResult``, never the entry/exit resolution
+    above. A rejected or still-pending justification leaves the status
+    exactly as ``_classify_day`` computed it, which is why callers only
+    reach this with an already-confirmed approval.
+    """
+    if result is None or not justified:
+        return result
+    new_status = _JUSTIFIED_STATUS_OVERRIDE.get(result.status)
+    if new_status is None:
+        return result
+    return replace(result, status=new_status)
+
+
 def derive_day_status(*, student, shift, event_date, as_of=None):
     """
     The student's daily attendance status for a jornada (RF-JOR-002), derived
@@ -698,9 +724,13 @@ def derive_day_status(*, student, shift, event_date, as_of=None):
         event_date=event_date,
         movement_type=AttendanceEvent.MovementType.ENTRY,
     )
-    return _classify_day(
+    result = _classify_day(
         entry_event=entry_event, parameters=parameters, event_date=event_date, as_of=as_of
     )
+    justified = Justification.objects.filter(
+        student=student, absence_date=event_date, status=Justification.Status.APPROVED
+    ).exists()
+    return _apply_justification_override(result, justified=justified)
 
 
 def derive_day_statuses(*, students, shift, event_dates, as_of=None):
@@ -763,17 +793,48 @@ def derive_day_statuses(*, students, shift, event_dates, as_of=None):
         event_dates=event_dates,
         movement_type=AttendanceEvent.MovementType.ENTRY,
     )
+    approved_justifications = set(
+        Justification.objects.filter(
+            student__in=students,
+            absence_date__in=event_dates,
+            status=Justification.Status.APPROVED,
+        ).values_list("student_id", "absence_date")
+    )
 
     return {
-        (student.pk, event_date): _classify_day(
-            entry_event=prevailing_entries.get((student.pk, event_date)),
-            parameters=parameters_by_date[event_date],
-            event_date=event_date,
-            as_of=as_of,
+        (student.pk, event_date): _apply_justification_override(
+            _classify_day(
+                entry_event=prevailing_entries.get((student.pk, event_date)),
+                parameters=parameters_by_date[event_date],
+                event_date=event_date,
+                as_of=as_of,
+            ),
+            justified=(student.pk, event_date) in approved_justifications,
         )
         for student in students
         for event_date in event_dates
     }
+
+
+def _shift_for_student_on(*, student, event_date):
+    """
+    RF-JUS-005: the jornada whose derived status a justification for
+    ``event_date`` affects. A student has at most one enrolment covering any
+    given date (``unique_active_enrolment_per_student`` allows only one
+    *active* row, and historical rows don't overlap in practice), so this
+    resolves unambiguously without the caller having to supply a shift --
+    unlike every other reader in this module, ``Justification`` doesn't
+    carry one. Returns ``None`` when no enrolment covers the date (e.g. an
+    exception justification for a since-withdrawn student), in which case
+    there is no jornada whose status to recalculate.
+    """
+    enrolment = (
+        Enrolment.objects.filter(effective_on__lte=event_date, student=student)
+        .filter(Q(ends_on__isnull=True) | Q(ends_on__gte=event_date))
+        .select_related("section__offering__shift")
+        .first()
+    )
+    return enrolment.section.offering.shift if enrolment is not None else None
 
 
 def _active_enrolment_for(*, student, shift, event_date):
@@ -1577,7 +1638,9 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
         if results.get((student.pk, event_date)) is not None
     ]
     present_days = sum(1 for result in resolved if result.status == DayStatus.PRESENT)
-    late_days = sum(1 for result in resolved if result.status == DayStatus.LATE)
+    late_days = sum(
+        1 for result in resolved if result.status in (DayStatus.LATE, DayStatus.JUSTIFIED_LATE)
+    )
     elapsed_school_days = len(resolved)
     percentage = (
         round((present_days + late_days) / elapsed_school_days * 100, 2)
@@ -1969,3 +2032,161 @@ def resolve_scan_subject(*, credential_identifier="", student_code="", actor=Non
         )
         raise DomainError(f"El estudiante con codigo '{student_code}' no tiene inscripcion activa.")
     return student
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-003 — ventana de justificacion
+# --------------------------------------------------------------------------- #
+
+
+def _count_business_days(*, start_date, end_date):
+    """
+    Business days strictly between ``start_date`` and ``end_date``, both
+    exclusive, counting only weekends as non-working -- the same definition
+    ``apps.academics.school_calendar`` already uses elsewhere in this
+    project. No Guatemalan holiday calendar exists yet to do better; a
+    holiday inside the window is counted as a business day until one does.
+    """
+    if end_date <= start_date:
+        return 0
+    business_days = 0
+    current = start_date + timedelta(days=1)
+    while current <= end_date:
+        if current.weekday() < 5:
+            business_days += 1
+        current += timedelta(days=1)
+    return business_days
+
+
+def justification_window_business_days():
+    """The configured window, in business days. Never creates a row as a side effect."""
+    policy = JustificationPolicy.objects.first() or JustificationPolicy()
+    return policy.window_business_days
+
+
+@transaction.atomic
+def submit_justification(
+    *, student, absence_date, reason, actor, is_exception=False, exception_reason="", as_of=None
+):
+    """
+    RF-JUS-003: accept a guardian's justification only within the configured
+    window counted from ``absence_date``. Past that, reject indicating the
+    deadline expired -- unless ``is_exception`` documents why an elevated
+    user is registering it anyway. Who is allowed to pass ``is_exception``
+    is a permission question the view answers (``attendance_justification_resolve``),
+    not this function's concern; this only enforces that the exception is
+    never silent.
+
+    Deliberately minimal beyond the window rule: no situation-type catalog,
+    no attachments (RF-JUS-001), no guardian-scope check of its own (RF-JUS-002
+    is already covered at the caller's boundary by reusing
+    ``identity.scopes.can_access_student``), no review/resolution (RF-JUS-004).
+    ``status`` starts and stays ``PENDING`` here.
+    """
+    _require_active(student, "el estudiante")
+    if not reason:
+        raise DomainError("La justificacion debe indicar un motivo.")
+    today = as_of or timezone.localdate()
+    if is_exception:
+        if not exception_reason:
+            raise DomainError("La excepcion debe documentar un motivo.")
+    else:
+        window = justification_window_business_days()
+        elapsed = _count_business_days(start_date=absence_date, end_date=today)
+        if elapsed > window:
+            raise DomainError(
+                f"El plazo para justificar la ausencia del {absence_date} vencio "
+                f"(ventana de {window} dias habiles)."
+            )
+
+    justification = Justification.objects.create(
+        student=student,
+        absence_date=absence_date,
+        reason=reason,
+        submitted_by=actor,
+        is_exception=is_exception,
+        exception_reason=exception_reason,
+    )
+    record_event(
+        actor=actor,
+        action="attendance.justification.submitted",
+        resource="Justification",
+        resource_identifier=str(justification.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "absence_date": str(absence_date),
+            "is_exception": is_exception,
+        },
+    )
+    return justification
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-004 — revision y resolucion
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def resolve_justification(*, justification, approved, comment, actor):
+    """
+    RF-JUS-004: approve or reject a pending justification, recording who
+    resolved it and when. A rejection must document why; an approval's
+    comment is optional. Once resolved, the row is immutable -- calling this
+    again on the same justification raises. The only way to "correct" a
+    resolution is a brand-new ``Justification`` via ``submit_justification``
+    (RF-JUS-003), which starts its own audit trail rather than overwriting
+    this one (AGENTS.md #12).
+
+    RF-JUS-005: an approval doesn't touch the day's movement events or the
+    justification's own record -- ``derive_day_status``/``derive_day_statuses``
+    already pick up an ``APPROVED`` row on their own the next time they're
+    read. What this still does on approval is call ``recalculate_day`` (RF-
+    JOR-006) so the change is reflected in the audit trail and any alert
+    that depended on the prior status is reevaluated, exactly the entry
+    point ``RecalculationReason.JUSTIFICATION_RESOLVED`` was added for. A
+    rejection leaves the derived status untouched, so no recalculation runs.
+    """
+    if justification.status != Justification.Status.PENDING:
+        raise DomainError(f"La justificacion '{justification}' ya fue resuelta.")
+    if not approved and not comment:
+        raise DomainError("El rechazo debe indicar un comentario.")
+
+    justification.status = (
+        Justification.Status.APPROVED if approved else Justification.Status.REJECTED
+    )
+    justification.resolved_by = actor
+    justification.resolved_at = timezone.now()
+    justification.resolution_comment = comment
+    justification.save(
+        update_fields=[
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "resolution_comment",
+            "updated_at",
+        ]
+    )
+    record_event(
+        actor=actor,
+        action="attendance.justification.resolved",
+        resource="Justification",
+        resource_identifier=str(justification.public_id),
+        context={
+            "student_id": str(justification.student.public_id),
+            "approved": approved,
+            "comment": comment,
+        },
+    )
+    if approved:
+        shift = _shift_for_student_on(
+            student=justification.student, event_date=justification.absence_date
+        )
+        if shift is not None:
+            recalculate_day(
+                student=justification.student,
+                shift=shift,
+                event_date=justification.absence_date,
+                reason=RecalculationReason.JUSTIFICATION_RESOLVED,
+                actor=actor,
+            )
+    return justification
