@@ -34,6 +34,7 @@ ATOMIC_PERMISSIONS = (
     ("document.download", "Can download documents"),
     ("document.issue", "Can issue documents"),
     ("audit.read", "Can read audit events"),
+    ("platform.monitor", "Can read background task runs and their health"),
 )
 
 

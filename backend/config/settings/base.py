@@ -218,6 +218,12 @@ SPECTACULAR_SETTINGS = {
     # cuando se generen tipos desde el schema (ahi el nombre si importa).
 }
 
+# RNF-OPE-001: nivel del registro operativo, ajustable por despliegue sin tocar
+# codigo. INFO deja una linea por inicio y fin de cada tarea; WARNING la calla y
+# conserva solo los fallos.
+LOG_LEVEL = env("DJANGO_LOG_LEVEL", "INFO").upper()
+TASK_LOG_LEVEL = env("TASK_LOG_LEVEL", LOG_LEVEL).upper()
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -225,14 +231,33 @@ LOGGING = {
         "simple": {
             "format": "%(levelname)s %(name)s %(message)s",
         },
+        # Las lineas de tarea se leen en un log recolectado, a veces meses
+        # despues, asi que llevan marca de tiempo y proceso: sin eso no se puede
+        # distinguir dos corridas de la misma tarea.
+        "operational": {
+            "format": "%(asctime)s %(levelname)s %(name)s pid=%(process)d %(message)s",
+        },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "simple",
-        }
+        },
+        "operational": {
+            "class": "logging.StreamHandler",
+            "formatter": "operational",
+        },
     },
     "loggers": {
+        # RNF-OPE-001: registro del proceso trabajador y de las tareas
+        # programadas. Va a su propio handler para que el formato con marca de
+        # tiempo no cambie el resto de la salida, y no propaga para no
+        # duplicar cada linea en la raiz.
+        "siga.tasks": {
+            "handlers": ["operational"],
+            "level": TASK_LOG_LEVEL,
+            "propagate": False,
+        },
         # Django's default configuration attaches AdminEmailHandler to this
         # logger, and every 4xx/5xx response goes through it. That handler
         # renders a traceback template even when ADMINS is empty, so an error
@@ -246,7 +271,7 @@ LOGGING = {
     },
     "root": {
         "handlers": ["console"],
-        "level": "INFO",
+        "level": LOG_LEVEL,
     },
 }
 
