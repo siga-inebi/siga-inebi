@@ -6,10 +6,11 @@ from apps.academics.models import (
     AcademicCycle,
     CurriculumPlan,
     GradeOffering,
+    LevelSubject,
     Section,
     TeachingAssignment,
 )
-from apps.academics.queries import historical_cycle_or_404
+from apps.academics.queries import historical_cycle_or_404, weekly_load_report
 from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,
@@ -421,15 +422,10 @@ def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():
     assert Enrolment.objects.filter(pk=enrolment.pk).exists()
 
 
-def test_class_session_mid_cycle_restructuring_preserves_the_retired_slot():
-    """RF-HOR-008 (#201): reestructuracion a mitad de ciclo -- se retira la
-    sesion original (soft-delete, no se borra el historial) y se agenda su
-    reemplazo, en otro dia, con una fecha de vigencia posterior. El slot
-    original (seccion, subarea, dia, bloque) no se libera para reuso exacto
-    ni siquiera desactivado -- unique_class_session_registration (RF-HOR-003)
-    no distingue por is_active -- asi que la reestructuracion mueve la
-    sesion a otro dia en vez de reocupar el mismo, tal como se derivaria en
-    la practica de un cambio real de horario."""
+def test_weekly_load_report_reflects_the_actual_schedule_end_to_end():
+    """RF-HOR-007 (#200): flujo completo -- ciclo, seccion, plan de estudios,
+    carga horaria declarada a nivel de nivel educativo (RF-EST-006), y las
+    sesiones realmente agendadas para esa seccion."""
     institution = InstitutionFactory()
     actor = UserFactory()
     cycle = create_academic_cycle(
@@ -444,35 +440,37 @@ def test_class_session_mid_cycle_restructuring_preserves_the_retired_slot():
     shift = ShiftFactory(campus__institution=institution)
     section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
     subject = SubjectFactory(institution=institution)
-    block = ClassScheduleBlockFactory(shift=shift)
-    original = create_class_session(
+    create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject, actor=actor)
+    LevelSubject.objects.create(level=grade.level, subject=subject, weekly_hours=2)
+    block_a = ClassScheduleBlockFactory(shift=shift, number=1)
+    block_b = ClassScheduleBlockFactory(shift=shift, number=2)
+    create_class_session(
         academic_cycle=cycle,
         section=section,
         subject=subject,
-        schedule_block=block,
+        schedule_block=block_a,
         day_of_week=1,
         actor=actor,
     )
-    assert original.starts_on == cycle.starts_on
 
-    deactivate_class_session(session=original, actor=actor)
-    restructuring_date = date(2026, 6, 1)
-    replacement = create_class_session(
+    report = weekly_load_report(section)
+    row = next(r for r in report if r["subject"].pk == subject.pk)
+    assert row["declared_weekly_hours"] == 2
+    assert row["scheduled_periods"] == 1
+    assert row["matches"] is False
+
+    create_class_session(
         academic_cycle=cycle,
         section=section,
         subject=subject,
-        schedule_block=block,
-        day_of_week=2,
-        starts_on=restructuring_date,
+        schedule_block=block_b,
+        day_of_week=1,
         actor=actor,
     )
 
-    original.refresh_from_db()
-    assert original.is_active is False
-    assert original.starts_on == cycle.starts_on  # el historial no cambia
-    assert replacement.starts_on == restructuring_date
-    assert replacement.is_active is True
-    assert section.class_sessions.count() == 2
+    updated_row = next(r for r in weekly_load_report(section) if r["subject"].pk == subject.pk)
+    assert updated_row["scheduled_periods"] == 2
+    assert updated_row["matches"] is True
 
 
 def test_teacher_shared_across_two_sections_cannot_be_double_booked():
@@ -536,3 +534,57 @@ def test_teacher_shared_across_two_sections_cannot_be_double_booked():
         )
 
     assert section_b.class_sessions.count() == 0
+
+
+def test_class_session_mid_cycle_restructuring_preserves_the_retired_slot():
+    """RF-HOR-008 (#201): reestructuracion a mitad de ciclo -- se retira la
+    sesion original (soft-delete, no se borra el historial) y se agenda su
+    reemplazo, en otro dia, con una fecha de vigencia posterior. El slot
+    original (seccion, subarea, dia, bloque) no se libera para reuso exacto
+    ni siquiera desactivado -- unique_class_session_registration (RF-HOR-003)
+    no distingue por is_active -- asi que la reestructuracion mueve la
+    sesion a otro dia en vez de reocupar el mismo, tal como se derivaria en
+    la practica de un cambio real de horario."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=shift)
+    original = create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+        actor=actor,
+    )
+    assert original.starts_on == cycle.starts_on
+
+    deactivate_class_session(session=original, actor=actor)
+    restructuring_date = date(2026, 6, 1)
+    replacement = create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=2,
+        starts_on=restructuring_date,
+        actor=actor,
+    )
+
+    original.refresh_from_db()
+    assert original.is_active is False
+    assert original.starts_on == cycle.starts_on  # el historial no cambia
+    assert replacement.starts_on == restructuring_date
+    assert replacement.is_active is True
+    assert section.class_sessions.count() == 2

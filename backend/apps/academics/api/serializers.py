@@ -513,6 +513,17 @@ class ClassSessionCreateSerializer(serializers.Serializer):
     )
 
 
+class WeeklyLoadRowSerializer(serializers.Serializer):
+    """RF-HOR-007: declared weekly hours vs. periods actually scheduled for
+    one subject in a section. Backed by a plain dict from
+    ``queries.weekly_load_report``, not a model."""
+
+    subject = SubjectRefSerializer()
+    declared_weekly_hours = serializers.IntegerField(allow_null=True)
+    scheduled_periods = serializers.IntegerField()
+    matches = serializers.BooleanField(allow_null=True)
+
+
 # --------------------------------------------------------------------------- #
 # class schedule publication -- RF-HOR-009
 # --------------------------------------------------------------------------- #
