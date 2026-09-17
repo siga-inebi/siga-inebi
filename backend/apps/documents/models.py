@@ -133,23 +133,63 @@ class DocumentRecord(TimeStampedModel):
         raise RuntimeError("Document records cannot be deleted.")
 
 
+class DocumentKind(TimeStampedModel):
+    """
+    Institutional catalogue of document types ("tipos de documento", RNF-MAN-001).
+
+    This used to be a ``TextChoices`` enum on ``DocumentTemplate``. A fixed enum
+    means a new document type -- a constancia, a finiquito, whatever the
+    ministry asks for next -- needs a migration and a deploy, which is exactly
+    what RNF-MAN-001 forbids. The rows live per institution so one
+    establishment adding a type never alters another's catalogue.
+
+    ``code`` is the stable identifier the API exposes (it is what the ``kind``
+    field of a template serialises to) and is immutable once created;
+    ``label`` is the display text and is freely editable. Deactivation is soft
+    (``is_active``) and hard deletion is refused, because templates and the
+    immutable version snapshots keep pointing at the code (ADR-0006).
+    """
+
+    institution = models.ForeignKey(
+        "academics.Institution", on_delete=models.CASCADE, related_name="document_kinds"
+    )
+    code = models.CharField(max_length=30)
+    label = models.CharField(max_length=100)
+    description = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["label"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "code"],
+                name="unique_document_kind_code_per_institution",
+            ),
+        ]
+
+    def __str__(self):
+        return self.label
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document kinds cannot be deleted; deactivate them instead.")
+
+
 class DocumentTemplate(TimeStampedModel):
     """
     Catalogue entry for a document template ("plantilla"): a reusable format
     or structure used to issue reports and certificates (RF-PLA-001).
     """
 
-    class TemplateKind(models.TextChoices):
-        CERTIFICATE = "certificate", "Certificado"
-        REPORT = "report", "Reporte"
-        OTHER = "other", "Otro"
-
     institution = models.ForeignKey(
         "academics.Institution", on_delete=models.CASCADE, related_name="document_templates"
     )
     name = models.CharField(max_length=150)
     code = models.CharField(max_length=30)
-    kind = models.CharField(max_length=20, choices=TemplateKind.choices, default=TemplateKind.OTHER)
+    document_kind = models.ForeignKey(
+        DocumentKind,
+        on_delete=models.PROTECT,
+        related_name="templates",
+        help_text="Tipo de documento del catalogo institucional (RNF-MAN-001).",
+    )
     description = models.CharField(max_length=255, blank=True)
     content = models.TextField(blank=True, default="")
 
@@ -160,7 +200,7 @@ class DocumentTemplate(TimeStampedModel):
                 fields=["institution", "code"], name="unique_document_template_code_per_institution"
             ),
             models.UniqueConstraint(
-                fields=["institution", "kind"],
+                fields=["institution", "document_kind"],
                 condition=models.Q(is_active=True),
                 name="unique_active_document_template_per_kind_per_institution",
             ),
@@ -171,6 +211,17 @@ class DocumentTemplate(TimeStampedModel):
 
     def delete(self, *args, **kwargs):
         raise RuntimeError("Document templates cannot be deleted.")
+
+    @property
+    def kind(self):
+        """
+        Code of the template's document type.
+
+        Kept as a read-only alias of ``document_kind.code`` so the public API
+        contract (``kind`` as a short string) survived moving the catalogue out
+        of code and into the database (RNF-MAN-001, AGENTS.md #3).
+        """
+        return self.document_kind.code
 
     @property
     def institutional_header(self):
@@ -204,7 +255,11 @@ class DocumentTemplateVersion(TimeStampedModel):
     )
     sequence = models.PositiveIntegerField()
     name = models.CharField(max_length=150)
-    kind = models.CharField(max_length=20, choices=DocumentTemplate.TemplateKind.choices)
+    # Snapshot of the document-type CODE, not a foreign key: the version row is
+    # immutable and must keep reading the same way even if the catalogue entry
+    # is later relabelled or deactivated (RNF-MAN-001 makes the catalogue
+    # editable; RF-PLA-005 makes the snapshot permanent).
+    kind = models.CharField(max_length=30)
     description = models.CharField(max_length=255, blank=True)
     content = models.TextField(blank=True, default="")
 

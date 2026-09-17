@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
@@ -11,8 +11,8 @@ import PreviewOutlinedIcon from "@mui/icons-material/PreviewOutlined";
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
   documentsService,
-  TEMPLATE_KIND_LABEL,
-  TEMPLATE_KIND_OPTIONS,
+  templateKindLabel,
+  templateKindOptions,
   TEMPLATE_KIND_VARIANT,
 } from "@documents/documentsService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
@@ -28,7 +28,7 @@ import { FieldTagsWindow } from "./FieldTagsWindow.jsx";
 import { TemplateVersionsWindow } from "./TemplateVersionsWindow.jsx";
 import { TemplatePreviewWindow } from "./TemplatePreviewWindow.jsx";
 
-const TEMPLATE_COLUMNS = [
+const templateColumns = (kinds) => [
   { key: "name", label: "Plantilla", render: (row) => row.name },
   {
     key: "code",
@@ -40,7 +40,7 @@ const TEMPLATE_COLUMNS = [
     label: "Tipo",
     render: (row) => (
       <StatusChip
-        label={TEMPLATE_KIND_LABEL[row.kind] ?? row.kind}
+        label={templateKindLabel(kinds, row.kind)}
         variant={TEMPLATE_KIND_VARIANT[row.kind] ?? "neutral"}
       />
     ),
@@ -67,7 +67,7 @@ const TEMPLATE_COLUMNS = [
   },
 ];
 
-const CREATE_FIELDS = [
+const createFields = (kinds) => [
   {
     name: "name",
     label: "Nombre",
@@ -84,7 +84,9 @@ const CREATE_FIELDS = [
     name: "kind",
     label: "Tipo",
     type: "select",
-    options: TEMPLATE_KIND_OPTIONS,
+    // Los tipos se leen del catalogo institucional, no de una lista fija
+    // (RNF-MAN-001): se administran en "Tipos de documento".
+    options: templateKindOptions(kinds),
     required: true,
   },
   { name: "description", label: "Descripcion (opcional)", span: "full" },
@@ -96,9 +98,6 @@ const CREATE_FIELDS = [
     span: "full",
   },
 ];
-
-/** El codigo es inmutable despues del alta: el backend no acepta cambiarlo. */
-const EDIT_FIELDS = CREATE_FIELDS.filter((field) => field.name !== "code");
 
 /**
  * Catalogo de plantillas documentales.
@@ -114,6 +113,35 @@ export function TemplatesPage() {
     []
   );
   const list = usePaginatedList(loadTemplates, { pageSize: PAGE_SIZE });
+
+  // El catalogo de tipos vive en la base de datos (RNF-MAN-001), asi que se
+  // lee una vez al abrir la pantalla en vez de estar escrito aqui. Si la
+  // lectura falla, la tabla sigue mostrando el codigo crudo y el formulario se
+  // queda sin opciones; la pantalla no deja de funcionar por eso.
+  const [kinds, setKinds] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    documentsService
+      .listTypes({ page_size: 100 })
+      .then((payload) => {
+        if (active) setKinds(payload?.results || []);
+      })
+      .catch(() => {
+        if (active) setKinds([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const columns = useMemo(() => templateColumns(kinds), [kinds]);
+  const createFieldList = useMemo(() => createFields(kinds), [kinds]);
+  /** El codigo es inmutable despues del alta: el backend no acepta cambiarlo. */
+  const editFieldList = useMemo(
+    () => createFieldList.filter((field) => field.name !== "code"),
+    [createFieldList]
+  );
 
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -173,7 +201,7 @@ export function TemplatesPage() {
 
       <ListSection
         actionError={actionError}
-        columns={TEMPLATE_COLUMNS}
+        columns={columns}
         emptyMessage="Todavia no hay plantillas registradas."
         fillHeight
         getRowKey={(template) => template.public_id}
@@ -215,11 +243,11 @@ export function TemplatesPage() {
 
       <EntityFormWindow
         description="El codigo identifica la plantilla y no se puede cambiar despues del alta."
-        fields={CREATE_FIELDS}
+        fields={createFieldList}
         initialValues={{
           name: "",
           code: "",
-          kind: "certificate",
+          kind: kinds[0]?.code ?? "",
           description: "",
           content: "",
         }}
@@ -234,10 +262,10 @@ export function TemplatesPage() {
       {editing ? (
         <EntityFormWindow
           description={`Guardar genera una version nueva de la plantilla. El codigo ${editing.code} es inmutable.`}
-          fields={EDIT_FIELDS}
+          fields={editFieldList}
           initialValues={{
             name: editing.name,
-            kind: editing.kind ?? "other",
+            kind: editing.kind ?? "",
             description: editing.description ?? "",
             content: editing.content ?? "",
           }}

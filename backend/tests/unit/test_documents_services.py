@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -14,12 +15,19 @@ from apps.audit.models import AuditEvent
 from apps.common.exceptions import AuthorizationError
 from apps.common.models import DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
-from apps.documents.models import DocumentRecord, DocumentTemplate, DocumentVerificationCode
+from apps.documents.models import (
+    DocumentKind,
+    DocumentRecord,
+    DocumentTemplate,
+    DocumentVerificationCode,
+)
 from apps.documents.services import (
     compile_document_batch,
     compile_generated_document,
     compile_historical_cycle_report,
+    create_document_kind,
     create_document_template,
+    deactivate_document_kind,
     deactivate_document_record,
     deactivate_document_template,
     document_storage_usage_summary,
@@ -39,6 +47,7 @@ from apps.documents.services import (
     register_scanned_document,
     replace_document_record,
     student_document_dossier,
+    update_document_kind,
     update_document_template,
     upload_document_record,
     validate_document_checksum,
@@ -88,7 +97,7 @@ def test_create_document_template_normalises_code_to_upper_case():
 
     assert template.code == "CONST"
     assert template.name == "Constancia"
-    assert template.kind == DocumentTemplate.TemplateKind.OTHER
+    assert template.kind == "other"
     assert template.is_active is True
 
 
@@ -97,10 +106,10 @@ def test_create_document_template_accepts_kind():
         institution=InstitutionFactory(),
         name="Certificado de estudios",
         code="CERT",
-        kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+        kind="certificate",
     )
 
-    assert template.kind == DocumentTemplate.TemplateKind.CERTIFICATE
+    assert template.kind == "certificate"
 
 
 def test_create_document_template_rejects_duplicate_code_in_same_institution():
@@ -854,12 +863,120 @@ def test_document_read_audit_logs_denial_for_unauthorized_users():
     assert AuditEvent.objects.filter(action="documents.document.read_denied").exists()
 
 
-def test_list_document_types_returns_the_fixed_catalogue():
-    assert list_document_types() == (
+def test_list_document_types_reads_the_institution_catalogue():
+    institution = InstitutionFactory()
+
+    assert list_document_types(institution=institution) == (
         ("certificate", "Certificado"),
-        ("report", "Reporte"),
         ("other", "Otro"),
+        ("report", "Reporte"),
     )
+
+
+# --------------------------------------------------------------------------- #
+# RNF-MAN-001: the document-type catalogue is data, not code
+# --------------------------------------------------------------------------- #
+
+
+def test_document_type_catalogue_admits_a_new_type_without_touching_code():
+    institution = InstitutionFactory()
+
+    kind = create_document_kind(
+        institution=institution, code="  Constancia ", label="Constancia de estudios"
+    )
+
+    assert kind.code == "constancia"
+    assert ("constancia", "Constancia de estudios") in list_document_types(institution=institution)
+
+    template = create_document_template(
+        institution=institution, name="Constancia", code="CONST", kind="constancia"
+    )
+
+    assert template.kind == "constancia"
+    assert get_active_document_template(institution=institution, kind="constancia") == template
+
+
+def test_document_type_catalogue_is_scoped_to_its_institution():
+    first = InstitutionFactory()
+    second = InstitutionFactory()
+
+    create_document_kind(institution=first, code="constancia", label="Constancia")
+
+    assert "constancia" in {code for code, _label in list_document_types(institution=first)}
+    assert "constancia" not in {code for code, _label in list_document_types(institution=second)}
+
+    with pytest.raises(DomainError, match="Tipo de documento no admitido"):
+        create_document_template(
+            institution=second, name="Constancia", code="CONST", kind="constancia"
+        )
+
+
+def test_document_type_label_is_editable_and_the_code_is_not():
+    institution = InstitutionFactory()
+    kind = create_document_kind(institution=institution, code="constancia", label="Constancia")
+
+    update_document_kind(kind=kind, label="Constancia de estudios")
+    kind.refresh_from_db()
+
+    assert kind.label == "Constancia de estudios"
+    assert kind.code == "constancia"
+    assert "code" not in inspect.signature(update_document_kind).parameters
+
+
+def test_document_type_rejects_a_duplicate_code_in_the_same_institution():
+    institution = InstitutionFactory()
+    create_document_kind(institution=institution, code="constancia", label="Constancia")
+
+    with pytest.raises(DomainError, match="Ya existe un tipo de documento"):
+        create_document_kind(institution=institution, code="CONSTANCIA", label="Otra")
+
+
+def test_document_type_is_deactivated_not_deleted_and_keeps_active_templates_usable():
+    institution = InstitutionFactory()
+    kind = create_document_kind(institution=institution, code="constancia", label="Constancia")
+    template = create_document_template(
+        institution=institution, name="Constancia", code="CONST", kind="constancia"
+    )
+
+    with pytest.raises(DomainError, match="plantillas activas"):
+        deactivate_document_kind(kind=kind)
+
+    deactivate_document_template(template=template)
+    deactivate_document_kind(kind=kind)
+    kind.refresh_from_db()
+
+    assert kind.is_active is False
+    assert DocumentKind.objects.filter(pk=kind.pk).exists()
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        kind.delete()
+
+
+def test_deactivated_document_type_is_no_longer_offered_for_new_templates():
+    institution = InstitutionFactory()
+    kind = create_document_kind(institution=institution, code="constancia", label="Constancia")
+    deactivate_document_kind(kind=kind)
+
+    assert "constancia" not in {
+        code for code, _label in list_document_types(institution=institution)
+    }
+
+    with pytest.raises(DomainError, match="Tipo de documento no admitido"):
+        create_document_template(
+            institution=institution, name="Constancia", code="CONST", kind="constancia"
+        )
+
+
+def test_template_version_snapshot_keeps_the_code_it_was_issued_with():
+    institution = InstitutionFactory()
+    kind = create_document_kind(institution=institution, code="constancia", label="Constancia")
+    template = create_document_template(
+        institution=institution, name="Constancia", code="CONST", kind="constancia"
+    )
+
+    update_document_kind(kind=kind, label="Constancia de estudios")
+
+    assert template.versions.first().kind == "constancia"
 
 
 def test_get_active_document_template_requires_a_single_active_template_per_kind():
@@ -868,13 +985,13 @@ def test_get_active_document_template_requires_a_single_active_template_per_kind
         institution=institution,
         name="Certificado",
         code="CERT",
-        kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+        kind="certificate",
     )
     create_document_template(
         institution=institution,
         name="Certificado viejo",
         code="CERT-OLD",
-        kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+        kind="certificate",
         is_active=False,
     )
 
@@ -888,7 +1005,7 @@ def test_get_active_document_template_requires_a_single_active_template_per_kind
             institution=institution,
             name="Segundo certificado",
             code="CERT-2",
-            kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+            kind="certificate",
         )
 
     certificate.is_active = False
@@ -897,7 +1014,7 @@ def test_get_active_document_template_requires_a_single_active_template_per_kind
         institution=institution,
         name="Segundo certificado",
         code="CERT-2",
-        kind=DocumentTemplate.TemplateKind.CERTIFICATE,
+        kind="certificate",
     )
 
     assert get_active_document_template(institution=institution, kind="certificate") == second
@@ -1065,7 +1182,7 @@ def test_generated_documents_refuse_persistence_to_storage():
 
 
 def test_generated_documents_include_the_issuance_timestamp_and_folio_when_available():
-    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+    template = DocumentTemplateFactory(kind="certificate")
     issued_at = "2026-08-18T12:30:45-03:00"
     folio = "DOC-2026-0001"
 
@@ -1088,7 +1205,7 @@ def test_generated_documents_include_the_issuance_timestamp_and_folio_when_avail
 def test_generated_documents_are_logged_in_the_emission_history():
     actor = UserFactory()
     student = StudentFactory()
-    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+    template = DocumentTemplateFactory(kind="certificate")
     issued_at = "2026-08-18T12:30:45-03:00"
     folio = "DOC-2026-0001"
 
@@ -1113,7 +1230,7 @@ def test_generated_documents_are_logged_in_the_emission_history():
 
 
 def test_generated_document_prints_a_verification_code():
-    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+    template = DocumentTemplateFactory(kind="certificate")
 
     generated = compile_generated_document(
         template=template,
@@ -1126,7 +1243,7 @@ def test_generated_document_prints_a_verification_code():
 
 
 def test_verify_document_confirms_a_genuine_code():
-    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+    template = DocumentTemplateFactory(kind="certificate")
     generated = compile_generated_document(
         template=template,
         payload={
@@ -1158,7 +1275,7 @@ def test_verify_document_rejects_an_empty_code():
 
 
 def test_verification_codes_are_never_sequential_or_guessable():
-    template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
+    template = DocumentTemplateFactory(kind="certificate")
 
     first = compile_generated_document(template=template, payload={})
     second = compile_generated_document(template=template, payload={})

@@ -5,10 +5,7 @@ import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
-import {
-  documentsService,
-  TEMPLATE_KIND_LABEL,
-} from "@documents/documentsService.js";
+import { documentsService } from "@documents/documentsService.js";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDateTime } from "@shared/utils/format.js";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
@@ -25,9 +22,12 @@ const VERSION_COLUMNS = [
   },
   { key: "name", label: "Nombre en esa version", render: (row) => row.name },
   {
+    // La version guarda el CODIGO del tipo tal como estaba al emitirla, no su
+    // nombre visible (RF-PLA-005). Traducirlo con el catalogo de hoy mostraria
+    // una etiqueta que quiza no existia entonces, asi que se muestra el codigo.
     key: "kind",
     label: "Tipo",
-    render: (row) => TEMPLATE_KIND_LABEL[row.kind] ?? row.kind,
+    render: (row) => row.kind,
   },
   {
     key: "description",

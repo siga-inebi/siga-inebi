@@ -1,8 +1,10 @@
 from rest_framework import serializers
 
 from apps.academics.models import Grade, Section
+from apps.documents.kind_catalog import DEFAULT_DOCUMENT_KIND_CODE
 from apps.documents.models import (
     DocumentDeliveryReceipt,
+    DocumentKind,
     DocumentRecord,
     DocumentTemplate,
     DocumentTemplateVersion,
@@ -17,10 +19,34 @@ class InstitutionalHeaderSerializer(serializers.Serializer):
     logo_url = serializers.CharField(allow_null=True)
 
 
+class DocumentKindSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DocumentKind
+        fields = ["public_id", "code", "label", "description", "is_active"]
+
+
+class DocumentKindCreateSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        max_length=30,
+        help_text="Codigo corto, unico por institucion e inmutable. Se normaliza a minusculas.",
+    )
+    label = serializers.CharField(max_length=100, help_text="Nombre visible del tipo de documento.")
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
+class DocumentKindUpdateSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=100, required=False)
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
 class DocumentTemplateSerializer(serializers.ModelSerializer):
     """``header`` is read-only and derived; it cannot be set via create/update payloads."""
 
     header = InstitutionalHeaderSerializer(source="institutional_header", read_only=True)
+    # Still the document-type CODE, as before RNF-MAN-001 moved the catalogue
+    # into the database: the contract did not change, only where the admitted
+    # values come from.
+    kind = serializers.CharField(source="document_kind.code", read_only=True)
 
     class Meta:
         model = DocumentTemplate
@@ -42,11 +68,14 @@ class DocumentTemplateCreateSerializer(serializers.Serializer):
         max_length=30,
         help_text="Codigo corto, unico por institucion. Se normaliza a mayusculas.",
     )
-    kind = serializers.ChoiceField(
-        choices=DocumentTemplate.TemplateKind.choices,
+    kind = serializers.CharField(
+        max_length=30,
         required=False,
-        default=DocumentTemplate.TemplateKind.OTHER,
-        help_text="Tipo de plantilla: certificado, reporte u otro.",
+        default=DEFAULT_DOCUMENT_KIND_CODE,
+        help_text=(
+            "Codigo de un tipo de documento del catalogo institucional. "
+            "Consultable en `GET /api/v1/documents/types/`."
+        ),
     )
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     content = serializers.CharField(
@@ -59,7 +88,7 @@ class DocumentTemplateCreateSerializer(serializers.Serializer):
 class DocumentTemplateUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150, required=False)
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    kind = serializers.ChoiceField(choices=DocumentTemplate.TemplateKind.choices, required=False)
+    kind = serializers.CharField(max_length=30, required=False)
     content = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -71,11 +100,6 @@ class FieldTagSerializer(serializers.Serializer):
     code = serializers.CharField()
     label = serializers.CharField()
     sensitive = serializers.BooleanField()
-
-
-class DocumentTemplateTypeSerializer(serializers.Serializer):
-    code = serializers.CharField()
-    label = serializers.CharField()
 
 
 class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
