@@ -1166,6 +1166,18 @@ def _evaluate_section_closure(*, section, event_date, as_of=None):
         event_dates=[event_date],
         movement_type=AttendanceEvent.MovementType.EXIT,
     )
+    # RF-JUS-009: a student with an approved, same-date early-exit permit is
+    # excluded from the closure regardless of whether they already have an
+    # exit registered -- the permit is why, so it always wins as the reason
+    # once it applies, distinct from "ya tiene salida registrada".
+    permitted_student_ids = set(
+        AttendancePermit.objects.filter(
+            student__in=students,
+            permit_date=event_date,
+            permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+            status=AttendancePermit.Status.APPROVED,
+        ).values_list("student_id", flat=True)
+    )
 
     included = []
     omitted = []
@@ -1174,6 +1186,13 @@ def _evaluate_section_closure(*, section, event_date, as_of=None):
         if day_result is None or day_result.entry_event is None:
             omitted.append(
                 SectionClosureOmission(student=student, reason="No tiene ingreso registrado.")
+            )
+            continue
+        if student.pk in permitted_student_ids:
+            omitted.append(
+                SectionClosureOmission(
+                    student=student, reason="Tiene permiso de salida anticipada vigente."
+                )
             )
             continue
         if (student.pk, event_date) in existing_exits:
