@@ -7,6 +7,10 @@ from apps.attendance.models import (
     CaptureBatch,
     ControlPoint,
     JornadaParameters,
+    Justification,
+    JustificationAttachment,
+    JustificationNotification,
+    JustificationPolicy,
     ManualRegistrationReason,
     StudentCredential,
 )
@@ -90,3 +94,46 @@ class StudentCredentialAdmin(admin.ModelAdmin):
     list_display = ["student", "status", "issued_at", "revoked_by", "is_active"]
     list_filter = ["status"]
     date_hierarchy = "issued_at"
+
+
+@admin.register(JustificationPolicy)
+class JustificationPolicyAdmin(admin.ModelAdmin):
+    """RF-JUS-003: single global row; the window length used by ``submit_justification``."""
+
+    list_display = ["window_business_days", "updated_at"]
+
+
+@admin.register(Justification)
+class JustificationAdmin(admin.ModelAdmin):
+    """Support surface only: submission goes through the API, not here."""
+
+    list_display = [
+        "student",
+        "absence_date",
+        "status",
+        "submitted_by",
+        "is_exception",
+        "created_at",
+    ]
+    list_filter = ["status", "is_exception"]
+    date_hierarchy = "absence_date"
+
+
+@admin.register(JustificationNotification)
+class JustificationNotificationAdmin(admin.ModelAdmin):
+    """RF-JUS-006: created by ``resolve_justification``, not here."""
+
+    list_display = ["justification", "recipient", "created_at"]
+    date_hierarchy = "created_at"
+
+
+@admin.register(JustificationAttachment)
+class JustificationAttachmentAdmin(admin.ModelAdmin):
+    """
+    RF-JUS-007: support surface only, uploaded via the API. ``checksum`` and
+    ``storage_key`` are omitted from the list to avoid turning this into a
+    place to browse potentially health-related filenames at a glance.
+    """
+
+    list_display = ["justification", "uploaded_by", "content_type", "created_at"]
+    date_hierarchy = "created_at"
