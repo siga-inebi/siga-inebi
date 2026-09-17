@@ -480,6 +480,13 @@ class ClassSession(TimeStampedModel):
     block (enforced in ``services.create_class_session``); the classroom
     half of that requirement is blocked on RF-AUL-001 (#99) -- there is no
     classroom concept in this app yet.
+
+    ``starts_on`` (RF-HOR-008) lets a mid-cycle restructuring take effect
+    from a chosen date instead of the cycle's own start: the old session is
+    deactivated (``services.deactivate_class_session``, already soft-delete)
+    and the new one is registered with a later ``starts_on``. It defaults to
+    the academic cycle's start date, same convention as
+    ``TeachingAssignment.starts_on``.
     """
 
     class Weekday(models.IntegerChoices):
@@ -508,6 +515,10 @@ class ClassSession(TimeStampedModel):
         blank=True,
     )
     day_of_week = models.PositiveSmallIntegerField(choices=Weekday.choices)
+    starts_on = models.DateField(
+        default=timezone.localdate,
+        help_text="Fecha desde la que la sesion esta vigente (RF-HOR-008).",
+    )
 
     class Meta:
         ordering = ["day_of_week", "schedule_block__number"]

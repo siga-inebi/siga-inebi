@@ -884,115 +884,61 @@ def test_create_class_session_allows_same_classroom_in_a_different_block():
     assert new_session.classroom_id == classroom.pk
 
 
-def test_create_class_session_rejects_teacher_double_booked_in_the_same_slot():
-    """Escenario 1 (#199): cruce por docente en el mismo dia y bloque, en
-    dos secciones distintas."""
-    section_a = SectionFactory()
-    shift = section_a.offering.shift
-    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
-    subject_a = SubjectFactory(institution=section_a.offering.institution)
-    subject_b = SubjectFactory(institution=section_a.offering.institution)
-    teacher = TeacherFactory()
-    create_teaching_assignment(
-        academic_cycle=section_a.academic_cycle,
-        section=section_a,
-        subject=subject_a,
-        teacher=teacher.person,
-    )
-    create_teaching_assignment(
-        academic_cycle=section_a.academic_cycle,
-        section=section_b,
-        subject=subject_b,
-        teacher=teacher.person,
-    )
-    block = ClassScheduleBlockFactory(shift=shift)
-    create_class_session(
-        academic_cycle=section_a.academic_cycle,
-        section=section_a,
-        subject=subject_a,
+def test_create_class_session_defaults_starts_on_to_the_cycle_start():
+    """RF-HOR-008 (#201): sin fecha explicita, la sesion es vigente desde el
+    inicio del ciclo, igual que create_teaching_assignment."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+
+    session = create_class_session(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
         schedule_block=block,
         day_of_week=1,
     )
 
-    with pytest.raises(DomainError, match="El docente ya tiene otra seccion agendada"):
+    assert session.starts_on == section.academic_cycle.starts_on
+
+
+def test_create_class_session_accepts_a_mid_cycle_starts_on():
+    """RF-HOR-008 (#201): reestructuracion a mitad de ciclo -- se agenda con
+    una fecha de vigencia posterior al inicio del ciclo."""
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    mid_cycle_date = section.academic_cycle.ends_on
+
+    session = create_class_session(
+        academic_cycle=section.academic_cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+        starts_on=mid_cycle_date,
+    )
+
+    assert session.starts_on == mid_cycle_date
+
+
+def test_create_class_session_rejects_starts_on_outside_the_cycle():
+    section = SectionFactory()
+    subject = SubjectFactory(institution=section.offering.institution)
+    block = ClassScheduleBlockFactory(shift=section.offering.shift)
+    before_cycle = section.academic_cycle.starts_on - timedelta(days=1)
+
+    with pytest.raises(DomainError, match="fecha de vigencia"):
         create_class_session(
-            academic_cycle=section_a.academic_cycle,
-            section=section_b,
-            subject=subject_b,
+            academic_cycle=section.academic_cycle,
+            section=section,
+            subject=subject,
             schedule_block=block,
             day_of_week=1,
+            starts_on=before_cycle,
         )
 
-    assert section_b.class_sessions.count() == 0
-
-
-def test_create_class_session_allows_same_teacher_in_a_different_block():
-    """El mismo docente en un bloque distinto no genera cruce."""
-    section_a = SectionFactory()
-    shift = section_a.offering.shift
-    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
-    subject_a = SubjectFactory(institution=section_a.offering.institution)
-    subject_b = SubjectFactory(institution=section_a.offering.institution)
-    teacher = TeacherFactory()
-    create_teaching_assignment(
-        academic_cycle=section_a.academic_cycle,
-        section=section_a,
-        subject=subject_a,
-        teacher=teacher.person,
-    )
-    create_teaching_assignment(
-        academic_cycle=section_a.academic_cycle,
-        section=section_b,
-        subject=subject_b,
-        teacher=teacher.person,
-    )
-    block = ClassScheduleBlockFactory(shift=shift, number=1)
-    other_block = ClassScheduleBlockFactory(shift=shift, number=2)
-    create_class_session(
-        academic_cycle=section_a.academic_cycle,
-        section=section_a,
-        subject=subject_a,
-        schedule_block=block,
-        day_of_week=1,
-    )
-
-    new_session = create_class_session(
-        academic_cycle=section_a.academic_cycle,
-        section=section_b,
-        subject=subject_b,
-        schedule_block=other_block,
-        day_of_week=1,
-    )
-
-    assert new_session.pk is not None
-
-
-def test_create_class_session_allows_double_booking_when_no_assignment_exists_yet():
-    """Sin asignacion docente vigente todavia (RF-HOR-004), no hay cruce que
-    detectar: el docente se resuelve como None en ambos lados."""
-    section_a = SectionFactory()
-    shift = section_a.offering.shift
-    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
-    subject_a = SubjectFactory(institution=section_a.offering.institution)
-    subject_b = SubjectFactory(institution=section_a.offering.institution)
-    block = ClassScheduleBlockFactory(shift=shift)
-    create_class_session(
-        academic_cycle=section_a.academic_cycle,
-        section=section_a,
-        subject=subject_a,
-        schedule_block=block,
-        day_of_week=1,
-    )
-
-    new_session = create_class_session(
-        academic_cycle=section_a.academic_cycle,
-        section=section_b,
-        subject=subject_b,
-        schedule_block=block,
-        day_of_week=1,
-    )
-
-    assert new_session.pk is not None
+    assert section.class_sessions.count() == 0
 
 
 def test_deactivate_class_session_is_idempotent():
@@ -1104,3 +1050,114 @@ def test_unpublish_class_schedule_rejects_closed_cycle():
 
     with pytest.raises(DomainError, match="no admite cambios academicos"):
         unpublish_class_schedule(academic_cycle=cycle)
+
+
+def test_create_class_session_rejects_teacher_double_booked_in_the_same_slot():
+    """Escenario 1 (#199): cruce por docente en el mismo dia y bloque, en
+    dos secciones distintas."""
+    section_a = SectionFactory()
+    shift = section_a.offering.shift
+    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
+    subject_a = SubjectFactory(institution=section_a.offering.institution)
+    subject_b = SubjectFactory(institution=section_a.offering.institution)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        teacher=teacher.person,
+    )
+    create_teaching_assignment(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        teacher=teacher.person,
+    )
+    block = ClassScheduleBlockFactory(shift=shift)
+    create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    with pytest.raises(DomainError, match="El docente ya tiene otra seccion agendada"):
+        create_class_session(
+            academic_cycle=section_a.academic_cycle,
+            section=section_b,
+            subject=subject_b,
+            schedule_block=block,
+            day_of_week=1,
+        )
+
+    assert section_b.class_sessions.count() == 0
+
+
+def test_create_class_session_allows_same_teacher_in_a_different_block():
+    """El mismo docente en un bloque distinto no genera cruce."""
+    section_a = SectionFactory()
+    shift = section_a.offering.shift
+    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
+    subject_a = SubjectFactory(institution=section_a.offering.institution)
+    subject_b = SubjectFactory(institution=section_a.offering.institution)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        teacher=teacher.person,
+    )
+    create_teaching_assignment(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        teacher=teacher.person,
+    )
+    block = ClassScheduleBlockFactory(shift=shift, number=1)
+    other_block = ClassScheduleBlockFactory(shift=shift, number=2)
+    create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    new_session = create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        schedule_block=other_block,
+        day_of_week=1,
+    )
+
+    assert new_session.pk is not None
+
+
+def test_create_class_session_allows_double_booking_when_no_assignment_exists_yet():
+    """Sin asignacion docente vigente todavia (RF-HOR-004), no hay cruce que
+    detectar: el docente se resuelve como None en ambos lados."""
+    section_a = SectionFactory()
+    shift = section_a.offering.shift
+    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
+    subject_a = SubjectFactory(institution=section_a.offering.institution)
+    subject_b = SubjectFactory(institution=section_a.offering.institution)
+    block = ClassScheduleBlockFactory(shift=shift)
+    create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    new_session = create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    assert new_session.pk is not None

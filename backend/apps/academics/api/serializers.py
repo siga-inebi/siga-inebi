@@ -487,6 +487,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
             "schedule_block",
             "teacher_id",
             "classroom_id",
+            "starts_on",
         ]
 
     def get_teacher_id(self, obj):
@@ -502,6 +503,14 @@ class ClassSessionCreateSerializer(serializers.Serializer):
         choices=ClassSession.Weekday.choices, help_text="Dia ISO: 1=lunes .. 7=domingo."
     )
     classroom_id = serializers.UUIDField(required=False, allow_null=True)
+    starts_on = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Opcional. Fecha desde la que la sesion es vigente (RF-HOR-008), para "
+            "reestructuraciones a mitad de ciclo. Por omision, el inicio del ciclo."
+        ),
+    )
 
 
 # --------------------------------------------------------------------------- #
