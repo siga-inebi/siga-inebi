@@ -28,6 +28,7 @@ import HowToRegOutlinedIcon from "@mui/icons-material/HowToRegOutlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import GradingOutlinedIcon from "@mui/icons-material/GradingOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
+import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 
@@ -209,6 +210,14 @@ export const NAV_GROUPS = [
         path: "/app/plantillas",
         icon: ArticleOutlinedIcon,
         load: () => import("@documents/TemplatesPage.jsx"),
+      },
+      {
+        key: "tipos-documento",
+        label: "Tipos de documento",
+        description: "Catalogo de tipos de documento de la institucion.",
+        path: "/app/tipos-documento",
+        icon: CategoryOutlinedIcon,
+        load: () => import("@documents/DocumentTypesPage.jsx"),
       },
       {
         key: "alertas",

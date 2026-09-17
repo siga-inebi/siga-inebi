@@ -23,7 +23,7 @@ from apps.evaluation.services import (
     create_evaluation_unit,
     register_unit_grade,
 )
-from tests.factories.academic import SectionFactory, SubjectFactory
+from tests.factories.academic import InstitutionFactory, SectionFactory, SubjectFactory
 from tests.factories.documents import DocumentTemplateFactory, DocumentTemplateVersionFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -428,15 +428,74 @@ def test_list_field_tags_returns_the_fixed_catalogue(auth_client):
     assert all(item["sensitive"] is False for item in _items(response))
 
 
-def test_list_document_types_returns_the_fixed_catalogue(auth_client):
-    response = auth_client.get(reverse("document-type-list"))
+def test_list_document_types_returns_the_institution_catalogue(auth_client):
+    InstitutionFactory()
+
+    response = auth_client.get(reverse("document-type-list-create"))
 
     assert response.status_code == 200
-    assert response.json()["results"] == [
-        {"code": "certificate", "label": "Certificado"},
-        {"code": "report", "label": "Reporte"},
-        {"code": "other", "label": "Otro"},
+    assert [(item["code"], item["label"]) for item in _items(response)] == [
+        ("certificate", "Certificado"),
+        ("other", "Otro"),
+        ("report", "Reporte"),
     ]
+
+
+def test_document_type_is_created_updated_and_deactivated_over_the_api(auth_client):
+    """RNF-MAN-001: the whole lifecycle of a document type is an API call."""
+    InstitutionFactory()
+
+    created = auth_client.post(
+        reverse("document-type-list-create"),
+        {"code": "Constancia", "label": "Constancia"},
+        content_type="application/json",
+    )
+
+    assert created.status_code == 201
+    assert created.json()["code"] == "constancia"
+    public_id = created.json()["public_id"]
+
+    updated = auth_client.patch(
+        reverse("document-type-detail", args=[public_id]),
+        {"label": "Constancia de estudios"},
+        content_type="application/json",
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["label"] == "Constancia de estudios"
+
+    template = auth_client.post(
+        reverse("document-template-list-create"),
+        {"name": "Constancia", "code": "CONST", "kind": "constancia"},
+        content_type="application/json",
+    )
+
+    assert template.status_code == 201
+    assert template.json()["kind"] == "constancia"
+
+    blocked = auth_client.delete(reverse("document-type-detail", args=[public_id]))
+
+    assert blocked.status_code == 400
+
+    auth_client.delete(reverse("document-template-detail", args=[template.json()["public_id"]]))
+    removed = auth_client.delete(reverse("document-type-detail", args=[public_id]))
+
+    assert removed.status_code == 204
+    assert "constancia" not in {
+        item["code"] for item in _items(auth_client.get(reverse("document-type-list-create")))
+    }
+
+
+def test_creating_a_template_with_an_unknown_type_is_rejected(auth_client):
+    InstitutionFactory()
+
+    response = auth_client.post(
+        reverse("document-template-list-create"),
+        {"name": "Constancia", "code": "CONST", "kind": "inexistente"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
 
 
 def _grant_document_issue(user):
