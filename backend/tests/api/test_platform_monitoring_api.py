@@ -1,7 +1,12 @@
 """RNF-OPE-001: superficie de lectura del monitoreo operativo."""
 
+import json
+from datetime import timedelta
+
 import pytest
+from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.common.models import TaskRun
 from apps.common.tasks import task_run
@@ -21,12 +26,19 @@ def _items(response):
     return response.json()["results"]
 
 
-@pytest.mark.parametrize("route", ["platform-task-run-list", "platform-task-health"])
+MONITORED_ROUTES = [
+    "platform-task-run-list",
+    "platform-task-health",
+    "platform-backup-health",
+]
+
+
+@pytest.mark.parametrize("route", MONITORED_ROUTES)
 def test_monitoring_endpoints_require_authentication(client, route):
     assert client.get(reverse(route)).status_code in {401, 403}
 
 
-@pytest.mark.parametrize("route", ["platform-task-run-list", "platform-task-health"])
+@pytest.mark.parametrize("route", MONITORED_ROUTES)
 def test_monitoring_endpoints_deny_an_actor_without_the_permission(auth_client, route):
     assert auth_client.get(reverse(route)).status_code == 403
 
@@ -89,3 +101,36 @@ def test_task_runs_cannot_be_written_over_http(auth_client):
 
     assert response.status_code == 405
     assert not TaskRun.objects.exists()
+
+
+def test_backup_health_reports_each_stack_separately(auth_client, tmp_path):
+    """RNF-RES-001/002: nunca agregadas, porque las pilas son independientes."""
+    _grant_monitor(auth_client.user)
+    database_dir = tmp_path / "database"
+    database_dir.mkdir()
+    artifact = database_dir / "siga-db-20260101T000000Z.dump"
+    artifact.write_bytes(b"dump")
+    (database_dir / "siga-db-20260101T000000Z.manifest.json").write_text(
+        json.dumps(
+            {
+                "kind": "database",
+                "artifact": artifact.name,
+                "created_at": (timezone.now() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "size_bytes": 4,
+                "sha256": "0" * 64,
+            }
+        )
+    )
+
+    with override_settings(
+        DATABASE_BACKUP_DIR=str(database_dir),
+        FILES_BACKUP_DIR=str(tmp_path / "files"),
+        RECOVERY_POINT_OBJECTIVE_HOURS=24,
+    ):
+        response = auth_client.get(reverse("platform-backup-health"))
+
+    assert response.status_code == 200
+    health = {item["stack"]: item for item in _items(response)}
+    assert health["database"]["meets_rpo"] is True
+    assert health["files"]["meets_rpo"] is False
+    assert health["files"]["backup_count"] == 0
