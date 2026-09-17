@@ -31,6 +31,8 @@ from apps.attendance.models import (
     CaptureBatch,
     DayStatus,
     JornadaParameters,
+    Justification,
+    JustificationPolicy,
     RecalculationReason,
     SectionClosureLog,
     StudentCredential,
@@ -3377,3 +3379,182 @@ def test_an_enrolled_student_still_resolves_by_either_path():
 
     assert by_credential == student
     assert by_code == student
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-003 — ventana de justificacion
+# --------------------------------------------------------------------------- #
+
+
+def test_submit_justification_within_window_succeeds():
+    student = StudentFactory()
+    guardian = UserFactory()
+    today = timezone.localdate()
+
+    justification = services.submit_justification(
+        student=student,
+        absence_date=today - timedelta(days=1),
+        reason="Cita medica",
+        actor=guardian,
+        as_of=today,
+    )
+
+    assert justification.status == Justification.Status.PENDING
+    assert justification.is_exception is False
+    assert Justification.objects.filter(student=student).count() == 1
+
+
+def test_submit_justification_outside_window_is_rejected():
+    """
+    Escenario 1 (RF-JUS-003): GIVEN una ventana de justificacion de cinco
+    dias habiles, WHEN un encargado intenta justificar una ausencia de hace
+    dos semanas, THEN el sistema rechaza la solicitud indicando que el plazo
+    vencio.
+    """
+    JustificationPolicy.objects.create(window_business_days=5)
+    student = StudentFactory()
+    guardian = UserFactory()
+    today = timezone.localdate()
+
+    with pytest.raises(DomainError, match="plazo"):
+        services.submit_justification(
+            student=student,
+            absence_date=today - timedelta(days=14),
+            reason="Cita medica",
+            actor=guardian,
+            as_of=today,
+        )
+    assert not Justification.objects.filter(student=student).exists()
+
+
+def test_submit_justification_outside_window_succeeds_as_a_documented_exception():
+    JustificationPolicy.objects.create(window_business_days=5)
+    student = StudentFactory()
+    staff = UserFactory()
+    today = timezone.localdate()
+
+    justification = services.submit_justification(
+        student=student,
+        absence_date=today - timedelta(days=14),
+        reason="Cita medica",
+        actor=staff,
+        is_exception=True,
+        exception_reason="Encargado sin acceso a la plataforma, registrado por secretaria",
+        as_of=today,
+    )
+
+    assert justification.is_exception is True
+    assert justification.exception_reason
+
+
+def test_submit_justification_exception_requires_a_reason():
+    student = StudentFactory()
+    staff = UserFactory()
+
+    with pytest.raises(DomainError, match="motivo"):
+        services.submit_justification(
+            student=student,
+            absence_date=timezone.localdate() - timedelta(days=14),
+            reason="Cita medica",
+            actor=staff,
+            is_exception=True,
+            exception_reason="",
+        )
+
+
+def test_submit_justification_requires_a_reason():
+    student = StudentFactory()
+    guardian = UserFactory()
+
+    with pytest.raises(DomainError, match="motivo"):
+        services.submit_justification(
+            student=student,
+            absence_date=timezone.localdate(),
+            reason="",
+            actor=guardian,
+        )
+
+
+def test_justification_window_business_days_defaults_without_a_policy_row():
+    assert not JustificationPolicy.objects.exists()
+
+    assert services.justification_window_business_days() == 5
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-004 — revision y resolucion
+# --------------------------------------------------------------------------- #
+
+
+def _pending_justification(**overrides):
+    student = overrides.pop("student", None) or StudentFactory()
+    guardian = overrides.pop("actor", None) or UserFactory()
+    return services.submit_justification(
+        student=student,
+        absence_date=overrides.pop("absence_date", timezone.localdate()),
+        reason=overrides.pop("reason", "Cita medica"),
+        actor=guardian,
+        **overrides,
+    )
+
+
+def test_resolve_justification_approve_succeeds():
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    resolved = services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=reviewer
+    )
+
+    assert resolved.status == Justification.Status.APPROVED
+    assert resolved.resolved_by == reviewer
+    assert resolved.resolved_at is not None
+
+
+def test_resolve_justification_reject_requires_a_comment():
+    """
+    RF-JUS-004: "rechazo requiere comentario" -- rejecting without stating
+    why is refused.
+    """
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    with pytest.raises(DomainError, match="comentario"):
+        services.resolve_justification(
+            justification=justification, approved=False, comment="", actor=reviewer
+        )
+    justification.refresh_from_db()
+    assert justification.status == Justification.Status.PENDING
+
+
+def test_resolve_justification_reject_with_comment_succeeds():
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    resolved = services.resolve_justification(
+        justification=justification,
+        approved=False,
+        comment="No hay constancia medica adjunta",
+        actor=reviewer,
+    )
+
+    assert resolved.status == Justification.Status.REJECTED
+    assert resolved.resolution_comment == "No hay constancia medica adjunta"
+    assert resolved.resolved_by == reviewer
+
+
+def test_resolve_justification_is_immutable_once_resolved():
+    """
+    RF-JUS-004: "resueltas son inmutables -- correccion requiere una nueva
+    revision." Resolving an already-resolved justification is refused.
+    """
+    justification = _pending_justification()
+    reviewer = UserFactory()
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=reviewer
+    )
+
+    with pytest.raises(DomainError, match="ya fue resuelta"):
+        services.resolve_justification(
+            justification=justification, approved=True, comment="", actor=reviewer
+        )

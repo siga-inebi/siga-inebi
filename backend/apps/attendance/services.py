@@ -29,6 +29,8 @@ from apps.attendance.models import (
     CaptureBatch,
     DayStatus,
     JornadaParameters,
+    Justification,
+    JustificationPolicy,
     RecalculationReason,
     SectionClosureLog,
     StudentCredential,
@@ -1969,3 +1971,140 @@ def resolve_scan_subject(*, credential_identifier="", student_code="", actor=Non
         )
         raise DomainError(f"El estudiante con codigo '{student_code}' no tiene inscripcion activa.")
     return student
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-003 — ventana de justificacion
+# --------------------------------------------------------------------------- #
+
+
+def _count_business_days(*, start_date, end_date):
+    """
+    Business days strictly between ``start_date`` and ``end_date``, both
+    exclusive, counting only weekends as non-working -- the same definition
+    ``apps.academics.school_calendar`` already uses elsewhere in this
+    project. No Guatemalan holiday calendar exists yet to do better; a
+    holiday inside the window is counted as a business day until one does.
+    """
+    if end_date <= start_date:
+        return 0
+    business_days = 0
+    current = start_date + timedelta(days=1)
+    while current <= end_date:
+        if current.weekday() < 5:
+            business_days += 1
+        current += timedelta(days=1)
+    return business_days
+
+
+def justification_window_business_days():
+    """The configured window, in business days. Never creates a row as a side effect."""
+    policy = JustificationPolicy.objects.first() or JustificationPolicy()
+    return policy.window_business_days
+
+
+@transaction.atomic
+def submit_justification(
+    *, student, absence_date, reason, actor, is_exception=False, exception_reason="", as_of=None
+):
+    """
+    RF-JUS-003: accept a guardian's justification only within the configured
+    window counted from ``absence_date``. Past that, reject indicating the
+    deadline expired -- unless ``is_exception`` documents why an elevated
+    user is registering it anyway. Who is allowed to pass ``is_exception``
+    is a permission question the view answers (``attendance_justification_resolve``),
+    not this function's concern; this only enforces that the exception is
+    never silent.
+
+    Deliberately minimal beyond the window rule: no situation-type catalog,
+    no attachments (RF-JUS-001), no guardian-scope check of its own (RF-JUS-002
+    is already covered at the caller's boundary by reusing
+    ``identity.scopes.can_access_student``), no review/resolution (RF-JUS-004).
+    ``status`` starts and stays ``PENDING`` here.
+    """
+    _require_active(student, "el estudiante")
+    if not reason:
+        raise DomainError("La justificacion debe indicar un motivo.")
+    today = as_of or timezone.localdate()
+    if is_exception:
+        if not exception_reason:
+            raise DomainError("La excepcion debe documentar un motivo.")
+    else:
+        window = justification_window_business_days()
+        elapsed = _count_business_days(start_date=absence_date, end_date=today)
+        if elapsed > window:
+            raise DomainError(
+                f"El plazo para justificar la ausencia del {absence_date} vencio "
+                f"(ventana de {window} dias habiles)."
+            )
+
+    justification = Justification.objects.create(
+        student=student,
+        absence_date=absence_date,
+        reason=reason,
+        submitted_by=actor,
+        is_exception=is_exception,
+        exception_reason=exception_reason,
+    )
+    record_event(
+        actor=actor,
+        action="attendance.justification.submitted",
+        resource="Justification",
+        resource_identifier=str(justification.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "absence_date": str(absence_date),
+            "is_exception": is_exception,
+        },
+    )
+    return justification
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-004 — revision y resolucion
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def resolve_justification(*, justification, approved, comment, actor):
+    """
+    RF-JUS-004: approve or reject a pending justification, recording who
+    resolved it and when. A rejection must document why; an approval's
+    comment is optional. Once resolved, the row is immutable -- calling this
+    again on the same justification raises. The only way to "correct" a
+    resolution is a brand-new ``Justification`` via ``submit_justification``
+    (RF-JUS-003), which starts its own audit trail rather than overwriting
+    this one (AGENTS.md #12).
+    """
+    if justification.status != Justification.Status.PENDING:
+        raise DomainError(f"La justificacion '{justification}' ya fue resuelta.")
+    if not approved and not comment:
+        raise DomainError("El rechazo debe indicar un comentario.")
+
+    justification.status = (
+        Justification.Status.APPROVED if approved else Justification.Status.REJECTED
+    )
+    justification.resolved_by = actor
+    justification.resolved_at = timezone.now()
+    justification.resolution_comment = comment
+    justification.save(
+        update_fields=[
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "resolution_comment",
+            "updated_at",
+        ]
+    )
+    record_event(
+        actor=actor,
+        action="attendance.justification.resolved",
+        resource="Justification",
+        resource_identifier=str(justification.public_id),
+        context={
+            "student_id": str(justification.student.public_id),
+            "approved": approved,
+            "comment": comment,
+        },
+    )
+    return justification
