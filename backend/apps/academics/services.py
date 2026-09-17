@@ -529,6 +529,48 @@ def close_academic_cycle(*, cycle, actor=None):
     return locked
 
 
+@transaction.atomic
+def reopen_academic_cycle(*, cycle, reason, actor=None):
+    """
+    Reopen a closed cycle temporarily and exceptionally (RF-CIC-005).
+
+    The permission check itself (a user with academic authorization) lives in
+    the view, same as ``require_assignment_scope`` for teaching assignments —
+    this function only enforces the domain rules once that gate is cleared.
+
+    Reopening puts the cycle back to ACTIVE, so the same single-active-cycle
+    invariant ``activate_academic_cycle`` enforces applies here too: nothing
+    about reopening makes two active cycles for one institution valid. A
+    later ``close_academic_cycle`` call closes it again with no changes of
+    its own; there is no separate "results capability" to preserve a trace
+    for yet (same gap noted in ``close_academic_cycle`` for RF-CIC-004) — once
+    it exists, closing a reopened cycle is expected to record an additional
+    result alongside the frozen one, not overwrite it.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise DomainError("Se requiere un motivo para reabrir el ciclo escolar.")
+
+    locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
+    if locked.status != AcademicCycle.CycleStatus.CLOSED:
+        raise DomainError("Solo se puede reabrir un ciclo escolar cerrado.")
+    if (
+        AcademicCycle.objects.select_for_update()
+        .filter(
+            institution=locked.institution,
+            status=AcademicCycle.CycleStatus.ACTIVE,
+        )
+        .exclude(pk=locked.pk)
+        .exists()
+    ):
+        raise DomainError("Hay que cerrar el ciclo activo antes de reabrir otro.")
+
+    locked.status = AcademicCycle.CycleStatus.ACTIVE
+    locked.save(update_fields=["status", "updated_at"])
+    _audit(actor, "academics.cycle.reopened", locked, status=locked.status, reason=reason)
+    return locked
+
+
 def _changed(instance, actor, action, **candidates):
     """
     Apply the fields whose value was actually supplied, persist only those, and
@@ -1665,7 +1707,15 @@ def _class_session_conflicts():
 
 
 def create_class_session(
-    *, academic_cycle, section, subject, schedule_block, day_of_week, classroom=None, actor=None
+    *,
+    academic_cycle,
+    section,
+    subject,
+    schedule_block,
+    day_of_week,
+    classroom=None,
+    starts_on=None,
+    actor=None,
 ):
     """
     Schedule a class session (RF-HOR-003): a subject taught to a section on a
@@ -1683,6 +1733,16 @@ def create_class_session(
       #198). The classroom half of that requirement is out of scope here --
       apps.academics has no classroom concept yet (blocked on RF-AUL-001,
       #99) -- and the issue stays open until it does.
+    - ``starts_on`` (RF-HOR-008, #201) defaults to the cycle's own start
+      date, same convention as ``create_teaching_assignment``, and must fall
+      within the cycle's dates. It only records when the session becomes
+      effective; it does not exempt an earlier, still-active session from
+      the conflict checks above -- deactivate that one first
+      (``deactivate_class_session``) to actually replace it mid-cycle.
+    - A teacher cannot be in two sections at once either: if the section's
+      current teacher for this subject already has another active session
+      in the same day and block, for a different section, that is a
+      conflict too (RF-HOR-006, #199).
     """
     require_cycle_academic_writes(cycle=academic_cycle, operation="class_session.create")
 
@@ -1694,6 +1754,9 @@ def create_class_session(
         raise DomainError("El bloque de horario debe pertenecer a la misma jornada que la seccion.")
     if classroom is not None and classroom.campus_id != section.offering.shift.campus_id:
         raise DomainError("El aula debe pertenecer a la misma sede que la seccion.")
+    starts_on = starts_on or academic_cycle.starts_on
+    if starts_on < academic_cycle.starts_on or starts_on > academic_cycle.ends_on:
+        raise DomainError("La fecha de vigencia de la sesion debe caer dentro del ciclo escolar.")
     if (
         ClassSession.objects.filter(
             section=section,
@@ -1719,6 +1782,31 @@ def create_class_session(
         raise DomainError(
             "El aula ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
         )
+    current_assignment = (
+        TeachingAssignment.objects.filter(
+            academic_cycle=academic_cycle,
+            section=section,
+            subject=subject,
+            ends_on__isnull=True,
+        )
+        .select_related("teacher")
+        .first()
+    )
+    teacher = current_assignment.teacher if current_assignment else None
+    if teacher is not None:
+        # RF-HOR-006 (#199): the teacher is derived per session (RF-HOR-004),
+        # never stored on ClassSession, so this reads each candidate's own
+        # current assignment rather than a shared column -- same reasoning
+        # as the ``current_teacher`` model property.
+        other_sessions_in_slot = ClassSession.objects.filter(
+            day_of_week=day_of_week,
+            schedule_block=schedule_block,
+            is_active=True,
+        ).exclude(section=section)
+        if any(other.current_teacher == teacher for other in other_sessions_in_slot):
+            raise DomainError(
+                "El docente ya tiene otra seccion agendada en ese dia y bloque: cruce de horario."
+            )
 
     with unique_violation_as(_class_session_conflicts()):
         session = ClassSession.objects.create(
@@ -1728,6 +1816,7 @@ def create_class_session(
             schedule_block=schedule_block,
             classroom=classroom,
             day_of_week=day_of_week,
+            starts_on=starts_on,
         )
 
     _audit(
@@ -1740,6 +1829,7 @@ def create_class_session(
         schedule_block_id=schedule_block.pk,
         day_of_week=day_of_week,
         classroom_id=getattr(classroom, "pk", None),
+        starts_on=starts_on.isoformat(),
     )
     return session
 
