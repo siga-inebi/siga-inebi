@@ -88,6 +88,14 @@ class StorageConsumptionSerializer(serializers.Serializer):
     total_bytes = serializers.IntegerField()
     file_count = serializers.IntegerField()
     retained_count = serializers.IntegerField()
+    projected_growth_bytes_per_cycle = serializers.IntegerField()
+    projected_total_bytes = serializers.IntegerField()
+    warning_threshold_bytes = serializers.IntegerField()
+    warning_active = serializers.BooleanField()
+    warning_level = serializers.CharField()
+    threshold_utilization_ratio = serializers.FloatField()
+    threshold_utilization_percent = serializers.FloatField()
+    by_content_type = serializers.ListField(child=serializers.DictField(), allow_empty=True)
 
 
 class DocumentDeliveryReceiptSerializer(serializers.ModelSerializer):
@@ -207,7 +215,9 @@ class DocumentTemplatePreviewResponseSerializer(serializers.Serializer):
 class DocumentVerificationResponseSerializer(serializers.Serializer):
     valid = serializers.BooleanField()
     document_type = serializers.CharField(required=False)
+    folio = serializers.CharField(required=False, allow_blank=True)
     issued_at = serializers.CharField(required=False)
+    vigencia = serializers.CharField(required=False, allow_blank=True)
 
 
 class DocumentRecordSerializer(serializers.ModelSerializer):

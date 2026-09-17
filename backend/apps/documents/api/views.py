@@ -11,9 +11,14 @@ resources in the repo (``apps.academics.api.views``), so it is reused here
 rather than duplicated.
 """
 
+from django.core.files.storage import default_storage
 from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
@@ -27,6 +32,7 @@ from apps.academics.api.views import (
     RetrieveMixin,
     UpdateMixin,
 )
+from apps.common.models import DomainError
 from apps.documents import queries, services
 
 from .serializers import (
@@ -360,6 +366,51 @@ class DocumentDeliveryReceiptCreateView(GenericAPIView):
         return Response(DocumentDeliveryReceiptSerializer(receipt).data, status=201)
 
 
+class DocumentRecordDownloadView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        summary="Descargar un documento usando un token de vigencia breve",
+        description=(
+            "El archivo se entrega a traves de un token temporal ligado al usuario. "
+            "La ruta no es una URL estatica del archivo y el token vence rapidamente."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="token",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description=(
+                    "Token de descarga temporal emitido por la API para el usuario autenticado."
+                ),
+            )
+        ],
+        responses={200: OpenApiTypes.BINARY},
+        tags=["documents: records"],
+    )
+    def get(self, request, public_id):
+        document = queries.document_record_or_404(public_id)
+        token = str(request.query_params.get("token", "") or "").strip()
+        services.validate_document_download_token(
+            document=document,
+            token=token,
+            actor=request.user,
+        )
+
+        try:
+            with default_storage.open(document.storage_key, "rb") as stored_file:
+                payload = stored_file.read()
+        except OSError as exc:
+            raise DomainError("El archivo persistido del documento no esta disponible.") from exc
+
+        response = HttpResponse(payload, content_type=document.content_type)
+        response["Content-Disposition"] = (
+            f'attachment; filename="{document.filename or "documento.pdf"}"'
+        )
+        return response
+
+
 class DocumentVerificationThrottle(AnonRateThrottle):
     """Limit public verification attempts independently from authenticated API traffic."""
 
@@ -372,7 +423,7 @@ class DocumentVerificationThrottle(AnonRateThrottle):
         description=(
             "Consulta publica y sin autenticacion (RF-EMI-009): confirma si un codigo "
             "impreso en un documento emitido es genuino. No revela a quien se emitio el "
-            "documento, solo el tipo y la fecha de emision."
+            "documento, solo el tipo, folio, fecha y vigencia del documento."
         ),
         tags=PUBLIC_VERIFICATION,
         responses={200: DocumentVerificationResponseSerializer},

@@ -358,11 +358,15 @@ class DocumentVerificationCode(TimeStampedModel):
     must not let anyone enumerate issued documents by walking a counter.
     Deliberately carries no student reference: the public endpoint only
     needs to confirm authenticity, and keeping the model minimal means it
-    cannot leak more than that even by accident.
+    cannot leak more than that even by accident. The folio is the only
+    institutional identifier exposed to the public, and it remains minimal
+    by design to satisfy RNF-PRI-005 without revealing sensitive document
+    ownership metadata.
     """
 
     code = models.CharField(max_length=64, unique=True)
     document_type = models.CharField(max_length=100, blank=True)
+    folio = models.CharField(max_length=100, blank=True, default="")
     issued_at = models.CharField(max_length=50, blank=True, default="")
 
     class Meta:
