@@ -31,6 +31,9 @@ from apps.attendance.models import (
     CaptureBatch,
     DayStatus,
     JornadaParameters,
+    Justification,
+    JustificationNotification,
+    JustificationPolicy,
     RecalculationReason,
     SectionClosureLog,
     StudentCredential,
@@ -3377,3 +3380,511 @@ def test_an_enrolled_student_still_resolves_by_either_path():
 
     assert by_credential == student
     assert by_code == student
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-003 — ventana de justificacion
+# --------------------------------------------------------------------------- #
+
+
+def test_submit_justification_within_window_succeeds():
+    student = StudentFactory()
+    guardian = UserFactory()
+    today = timezone.localdate()
+
+    justification = services.submit_justification(
+        student=student,
+        absence_date=today - timedelta(days=1),
+        reason="Cita medica",
+        actor=guardian,
+        as_of=today,
+    )
+
+    assert justification.status == Justification.Status.PENDING
+    assert justification.is_exception is False
+    assert Justification.objects.filter(student=student).count() == 1
+
+
+def test_submit_justification_outside_window_is_rejected():
+    """
+    Escenario 1 (RF-JUS-003): GIVEN una ventana de justificacion de cinco
+    dias habiles, WHEN un encargado intenta justificar una ausencia de hace
+    dos semanas, THEN el sistema rechaza la solicitud indicando que el plazo
+    vencio.
+    """
+    JustificationPolicy.objects.create(window_business_days=5)
+    student = StudentFactory()
+    guardian = UserFactory()
+    today = timezone.localdate()
+
+    with pytest.raises(DomainError, match="plazo"):
+        services.submit_justification(
+            student=student,
+            absence_date=today - timedelta(days=14),
+            reason="Cita medica",
+            actor=guardian,
+            as_of=today,
+        )
+    assert not Justification.objects.filter(student=student).exists()
+
+
+def test_submit_justification_outside_window_succeeds_as_a_documented_exception():
+    JustificationPolicy.objects.create(window_business_days=5)
+    student = StudentFactory()
+    staff = UserFactory()
+    today = timezone.localdate()
+
+    justification = services.submit_justification(
+        student=student,
+        absence_date=today - timedelta(days=14),
+        reason="Cita medica",
+        actor=staff,
+        is_exception=True,
+        exception_reason="Encargado sin acceso a la plataforma, registrado por secretaria",
+        as_of=today,
+    )
+
+    assert justification.is_exception is True
+    assert justification.exception_reason
+
+
+def test_submit_justification_exception_requires_a_reason():
+    student = StudentFactory()
+    staff = UserFactory()
+
+    with pytest.raises(DomainError, match="motivo"):
+        services.submit_justification(
+            student=student,
+            absence_date=timezone.localdate() - timedelta(days=14),
+            reason="Cita medica",
+            actor=staff,
+            is_exception=True,
+            exception_reason="",
+        )
+
+
+def test_submit_justification_requires_a_reason():
+    student = StudentFactory()
+    guardian = UserFactory()
+
+    with pytest.raises(DomainError, match="motivo"):
+        services.submit_justification(
+            student=student,
+            absence_date=timezone.localdate(),
+            reason="",
+            actor=guardian,
+        )
+
+
+def test_justification_window_business_days_defaults_without_a_policy_row():
+    assert not JustificationPolicy.objects.exists()
+
+    assert services.justification_window_business_days() == 5
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-004 — revision y resolucion
+# --------------------------------------------------------------------------- #
+
+
+def _pending_justification(**overrides):
+    student = overrides.pop("student", None) or StudentFactory()
+    guardian = overrides.pop("actor", None) or UserFactory()
+    return services.submit_justification(
+        student=student,
+        absence_date=overrides.pop("absence_date", timezone.localdate()),
+        reason=overrides.pop("reason", "Cita medica"),
+        actor=guardian,
+        **overrides,
+    )
+
+
+def test_resolve_justification_approve_succeeds():
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    resolved = services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=reviewer
+    )
+
+    assert resolved.status == Justification.Status.APPROVED
+    assert resolved.resolved_by == reviewer
+    assert resolved.resolved_at is not None
+
+
+def test_resolve_justification_reject_requires_a_comment():
+    """
+    RF-JUS-004: "rechazo requiere comentario" -- rejecting without stating
+    why is refused.
+    """
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    with pytest.raises(DomainError, match="comentario"):
+        services.resolve_justification(
+            justification=justification, approved=False, comment="", actor=reviewer
+        )
+    justification.refresh_from_db()
+    assert justification.status == Justification.Status.PENDING
+
+
+def test_resolve_justification_reject_with_comment_succeeds():
+    justification = _pending_justification()
+    reviewer = UserFactory()
+
+    resolved = services.resolve_justification(
+        justification=justification,
+        approved=False,
+        comment="No hay constancia medica adjunta",
+        actor=reviewer,
+    )
+
+    assert resolved.status == Justification.Status.REJECTED
+    assert resolved.resolution_comment == "No hay constancia medica adjunta"
+    assert resolved.resolved_by == reviewer
+
+
+def test_resolve_justification_is_immutable_once_resolved():
+    """
+    RF-JUS-004: "resueltas son inmutables -- correccion requiere una nueva
+    revision." Resolving an already-resolved justification is refused.
+    """
+    justification = _pending_justification()
+    reviewer = UserFactory()
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=reviewer
+    )
+
+    with pytest.raises(DomainError, match="ya fue resuelta"):
+        services.resolve_justification(
+            justification=justification, approved=True, comment="", actor=reviewer
+        )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-005 — efecto sobre el estado derivado
+# --------------------------------------------------------------------------- #
+
+
+def _weekday_on_or_after(candidate):
+    while candidate.isoweekday() not in (1, 2, 3, 4, 5):
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def test_approving_a_justification_turns_a_pending_absence_into_a_justified_absence():
+    """
+    Escenario "Aprobacion de una ausencia" (RF-JUS-005): GIVEN un dia con
+    estado derivado de ausencia pendiente de justificar, WHEN se aprueba la
+    justificacion correspondiente, THEN el estado derivado del dia pasa a
+    ausencia justificada, AND el registro original permanece consultable.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    absence_date = _weekday_on_or_after(cycle.starts_on)
+    as_of = _at(absence_date, 16, 1)
+
+    before = services.derive_day_status(
+        student=student, shift=shift, event_date=absence_date, as_of=as_of
+    )
+    assert before.status == DayStatus.ABSENT_PENDING_JUSTIFICATION
+
+    justification = services.submit_justification(
+        student=student, absence_date=absence_date, reason="Cita medica", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    after = services.derive_day_status(
+        student=student, shift=shift, event_date=absence_date, as_of=as_of
+    )
+    assert after.status == DayStatus.JUSTIFIED_ABSENCE
+    assert after.entry_event is None
+    justification.refresh_from_db()
+    assert justification.status == Justification.Status.APPROVED
+
+
+def test_approving_a_justification_turns_a_late_arrival_into_a_justified_late_arrival():
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    late_date = _weekday_on_or_after(cycle.starts_on)
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=late_date,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(late_date, 7, 45),
+    )
+
+    before = services.derive_day_status(student=student, shift=shift, event_date=late_date)
+    assert before.status == DayStatus.LATE
+
+    justification = services.submit_justification(
+        student=student, absence_date=late_date, reason="Trafico por lluvia", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    after = services.derive_day_status(student=student, shift=shift, event_date=late_date)
+    assert after.status == DayStatus.JUSTIFIED_LATE
+    assert after.entry_event is not None
+
+
+def test_rejecting_a_justification_does_not_alter_the_derived_status():
+    """RF-JUS-005: "el rechazo NO DEBE alterar el estado derivado"."""
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    absence_date = _weekday_on_or_after(cycle.starts_on)
+    as_of = _at(absence_date, 16, 1)
+
+    justification = services.submit_justification(
+        student=student, absence_date=absence_date, reason="Cita medica", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=justification,
+        approved=False,
+        comment="Sin constancia adjunta",
+        actor=UserFactory(),
+    )
+
+    result = services.derive_day_status(
+        student=student, shift=shift, event_date=absence_date, as_of=as_of
+    )
+    assert result.status == DayStatus.ABSENT_PENDING_JUSTIFICATION
+
+
+def test_approving_a_justification_recalculates_the_day_with_the_justification_resolved_reason():
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    absence_date = _weekday_on_or_after(cycle.starts_on)
+    justification = services.submit_justification(
+        student=student, absence_date=absence_date, reason="Cita medica", actor=UserFactory()
+    )
+
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    assert AuditEvent.objects.filter(
+        action="attendance.day.recalculated",
+        context__reason=RecalculationReason.JUSTIFICATION_RESOLVED,
+    ).exists()
+
+
+def test_attendance_percentage_still_counts_a_justified_late_arrival_as_attended():
+    """
+    A justified late arrival is still a late arrival that happened -- RF-
+    JOR-009's percentage must keep counting it, the same as an unjustified
+    one, rather than silently dropping it once ``DayStatus.LATE`` becomes
+    ``DayStatus.JUSTIFIED_LATE``.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 0),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    late_date = _weekday_on_or_after(cycle.starts_on)
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=late_date,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(late_date, 7, 45),
+    )
+    justification = services.submit_justification(
+        student=student, absence_date=late_date, reason="Trafico por lluvia", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    result = services.compute_attendance_percentage(
+        student=student, shift=shift, as_of_date=late_date
+    )
+
+    assert result.late_days == 1
+    assert result.percentage == 100.0
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-006 — notificacion del cambio de estado
+# --------------------------------------------------------------------------- #
+
+
+def test_approving_a_justification_notifies_the_guardian_who_submitted_it():
+    """
+    Escenario "Notificacion tras resolucion" (RF-JUS-006): GIVEN una
+    solicitud pendiente de un encargado, WHEN un usuario autorizado la
+    resuelve, THEN el encargado recibe la notificacion con el resultado y
+    el comentario asociado.
+    """
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    services.resolve_justification(
+        justification=justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    notification = JustificationNotification.objects.get(justification=justification)
+    assert notification.recipient == guardian
+
+
+def test_rejecting_a_justification_also_notifies_the_guardian():
+    """RF-JUS-006 notifies on either outcome, not only on approval."""
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    services.resolve_justification(
+        justification=justification,
+        approved=False,
+        comment="Sin constancia adjunta",
+        actor=UserFactory(),
+    )
+
+    notification = JustificationNotification.objects.get(justification=justification)
+    assert notification.recipient == guardian
+
+
+def test_list_my_justification_notifications_is_scoped_to_the_recipient():
+    guardian = UserFactory()
+    someone_else = UserFactory()
+    student = StudentFactory()
+    my_justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+    other_justification = services.submit_justification(
+        student=StudentFactory(),
+        absence_date=timezone.localdate(),
+        reason="Cita medica",
+        actor=someone_else,
+    )
+    services.resolve_justification(
+        justification=my_justification, approved=True, comment="", actor=UserFactory()
+    )
+    services.resolve_justification(
+        justification=other_justification, approved=True, comment="", actor=UserFactory()
+    )
+
+    notifications = services.list_my_justification_notifications(user=guardian)
+
+    assert list(notifications.values_list("justification_id", flat=True)) == [my_justification.pk]
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-007 — confidencialidad de los respaldos
+# --------------------------------------------------------------------------- #
+
+
+def _pdf_upload(name="constancia.pdf"):
+    return SimpleUploadedFile(name, b"%PDF-1.4 contenido de prueba", content_type="application/pdf")
+
+
+def test_attach_justification_document_succeeds_for_the_submitter():
+    """
+    Escenario "Solicitud con respaldo" (RF-JUS-001, base de RF-JUS-007): GIVEN
+    una justificacion presentada por un encargado, WHEN el mismo encargado
+    adjunta una constancia medica, THEN el sistema conserva el documento
+    asociado a la solicitud.
+    """
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    attachment = services.attach_justification_document(
+        justification=justification, upload=_pdf_upload(), actor=guardian
+    )
+
+    assert attachment.justification == justification
+    assert attachment.uploaded_by == guardian
+    assert attachment.content_type == "application/pdf"
+    justification.refresh_from_db()
+    assert justification.attachment == attachment
+
+
+def test_attach_justification_document_rejects_a_non_submitter():
+    student = StudentFactory()
+    guardian = UserFactory()
+    someone_else = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    with pytest.raises(DomainError, match="Solo quien presento"):
+        services.attach_justification_document(
+            justification=justification, upload=_pdf_upload(), actor=someone_else
+        )
+
+
+def test_attach_justification_document_rejects_a_second_attachment():
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+    services.attach_justification_document(
+        justification=justification, upload=_pdf_upload(), actor=guardian
+    )
+
+    with pytest.raises(DomainError, match="ya tiene un documento adjunto"):
+        services.attach_justification_document(
+            justification=justification, upload=_pdf_upload("otra.pdf"), actor=guardian
+        )

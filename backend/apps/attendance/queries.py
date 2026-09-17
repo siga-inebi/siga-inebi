@@ -7,6 +7,7 @@ from apps.attendance.models import (
     CaptureBatch,
     ControlPoint,
     JornadaParameters,
+    Justification,
     ManualRegistrationReason,
 )
 from apps.common.exceptions import DomainError, ResourceNotFoundError
@@ -64,6 +65,10 @@ def academic_cycle_for_payload(public_id):
 
 def control_point_for_payload(public_id):
     return _payload_get(ControlPoint.objects.all(), public_id, "el punto de control")
+
+
+def justification_for_payload(public_id):
+    return _payload_get(Justification.objects.all(), public_id, "la justificacion")
 
 
 def capture_batch_for_payload(public_id, *, operator):

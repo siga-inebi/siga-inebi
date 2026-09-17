@@ -303,15 +303,17 @@ class DayStatus(models.TextChoices):
     PRESENT = "presente", "Presente"
     LATE = "tarde", "Tarde"
     ABSENT_PENDING_JUSTIFICATION = "ausente_pendiente_justificar", "Ausente pendiente de justificar"
+    JUSTIFIED_ABSENCE = "ausencia_justificada", "Ausencia justificada"
+    JUSTIFIED_LATE = "tarde_justificada", "Llegada tardia justificada"
 
 
 class RecalculationReason(models.TextChoices):
     """
     Why ``services.recalculate_day`` re-evaluated a day (RF-JOR-006). Not a
     model field: a vocabulary shared by the audit trail and
-    ``DayRecalculationResult``. ``JUSTIFICATION_RESOLVED`` is not wired to
-    any code path yet — it's the value a future asistencia-justificaciones
-    app should pass once that domain exists.
+    ``DayRecalculationResult``. ``JUSTIFICATION_RESOLVED`` (RF-JUS-005) is
+    passed by ``services.resolve_justification`` once an approval changes
+    the day's derived status.
     """
 
     LATE_EVENT = "late_event", "Evento con fecha anterior"
@@ -409,3 +411,139 @@ class SectionClosureLog(TimeStampedModel):
 
     def __str__(self):
         return f"Cierre de {self.section} ({self.event_date})"
+
+
+class JustificationPolicy(TimeStampedModel):
+    """
+    RF-JUS-003: how many business days after an absence a guardian may still
+    submit a justification for it. A single global row -- no per-institution
+    scoping yet, since nothing has asked for that -- read via
+    ``services.justification_window_business_days``, which falls back to a
+    sensible default (never creating a row as a side effect, same pattern as
+    ``academics.queries.class_schedule_publication``). Configured through
+    Django admin, matching every other lightweight catalog in this app.
+    """
+
+    window_business_days = models.PositiveIntegerField(default=5)
+
+    def __str__(self):
+        return f"Ventana de justificacion: {self.window_business_days} dias habiles"
+
+
+class Justification(TimeStampedModel):
+    """
+    RF-JUS-003: a guardian's request to justify a student's absence on a
+    given date. Deliberately minimal -- just enough to carry the window rule
+    this RF is about. The fuller submission flow (situation type from a
+    configurable catalog, attachments) is RF-JUS-001; scope enforcement so a
+    guardian only ever sees their own wards is RF-JUS-002 (already covered at
+    the service boundary by reusing ``identity.scopes.can_access_student``,
+    not by anything new here). ``status`` carries the full lifecycle so later
+    RFs need no migration of their own to add a transition.
+
+    RF-JUS-004: once ``resolved_by``/``resolved_at`` are set the row is
+    immutable (enforced in ``services.resolve_justification``, not here) --
+    a correction is a brand-new ``Justification`` via ``submit_justification``,
+    never an edit of this one (AGENTS.md #12).
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        APPROVED = "approved", "Aprobada"
+        REJECTED = "rejected", "Rechazada"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="justifications"
+    )
+    absence_date = models.DateField()
+    reason = models.TextField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    submitted_by = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="justifications_submitted"
+    )
+    is_exception = models.BooleanField(default=False)
+    exception_reason = models.CharField(max_length=255, blank=True, default="")
+    resolved_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justifications_resolved",
+        null=True,
+        blank=True,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_comment = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Justificacion de {self.student} ({self.absence_date})"
+
+
+class JustificationNotification(TimeStampedModel):
+    """
+    RF-JUS-006: a record that the guardian who submitted a justification has
+    been informed of its resolution. Nothing in this system sends email or
+    push yet -- every other alerting surface (``AttendanceAlert``,
+    ``reporting.Alert``) targets school staff, never a guardian -- so this is
+    the minimal channel available: a queryable record the guardian fetches
+    via ``services.list_my_justification_notifications``. A real channel
+    (email, push), if one is ever added, would read from this same table
+    rather than replacing it.
+
+    One row per resolution: ``resolve_justification`` creates it right after
+    saving the resolution, for approval and for rejection alike -- the
+    requirement notifies on either outcome.
+    """
+
+    justification = models.OneToOneField(
+        "attendance.Justification", on_delete=models.CASCADE, related_name="notification"
+    )
+    recipient = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justification_notifications",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Notificacion de {self.justification} para {self.recipient}"
+
+
+class JustificationAttachment(TimeStampedModel):
+    """
+    RF-JUS-007: a single supporting document for a justification (e.g. a
+    medical note) -- may carry health information, which is why this
+    deliberately does not reuse ``apps.documents.DocumentRecord``/
+    ``ensure_document_access``: that model grants read to any staff member
+    with ``document_read`` scoped to the student, wider than the "solo quien
+    la cargo o quien tiene permiso de revision" rule this RF requires. Only
+    the pure validation rules (``apps.documents.services.validate_document_upload``)
+    are reused; the record and its narrower access gate
+    (``services.ensure_justification_attachment_access``) live here.
+
+    One attachment per justification -- RF-JUS-001's fuller catalog (several
+    attachments, situation-type metadata) stays out of this minimal cut.
+    """
+
+    justification = models.OneToOneField(
+        "attendance.Justification", on_delete=models.CASCADE, related_name="attachment"
+    )
+    uploaded_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justification_attachments",
+    )
+    filename = models.CharField(max_length=255)
+    storage_key = models.CharField(max_length=500, unique=True)
+    content_type = models.CharField(max_length=100)
+    size_bytes = models.PositiveBigIntegerField()
+    checksum = models.CharField(max_length=128)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Adjunto de {self.justification}: {self.filename}"
