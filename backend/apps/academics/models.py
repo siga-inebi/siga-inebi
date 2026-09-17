@@ -316,6 +316,18 @@ class Section(TimeStampedModel):
     offering = models.ForeignKey(GradeOffering, on_delete=models.CASCADE, related_name="sections")
     name = models.CharField(max_length=50)
     capacity = models.PositiveIntegerField(default=0)
+    default_classroom = models.ForeignKey(
+        Classroom,
+        on_delete=models.PROTECT,
+        related_name="default_for_sections",
+        null=True,
+        blank=True,
+        help_text=(
+            "Aula habitual de referencia para las clases de esta seccion (RF-AUL-002). "
+            "No obliga a las sesiones individuales a usarla: cada ClassSession sigue "
+            "llevando su propia aula, opcional (RF-AUL-003)."
+        ),
+    )
 
     class Meta:
         ordering = ["offering__grade__level__sequence", "offering__grade__sequence", "name"]
@@ -480,6 +492,13 @@ class ClassSession(TimeStampedModel):
     block (enforced in ``services.create_class_session``); the classroom
     half of that requirement is blocked on RF-AUL-001 (#99) -- there is no
     classroom concept in this app yet.
+
+    ``starts_on`` (RF-HOR-008) lets a mid-cycle restructuring take effect
+    from a chosen date instead of the cycle's own start: the old session is
+    deactivated (``services.deactivate_class_session``, already soft-delete)
+    and the new one is registered with a later ``starts_on``. It defaults to
+    the academic cycle's start date, same convention as
+    ``TeachingAssignment.starts_on``.
     """
 
     class Weekday(models.IntegerChoices):
@@ -508,6 +527,10 @@ class ClassSession(TimeStampedModel):
         blank=True,
     )
     day_of_week = models.PositiveSmallIntegerField(choices=Weekday.choices)
+    starts_on = models.DateField(
+        default=timezone.localdate,
+        help_text="Fecha desde la que la sesion esta vigente (RF-HOR-008).",
+    )
 
     class Meta:
         ordering = ["day_of_week", "schedule_block__number"]

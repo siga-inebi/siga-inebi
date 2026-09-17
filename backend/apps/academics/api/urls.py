@@ -16,6 +16,7 @@ from .views import (
     AcademicCycleCloseView,
     AcademicCycleDefaultsView,
     AcademicCycleListCreateView,
+    AcademicCycleReopenView,
     CampusDetailView,
     CampusListCreateView,
     CampusNextCodeView,
@@ -42,6 +43,7 @@ from .views import (
     SectionClassSessionListCreateView,
     SectionDetailView,
     SectionListCreateView,
+    SectionWeeklyLoadView,
     ShiftClassScheduleBlockListCreateView,
     ShiftDetailView,
     SubjectDetailView,
@@ -74,6 +76,11 @@ urlpatterns = [
         "cycles/<uuid:public_id>/close/",
         AcademicCycleCloseView.as_view(),
         name="academic-cycle-close",
+    ),
+    path(
+        "cycles/<uuid:public_id>/reopen/",
+        AcademicCycleReopenView.as_view(),
+        name="academic-cycle-reopen",
     ),
     path(
         "cycles/<uuid:public_id>/schedule-publication/",
@@ -199,6 +206,11 @@ urlpatterns = [
         "class-sessions/<uuid:public_id>/",
         ClassSessionDetailView.as_view(),
         name="class-session-detail",
+    ),
+    path(
+        "sections/<uuid:public_id>/weekly-load/",
+        SectionWeeklyLoadView.as_view(),
+        name="section-weekly-load",
     ),
     path(
         "curriculum-plans/",

@@ -3,7 +3,9 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, CurriculumPlan
@@ -43,6 +45,7 @@ from apps.documents.services import (
     validate_document_download_token,
     validate_document_upload,
     verify_document,
+    verify_document_storage_integrity,
     verify_stored_document_checksum,
 )
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
@@ -433,6 +436,42 @@ def test_validate_document_checksum_accepts_matching_payload():
     assert validate_document_checksum(document=document, payload=payload) is True
 
 
+def test_verify_document_storage_integrity_detects_corrupted_files(tmp_path, settings):
+    settings.MEDIA_ROOT = tmp_path
+    actor = UserFactory()
+    upload_permission = PermissionFactory(codename="document_upload")
+    read_permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(
+        user=actor,
+        role=RoleFactory(permissions=[upload_permission, read_permission]),
+    )
+    student = StudentFactory()
+    ScopeGrantFactory(assignment=assignment, student=student)
+
+    upload_document_record(
+        actor=actor,
+        student=student,
+        upload=SimpleUploadedFile("ok.pdf", b"ok-file", content_type="application/pdf"),
+    )
+    corrupt = upload_document_record(
+        actor=actor,
+        student=student,
+        upload=SimpleUploadedFile("bad.pdf", b"bad-file", content_type="application/pdf"),
+    )
+    with default_storage.open(corrupt.storage_key, "wb") as handle:
+        handle.write(b"tampered")
+
+    result = verify_document_storage_integrity(actor=actor)
+
+    assert result["total_checked"] == 2
+    assert result["ok"] == 1
+    assert result["corrupted"] == 1
+    assert result["unreadable"] == 0
+    assert result["missing"] == 0
+    assert result["by_status"] == {"ok": 1, "corrupted": 1, "unreadable": 0, "missing": 0}
+    assert any(issue["storage_key"] == corrupt.storage_key for issue in result["issues"])
+
+
 def test_uploaded_document_can_be_verified_and_replaced_without_losing_history(tmp_path, settings):
     settings.MEDIA_ROOT = tmp_path
     student = StudentFactory()
@@ -466,6 +505,10 @@ def test_uploaded_document_can_be_verified_and_replaced_without_losing_history(t
     assert replacement.version_number == 2
 
 
+@override_settings(
+    DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES=200,
+    DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES=50,
+)
 def test_document_storage_usage_summary_counts_and_sums_document_records():
     institution = InstitutionFactory()
     student = StudentFactory()
@@ -490,6 +533,37 @@ def test_document_storage_usage_summary_counts_and_sums_document_records():
 
     assert summary["total_files"] == 2
     assert summary["total_size_bytes"] == 35
+    assert summary["projected_growth_bytes_per_cycle"] == 200
+    assert summary["projected_total_bytes"] == 235
+    assert summary["warning_threshold_bytes"] == 50
+    assert summary["warning_active"] is False
+    assert summary["warning_level"] == "ok"
+    assert summary["threshold_utilization_percent"] == 70.0
+    assert summary["threshold_utilization_ratio"] == 0.7
+
+
+@override_settings(
+    DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES=200,
+    DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES=50,
+)
+def test_document_storage_usage_summary_flags_a_warning_when_threshold_is_reached():
+    institution = InstitutionFactory()
+    student = StudentFactory()
+    DocumentRecord.objects.create(
+        student=student,
+        filename="heavy.pdf",
+        storage_key="local/heavy.pdf",
+        content_type="application/pdf",
+        size_bytes=75,
+        checksum="heavy",
+    )
+
+    summary = document_storage_usage_summary(institution=institution)
+
+    assert summary["warning_active"] is True
+    assert summary["warning_level"] == "warning"
+    assert summary["threshold_utilization_percent"] == 150.0
+    assert summary["threshold_utilization_ratio"] == 1.5
 
 
 # --------------------------------------------------------------------------- #
@@ -864,9 +938,42 @@ def test_document_download_tokens_are_issued_and_validated():
     token = issue_document_download_token(actor=actor, document=document)
 
     assert token.token
-    assert validate_document_download_token(document=document, token=token.token) is True
+    assert (
+        validate_document_download_token(document=document, token=token.token, actor=actor) is True
+    )
     with pytest.raises(DomainError, match="valid|token"):
-        validate_document_download_token(document=document, token="invalid-token")
+        validate_document_download_token(
+            document=document,
+            token="invalid-token",
+            actor=actor,
+        )
+
+
+def test_document_download_tokens_are_bound_to_the_requesting_actor():
+    actor = UserFactory()
+    other_actor = UserFactory()
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
+    other_assignment = RoleAssignmentFactory(
+        user=other_actor,
+        role=RoleFactory(permissions=[permission]),
+    )
+    student = StudentFactory()
+    ScopeGrantFactory(assignment=assignment, student=student)
+    ScopeGrantFactory(assignment=other_assignment, student=student)
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="birth-certificate.pdf",
+        storage_key="local/birth-certificate.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    token = issue_document_download_token(actor=actor, document=document)
+
+    with pytest.raises(DomainError, match="valid|token|actor"):
+        validate_document_download_token(document=document, token=token.token, actor=other_actor)
 
 
 def test_document_access_audits_an_unauthenticated_download_attempt():
@@ -1022,7 +1129,11 @@ def test_verify_document_confirms_a_genuine_code():
     template = DocumentTemplateFactory(kind=DocumentTemplate.TemplateKind.CERTIFICATE)
     generated = compile_generated_document(
         template=template,
-        payload={"student_name": "Ana López", "document_type": "Certificado"},
+        payload={
+            "student_name": "Ana López",
+            "document_type": "Certificado",
+            "folio": "DOC-2026-0001",
+        },
     )
 
     result = verify_document(code=generated.verification_code)
@@ -1030,9 +1141,11 @@ def test_verify_document_confirms_a_genuine_code():
     assert result == {
         "valid": True,
         "document_type": "Certificado",
+        "folio": "DOC-2026-0001",
         "issued_at": DocumentVerificationCode.objects.get(
             code=generated.verification_code
         ).issued_at,
+        "vigencia": "vigente",
     }
 
 

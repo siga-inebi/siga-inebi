@@ -2,15 +2,21 @@ from datetime import date, timedelta
 
 import pytest
 from django.core.cache import cache
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.urls import reverse
 
 from apps.academics.models import CurriculumPlan
 from apps.academics.services import close_academic_cycle
 from apps.audit.models import AuditEvent
 from apps.documents.field_catalog import FIELD_TAG_CODES
-from apps.documents.models import DocumentTemplate
-from apps.documents.services import compile_generated_document
+from apps.documents.models import DocumentRecord, DocumentTemplate
+from apps.documents.services import (
+    compile_generated_document,
+    issue_document_download_token,
+)
 from apps.enrolments.services import create_enrolment, set_document_requirement
 from apps.evaluation.services import (
     close_evaluation_unit,
@@ -87,6 +93,36 @@ def test_document_template_response_includes_institutional_header(auth_client, i
     assert header["logo_url"] is None
 
 
+@override_settings(
+    DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES=200,
+    DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES=50,
+)
+def test_storage_consumption_endpoint_reports_operational_capacity_warning(auth_client):
+    student = StudentFactory()
+    DocumentRecord.objects.create(
+        student=student,
+        filename="heavy.pdf",
+        storage_key="local/heavy.pdf",
+        content_type="application/pdf",
+        size_bytes=60,
+        checksum="heavy",
+    )
+
+    response = auth_client.get(reverse("document-storage-consumption"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_bytes"] == 60
+    assert body["projected_growth_bytes_per_cycle"] == 200
+    assert body["projected_total_bytes"] == 260
+    assert body["warning_threshold_bytes"] == 50
+    assert body["warning_active"] is True
+    assert body["warning_level"] == "warning"
+    assert body["threshold_utilization_ratio"] == 1.2
+    assert body["threshold_utilization_percent"] == 120.0
+    assert body["by_content_type"]
+
+
 def test_document_delivery_receipt_can_be_created(auth_client):
     student = StudentFactory()
     guardian = GuardianFactory()
@@ -109,6 +145,36 @@ def test_document_delivery_receipt_can_be_created(auth_client):
     assert body["document_type"] == "Certificado"
     assert body["student_id"] == str(student.public_id)
     assert body["guardian_id"] == str(guardian.public_id)
+
+
+def test_secure_document_download_uses_signed_token_and_serves_the_file(client):
+    user = UserFactory()
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    student = StudentFactory()
+    ScopeGrantFactory(assignment=assignment, student=student)
+    payload = b"secure content"
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="secure-document.pdf",
+        storage_key="local/secure-document.pdf",
+        content_type="application/pdf",
+        size_bytes=len(payload),
+        checksum=__import__("hashlib").sha256(payload).hexdigest(),
+    )
+    default_storage.save(document.storage_key, ContentFile(payload))
+
+    client.force_login(user)
+    token = issue_document_download_token(actor=user, document=document)
+
+    response = client.get(
+        reverse("document-record-download", args=[document.public_id]),
+        {"token": token.token},
+    )
+
+    assert response.status_code == 200
+    assert response.content == payload
+    assert 'attachment; filename="secure-document.pdf"' in response.headers["Content-Disposition"]
 
 
 def test_document_template_header_ignores_submitted_value_on_create(auth_client, institution):
@@ -591,7 +657,8 @@ def test_document_verification_is_public_and_confirms_a_genuine_code(client):
     """RF-EMI-009: no authentication required, per the issue's own acceptance criteria."""
     template = DocumentTemplateFactory()
     generated = compile_generated_document(
-        template=template, payload={"document_type": "Certificado"}
+        template=template,
+        payload={"document_type": "Certificado", "folio": "DOC-2026-0001"},
     )
 
     response = client.get(reverse("document-verify", args=[generated.verification_code]))
@@ -600,7 +667,9 @@ def test_document_verification_is_public_and_confirms_a_genuine_code(client):
     assert response.json() == {
         "valid": True,
         "document_type": "Certificado",
+        "folio": "DOC-2026-0001",
         "issued_at": generated.issued_at,
+        "vigencia": "vigente",
     }
 
 

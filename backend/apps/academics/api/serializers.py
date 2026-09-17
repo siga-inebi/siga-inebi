@@ -78,6 +78,14 @@ class AcademicCycleCloneSerializer(AcademicCycleCreateSerializer):
     include_teaching_assignments = serializers.BooleanField(required=False, default=False)
 
 
+class AcademicCycleReopenSerializer(serializers.Serializer):
+    """RF-CIC-005: el motivo se valida en el servicio, no aqui, igual que
+    ``grant_capture_exception`` en evaluation — así el mensaje de rechazo
+    queda en espanol sin depender de los mensajes por defecto de DRF."""
+
+    reason = serializers.CharField(max_length=500, allow_blank=True)
+
+
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a catalogue node
 # --------------------------------------------------------------------------- #
@@ -424,6 +432,9 @@ class SectionSerializer(serializers.ModelSerializer):
     )
     grade = GradeRefSerializer(source="offering.grade", read_only=True)
     shift = ShiftRefSerializer(source="offering.shift", read_only=True)
+    default_classroom_id = serializers.UUIDField(
+        source="default_classroom.public_id", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = Section
@@ -435,6 +446,7 @@ class SectionSerializer(serializers.ModelSerializer):
             "academic_cycle_id",
             "grade",
             "shift",
+            "default_classroom_id",
         ]
 
 
@@ -449,11 +461,19 @@ class SectionCreateSerializer(serializers.Serializer):
         default=0,
         help_text="Cupo maximo declarado. 0 significa sin limite.",
     )
+    default_classroom_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Opcional. Public ID del aula habitual de la seccion (RF-AUL-002); "
+            "debe pertenecer a la misma sede que la jornada."
+        ),
+    )
 
 
 class SectionUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=50, required=False)
     capacity = serializers.IntegerField(min_value=0, required=False)
+    default_classroom_id = serializers.UUIDField(required=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -481,6 +501,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
             "schedule_block",
             "teacher_id",
             "classroom_id",
+            "starts_on",
         ]
 
     def get_teacher_id(self, obj):
@@ -496,6 +517,25 @@ class ClassSessionCreateSerializer(serializers.Serializer):
         choices=ClassSession.Weekday.choices, help_text="Dia ISO: 1=lunes .. 7=domingo."
     )
     classroom_id = serializers.UUIDField(required=False, allow_null=True)
+    starts_on = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Opcional. Fecha desde la que la sesion es vigente (RF-HOR-008), para "
+            "reestructuraciones a mitad de ciclo. Por omision, el inicio del ciclo."
+        ),
+    )
+
+
+class WeeklyLoadRowSerializer(serializers.Serializer):
+    """RF-HOR-007: declared weekly hours vs. periods actually scheduled for
+    one subject in a section. Backed by a plain dict from
+    ``queries.weekly_load_report``, not a model."""
+
+    subject = SubjectRefSerializer()
+    declared_weekly_hours = serializers.IntegerField(allow_null=True)
+    scheduled_periods = serializers.IntegerField()
+    matches = serializers.BooleanField(allow_null=True)
 
 
 # --------------------------------------------------------------------------- #

@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     DocumentBatchCompileView,
     DocumentDeliveryReceiptCreateView,
+    DocumentRecordDownloadView,
     DocumentRecordIntegrityVerifyView,
     DocumentRecordUploadView,
     DocumentRecordVersionCreateView,
@@ -50,6 +51,11 @@ urlpatterns = [
         "records/<uuid:public_id>/versions/",
         DocumentRecordVersionCreateView.as_view(),
         name="document-record-version-create",
+    ),
+    path(
+        "records/<uuid:public_id>/download/",
+        DocumentRecordDownloadView.as_view(),
+        name="document-record-download",
     ),
     path(
         "records/<uuid:public_id>/verify/",
