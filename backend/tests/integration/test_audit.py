@@ -4,12 +4,25 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.academics.models import CurriculumPlan
+from apps.academics.queries import latest_frozen_subject_result
+from apps.academics.services import close_academic_cycle, correct_frozen_subject_result
 from apps.audit.models import AuditEvent
-from apps.audit.services import record_event
+from apps.audit.services import get_result_trace, record_event
 from apps.common.exceptions import AuthorizationError
 from apps.enrolments.services import change_section, create_enrolment
+from apps.evaluation.services import (
+    close_evaluation_unit,
+    create_evaluation_unit,
+    register_unit_grade,
+)
 from apps.identity.services import assign_role, authenticate_account, disable_account
-from tests.factories.academic import CampusFactory, SectionFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    CampusFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.attendance import JornadaParametersFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -18,6 +31,7 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -304,3 +318,64 @@ def test_denied_operation_can_be_audited():
         context={"reason": "missing_permission"},
     )
     assert denied_event.action.endswith("denied")
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_result_trace_crosses_evaluation_academics_and_enrolments_after_a_correction():
+    """
+    RF-RES-009: get_result_trace (audit) surfaces a post-freeze correction
+    made in academics (RF-RES-007), itself derived from a grade registered
+    in evaluation for an enrolment -- one flow across three domains, ending
+    in a sensitive-read audit event naming the student.
+    """
+    cycle = AcademicCycleFactory(status="active")
+    today = timezone.localdate()
+    unit = create_evaluation_unit(
+        academic_cycle=cycle,
+        number=1,
+        name="Unidad 1",
+        starts_on=cycle.starts_on,
+        ends_on=cycle.starts_on + timedelta(days=30),
+        capture_starts_on=today - timedelta(days=5),
+        capture_ends_on=today + timedelta(days=5),
+    )
+    section = SectionFactory(academic_cycle=cycle)
+    enrolment = create_enrolment(
+        student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+    )
+    subject = SubjectFactory(institution=cycle.institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=55,
+    )
+    close_evaluation_unit(unit)
+    close_academic_cycle(cycle=cycle)
+    frozen = latest_frozen_subject_result(enrolment=enrolment, subject=subject)
+    corrector = UserFactory()
+    correct_frozen_subject_result(
+        frozen_result=frozen,
+        final_grade=75,
+        reason="Se transcribio mal la nota",
+        actor=corrector,
+    )
+
+    viewer = UserFactory()
+    trace = get_result_trace(enrolment=enrolment, subject=subject, actor=viewer)
+
+    assert trace["unit_grades"] == [{"unit_number": 1, "unit_name": "Unidad 1", "value": 55}]
+    correction = trace["corrections"][0]
+    assert correction["stage"] == "post_freeze"
+    assert correction["previous_value"] == 55
+    assert correction["new_value"] == 75
+    assert correction["reason"] == "Se transcribio mal la nota"
+    assert correction["corrected_by"] == corrector.username
+
+    sensitive_read = AuditEvent.objects.get(action="audit.result_trace.viewed")
+    assert sensitive_read.actor_id == viewer.id
+    assert sensitive_read.context["student_id"] == enrolment.student.pk

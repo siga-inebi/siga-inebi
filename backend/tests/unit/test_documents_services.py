@@ -6,6 +6,7 @@ import pytest
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, CurriculumPlan
 from apps.academics.services import close_academic_cycle
@@ -1206,9 +1207,133 @@ def test_closed_cycle_history_report_is_generated_without_altering_historical_da
     assert b"Boleta" in report.content
     assert b"Matem\xc3\xa1tica" in report.content
     assert b"80" in report.content
+    assert b"Aprobado" in report.content
+    assert b"Promovido" in report.content
     assert get_final_subject_grade(enrolment, subject)["final_grade"] == 80
     assert cycle.status == AcademicCycle.CycleStatus.CLOSED
     assert DocumentRecord.objects.filter(storage_key=report.storage_key).count() == 0
+
+
+class TestHistoricalCycleReportContent:
+    """
+    Tests for RF-RES-008: Boleta de calificaciones (issue #262).
+
+    Escenario unico: boleta de un ciclo cerrado incluye notas por unidad,
+    nota final, condicion por subarea y condicion de promocion.
+    """
+
+    def _closed_cycle_with_two_units_per_subject(self, unit_values):
+        """
+        A closed cycle with one enrolment, one subarea with TWO evaluation
+        units graded with ``unit_values`` (average is what becomes the final
+        grade). Exists to prove the historical bug is fixed: the boleta must
+        print the subarea's unit grades and final grade once each, never one
+        final-grade line per unit.
+        """
+        cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        subject = SubjectFactory(institution=cycle.institution, name="Ciencias")
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        today = timezone.localdate()
+        for index, value in enumerate(unit_values, start=1):
+            unit = create_evaluation_unit(
+                academic_cycle=cycle,
+                number=index,
+                name=f"Unidad {index}",
+                # Periodos de evaluacion no solapados (constraint de BD), cada
+                # uno con su propia ventana de captura abierta hoy.
+                starts_on=cycle.starts_on + timedelta(days=(index - 1) * 40),
+                ends_on=cycle.starts_on + timedelta(days=(index - 1) * 40 + 30),
+                capture_starts_on=today - timedelta(days=5),
+                capture_ends_on=today + timedelta(days=5),
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=value,
+            )
+            close_evaluation_unit(unit)
+        close_academic_cycle(cycle=cycle)
+        return enrolment, subject
+
+    def test_boleta_prints_each_unit_grade_once_and_the_final_grade_once(self):
+        enrolment, subject = self._closed_cycle_with_two_units_per_subject([90, 70])
+
+        report = compile_historical_cycle_report(enrolment=enrolment)
+        text = report.content
+
+        assert text.count(b"Unidad 1: 90") == 1
+        assert text.count(b"Unidad 2: 70") == 1
+        # Promedio (90+70)/2 = 80, redondeado -- una sola vez, no una por unidad.
+        assert text.count(b"Nota final: 80") == 1
+        assert b"Aprobado" in text
+        assert b"Promovido" in text
+
+    def test_boleta_shows_failed_condition_and_not_promoted(self):
+        enrolment, subject = self._closed_cycle_with_two_units_per_subject([40, 50])
+
+        report = compile_historical_cycle_report(enrolment=enrolment)
+        text = report.content
+
+        assert b"Nota final: 45" in text
+        assert b"Reprobado" in text
+        assert b"No promovido" in text
+
+    def test_boleta_reads_the_frozen_result_not_a_live_recalculation(self):
+        """
+        RF-RES-007 + RF-RES-008: once closed and frozen, deactivating the
+        subject's curriculum plan (a structural change) must not change what
+        the boleta prints -- it reads FrozenSubjectResult, not a live
+        get_final_subject_grade.
+        """
+        enrolment, subject = self._closed_cycle_with_two_units_per_subject([90, 70])
+        CurriculumPlan.objects.filter(
+            academic_cycle=enrolment.academic_cycle, subject=subject
+        ).update(is_active=False)
+
+        report = compile_historical_cycle_report(enrolment=enrolment)
+
+        # La subarea sigue apareciendo con su nota congelada, aunque el plan
+        # ya no la liste como activa.
+        assert b"Ciencias" in report.content
+        assert b"Nota final: 80" in report.content
+
+    def test_boleta_falls_back_to_live_computation_without_a_frozen_row(self):
+        """
+        Backward-compatibility path: a cycle closed before RF-RES-007 shipped
+        (no FrozenSubjectResult/FrozenPromotionResult row) still produces a
+        correct boleta from a live recalculation.
+        """
+        cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+        section = SectionFactory(academic_cycle=cycle)
+        # Enrolment created directly (not via create_enrolment): the service
+        # itself rejects writes against an already-closed cycle, but this is
+        # simulating a cycle that was already closed *before* the enrolment
+        # existed, historically -- not a write happening now.
+        enrolment = Enrolment.objects.create(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        subject = SubjectFactory(institution=cycle.institution, name="Historia")
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        # No FrozenSubjectResult exists for this enrolment: the cycle above
+        # was force-created as CLOSED, bypassing close_academic_cycle.
+
+        report = compile_historical_cycle_report(enrolment=enrolment)
+
+        assert b"Historia" in report.content
+        assert b"Sin calificar" in report.content
+        assert b"No promovido" in report.content
 
 
 def test_document_batch_for_section_generates_one_in_memory_report_per_enrolment():

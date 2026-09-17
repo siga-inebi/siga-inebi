@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 import pytest
 from django.core.cache import cache
 from django.core.files.base import ContentFile
@@ -6,6 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 
+from apps.academics.models import CurriculumPlan
 from apps.academics.services import close_academic_cycle
 from apps.audit.models import AuditEvent
 from apps.documents.field_catalog import FIELD_TAG_CODES
@@ -15,7 +18,12 @@ from apps.documents.services import (
     issue_document_download_token,
 )
 from apps.enrolments.services import create_enrolment, set_document_requirement
-from tests.factories.academic import SectionFactory
+from apps.evaluation.services import (
+    close_evaluation_unit,
+    create_evaluation_unit,
+    register_unit_grade,
+)
+from tests.factories.academic import SectionFactory, SubjectFactory
 from tests.factories.documents import DocumentTemplateFactory, DocumentTemplateVersionFactory
 from tests.factories.identity import (
     PermissionFactory,
@@ -24,6 +32,7 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
+from tests.factories.people import PersonFactory
 from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
@@ -513,6 +522,49 @@ def test_historical_cycle_report_is_generated_for_a_closed_cycle(auth_client):
     assert response.status_code == 200
     assert response["Content-Type"] == "application/pdf"
     assert b"Boleta" in response.content
+
+
+def test_historical_cycle_report_includes_unit_grades_condition_and_promotion(auth_client):
+    """RF-RES-008: boleta de un ciclo cerrado incluye notas por unidad, nota
+    final, condicion por subarea y condicion de promocion."""
+    today = date.today()
+    section = SectionFactory()
+    cycle = section.academic_cycle
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    subject = SubjectFactory(institution=cycle.institution, name="Matematica")
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+    unit = create_evaluation_unit(
+        academic_cycle=cycle,
+        number=1,
+        name="Unidad 1",
+        starts_on=cycle.starts_on,
+        ends_on=cycle.starts_on + timedelta(days=30),
+        capture_starts_on=today - timedelta(days=5),
+        capture_ends_on=today + timedelta(days=5),
+    )
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=65,
+    )
+    close_evaluation_unit(unit)
+    close_academic_cycle(cycle=cycle)
+    _grant_document_issue(auth_client.user)
+
+    response = _historical_cycle_report(auth_client, enrolment.public_id)
+
+    assert response.status_code == 200
+    assert b"Unidad 1: 65" in response.content
+    assert b"Nota final: 65" in response.content
+    assert b"Aprobado" in response.content
+    assert b"Promovido" in response.content
 
 
 def test_historical_cycle_report_rejects_an_open_cycle(auth_client):

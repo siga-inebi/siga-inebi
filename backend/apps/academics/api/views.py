@@ -23,7 +23,8 @@ from rest_framework.response import Response
 
 from apps.academics import queries, services
 from apps.common.api.caching import CacheableListMixin
-from apps.common.exceptions import AuthorizationError, DomainError
+from apps.common.exceptions import AuthorizationError, DomainError, ResourceNotFoundError
+from apps.evaluation import queries as evaluation_queries
 from apps.teachers import queries as teacher_queries
 
 from .serializers import (
@@ -47,6 +48,9 @@ from .serializers import (
     CurriculumPlanCreateSerializer,
     CurriculumPlanSerializer,
     CurriculumPlanUpdateSerializer,
+    FrozenPromotionResultSerializer,
+    FrozenSubjectResultCorrectionSerializer,
+    FrozenSubjectResultSerializer,
     GradeCreateSerializer,
     GradeSerializer,
     GradeUpdateSerializer,
@@ -1443,6 +1447,138 @@ class AcademicCycleDefaultsView(CatalogueView):
 
         latest = queries.latest_cycle_year(self.institution)
         return latest + 1 if latest else timezone.localdate().year
+
+
+class FrozenSubjectResultView(GenericAPIView):
+    """
+    Current frozen result of one subarea for a closed cycle (RF-RES-007).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/subjects/{subject_id}/frozen-result/
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FrozenSubjectResultSerializer
+
+    @extend_schema(
+        summary="Consultar el resultado congelado de una subarea",
+        description=(
+            "Valor definitivo fijado al cerrar el ciclo (RF-RES-007). No se recalcula: "
+            "cambios posteriores en configuracion de evaluacion o estructura academica "
+            "no lo alteran."
+        ),
+        responses={200: FrozenSubjectResultSerializer},
+        tags=["academics: cycles"],
+    )
+    def get(self, request, cycle_public_id, enrolment_id, subject_id):
+        enrolment, subject = _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id)
+        result = queries.latest_frozen_subject_result(enrolment=enrolment, subject=subject)
+        if result is None:
+            raise ResourceNotFoundError(
+                "El ciclo aun no tiene un resultado congelado para esta subarea."
+            )
+        return Response(FrozenSubjectResultSerializer(result).data)
+
+
+class FrozenSubjectResultCorrectionView(GenericAPIView):
+    """
+    Correct a subarea's frozen result via the exceptional academic-authorization
+    gap (RF-RES-007, Escenario 2).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    POST {base}/enrolments/{enrolment_id}/subjects/{subject_id}/frozen-result/correct/
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FrozenSubjectResultCorrectionSerializer
+
+    @extend_schema(
+        summary="Corregir el resultado congelado de una subarea",
+        description=(
+            "Exige el permiso atomico grade.correct y un motivo obligatorio. No "
+            "reemplaza el resultado congelado anterior: lo conserva y agrega uno "
+            "nuevo con la traza del cambio."
+        ),
+        request=FrozenSubjectResultCorrectionSerializer,
+        responses={201: FrozenSubjectResultSerializer},
+        tags=["academics: cycles"],
+    )
+    def post(self, request, cycle_public_id, enrolment_id, subject_id):
+        if not request.user.has_atomic_permission("grade_correct"):
+            raise AuthorizationError("Actor lacks the required permission.")
+
+        enrolment, subject = _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id)
+        current = queries.latest_frozen_subject_result(enrolment=enrolment, subject=subject)
+        if current is None:
+            raise ResourceNotFoundError(
+                "El ciclo aun no tiene un resultado congelado para esta subarea."
+            )
+
+        payload = self.validated(FrozenSubjectResultCorrectionSerializer, request)
+        corrected = services.correct_frozen_subject_result(
+            frozen_result=current,
+            final_grade=payload["final_grade"],
+            reason=payload["reason"],
+            actor=request.user,
+        )
+        return Response(
+            FrozenSubjectResultSerializer(corrected).data, status=status.HTTP_201_CREATED
+        )
+
+    def validated(self, serializer_class, request):
+        serializer = serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+
+class FrozenPromotionResultView(GenericAPIView):
+    """
+    Current frozen promotion outcome of an enrolment for a closed cycle (RF-RES-007).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/frozen-promotion/
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FrozenPromotionResultSerializer
+
+    @extend_schema(
+        summary="Consultar la condicion de promocion congelada",
+        responses={200: FrozenPromotionResultSerializer},
+        tags=["academics: cycles"],
+    )
+    def get(self, request, cycle_public_id, enrolment_id):
+        enrolment = evaluation_queries.enrolment_or_none(
+            cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
+        )
+        if enrolment is None:
+            raise ResourceNotFoundError("Enrolment not found.")
+        result = queries.latest_frozen_promotion_result(enrolment=enrolment)
+        if result is None:
+            raise ResourceNotFoundError(
+                "El ciclo aun no tiene una condicion de promocion congelada."
+            )
+        return Response(FrozenPromotionResultSerializer(result).data)
+
+
+def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
+    """Same resolution evaluation's equivalent endpoints use (RF-RES-001/004/005):
+    the enrolment must belong to the cycle in the URL, the subject just needs
+    to exist and be active."""
+    enrolment = evaluation_queries.enrolment_or_none(
+        cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
+    )
+    if enrolment is None:
+        raise ResourceNotFoundError("Enrolment not found.")
+
+    subject = evaluation_queries.subject_or_none(subject_id)
+    if subject is None:
+        raise ResourceNotFoundError("Subject not found.")
+
+    return enrolment, subject
 
 
 # --------------------------------------------------------------------------- #

@@ -1,9 +1,11 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
+from apps.academics.models import CurriculumPlan
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 from apps.enrolments.services import (
@@ -12,13 +14,15 @@ from apps.enrolments.services import (
     record_student_movement,
     withdraw_student,
 )
-from tests.factories.academic import AcademicCycleFactory, SectionFactory
+from apps.evaluation.services import create_evaluation_unit, register_unit_grade
+from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
     RoleFactory,
     ScopeGrantFactory,
 )
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
@@ -788,3 +792,77 @@ def test_movement_history_exposes_annulment_without_removing_original(auth_clien
     result = response.json()["results"][0]
     assert result["public_id"] == str(movement.public_id)
     assert result["annulment"]["reason"] == "Anulacion confirmada"
+
+
+def _cycle_with_graded_plan(grades):
+    """Enrolment whose plan has one subarea per value in ``grades``, each
+    graded with that value in a single evaluation unit."""
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    today = timezone.localdate()
+    unit = create_evaluation_unit(
+        academic_cycle=cycle,
+        number=1,
+        name="Unit 1",
+        starts_on=today,
+        ends_on=today + timedelta(days=60),
+        capture_starts_on=today - timedelta(days=5),
+        capture_ends_on=today + timedelta(days=5),
+    )
+    for value in grades:
+        subject = SubjectFactory(institution=cycle.institution)
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=PersonFactory(),
+            value=value,
+        )
+    return enrolment
+
+
+def test_promotion_endpoint_declares_not_promoted_with_a_failed_subject(auth_client):
+    enrolment = _cycle_with_graded_plan([95, 55])
+
+    response = auth_client.get(reverse("enrolment-promotion", args=[enrolment.public_id]))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["promoted"] is False
+    assert body["condition"] == "not_promoted"
+    assert body["total_subjects"] == 2
+
+
+def test_promotion_endpoint_declares_promoted_when_all_subjects_pass(auth_client):
+    enrolment = _cycle_with_graded_plan([60, 75])
+
+    response = auth_client.get(reverse("enrolment-promotion", args=[enrolment.public_id]))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["promoted"] is True
+    assert body["condition"] == "promoted"
+    assert body["failed_subjects"] == []
+
+
+def test_promotion_endpoint_requires_authentication(client):
+    enrolment = _cycle_with_graded_plan([80])
+
+    response = client.get(reverse("enrolment-promotion", args=[enrolment.public_id]))
+
+    assert response.status_code in (401, 403)
+
+
+def test_promotion_endpoint_returns_404_for_unknown_enrolment(auth_client):
+    response = auth_client.get(
+        reverse("enrolment-promotion", args=["00000000-0000-0000-0000-000000000000"])
+    )
+
+    assert response.status_code == 404

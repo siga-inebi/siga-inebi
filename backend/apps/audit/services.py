@@ -159,6 +159,135 @@ def record_sensitive_read(*, actor, action, resource, resource_identifier, stude
     )
 
 
+def get_result_trace(*, enrolment, subject, actor):
+    """
+    Full audit trace behind one subarea's final grade (RF-RES-009): the unit
+    grades that produced it, every correction applied with reason and
+    author, and the recovery grade when one exists.
+
+    Two independent correction trails already exist in the codebase and both
+    are surfaced here (the issue's own wording, "las correcciones
+    aplicadas", is generic, not scoped to one mechanism):
+
+    - ``stage="live"``: a unit grade corrected while the cycle was still
+      open (RF-CAL-005, ``register_unit_grade`` overwriting an existing
+      ``Grade``), read from its ``evaluation.grade_updated`` audit event's
+      ``changes.value`` diff. No reason is collected for this path today
+      (RF-CAL-005 does not require one), so ``reason`` is always ``None``
+      here.
+    - ``stage="post_freeze"``: a frozen result corrected via the exceptional
+      academic-authorization gap after the cycle closed (RF-RES-007,
+      ``correct_frozen_subject_result``), read from
+      ``FrozenSubjectResult`` rows marked ``is_correction`` plus their
+      ``academics.frozen_subject_result.corrected`` audit event.
+
+    Cross-domain read: audit-compliance is documented in domain-map.md as
+    transversal to every other domain, so importing ``apps.academics`` and
+    ``apps.evaluation`` here needs no exception note (unlike the crossings
+    RF-RES-006/007/008 had to document).
+
+    This is itself an audited sensitive read (RF-BIT-003): it names one
+    identified student, so calling it records that fact regardless of what
+    it finds. Authorization (``audit.read``, respecting role and scope per
+    the issue's own security note) is enforced by the caller (view layer),
+    same convention as every other service in this codebase.
+    """
+    from apps.academics import queries as academics_queries
+    from apps.evaluation.models import Grade, RecoveryGrade
+
+    unit_grades_qs = list(
+        Grade.objects.filter(enrolment=enrolment, subject=subject)
+        .select_related("evaluation_unit")
+        .order_by("evaluation_unit__number")
+    )
+    unit_grades = [
+        {
+            "unit_number": grade.evaluation_unit.number,
+            "unit_name": grade.evaluation_unit.name,
+            "value": grade.value,
+        }
+        for grade in unit_grades_qs
+    ]
+
+    corrections = []
+    unit_by_grade_id = {str(grade.pk): grade for grade in unit_grades_qs}
+    if unit_by_grade_id:
+        live_events = AuditEvent.objects.filter(
+            action="evaluation.grade_updated",
+            resource="Grade",
+            resource_identifier__in=list(unit_by_grade_id),
+        )
+        for event in live_events:
+            value_change = (event.context.get("changes") or {}).get("value")
+            if not value_change:
+                continue
+            grade = unit_by_grade_id[event.resource_identifier]
+            corrections.append(
+                {
+                    "stage": "live",
+                    "unit_number": grade.evaluation_unit.number,
+                    "previous_value": value_change.get("before"),
+                    "new_value": value_change.get("after"),
+                    "reason": None,
+                    "corrected_by": event.actor_label or None,
+                    "corrected_at": event.created_at,
+                }
+            )
+
+    frozen_history = academics_queries.frozen_subject_result_history(
+        enrolment=enrolment, subject=subject
+    )
+    for row in frozen_history:
+        if not row.is_correction:
+            continue
+        event = (
+            AuditEvent.objects.filter(
+                action="academics.frozen_subject_result.corrected",
+                resource="FrozenSubjectResult",
+                resource_identifier=str(row.pk),
+            )
+            .order_by("created_at")
+            .first()
+        )
+        final_grade_change = (
+            (event.context.get("changes") or {}).get("final_grade") if event else None
+        ) or {}
+        corrections.append(
+            {
+                "stage": "post_freeze",
+                "unit_number": None,
+                "previous_value": final_grade_change.get("before"),
+                "new_value": row.final_grade,
+                "reason": row.correction_reason,
+                "corrected_by": event.actor_label if event else None,
+                "corrected_at": row.created_at,
+            }
+        )
+    corrections.sort(key=lambda item: item["corrected_at"])
+
+    recovery = (
+        RecoveryGrade.objects.filter(enrolment=enrolment, subject=subject, is_active=True)
+        .order_by("-created_at")
+        .first()
+    )
+
+    record_sensitive_read(
+        actor=actor,
+        action="audit.result_trace.viewed",
+        resource="ResultTrace",
+        resource_identifier=f"{enrolment.public_id}:{subject.public_id}",
+        student=enrolment.student,
+    )
+
+    return {
+        "enrolment_id": str(enrolment.public_id),
+        "subject_id": str(subject.public_id),
+        "unit_grades": unit_grades,
+        "recovery_grade": recovery.value if recovery is not None else None,
+        "corrections": corrections,
+    }
+
+
 def diff_fields(instance, **candidates):
     """
     Before/after map for ``record_event(changes=...)``. Same ``None`` means

@@ -10,6 +10,8 @@ from apps.academics.models import (
     ClassSchedulePublication,
     ClassSession,
     CurriculumPlan,
+    FrozenPromotionResult,
+    FrozenSubjectResult,
     Grade,
     GradeOffering,
     Institution,
@@ -400,6 +402,34 @@ def _get_payload(queryset, public_id, label):
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
         raise DomainError(f"No se encontro {label}.") from exc
+
+
+def frozen_subject_result_history(*, enrolment, subject):
+    """Every frozen row for this subarea, most recent first (RF-RES-007/009)."""
+    return FrozenSubjectResult.objects.filter(enrolment=enrolment, subject=subject)
+
+
+def latest_frozen_subject_result(*, enrolment, subject):
+    """The current, authoritative frozen value for this subarea, or ``None``
+    if the cycle was never frozen for this enrolment/subject."""
+    return frozen_subject_result_history(enrolment=enrolment, subject=subject).first()
+
+
+def frozen_subject_results_for_enrolment(*, enrolment):
+    """Every frozen subarea row for this enrolment (any cycle), most recent
+    version of each subarea first -- used to build a boleta (RF-RES-008)."""
+    return FrozenSubjectResult.objects.filter(enrolment=enrolment).select_related("subject")
+
+
+def frozen_promotion_result_history(*, enrolment):
+    """Every frozen promotion row for this enrolment, most recent first."""
+    return FrozenPromotionResult.objects.filter(enrolment=enrolment)
+
+
+def latest_frozen_promotion_result(*, enrolment):
+    """The current, authoritative frozen promotion outcome, or ``None`` if
+    the cycle was never frozen for this enrolment."""
+    return frozen_promotion_result_history(enrolment=enrolment).first()
 
 
 def class_schedule_publication(academic_cycle):

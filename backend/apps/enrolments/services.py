@@ -14,6 +14,12 @@ from apps.enrolments.models import (
     StudentMovement,
     StudentMovementAnnulment,
 )
+from apps.evaluation import queries as evaluation_queries
+from apps.evaluation.services import get_final_subject_grade
+
+# Subarea conditions that count as passing for RF-RES-006. Anything else
+# ("failed", or None for a subarea never graded) blocks promotion.
+_PASSING_SUBJECT_CONDITIONS = {"approved", "approved_by_recovery"}
 
 # Las dos unicas formas en que una matricula es un duplicado (ver los
 # constraints del modelo). El mensaje se lee en la pantalla de matricula, asi que
@@ -376,6 +382,64 @@ def enrolment_history(*, student):
         .select_related("student", "academic_cycle", "grade", "section")
         .order_by("-effective_on", "-created_at", "-pk")
     )
+
+
+def determine_promotion(enrolment: Enrolment) -> dict:
+    """
+    Determine whether a student is promoted to the next grade (RF-RES-006).
+
+    The rule is strict per subarea: every subarea in the grade's curriculum
+    plan for the cycle must be ``approved`` or ``approved_by_recovery``
+    (``get_final_subject_grade``'s own ``condition``, RF-RES-003/RF-RES-005 --
+    never a value recomputed here). A single failed subarea blocks promotion
+    no matter how high the overall average is; the openspec explicitly
+    forbids a general-average path, so this never touches an average.
+    A subarea with no grade yet counts the same as failed: incomplete data
+    cannot support a promotion decision.
+
+    Cross-domain call: ``enrollment-lifecycle`` is listed in domain-map.md as
+    a dependency *of* ``academic-evaluation``, not the other way around, so
+    this call runs against that stated direction. It is a call to
+    evaluation's own public service functions (``get_final_subject_grade``,
+    ``queries.curriculum_subjects``), not a join across its internal tables,
+    which "Fronteras recomendadas" in domain-map.md permits; RF-RES-004
+    already set this precedent by having ``academic-evaluation`` call
+    ``attendance-capture`` the same way (AGENTS.md #13).
+
+    Scope decision (confirmed 2026-09-08): applies to every enrolment, with
+    no filter by educational level. RF-RES-006's source wording names "nivel
+    medio", but ``academics.Level`` has no field distinguishing it from other
+    levels today, and introducing one is outside this RF's declared scope
+    (AGENTS.md #2). Revisit if the institution actually operates levels this
+    rule should not apply to.
+
+    This only determines the condition -- it never creates the next cycle's
+    enrolment or changes this one's ``status``. That transition belongs to
+    RF-MOV-006 (issue #238, ``enrollment-lifecycle`` but a different issue,
+    not implemented here).
+
+    Returns:
+        dict with ``enrolment_id``, ``promoted`` (bool), ``condition``
+        (``"promoted"`` / ``"not_promoted"``), ``failed_subjects`` (subarea
+        names blocking promotion, empty when promoted) and ``total_subjects``.
+    """
+    subjects = list(
+        evaluation_queries.curriculum_subjects(enrolment.academic_cycle, enrolment.grade)
+    )
+    failed_subjects = [
+        subject.name
+        for subject in subjects
+        if get_final_subject_grade(enrolment, subject)["condition"]
+        not in _PASSING_SUBJECT_CONDITIONS
+    ]
+    promoted = not failed_subjects
+    return {
+        "enrolment_id": str(enrolment.public_id),
+        "promoted": promoted,
+        "condition": "promoted" if promoted else "not_promoted",
+        "failed_subjects": failed_subjects,
+        "total_subjects": len(subjects),
+    }
 
 
 @transaction.atomic

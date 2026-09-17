@@ -28,6 +28,9 @@ from .views import (
     ClassSessionDetailView,
     CurriculumPlanDetailView,
     CurriculumPlanListCreateView,
+    FrozenPromotionResultView,
+    FrozenSubjectResultCorrectionView,
+    FrozenSubjectResultView,
     GradeDetailView,
     HistoricalAcademicCycleDetailView,
     LevelDetailView,
@@ -122,6 +125,21 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/recovery-grades/",
         RecoveryGradeCreateView.as_view(),
         name="recovery-grade-create",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/frozen-result/",
+        FrozenSubjectResultView.as_view(),
+        name="frozen-subject-result",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/subjects/<uuid:subject_id>/frozen-result/correct/",
+        FrozenSubjectResultCorrectionView.as_view(),
+        name="frozen-subject-result-correct",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/frozen-promotion/",
+        FrozenPromotionResultView.as_view(),
+        name="frozen-promotion-result",
     ),
     path(
         "cycles/<uuid:public_id>/clone/",

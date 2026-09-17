@@ -1273,8 +1273,52 @@ def compile_document_batch(
     return {"count": len(documents), "documents": documents}
 
 
+_SUBJECT_CONDITION_LABELS = {
+    "approved": "Aprobado",
+    "approved_by_recovery": "Aprobado por recuperacion",
+    "failed": "Reprobado",
+}
+
+
+def _subject_condition_label(condition):
+    return _SUBJECT_CONDITION_LABELS.get(condition or None, "Sin calificar")
+
+
 def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
-    """Compile a transient report card for a closed academic cycle without altering history."""
+    """
+    Compile a transient report card for a closed academic cycle (RF-RES-008),
+    without altering history.
+
+    Reads the FROZEN result of each subarea and the frozen promotion outcome
+    (RF-RES-007, ``apps.academics.{FrozenSubjectResult,FrozenPromotionResult}``)
+    whenever any exist for this enrolment, so the values printed here are
+    guaranteed to be the exact ones the system used to decide each condition
+    -- they can never drift from what ``get_final_subject_grade``/
+    ``determine_promotion`` computed at close time, even if evaluation
+    config or academic structure changes afterward (this is the whole point
+    of freezing, RF-RES-007 Escenario 1). Crucially, the set of subareas
+    printed also comes from the frozen rows, not from a fresh
+    ``curriculum_subjects`` read: deactivating a ``CurriculumPlan`` entry
+    after close must not make its subarea silently vanish from an already
+    -issued boleta. Falls back to a live recomputation over the current
+    curriculum plan only when NO frozen row exists at all for this enrolment
+    -- a cycle closed before this freeze existed: still correct, just
+    without the "never recalculates" guarantee a properly frozen cycle gets.
+
+    Cross-domain read (documented exception, same style as RF-RES-006/007):
+    domain-map.md does not list school-cycle/institutional-structure as a
+    document-generation dependency, but the frozen tables live in
+    ``apps.academics`` per issue #261's own placement; this calls its public
+    ``queries`` module, not its internal tables.
+
+    Public contract note (AGENTS.md #3): this changes what was previously
+    rendered. The prior version iterated ``Grade`` rows directly and
+    repeated a subarea's line once per registered unit (a bug: a 3-unit
+    subarea printed its final grade three times), with no per-unit
+    breakdown, no condition, and no promotion. Callers
+    (``compile_document_batch``, the API view) keep the same return shape;
+    only the rendered content grows.
+    """
     if enrolment is None:
         raise DomainError("Se requiere una matricula para generar la boleta de calificaciones.")
 
@@ -1283,14 +1327,26 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
     if not getattr(cycle, "is_closed", False):
         raise DomainError("La boleta solo puede generarse para un ciclo cerrado.")
 
-    issued_at = issued_at or timezone.now().isoformat()
-    grades = (
-        Grade.objects.filter(enrolment=enrolment)
-        .select_related("subject")
-        .order_by("subject__name")
-    )
-
+    from apps.academics import queries as academics_queries
+    from apps.enrolments.services import determine_promotion
+    from apps.evaluation import queries as evaluation_queries
     from apps.evaluation.services import get_final_subject_grade
+
+    issued_at = issued_at or timezone.now().isoformat()
+
+    # Version mas reciente de cada subarea congelada, si el ciclo llego a
+    # congelarse (RF-RES-007). Meta.ordering de FrozenSubjectResult ya trae
+    # -created_at, -pk primero, asi que la primera fila vista por subject_id
+    # es siempre la vigente.
+    frozen_by_subject = {}
+    for row in academics_queries.frozen_subject_results_for_enrolment(enrolment=enrolment):
+        frozen_by_subject.setdefault(row.subject_id, row)
+    frozen_rows = sorted(frozen_by_subject.values(), key=lambda row: row.subject.name)
+
+    if frozen_rows:
+        subjects = [row.subject for row in frozen_rows]
+    else:
+        subjects = list(evaluation_queries.curriculum_subjects(cycle, enrolment.grade))
 
     _audit(
         actor,
@@ -1299,7 +1355,7 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
         cycle_id=str(cycle.public_id),
         persisted=False,
         issued_at=str(issued_at),
-        subject_count=grades.count(),
+        subject_count=len(subjects),
     )
     verification_code = _record_document_issue(
         actor=actor,
@@ -1314,15 +1370,35 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
         f"Estudiante: {enrolment.student}",
         f"Ciclo: {cycle.name} ({cycle.starts_on} - {cycle.ends_on})",
     ]
-    if grades.exists():
-        for grade in grades:
-            summary = get_final_subject_grade(enrolment, grade.subject)
-            final_grade = summary.get("final_grade")
-            lines.append(
-                f"- {grade.subject.name}: {final_grade if final_grade is not None else 'NC'}"
+    if subjects:
+        for subject in subjects:
+            lines.append(f"Subarea: {subject.name}")
+            unit_grades = (
+                Grade.objects.filter(enrolment=enrolment, subject=subject)
+                .select_related("evaluation_unit")
+                .order_by("evaluation_unit__number")
             )
+            for grade in unit_grades:
+                lines.append(f"  Unidad {grade.evaluation_unit.number}: {grade.value}")
+
+            frozen = frozen_by_subject.get(subject.pk)
+            if frozen is not None:
+                final_grade, condition = frozen.final_grade, frozen.condition or None
+            else:
+                summary = get_final_subject_grade(enrolment, subject)
+                final_grade, condition = summary["final_grade"], summary["condition"]
+            grade_label = final_grade if final_grade is not None else "NC"
+            lines.append(f"  Nota final: {grade_label} ({_subject_condition_label(condition)})")
     else:
         lines.append("- Sin calificaciones registradas.")
+
+    frozen_promotion = academics_queries.latest_frozen_promotion_result(enrolment=enrolment)
+    promoted = (
+        frozen_promotion.promoted
+        if frozen_promotion is not None
+        else determine_promotion(enrolment)["promoted"]
+    )
+    lines.append(f"Condicion de promocion: {'Promovido' if promoted else 'No promovido'}")
     lines.append(f"Codigo de verificacion: {verification_code}")
 
     stream = b""

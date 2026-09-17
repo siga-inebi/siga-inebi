@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import pytest
 from django.utils import timezone
 
+from apps.academics.models import CurriculumPlan
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.models import (
@@ -17,6 +18,7 @@ from apps.enrolments.services import (
     bulk_reenrol_students,
     change_section,
     create_enrolment,
+    determine_promotion,
     enrolment_history,
     matriculate_student,
     record_student_movement,
@@ -27,8 +29,16 @@ from apps.enrolments.services import (
     transfer_student_out,
     withdraw_student,
 )
-from tests.factories.academic import AcademicCycleFactory, GradeFactory, SectionFactory
+from apps.evaluation.models import RecoveryGrade
+from apps.evaluation.services import create_evaluation_unit, register_unit_grade
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    GradeFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.identity import UserFactory
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.unit, pytest.mark.django_db]
@@ -1078,3 +1088,110 @@ def test_student_movement_annulment_is_immutable_by_instance_and_queryset():
         StudentMovementAnnulment.objects.filter(pk=annulment.pk).delete()
     with pytest.raises(RuntimeError, match="no pueden eliminarse"):
         annulment.delete()
+
+
+class TestDeterminePromotion:
+    """Tests for RF-RES-006: Promoción al grado siguiente (issue #260)."""
+
+    def _cycle_with_plan(self, subject_count):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subjects = []
+        for _ in range(subject_count):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            subjects.append(subject)
+        return enrolment, unit, subjects
+
+    def _grade(self, enrolment, unit, subject, value):
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=PersonFactory(),
+            value=value,
+        )
+
+    def test_one_failed_subject_after_recovery_blocks_promotion(self):
+        """
+        Escenario 1: Una subárea reprobada impide la promoción
+        GIVEN un estudiante con promedio general superior a setenta y una
+              subárea con cincuenta y cinco puntos tras la recuperación
+        WHEN se determina su condición final
+        THEN el sistema lo declara no promovido
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(4)
+        # Tres subareas muy altas y una reprobada, para un promedio general
+        # (95+95+95+55)/4 = 85, muy por encima de 70 -- y sin embargo no debe
+        # promover, porque RF-RES-006 prohibe decidir por promedio general.
+        self._grade(enrolment, unit, subjects[0], 95)
+        self._grade(enrolment, unit, subjects[1], 95)
+        self._grade(enrolment, unit, subjects[2], 95)
+        self._grade(enrolment, unit, subjects[3], 50)
+        RecoveryGrade.objects.create(
+            enrolment=enrolment, subject=subjects[3], value=55, original_final_grade=50
+        )
+
+        result = determine_promotion(enrolment)
+
+        assert result["promoted"] is False
+        assert result["condition"] == "not_promoted"
+        assert result["failed_subjects"] == [subjects[3].name]
+        assert result["total_subjects"] == 4
+
+    def test_all_subjects_approved_promotes_to_next_grade(self):
+        """
+        Escenario 2: Todas las subáreas aprobadas
+        GIVEN un estudiante con al menos sesenta puntos en cada subárea
+        WHEN se determina su condición final
+        THEN el sistema lo declara promovido al grado inmediato superior
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(3)
+        for subject in subjects:
+            self._grade(enrolment, unit, subject, 60)
+
+        result = determine_promotion(enrolment)
+
+        assert result["promoted"] is True
+        assert result["condition"] == "promoted"
+        assert result["failed_subjects"] == []
+        assert result["total_subjects"] == 3
+
+    def test_ungraded_subject_counts_as_not_promoted(self):
+        """A subarea with no grade yet cannot support a promotion decision."""
+        enrolment, unit, subjects = self._cycle_with_plan(2)
+        self._grade(enrolment, unit, subjects[0], 80)
+        # subjects[1] never graded.
+
+        result = determine_promotion(enrolment)
+
+        assert result["promoted"] is False
+        assert result["failed_subjects"] == [subjects[1].name]
+
+    def test_promotion_does_not_mutate_the_enrolment(self):
+        """RF-RES-006 only determines the condition; it never changes the enrolment."""
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 40)
+
+        determine_promotion(enrolment)
+
+        enrolment.refresh_from_db()
+        assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE

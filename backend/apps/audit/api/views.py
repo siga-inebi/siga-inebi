@@ -24,12 +24,15 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from apps.audit import services
-from apps.common.exceptions import AuthorizationError
+from apps.common.exceptions import AuthorizationError, ResourceNotFoundError
+from apps.enrolments import queries as enrolment_queries
+from apps.evaluation import queries as evaluation_queries
 
 from .serializers import (
     AuditEventQuerySerializer,
     AuditEventSerializer,
     DataRetentionDeclarationSerializer,
+    ResultTraceSerializer,
 )
 
 AUDIT_READ_PERMISSION = "audit_read"
@@ -149,3 +152,32 @@ class DataRetentionDeclarationView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         services.declare_data_retention(actor=request.user, **serializer.validated_data)
         return Response(serializer.validated_data, status=201)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar la trazabilidad de una nota final",
+        description=(
+            "RF-RES-009: notas de unidad que originaron la nota final de una subarea, "
+            "las correcciones aplicadas (mientras el ciclo estaba abierto o mediante la "
+            "brecha excepcional posterior al cierre) con su motivo y autor, y la nota de "
+            "recuperacion cuando exista. Consulta restringida a usuarios con permiso de "
+            "auditoria; la lectura queda registrada en la bitacora."
+        ),
+        tags=TAGS,
+        responses={200: ResultTraceSerializer},
+    ),
+)
+class ResultTraceView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ResultTraceSerializer
+
+    def get(self, request, enrolment_id, subject_id):
+        _require_permission(request, AUDIT_READ_PERMISSION)
+        enrolment = enrolment_queries.enrolment_or_404(enrolment_id)
+        subject = evaluation_queries.subject_or_none(subject_id)
+        if subject is None:
+            raise ResourceNotFoundError("Subject not found.")
+
+        trace = services.get_result_trace(enrolment=enrolment, subject=subject, actor=request.user)
+        return Response(ResultTraceSerializer(trace).data)

@@ -1,10 +1,13 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+from django.utils import timezone
 
 from apps.academics.models import (
     AcademicCycle,
     CurriculumPlan,
+    FrozenPromotionResult,
+    FrozenSubjectResult,
     GradeOffering,
     LevelSubject,
     Section,
@@ -14,6 +17,7 @@ from apps.academics.queries import historical_cycle_or_404, weekly_load_report
 from apps.academics.services import (
     activate_academic_cycle,
     close_academic_cycle,
+    correct_frozen_subject_result,
     create_academic_cycle,
     create_class_session,
     create_curriculum_plan,
@@ -26,7 +30,9 @@ from apps.academics.services import (
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
+from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit
+from apps.evaluation.services import close_evaluation_unit, register_unit_grade
 from tests.factories.academic import (
     AcademicCycleFactory,
     ClassroomFactory,
@@ -39,6 +45,7 @@ from tests.factories.academic import (
 )
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.identity import UserFactory
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -685,3 +692,83 @@ def test_class_session_mid_cycle_restructuring_preserves_the_retired_slot():
     assert replacement.starts_on == restructuring_date
     assert replacement.is_active is True
     assert section.class_sessions.count() == 2
+
+
+def test_closing_a_cycle_freezes_results_across_evaluation_enrolments_and_audit():
+    """
+    RF-RES-007: closing a cycle (academics) freezes results derived from
+    live evaluation.Grade data and enrolments.determine_promotion, and a
+    post-freeze correction is traceable via the audit domain -- a single
+    flow crossing academics, evaluation, enrolments and audit.
+    """
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    today = timezone.localdate()
+    unit = EvaluationUnitFactory(
+        academic_cycle=cycle,
+        status=EvaluationUnit.UnitStatus.OPEN,
+        capture_starts_on=today - timedelta(days=30),
+        capture_ends_on=today + timedelta(days=5),
+        recovery_starts_on=today - timedelta(days=20),
+        recovery_ends_on=today - timedelta(days=5),
+    )
+    section = SectionFactory(academic_cycle=cycle)
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    approved_subject = SubjectFactory(institution=cycle.institution)
+    failed_subject = SubjectFactory(institution=cycle.institution)
+    for subject in (approved_subject, failed_subject):
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=approved_subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=90,
+    )
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=failed_subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=55,
+    )
+    close_evaluation_unit(unit)
+
+    close_academic_cycle(cycle=cycle)
+
+    approved_result = FrozenSubjectResult.objects.get(enrolment=enrolment, subject=approved_subject)
+    failed_result = FrozenSubjectResult.objects.get(enrolment=enrolment, subject=failed_subject)
+    promotion = FrozenPromotionResult.objects.get(enrolment=enrolment)
+    assert approved_result.final_grade == 90
+    assert approved_result.condition == "approved"
+    assert failed_result.final_grade == 55
+    assert failed_result.condition == "failed"
+    assert promotion.promoted is False
+    assert failed_subject.name in promotion.failed_subjects
+
+    # Cambios posteriores en la estructura academica no alteran lo congelado.
+    CurriculumPlan.objects.filter(subject=failed_subject).update(is_active=False)
+    failed_result.refresh_from_db()
+    assert failed_result.condition == "failed"
+
+    # Correccion mediante brecha excepcional: conserva el anterior con traza.
+    actor = UserFactory()
+    corrected = correct_frozen_subject_result(
+        frozen_result=failed_result,
+        final_grade=80,
+        reason="Se transcribio mal la nota de la unidad",
+        actor=actor,
+    )
+
+    failed_result.refresh_from_db()
+    assert failed_result.final_grade == 55
+    assert corrected.final_grade == 80
+    assert corrected.condition == "approved"
+    event = AuditEvent.objects.get(action="academics.frozen_subject_result.corrected")
+    assert event.actor_id == actor.pk
+    assert event.context["reason"] == "Se transcribio mal la nota de la unidad"
+    assert event.context["changes"]["final_grade"] == {"before": 55, "after": 80}

@@ -4,6 +4,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.academics.models import CurriculumPlan
 from apps.attendance import services as attendance_services
 from apps.attendance.models import AttendanceEvent, StudentCredential
 from apps.audit.models import AuditEvent
@@ -15,6 +16,7 @@ from apps.enrolments.services import (
     bulk_reenrol_students,
     change_section,
     create_enrolment,
+    determine_promotion,
     enrolment_history,
     matriculate_student,
     record_student_movement,
@@ -25,10 +27,13 @@ from apps.enrolments.services import (
     withdraw_student,
 )
 from apps.evaluation.models import Grade as EvaluationGrade
+from apps.evaluation.models import RecoveryGrade
+from apps.evaluation.services import register_unit_grade
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.attendance import AttendanceEventFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.identity import UserFactory
+from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
 
@@ -641,3 +646,59 @@ def test_annul_withdrawal_restores_credential_access_and_preserves_audit():
         action="attendance.credential.restored_on_permanence_reopen",
         actor=actor,
     ).exists()
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_promotion_crosses_curriculum_plan_grades_and_recovery_domains():
+    """
+    RF-RES-006: determine_promotion reads across academics (CurriculumPlan),
+    evaluation (Grade, RecoveryGrade / get_final_subject_grade) and this
+    enrolment, without mutating any of them.
+    """
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    today = timezone.localdate()
+    unit = EvaluationUnitFactory(
+        academic_cycle=section.academic_cycle,
+        capture_starts_on=today - timedelta(days=5),
+        capture_ends_on=today + timedelta(days=5),
+    )
+    approved_subject = SubjectFactory(institution=section.academic_cycle.institution)
+    recovered_subject = SubjectFactory(institution=section.academic_cycle.institution)
+    for subject in (approved_subject, recovered_subject):
+        CurriculumPlan.objects.create(
+            academic_cycle=section.academic_cycle, grade=section.grade, subject=subject
+        )
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=approved_subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=90,
+    )
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=recovered_subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=50,
+    )
+    RecoveryGrade.objects.create(
+        enrolment=enrolment, subject=recovered_subject, value=65, original_final_grade=50
+    )
+
+    result = determine_promotion(enrolment)
+
+    assert result["promoted"] is True
+    assert result["condition"] == "promoted"
+    assert result["failed_subjects"] == []
+    enrolment.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+    assert EvaluationGrade.objects.filter(enrolment=enrolment).count() == 2

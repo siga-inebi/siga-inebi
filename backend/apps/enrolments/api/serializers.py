@@ -229,3 +229,13 @@ class StudentTransferInCreateSerializer(MatriculationCreateSerializer):
 class StudentTransferOutCreateSerializer(serializers.Serializer):
     effective_on = serializers.DateField(help_text="Fecha efectiva del traslado de salida.")
     reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class PromotionSerializer(serializers.Serializer):
+    """Read-only outcome of RF-RES-006's promotion determination."""
+
+    enrolment_id = serializers.UUIDField()
+    promoted = serializers.BooleanField()
+    condition = serializers.ChoiceField(choices=["promoted", "not_promoted"])
+    failed_subjects = serializers.ListField(child=serializers.CharField())
+    total_subjects = serializers.IntegerField()

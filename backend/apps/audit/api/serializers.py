@@ -37,6 +37,33 @@ class DataRetentionDeclarationSerializer(serializers.Serializer):
     applies_to_minors = serializers.BooleanField(default=False)
 
 
+class ResultTraceUnitGradeSerializer(serializers.Serializer):
+    unit_number = serializers.IntegerField()
+    unit_name = serializers.CharField()
+    value = serializers.IntegerField()
+
+
+class ResultTraceCorrectionSerializer(serializers.Serializer):
+    stage = serializers.ChoiceField(choices=["live", "post_freeze"])
+    unit_number = serializers.IntegerField(allow_null=True)
+    previous_value = serializers.IntegerField(allow_null=True)
+    new_value = serializers.IntegerField(allow_null=True)
+    reason = serializers.CharField(allow_null=True, allow_blank=True)
+    corrected_by = serializers.CharField(allow_null=True, allow_blank=True)
+    corrected_at = serializers.DateTimeField()
+
+
+class ResultTraceSerializer(serializers.Serializer):
+    """RF-RES-009: unit grades, corrections (with reason and author) and the
+    recovery grade behind one subarea's final grade."""
+
+    enrolment_id = serializers.UUIDField()
+    subject_id = serializers.UUIDField()
+    unit_grades = ResultTraceUnitGradeSerializer(many=True)
+    recovery_grade = serializers.IntegerField(allow_null=True)
+    corrections = ResultTraceCorrectionSerializer(many=True)
+
+
 class AuditEventQuerySerializer(serializers.Serializer):
     actor_id = serializers.IntegerField(required=False, help_text="Usuario autor del asiento.")
     resource = serializers.CharField(required=False, help_text="Capacidad o recurso afectado.")

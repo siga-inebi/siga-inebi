@@ -590,3 +590,119 @@ class ClassSchedulePublication(TimeStampedModel):
     @property
     def is_published(self):
         return self.published_at is not None
+
+
+class FrozenResultQuerySet(models.QuerySet):
+    def delete(self):
+        raise RuntimeError("Los resultados congelados no pueden eliminarse.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Los resultados congelados no pueden modificarse.")
+
+
+class FrozenSubjectResult(TimeStampedModel):
+    """
+    Immutable snapshot of one subarea's final result at cycle close (RF-RES-007).
+
+    Never updated in place: a post-freeze correction (``grade.correct``,
+    exceptional academic authorization) inserts a NEW row for the same
+    ``(enrolment, subject)`` instead of mutating this one, so the previous
+    congealed value stays a real, queryable row -- "conserva el resultado
+    congelado anterior" is literal, not something reconstructed from an audit
+    diff (AGENTS.md #12: conserve history over physical deletion). The most
+    recent row per ``(enrolment, subject)`` is the current, authoritative
+    value; RF-RES-008's boleta and RF-RES-009's traceability both read this
+    table instead of recalculating from ``evaluation.get_final_subject_grade``,
+    which is the whole point of freezing: config or structure changes after
+    close (RF-EST-*, RF-EVC-*) can no longer move this number.
+
+    Cross-domain FK (documented exception, confirmed 2026-09-08):
+    domain-map.md lists ``enrollment-lifecycle`` as a dependency *of*
+    ``academic-evaluation``/``school-cycle`` (this app), not the reverse, so
+    this FK to ``enrolments.Enrolment`` runs against that declared direction.
+    The freeze event structurally belongs to the cycle-close operation that
+    lives here, and this is meant to be a permanent, audited record -- a bare
+    identifier without a DB-level FK would trade away referential integrity
+    for a table whose whole purpose is to never silently drift from what it
+    references.
+    """
+
+    objects = FrozenResultQuerySet.as_manager()
+
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment",
+        on_delete=models.PROTECT,
+        related_name="frozen_subject_results",
+    )
+    subject = models.ForeignKey(
+        Subject, on_delete=models.PROTECT, related_name="frozen_subject_results"
+    )
+    final_grade = models.PositiveSmallIntegerField(null=True, blank=True)
+    # "" (never null, DJ001) means the subarea had no grade yet when frozen --
+    # mirrors get_final_subject_grade's own None, just via Django's preferred
+    # empty-string sentinel instead of a nullable CharField.
+    condition = models.CharField(max_length=30, blank=True, default="")
+    recovery_grade = models.PositiveSmallIntegerField(null=True, blank=True)
+    is_correction = models.BooleanField(default=False)
+    correction_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(is_correction=False) | ~Q(correction_reason=""),
+                name="frozen_subject_result_correction_requires_reason",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.enrolment} - {self.subject} = {self.final_grade}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Los resultados congelados no pueden modificarse.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Los resultados congelados no pueden eliminarse.")
+
+
+class FrozenPromotionResult(TimeStampedModel):
+    """
+    Immutable snapshot of an enrolment's promotion condition at cycle close
+    (RF-RES-007). Same insert-only discipline and cross-domain FK exception
+    as ``FrozenSubjectResult`` -- see its docstring.
+    """
+
+    objects = FrozenResultQuerySet.as_manager()
+
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment",
+        on_delete=models.PROTECT,
+        related_name="frozen_promotion_results",
+    )
+    promoted = models.BooleanField()
+    condition = models.CharField(max_length=20)
+    failed_subjects = models.JSONField(default=list)
+    is_correction = models.BooleanField(default=False)
+    correction_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(is_correction=False) | ~Q(correction_reason=""),
+                name="frozen_promotion_result_correction_requires_reason",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.enrolment} - {self.condition}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Los resultados congelados no pueden modificarse.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Los resultados congelados no pueden eliminarse.")
