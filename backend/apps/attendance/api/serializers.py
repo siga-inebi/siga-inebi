@@ -7,6 +7,10 @@ from apps.attendance.models import (
     ControlPoint,
     DayStatus,
     JornadaParameters,
+    Justification,
+    JustificationAttachment,
+    JustificationNotification,
+    JustificationReason,
     ManualRegistrationReason,
     StudentCredential,
 )
@@ -501,3 +505,126 @@ class CredentialPrintContentSerializer(serializers.Serializer):
     academic_cycle_name = serializers.CharField()
     institution_name = serializers.CharField()
     photo_url = serializers.CharField(allow_null=True)
+
+
+class JustificationReasonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = JustificationReason
+        fields = ["public_id", "name", "code"]
+
+
+class JustificationRequestSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+    absence_date = serializers.DateField(help_text="Fecha de la inasistencia a justificar.")
+    situation_type = serializers.ChoiceField(
+        choices=Justification.SituationType.choices,
+        required=False,
+        default=Justification.SituationType.ABSENCE,
+        help_text="RF-JUS-001: inasistencia o llegada tardia.",
+    )
+    reason = serializers.CharField(help_text="Motivo de la justificacion.")
+    reason_catalog_id = serializers.UUIDField(
+        required=False,
+        help_text="RF-JUS-001: Public ID de un motivo del catalogo configurable (opcional).",
+    )
+    is_exception = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "RF-JUS-003: solo procesable por un usuario con "
+            "attendance_justification_resolve. Registra la justificacion "
+            "fuera de la ventana, documentando el motivo de la excepcion."
+        ),
+    )
+    exception_reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Obligatorio cuando is_exception es verdadero.",
+    )
+
+
+class JustificationSerializer(serializers.ModelSerializer):
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    submitted_by_id = serializers.IntegerField(source="submitted_by.pk", read_only=True)
+    reason_catalog_id = serializers.UUIDField(
+        source="reason_catalog.public_id", read_only=True, allow_null=True
+    )
+    resolved_by_id = serializers.IntegerField(
+        source="resolved_by.pk", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = Justification
+        fields = [
+            "public_id",
+            "student_id",
+            "absence_date",
+            "situation_type",
+            "reason",
+            "reason_catalog_id",
+            "status",
+            "submitted_by_id",
+            "is_exception",
+            "exception_reason",
+            "resolved_by_id",
+            "resolved_at",
+            "resolution_comment",
+            "created_at",
+        ]
+
+
+class JustificationResolutionRequestSerializer(serializers.Serializer):
+    approved = serializers.BooleanField(help_text="True para aprobar, False para rechazar.")
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Obligatorio al rechazar; opcional al aprobar.",
+    )
+
+
+class JustificationNotificationSerializer(serializers.ModelSerializer):
+    justification_id = serializers.UUIDField(source="justification.public_id", read_only=True)
+    student_id = serializers.UUIDField(source="justification.student.public_id", read_only=True)
+    absence_date = serializers.DateField(source="justification.absence_date", read_only=True)
+    status = serializers.CharField(source="justification.status", read_only=True)
+    resolution_comment = serializers.CharField(
+        source="justification.resolution_comment", read_only=True
+    )
+    resolved_at = serializers.DateTimeField(source="justification.resolved_at", read_only=True)
+
+    class Meta:
+        model = JustificationNotification
+        fields = [
+            "public_id",
+            "justification_id",
+            "student_id",
+            "absence_date",
+            "status",
+            "resolution_comment",
+            "resolved_at",
+            "created_at",
+        ]
+
+
+class JustificationAttachmentSerializer(serializers.ModelSerializer):
+    justification_id = serializers.UUIDField(source="justification.public_id", read_only=True)
+    uploaded_by_id = serializers.IntegerField(source="uploaded_by.pk", read_only=True)
+
+    class Meta:
+        model = JustificationAttachment
+        fields = [
+            "public_id",
+            "justification_id",
+            "filename",
+            "content_type",
+            "size_bytes",
+            "checksum",
+            "uploaded_by_id",
+            "created_at",
+        ]
+
+
+class JustificationAttachmentUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="Documento de respaldo (PDF/JPG/PNG).")
