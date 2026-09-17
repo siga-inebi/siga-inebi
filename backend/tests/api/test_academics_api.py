@@ -5,6 +5,7 @@ from django.test import Client
 from django.urls import reverse
 
 from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
+from apps.academics.services import create_teaching_assignment
 from apps.audit.models import AuditEvent
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
@@ -20,6 +21,12 @@ from tests.factories.academic import (
     SubjectFactory,
 )
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+)
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -104,6 +111,64 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
 
     assert response.status_code == 400
     assert "Hay que cerrar" in response.json()["error"]["detail"]
+
+
+def _grant_reopen_scope(user, institution):
+    permission = PermissionFactory(codename="academic_cycle_reopen")
+    assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    return ScopeGrantFactory(assignment=assignment, institution=institution)
+
+
+def test_reopen_cycle_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+    _grant_reopen_scope(auth_client.user, institution)
+
+    response = auth_client.post(
+        reverse("academic-cycle-reopen", args=[cycle.public_id]),
+        {"reason": "Correccion de una nota mal capturada"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == AcademicCycle.CycleStatus.ACTIVE
+    event = AuditEvent.objects.get(action="academics.cycle.reopened")
+    assert event.context["reason"] == "Correccion de una nota mal capturada"
+
+
+def test_reopen_cycle_endpoint_requires_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+    response = client.post(
+        reverse("academic-cycle-reopen", args=[cycle.public_id]),
+        {"reason": "Correccion de una nota mal capturada"},
+        content_type="application/json",
+    )
+    assert response.status_code == 403
+
+
+def test_reopen_cycle_endpoint_rejects_without_reopen_permission(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+
+    response = auth_client.post(
+        reverse("academic-cycle-reopen", args=[cycle.public_id]),
+        {"reason": "Correccion de una nota mal capturada"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_reopen_cycle_api_rejects_when_cycle_is_not_closed(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    _grant_reopen_scope(auth_client.user, institution)
+
+    response = auth_client.post(
+        reverse("academic-cycle-reopen", args=[cycle.public_id]),
+        {"reason": "Correccion de una nota mal capturada"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "ciclo escolar cerrado" in response.json()["error"]["detail"]
 
 
 def test_create_section_api_creates_offering_and_section(auth_client, institution):
@@ -340,6 +405,40 @@ def test_create_class_session_api_rejects_classroom_double_booked_in_the_same_sl
 
     assert response.status_code == 400
     assert "El aula ya tiene otra sesion agendada" in response.json()["error"]["detail"]
+
+
+def test_create_class_session_api_rejects_teacher_double_booked_in_the_same_slot(
+    auth_client, institution
+):
+    """RF-HOR-006 (#199): cruce por docente en el mismo dia y bloque, en dos
+    secciones distintas."""
+    cycle = AcademicCycleFactory(institution=institution)
+    section_a = SectionFactory(academic_cycle=cycle)
+    shift = section_a.offering.shift
+    section_b = SectionFactory(academic_cycle=cycle, shift=shift)
+    subject_a = SubjectFactory(institution=institution)
+    subject_b = SubjectFactory(institution=institution)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=cycle, section=section_a, subject=subject_a, teacher=teacher.person
+    )
+    create_teaching_assignment(
+        academic_cycle=cycle, section=section_b, subject=subject_b, teacher=teacher.person
+    )
+    existing = ClassSessionFactory(section=section_a, subject=subject_a)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section_b.public_id]),
+        {
+            "subject_id": str(subject_b.public_id),
+            "schedule_block_id": str(existing.schedule_block.public_id),
+            "day_of_week": existing.day_of_week,
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "El docente ya tiene otra seccion agendada" in response.json()["error"]["detail"]
 
 
 def test_list_class_sessions_is_scoped_to_the_section(auth_client, institution):

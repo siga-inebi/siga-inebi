@@ -13,16 +13,19 @@ from apps.academics.services import (
     create_class_session,
     create_curriculum_plan,
     create_section,
+    create_teaching_assignment,
     deactivate_class_schedule_block,
     deactivate_class_session,
     deactivate_curriculum_plan,
     deactivate_section,
     publish_class_schedule,
+    reopen_academic_cycle,
     unpublish_class_schedule,
     update_class_schedule_block,
     update_curriculum_plan,
     update_section,
 )
+from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
@@ -39,6 +42,7 @@ from tests.factories.academic import (
     SubjectFactory,
 )
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.identity import UserFactory
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -90,6 +94,52 @@ def test_close_cycle_succeeds_when_units_are_closed_and_settled():
 def test_close_cycle_succeeds_when_cycle_has_no_evaluation_units():
     cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
     assert close_academic_cycle(cycle=cycle).status == AcademicCycle.CycleStatus.CLOSED
+
+
+def test_reopen_cycle_rejects_when_cycle_is_not_closed():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
+        reopen_academic_cycle(cycle=cycle, reason="Correccion de nota")
+    cycle.refresh_from_db()
+    assert cycle.status == AcademicCycle.CycleStatus.ACTIVE
+
+
+def test_reopen_cycle_rejects_blank_reason():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    with pytest.raises(DomainError, match="motivo"):
+        reopen_academic_cycle(cycle=cycle, reason="   ")
+    cycle.refresh_from_db()
+    assert cycle.status == AcademicCycle.CycleStatus.CLOSED
+
+
+def test_reopen_cycle_rejects_when_another_cycle_is_already_active():
+    institution = InstitutionFactory()
+    AcademicCycleFactory(
+        institution=institution, year=2026, status=AcademicCycle.CycleStatus.ACTIVE
+    )
+    closed = AcademicCycleFactory(
+        institution=institution,
+        year=2025,
+        starts_on=date(2025, 1, 1),
+        ends_on=date(2025, 10, 31),
+        status=AcademicCycle.CycleStatus.CLOSED,
+    )
+    with pytest.raises(DomainError, match="Hay que cerrar el ciclo activo"):
+        reopen_academic_cycle(cycle=closed, reason="Correccion de nota")
+
+
+def test_reopen_cycle_succeeds_and_records_the_reason_in_the_audit_trail():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+    actor = UserFactory()
+
+    reopened = reopen_academic_cycle(
+        cycle=cycle, reason="Correccion de una nota mal capturada", actor=actor
+    )
+
+    assert reopened.status == AcademicCycle.CycleStatus.ACTIVE
+    event = AuditEvent.objects.get(action="academics.cycle.reopened")
+    assert event.context["reason"] == "Correccion de una nota mal capturada"
+    assert event.context["status"] == AcademicCycle.CycleStatus.ACTIVE
 
 
 def test_create_cycle_registers_requested_data_in_preparation():
@@ -1000,3 +1050,114 @@ def test_unpublish_class_schedule_rejects_closed_cycle():
 
     with pytest.raises(DomainError, match="no admite cambios academicos"):
         unpublish_class_schedule(academic_cycle=cycle)
+
+
+def test_create_class_session_rejects_teacher_double_booked_in_the_same_slot():
+    """Escenario 1 (#199): cruce por docente en el mismo dia y bloque, en
+    dos secciones distintas."""
+    section_a = SectionFactory()
+    shift = section_a.offering.shift
+    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
+    subject_a = SubjectFactory(institution=section_a.offering.institution)
+    subject_b = SubjectFactory(institution=section_a.offering.institution)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        teacher=teacher.person,
+    )
+    create_teaching_assignment(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        teacher=teacher.person,
+    )
+    block = ClassScheduleBlockFactory(shift=shift)
+    create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    with pytest.raises(DomainError, match="El docente ya tiene otra seccion agendada"):
+        create_class_session(
+            academic_cycle=section_a.academic_cycle,
+            section=section_b,
+            subject=subject_b,
+            schedule_block=block,
+            day_of_week=1,
+        )
+
+    assert section_b.class_sessions.count() == 0
+
+
+def test_create_class_session_allows_same_teacher_in_a_different_block():
+    """El mismo docente en un bloque distinto no genera cruce."""
+    section_a = SectionFactory()
+    shift = section_a.offering.shift
+    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
+    subject_a = SubjectFactory(institution=section_a.offering.institution)
+    subject_b = SubjectFactory(institution=section_a.offering.institution)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        teacher=teacher.person,
+    )
+    create_teaching_assignment(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        teacher=teacher.person,
+    )
+    block = ClassScheduleBlockFactory(shift=shift, number=1)
+    other_block = ClassScheduleBlockFactory(shift=shift, number=2)
+    create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    new_session = create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        schedule_block=other_block,
+        day_of_week=1,
+    )
+
+    assert new_session.pk is not None
+
+
+def test_create_class_session_allows_double_booking_when_no_assignment_exists_yet():
+    """Sin asignacion docente vigente todavia (RF-HOR-004), no hay cruce que
+    detectar: el docente se resuelve como None en ambos lados."""
+    section_a = SectionFactory()
+    shift = section_a.offering.shift
+    section_b = SectionFactory(academic_cycle=section_a.academic_cycle, shift=shift)
+    subject_a = SubjectFactory(institution=section_a.offering.institution)
+    subject_b = SubjectFactory(institution=section_a.offering.institution)
+    block = ClassScheduleBlockFactory(shift=shift)
+    create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_a,
+        subject=subject_a,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    new_session = create_class_session(
+        academic_cycle=section_a.academic_cycle,
+        section=section_b,
+        subject=subject_b,
+        schedule_block=block,
+        day_of_week=1,
+    )
+
+    assert new_session.pk is not None
