@@ -18,6 +18,7 @@ from apps.academics.services import (
     create_section,
     create_teaching_assignment,
     reassign_teaching_assignment,
+    reopen_academic_cycle,
 )
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
@@ -79,6 +80,60 @@ def test_active_cycle_closes_after_units_settle_and_then_rejects_academic_writes
             teacher=TeacherFactory().person,
             actor=actor,
         )
+
+
+def test_closed_cycle_reopens_for_a_grading_correction_and_can_close_again():
+    """RF-CIC-005, escenario 'Correccion de un error detectado tras el
+    cierre': reabrir un ciclo cerrado no descarta la estructura que ya tenia
+    congelada (no existe todavia una capacidad de resultados que congelar de
+    forma explicita, ver notas de RF-CIC-004); ambos cierres quedan en la
+    bitacora, ninguno reemplaza al otro."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2026,
+        name="Ciclo 2026",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution)
+    create_curriculum_plan(academic_cycle=cycle, grade=grade, subject=subject, actor=actor)
+    teacher = TeacherFactory()
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=teacher.person,
+        actor=actor,
+    )
+    cycle = activate_academic_cycle(cycle=cycle, actor=actor)
+    cycle = close_academic_cycle(cycle=cycle, actor=actor)
+
+    reopened = reopen_academic_cycle(
+        cycle=cycle, reason="Se detecto una nota mal capturada", actor=actor
+    )
+
+    assert reopened.status == AcademicCycle.CycleStatus.ACTIVE
+    reopen_event = AuditEvent.objects.get(action="academics.cycle.reopened")
+    assert reopen_event.context["reason"] == "Se detecto una nota mal capturada"
+    # La estructura congelada por el primer cierre sigue intacta: reabrir no
+    # descarta nada de lo que ya existia.
+    assert reopened.curriculum_plans.count() == 1
+    assert reopened.teaching_assignments.filter(teacher=teacher.person).exists()
+    assert Section.objects.filter(pk=section.pk, offering__academic_cycle=reopened).exists()
+
+    reclosed = close_academic_cycle(cycle=reopened, actor=actor)
+
+    assert reclosed.status == AcademicCycle.CycleStatus.CLOSED
+    # El nuevo cierre no borra la traza del anterior: los dos quedan en la
+    # bitacora (el "resultado adicional" del criterio de aceptacion depende
+    # de una capacidad de resultados que todavia no existe en el codigo).
+    assert AuditEvent.objects.filter(action="academics.cycle.closed").count() == 2
 
 
 def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():

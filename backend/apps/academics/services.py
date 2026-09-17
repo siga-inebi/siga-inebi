@@ -529,6 +529,48 @@ def close_academic_cycle(*, cycle, actor=None):
     return locked
 
 
+@transaction.atomic
+def reopen_academic_cycle(*, cycle, reason, actor=None):
+    """
+    Reopen a closed cycle temporarily and exceptionally (RF-CIC-005).
+
+    The permission check itself (a user with academic authorization) lives in
+    the view, same as ``require_assignment_scope`` for teaching assignments —
+    this function only enforces the domain rules once that gate is cleared.
+
+    Reopening puts the cycle back to ACTIVE, so the same single-active-cycle
+    invariant ``activate_academic_cycle`` enforces applies here too: nothing
+    about reopening makes two active cycles for one institution valid. A
+    later ``close_academic_cycle`` call closes it again with no changes of
+    its own; there is no separate "results capability" to preserve a trace
+    for yet (same gap noted in ``close_academic_cycle`` for RF-CIC-004) — once
+    it exists, closing a reopened cycle is expected to record an additional
+    result alongside the frozen one, not overwrite it.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise DomainError("Se requiere un motivo para reabrir el ciclo escolar.")
+
+    locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
+    if locked.status != AcademicCycle.CycleStatus.CLOSED:
+        raise DomainError("Solo se puede reabrir un ciclo escolar cerrado.")
+    if (
+        AcademicCycle.objects.select_for_update()
+        .filter(
+            institution=locked.institution,
+            status=AcademicCycle.CycleStatus.ACTIVE,
+        )
+        .exclude(pk=locked.pk)
+        .exists()
+    ):
+        raise DomainError("Hay que cerrar el ciclo activo antes de reabrir otro.")
+
+    locked.status = AcademicCycle.CycleStatus.ACTIVE
+    locked.save(update_fields=["status", "updated_at"])
+    _audit(actor, "academics.cycle.reopened", locked, status=locked.status, reason=reason)
+    return locked
+
+
 def _changed(instance, actor, action, **candidates):
     """
     Apply the fields whose value was actually supplied, persist only those, and

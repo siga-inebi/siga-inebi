@@ -18,6 +18,12 @@ from tests.factories.academic import (
     SubjectFactory,
 )
 from tests.factories.evaluation import EvaluationUnitFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+)
 from tests.factories.students import StudentFactory
 from tests.factories.teachers import TeacherFactory
 
@@ -102,6 +108,64 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
 
     assert response.status_code == 400
     assert "Hay que cerrar" in response.json()["error"]["detail"]
+
+
+def _grant_reopen_scope(user, institution):
+    permission = PermissionFactory(codename="academic_cycle_reopen")
+    assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    return ScopeGrantFactory(assignment=assignment, institution=institution)
+
+
+def test_reopen_cycle_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+    _grant_reopen_scope(auth_client.user, institution)
+
+    response = auth_client.post(
+        reverse("academic-cycle-reopen", args=[cycle.public_id]),
+        {"reason": "Correccion de una nota mal capturada"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == AcademicCycle.CycleStatus.ACTIVE
+    event = AuditEvent.objects.get(action="academics.cycle.reopened")
+    assert event.context["reason"] == "Correccion de una nota mal capturada"
+
+
+def test_reopen_cycle_endpoint_requires_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+    response = client.post(
+        reverse("academic-cycle-reopen", args=[cycle.public_id]),
+        {"reason": "Correccion de una nota mal capturada"},
+        content_type="application/json",
+    )
+    assert response.status_code == 403
+
+
+def test_reopen_cycle_endpoint_rejects_without_reopen_permission(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
+
+    response = auth_client.post(
+        reverse("academic-cycle-reopen", args=[cycle.public_id]),
+        {"reason": "Correccion de una nota mal capturada"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_reopen_cycle_api_rejects_when_cycle_is_not_closed(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+    _grant_reopen_scope(auth_client.user, institution)
+
+    response = auth_client.post(
+        reverse("academic-cycle-reopen", args=[cycle.public_id]),
+        {"reason": "Correccion de una nota mal capturada"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "ciclo escolar cerrado" in response.json()["error"]["detail"]
 
 
 def test_create_section_api_creates_offering_and_section(auth_client, institution):

@@ -30,6 +30,7 @@ from .serializers import (
     AcademicCycleCloneSerializer,
     AcademicCycleCreateSerializer,
     AcademicCycleDefaultsSerializer,
+    AcademicCycleReopenSerializer,
     AcademicCycleSerializer,
     CampusCreateSerializer,
     CampusSerializer,
@@ -139,6 +140,17 @@ class CatalogueView(GenericAPIView):
     def require_assignment_scope(self):
         if not self.request.user.has_scoped_permission(
             "scope_assign", scope={"institution": self.institution}
+        ):
+            raise AuthorizationError("Actor lacks the required permission or institution scope.")
+
+    def require_reopen_scope(self):
+        # No "academic_cycle" key in the scope: scope_matches() would deny a
+        # closed cycle outright for any write-permission codename before the
+        # grant is even checked (identity/scopes.py), which is exactly what
+        # RF-CIC-005 needs to authorize. Institution alone is enough — same
+        # granularity as require_assignment_scope.
+        if not self.request.user.has_scoped_permission(
+            "academic_cycle_reopen", scope={"institution": self.institution}
         ):
             raise AuthorizationError("Actor lacks the required permission or institution scope.")
 
@@ -283,6 +295,28 @@ class AcademicCycleCloseView(CatalogueView):
         cycle = queries.academic_cycle_or_404(self.institution, public_id)
         closed = services.close_academic_cycle(cycle=cycle, actor=request.user)
         return Response(AcademicCycleSerializer(closed).data)
+
+
+class AcademicCycleReopenView(CatalogueView):
+    @extend_schema(
+        summary="Reabrir ciclo escolar cerrado",
+        description=(
+            "Reapertura excepcional de un ciclo cerrado. Requiere el permiso "
+            "academic_cycle_reopen sobre la institucion y un motivo obligatorio; "
+            "ambos quedan en la bitacora."
+        ),
+        tags=["academics: cycles"],
+        request=AcademicCycleReopenSerializer,
+        responses={200: AcademicCycleSerializer},
+    )
+    def post(self, request, public_id):
+        self.require_reopen_scope()
+        payload = self.validated(AcademicCycleReopenSerializer, request)
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        reopened = services.reopen_academic_cycle(
+            cycle=cycle, reason=payload["reason"], actor=request.user
+        )
+        return Response(AcademicCycleSerializer(reopened).data)
 
 
 class AcademicCycleCloneView(CatalogueView):
