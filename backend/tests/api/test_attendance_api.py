@@ -15,6 +15,7 @@ RF-CRE-001 — contrato del endpoint de emision de credencial.
 RF-CRE-006 — contrato del endpoint de resolucion de identificador.
 """
 
+import base64
 from datetime import datetime, time, timedelta
 from urllib.parse import urlencode
 
@@ -28,6 +29,7 @@ from apps.academics.models import TeachingAssignment
 from apps.attendance import services
 from apps.attendance.models import AttendanceAlert, AttendanceEvent, CaptureBatch, StudentCredential
 from apps.audit.models import AuditEvent
+from apps.common.qr import generate_qr_png
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import (
@@ -50,7 +52,12 @@ from tests.factories.identity import (
     ScopeGrantFactory,
     UserFactory,
 )
-from tests.factories.students import StudentFactory
+from tests.factories.students import (
+    EmergencyContactFactory,
+    StudentFactory,
+    StudentHealthNoteFactory,
+    StudentObservationFactory,
+)
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
@@ -1112,6 +1119,53 @@ def test_scan_endpoint_confirmation_shows_only_photo_name_grade_and_section(auth
     assert confirmation["section_name"] == section.name
 
 
+def test_scan_endpoint_confirmation_never_leaks_health_academic_or_contact_data(auth_client):
+    """
+    Escenario 1 (RNF-PRI-002): GIVEN un estudiante con notas de salud,
+    observaciones y un contacto de emergencia registrados, WHEN se escanea su
+    credencial, THEN la pantalla de confirmacion no expone ninguno de esos
+    datos.
+
+    RF-ASI-003 ya construyo ``ScanConfirmationSerializer`` con exactamente 5
+    campos; esta prueba cierra RNF-PRI-002 verificando algo mas fuerte que el
+    nombre de los campos: aunque el estudiante SI tiene salud, calificaciones
+    y contacto registrados, ese contenido no aparece en ningun lado de la
+    respuesta, ni siquiera en un campo inesperado.
+    """
+    _grant(auth_client.user, "attendance_scan")
+    _grant(auth_client.user, "attendance_record_entry")
+    parameters = JornadaParametersFactory()
+    student = StudentFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    StudentHealthNoteFactory(student=student, content="Alergia severa a la penicilina")
+    StudentObservationFactory(student=student, description="Bajo rendimiento en matematicas")
+    EmergencyContactFactory(student=student, name="Contacto Confidencial", phone_number="5555-1234")
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    item = _scan_item(
+        student, parameters.shift, control_point, "confirmation-privacy-1", timezone.now()
+    )
+
+    response = auth_client.post(
+        reverse("attendance-scan"), {"items": [item]}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    raw_body = response.content.decode()
+    for leaked_value in (
+        "Alergia severa a la penicilina",
+        "Bajo rendimiento en matematicas",
+        "Contacto Confidencial",
+        "5555-1234",
+    ):
+        assert leaked_value not in raw_body
+
+
 def test_scan_endpoint_rejects_duplicate_and_reports_existing_captured_at(auth_client):
     _grant(auth_client.user, "attendance_scan")
     _grant(auth_client.user, "attendance_record_entry")
@@ -1551,6 +1605,35 @@ def test_issue_credential_returns_the_opaque_identifier(auth_client):
     assert body["status"] == StudentCredential.Status.ACTIVE
     assert body["opaque_identifier"]
     assert student.student_code not in body["opaque_identifier"]
+
+
+def test_issue_credential_qr_code_encodes_only_the_opaque_identifier(auth_client):
+    """
+    Escenario 1 (RNF-PRI-001): GIVEN una credencial emitida, WHEN se inspecciona
+    el contenido codificado en el codigo QR, THEN contiene solo el identificador
+    opaco, AND no permite deducir el codigo estudiantil ni ningun otro dato
+    personal del portador.
+
+    ``generate_qr_png`` es una funcion pura de su argumento: si la respuesta
+    trajera algo mas que ``opaque_identifier`` codificado (el nombre del
+    estudiante, su student_id, lo que sea), la imagen no podria coincidir
+    byte a byte con la que se obtiene codificando unicamente ese valor.
+    """
+    student = StudentFactory()
+    _enrol(student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-credential-issue"),
+        {"student_id": str(student.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["qr_code"]
+    expected_png = generate_qr_png(data=body["opaque_identifier"])
+    assert base64.b64decode(body["qr_code"]) == expected_png
 
 
 def test_issue_credential_for_a_student_without_active_enrolment_is_a_bad_request(auth_client):

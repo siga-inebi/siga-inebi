@@ -30,6 +30,7 @@ from .serializers import (
     AcademicCycleCloneSerializer,
     AcademicCycleCreateSerializer,
     AcademicCycleDefaultsSerializer,
+    AcademicCycleReopenSerializer,
     AcademicCycleSerializer,
     CampusCreateSerializer,
     CampusSerializer,
@@ -70,6 +71,7 @@ from .serializers import (
     TeachingAssignmentCreateSerializer,
     TeachingAssignmentReassignSerializer,
     TeachingAssignmentSerializer,
+    WeeklyLoadRowSerializer,
 )
 
 CATALOGUE = ["academics: catalogue"]
@@ -139,6 +141,17 @@ class CatalogueView(GenericAPIView):
     def require_assignment_scope(self):
         if not self.request.user.has_scoped_permission(
             "scope_assign", scope={"institution": self.institution}
+        ):
+            raise AuthorizationError("Actor lacks the required permission or institution scope.")
+
+    def require_reopen_scope(self):
+        # No "academic_cycle" key in the scope: scope_matches() would deny a
+        # closed cycle outright for any write-permission codename before the
+        # grant is even checked (identity/scopes.py), which is exactly what
+        # RF-CIC-005 needs to authorize. Institution alone is enough — same
+        # granularity as require_assignment_scope.
+        if not self.request.user.has_scoped_permission(
+            "academic_cycle_reopen", scope={"institution": self.institution}
         ):
             raise AuthorizationError("Actor lacks the required permission or institution scope.")
 
@@ -283,6 +296,28 @@ class AcademicCycleCloseView(CatalogueView):
         cycle = queries.academic_cycle_or_404(self.institution, public_id)
         closed = services.close_academic_cycle(cycle=cycle, actor=request.user)
         return Response(AcademicCycleSerializer(closed).data)
+
+
+class AcademicCycleReopenView(CatalogueView):
+    @extend_schema(
+        summary="Reabrir ciclo escolar cerrado",
+        description=(
+            "Reapertura excepcional de un ciclo cerrado. Requiere el permiso "
+            "academic_cycle_reopen sobre la institucion y un motivo obligatorio; "
+            "ambos quedan en la bitacora."
+        ),
+        tags=["academics: cycles"],
+        request=AcademicCycleReopenSerializer,
+        responses={200: AcademicCycleSerializer},
+    )
+    def post(self, request, public_id):
+        self.require_reopen_scope()
+        payload = self.validated(AcademicCycleReopenSerializer, request)
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        reopened = services.reopen_academic_cycle(
+            cycle=cycle, reason=payload["reason"], actor=request.user
+        )
+        return Response(AcademicCycleSerializer(reopened).data)
 
 
 class AcademicCycleCloneView(CatalogueView):
@@ -926,12 +961,18 @@ class SectionListCreateView(CacheableListMixin, CatalogueListCreateView):
         )
         grade = queries.grade_for_payload(self.institution, payload["grade_id"])
         shift = queries.shift_for_payload(self.institution, payload["shift_id"])
+        default_classroom = (
+            queries.classroom_or_404(self.institution, payload["default_classroom_id"])
+            if payload.get("default_classroom_id")
+            else None
+        )
         section = services.create_section(
             academic_cycle=academic_cycle,
             grade=grade,
             shift=shift,
             name=payload["name"],
             capacity=payload.get("capacity", 0),
+            default_classroom=default_classroom,
             actor=request.user,
         )
         return queries.section_or_404(self.institution, section.public_id)
@@ -965,7 +1006,15 @@ class SectionDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDe
         return queries.section_or_404(self.institution, public_id)
 
     def update(self, request, section, payload):
-        services.update_section(section=section, actor=request.user, **payload)
+        default_classroom_id = payload.pop("default_classroom_id", None)
+        default_classroom = (
+            queries.classroom_or_404(self.institution, default_classroom_id)
+            if default_classroom_id
+            else None
+        )
+        services.update_section(
+            section=section, default_classroom=default_classroom, actor=request.user, **payload
+        )
 
     def deactivate(self, request, section):
         services.deactivate_section(section=section, actor=request.user)
@@ -1022,6 +1071,7 @@ class SectionClassSessionListCreateView(CatalogueListCreateView):
             schedule_block=schedule_block,
             day_of_week=payload["day_of_week"],
             classroom=classroom,
+            starts_on=payload.get("starts_on"),
             actor=request.user,
         )
 
@@ -1044,6 +1094,25 @@ class ClassSessionDetailView(RetrieveMixin, DeactivateMixin, CatalogueDetailView
 
     def deactivate(self, request, session):
         services.deactivate_class_session(session=session, actor=request.user)
+
+
+class SectionWeeklyLoadView(CatalogueView):
+    @extend_schema(
+        summary="Verificar carga horaria semanal de la seccion",
+        description=(
+            "RF-HOR-007. Por cada subarea del plan de estudios del grado, compara "
+            "las horas semanales declaradas (LevelSubject, RF-EST-006) contra los "
+            "periodos activos realmente agendados para esta seccion. Una subarea "
+            "sin horas declaradas a nivel de nivel educativo devuelve "
+            "declared_weekly_hours y matches en null: no hay con que comparar."
+        ),
+        tags=CATALOGUE,
+        responses={200: WeeklyLoadRowSerializer(many=True)},
+    )
+    def get(self, request, public_id):
+        section = queries.section_or_404(self.institution, public_id)
+        rows = queries.weekly_load_report(section)
+        return Response(WeeklyLoadRowSerializer(rows, many=True).data)
 
 
 @extend_schema_view(
