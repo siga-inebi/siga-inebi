@@ -20,6 +20,7 @@ from datetime import datetime, time, timedelta
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.academics.models import TeachingAssignment
@@ -2243,6 +2244,48 @@ def test_record_scan_movement_replays_same_client_event_id_without_creating_dupl
     assert second.outcome == "already_processed"
     assert second.event == first.event
     assert AttendanceEvent.objects.count() == 1
+
+
+def test_duplicate_client_event_id_is_rejected_at_the_database_level():
+    """
+    Escenario 1 (RNF-CON-001): GIVEN dos reintentos automaticos por una falla
+    de red que llegan casi al mismo tiempo, WHEN ambos superan la
+    verificacion optimista de ``record_scan_movement`` antes de que el
+    primero termine de guardar, THEN la restriccion de la base de datos
+    -- no una condicion de carrera resuelta a nivel de aplicacion -- impide
+    que se guarde un segundo movimiento con el mismo client_event_id.
+
+    ``record_scan_movement``'s pre-check (leer antes de escribir) por si solo
+    deja una ventana entre dos solicitudes concurrentes; lo que realmente
+    garantiza la idempotencia bajo un reintento simultaneo es el
+    ``UniqueConstraint`` de ``client_event_id`` -- esta prueba lo ejercita
+    directo, sin pasar por el guard de la capa de servicio, para probar que
+    el respaldo existe independientemente de el.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _enrolled_student(cycle)
+    captured_at = _at(cycle.starts_on, 7, 0)
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=captured_at,
+        client_event_id="race-retry-1",
+    )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        AttendanceEvent.objects.create(
+            student=student,
+            shift=shift,
+            event_date=captured_at.date(),
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            origin=AttendanceEvent.Origin.SCAN,
+            captured_at=captured_at,
+            client_event_id="race-retry-1",
+        )
+
+    assert AttendanceEvent.objects.filter(client_event_id="race-retry-1").count() == 1
 
 
 def test_record_scan_batch_processes_items_independently_when_one_item_is_invalid():
