@@ -7,6 +7,8 @@ from apps.attendance.models import (
     CaptureBatch,
     ControlPoint,
     JornadaParameters,
+    Justification,
+    JustificationPolicy,
     ManualRegistrationReason,
     StudentCredential,
 )
@@ -90,3 +92,26 @@ class StudentCredentialAdmin(admin.ModelAdmin):
     list_display = ["student", "status", "issued_at", "revoked_by", "is_active"]
     list_filter = ["status"]
     date_hierarchy = "issued_at"
+
+
+@admin.register(JustificationPolicy)
+class JustificationPolicyAdmin(admin.ModelAdmin):
+    """RF-JUS-003: single global row; the window length used by ``submit_justification``."""
+
+    list_display = ["window_business_days", "updated_at"]
+
+
+@admin.register(Justification)
+class JustificationAdmin(admin.ModelAdmin):
+    """Support surface only: submission goes through the API, not here."""
+
+    list_display = [
+        "student",
+        "absence_date",
+        "status",
+        "submitted_by",
+        "is_exception",
+        "created_at",
+    ]
+    list_filter = ["status", "is_exception"]
+    date_hierarchy = "absence_date"
