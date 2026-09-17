@@ -30,6 +30,7 @@ from apps.academics.models import AcademicCycle, TeachingAssignment
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     CaptureBatch,
     DayStatus,
     JornadaParameters,
@@ -221,6 +222,7 @@ def record_attendance_event(
         },
     )
     _flag_declared_exit_without_entry(event=event, actor=actor)
+    _flag_unauthorized_early_exit(event=event, actor=actor)
     if event_date < timezone.localdate():
         recalculate_day(
             student=student,
@@ -468,6 +470,7 @@ def record_scan_movement(
             "batch_id": batch_id,
         },
     )
+    _flag_unauthorized_early_exit(event=event, actor=actor or operator)
     if event_date < timezone.localdate():
         recalculate_day(
             student=student,
@@ -595,6 +598,70 @@ def _flag_declared_exit_without_entry(*, event, actor):
     )
 
 
+def _flag_unauthorized_early_exit(*, event, actor):
+    """
+    RF-JUS-008: a scanned or manual exit registered before the jornada's
+    closing time is an early departure. Without an ``APPROVED``
+    ``AttendancePermit(EARLY_EXIT)`` dated exactly ``event.event_date`` for
+    this student, that's flagged the same way any other contradiction
+    between sources is (RF-JOR-005's ``INCONSISTENCIA`` alert) -- the spec
+    itself calls this "alertas de inconsistencia". A permit that exists but
+    is still pending or was rejected does not suppress the alert: only an
+    approval made before the fact has any effect, matching "Permiso
+    pendiente al momento del movimiento" (the movement is recorded exactly
+    as it happened either way -- this never blocks or alters ``event``).
+
+    A declared exit (``close_section``) always lands at or after closing
+    time, so it never reaches this check via the time comparison below;
+    this only ever concerns a real scan or manual exit.
+    """
+    if event.movement_type != AttendanceEvent.MovementType.EXIT:
+        return
+    if event.origin not in (AttendanceEvent.Origin.SCAN, AttendanceEvent.Origin.MANUAL):
+        return
+    try:
+        academic_cycle = resolve_academic_cycle_for(shift=event.shift, event_date=event.event_date)
+        parameters = get_effective_parameters(
+            shift=event.shift, academic_cycle=academic_cycle, on_date=event.event_date
+        )
+    except DomainError:
+        # No jornada parameters configured for this date -- there is no
+        # closing time to compare against, so whether this is "early" can't
+        # be known. Recording the movement itself never depends on this.
+        return
+    closing_datetime = timezone.make_aware(
+        datetime.combine(event.event_date, parameters.closing_time)
+    )
+    if event.captured_at >= closing_datetime:
+        return
+
+    has_approved_permit = AttendancePermit.objects.filter(
+        student=event.student,
+        permit_date=event.event_date,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        status=AttendancePermit.Status.APPROVED,
+    ).exists()
+    if has_approved_permit:
+        return
+
+    enrolment = _active_enrolment_for(
+        student=event.student, shift=event.shift, event_date=event.event_date
+    )
+    _raise_alert(
+        alert_type=AttendanceAlert.AlertType.INCONSISTENCIA,
+        student=event.student,
+        shift=event.shift,
+        event_date=event.event_date,
+        section=enrolment.section if enrolment is not None else None,
+        target_roles=[AttendanceAlert.TargetRole.SECTION_COORDINATOR],
+        context={
+            "exit_event_id": str(event.public_id),
+            "reason": "salida_anticipada_sin_permiso",
+        },
+        actor=actor,
+    )
+
+
 def resolve_prevailing_event(*, student, shift, event_date, movement_type):
     """
     The event that prevails for a student/shift/date/movement combination
@@ -710,6 +777,23 @@ def _apply_justification_override(result, *, justified):
     return replace(result, status=new_status)
 
 
+def _apply_late_arrival_permit(*, result, late_arrival_permitted):
+    """
+    RF-JUS-008: an ``APPROVED`` ``AttendancePermit(LATE_ARRIVAL)`` dated
+    exactly this day means the late entry was authorized in advance --
+    "el estado derivado del dia no lo penaliza como llegada tardia" -- so a
+    ``LATE`` classification becomes ``PRESENT``. Only ever swaps the
+    already-computed ``result.status``; never touches the entry event.
+    Applied after ``_apply_justification_override``, so a retrospective
+    justification (more specific -- it names this exact absence/lateness)
+    takes precedence: a status already turned into ``JUSTIFIED_LATE`` is no
+    longer exactly ``LATE`` and this no-ops on it.
+    """
+    if result is None or not late_arrival_permitted or result.status != DayStatus.LATE:
+        return result
+    return replace(result, status=DayStatus.PRESENT)
+
+
 def derive_day_status(*, student, shift, event_date, as_of=None):
     """
     The student's daily attendance status for a jornada (RF-JOR-002), derived
@@ -737,7 +821,14 @@ def derive_day_status(*, student, shift, event_date, as_of=None):
     justified = Justification.objects.filter(
         student=student, absence_date=event_date, status=Justification.Status.APPROVED
     ).exists()
-    return _apply_justification_override(result, justified=justified)
+    result = _apply_justification_override(result, justified=justified)
+    late_arrival_permitted = AttendancePermit.objects.filter(
+        student=student,
+        permit_date=event_date,
+        permit_type=AttendancePermit.PermitType.LATE_ARRIVAL,
+        status=AttendancePermit.Status.APPROVED,
+    ).exists()
+    return _apply_late_arrival_permit(result=result, late_arrival_permitted=late_arrival_permitted)
 
 
 def derive_day_statuses(*, students, shift, event_dates, as_of=None):
@@ -807,16 +898,27 @@ def derive_day_statuses(*, students, shift, event_dates, as_of=None):
             status=Justification.Status.APPROVED,
         ).values_list("student_id", "absence_date")
     )
+    late_arrival_permits = set(
+        AttendancePermit.objects.filter(
+            student__in=students,
+            permit_date__in=event_dates,
+            permit_type=AttendancePermit.PermitType.LATE_ARRIVAL,
+            status=AttendancePermit.Status.APPROVED,
+        ).values_list("student_id", "permit_date")
+    )
 
     return {
-        (student.pk, event_date): _apply_justification_override(
-            _classify_day(
-                entry_event=prevailing_entries.get((student.pk, event_date)),
-                parameters=parameters_by_date[event_date],
-                event_date=event_date,
-                as_of=as_of,
+        (student.pk, event_date): _apply_late_arrival_permit(
+            result=_apply_justification_override(
+                _classify_day(
+                    entry_event=prevailing_entries.get((student.pk, event_date)),
+                    parameters=parameters_by_date[event_date],
+                    event_date=event_date,
+                    as_of=as_of,
+                ),
+                justified=(student.pk, event_date) in approved_justifications,
             ),
-            justified=(student.pk, event_date) in approved_justifications,
+            late_arrival_permitted=(student.pk, event_date) in late_arrival_permits,
         )
         for student in students
         for event_date in event_dates
@@ -2298,3 +2400,88 @@ def attach_justification_document(*, justification, upload, actor):
         context={"justification_id": str(justification.public_id)},
     )
     return attachment
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-008 — permiso prospectivo de salida anticipada o ingreso tardio
+# --------------------------------------------------------------------------- #
+
+
+def submit_attendance_permit(*, student, permit_type, permit_date, scheduled_time, reason, actor):
+    """
+    RF-JUS-008: register a prospective permit request -- made BEFORE the
+    fact, unlike ``submit_justification``, which is presented after.
+    Deliberately minimal: no window rule (a permit is inherently forward-
+    looking, so there's no deadline to have missed), no guardian-scope
+    check of its own (the caller's boundary already resolves that, same as
+    every other submission in this app). ``status`` starts and stays
+    ``PENDING`` here.
+    """
+    _require_active(student, "el estudiante")
+    if not reason:
+        raise DomainError("El permiso debe indicar un motivo.")
+
+    permit = AttendancePermit.objects.create(
+        student=student,
+        permit_type=permit_type,
+        permit_date=permit_date,
+        scheduled_time=scheduled_time,
+        reason=reason,
+        submitted_by=actor,
+    )
+    record_event(
+        actor=actor,
+        action="attendance.permit.submitted",
+        resource="AttendancePermit",
+        resource_identifier=str(permit.public_id),
+        context={
+            "student_id": str(student.public_id),
+            "permit_type": permit_type,
+            "permit_date": str(permit_date),
+        },
+    )
+    return permit
+
+
+def resolve_attendance_permit(*, permit, approved, comment, actor):
+    """
+    RF-JUS-008: approve or reject a pending permit -- same immutability
+    contract as ``resolve_justification`` (RF-JUS-004): a rejection must
+    document why, and a resolved permit can never be resolved again. A
+    correction is a brand-new permit via ``submit_attendance_permit``,
+    never an edit of a resolved one (AGENTS.md #12).
+
+    Resolving never touches any ``AttendanceEvent``: whether a permit ends
+    up mattering depends entirely on when the movement it covers actually
+    happens relative to when this resolution lands, read fresh by
+    ``_flag_unauthorized_early_exit``/``derive_day_status`` at that moment
+    -- exactly the "Permiso pendiente al momento del movimiento" scenario,
+    where an approval that comes too late changes nothing about a movement
+    already recorded.
+    """
+    if permit.status != AttendancePermit.Status.PENDING:
+        raise DomainError(f"El permiso '{permit}' ya fue resuelto.")
+    if not approved and not comment:
+        raise DomainError("El rechazo debe indicar un comentario.")
+
+    permit.status = (
+        AttendancePermit.Status.APPROVED if approved else AttendancePermit.Status.REJECTED
+    )
+    permit.resolved_by = actor
+    permit.resolved_at = timezone.now()
+    permit.resolution_comment = comment
+    permit.save(
+        update_fields=["status", "resolved_by", "resolved_at", "resolution_comment", "updated_at"]
+    )
+    record_event(
+        actor=actor,
+        action="attendance.permit.resolved",
+        resource="AttendancePermit",
+        resource_identifier=str(permit.public_id),
+        context={
+            "student_id": str(permit.student.public_id),
+            "approved": approved,
+            "comment": comment,
+        },
+    )
+    return permit

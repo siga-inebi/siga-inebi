@@ -28,6 +28,7 @@ from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     CaptureBatch,
     DayStatus,
     JornadaParameters,
@@ -1025,6 +1026,13 @@ def test_declared_exit_with_a_prior_entry_does_not_raise_an_inconsistency_alert(
 
 
 def test_scanned_exit_without_entry_does_not_raise_an_inconsistency_alert():
+    """
+    ``_flag_declared_exit_without_entry`` (RF-JOR-005) only applies to a
+    DECLARED exit -- a scanned one never triggers it, missing entry or not.
+    Captured at/after closing time on purpose, so this stays isolated from
+    RF-JUS-008's separate "salida anticipada sin permiso" check below,
+    which does flag an early scanned exit regardless of entry.
+    """
     parameters = JornadaParametersFactory()
     student = StudentFactory()
 
@@ -1034,7 +1042,7 @@ def test_scanned_exit_without_entry_does_not_raise_an_inconsistency_alert():
         event_date=parameters.effective_from,
         movement_type=AttendanceEvent.MovementType.EXIT,
         origin=AttendanceEvent.Origin.SCAN,
-        captured_at=_at(parameters.effective_from, 15, 0),
+        captured_at=_at(parameters.effective_from, 16, 0),
     )
 
     assert not AttendanceAlert.objects.filter(
@@ -3947,3 +3955,356 @@ def test_attach_justification_document_rejects_a_second_attachment():
         services.attach_justification_document(
             justification=justification, upload=_pdf_upload("otra.pdf"), actor=guardian
         )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-008 — permiso prospectivo de salida anticipada o ingreso tardio
+# --------------------------------------------------------------------------- #
+
+
+def _configured_shift(cycle, **parameter_overrides):
+    """
+    ``_enrolled_student`` creates its own section/shift, unrelated to
+    whatever ``JornadaParametersFactory`` would create on its own -- so
+    parameters for this domain always go through ``set_jornada_parameters``
+    against the *same* shift the student is actually enrolled in, exactly
+    like every other RF-JUS test in this module. Defaults match the ones
+    ``JornadaParametersFactory`` would have used.
+    """
+    student, section, shift = _enrolled_student(cycle)
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=parameter_overrides.pop("entry_limit_time", time(7, 30)),
+        tolerance_minutes=parameter_overrides.pop("tolerance_minutes", 10),
+        closing_time=parameter_overrides.pop("closing_time", time(16, 0)),
+        duplicate_suppression_minutes=parameter_overrides.pop("duplicate_suppression_minutes", 5),
+        school_days=parameter_overrides.pop("school_days", [1, 2, 3, 4, 5]),
+        effective_from=cycle.starts_on,
+    )
+    return student, section, shift
+
+
+def _pending_permit(**overrides):
+    student = overrides.pop("student", None) or StudentFactory()
+    guardian = overrides.pop("actor", None) or UserFactory()
+    return services.submit_attendance_permit(
+        student=student,
+        permit_type=overrides.pop("permit_type", AttendancePermit.PermitType.EARLY_EXIT),
+        permit_date=overrides.pop("permit_date", timezone.localdate()),
+        scheduled_time=overrides.pop("scheduled_time", time(13, 0)),
+        reason=overrides.pop("reason", "Cita medica"),
+        actor=guardian,
+    )
+
+
+def test_submit_attendance_permit_requires_a_reason():
+    student = StudentFactory()
+
+    with pytest.raises(DomainError, match="motivo"):
+        services.submit_attendance_permit(
+            student=student,
+            permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+            permit_date=timezone.localdate(),
+            scheduled_time=time(13, 0),
+            reason="",
+            actor=UserFactory(),
+        )
+
+
+def test_resolve_attendance_permit_approve_succeeds():
+    permit = _pending_permit()
+    reviewer = UserFactory()
+
+    resolved = services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=reviewer
+    )
+
+    assert resolved.status == AttendancePermit.Status.APPROVED
+    assert resolved.resolved_by == reviewer
+    assert resolved.resolved_at is not None
+
+
+def test_resolve_attendance_permit_reject_requires_a_comment():
+    permit = _pending_permit()
+
+    with pytest.raises(DomainError, match="comentario"):
+        services.resolve_attendance_permit(
+            permit=permit, approved=False, comment="", actor=UserFactory()
+        )
+    permit.refresh_from_db()
+    assert permit.status == AttendancePermit.Status.PENDING
+
+
+def test_resolve_attendance_permit_is_immutable_once_resolved():
+    permit = _pending_permit()
+    reviewer = UserFactory()
+    services.resolve_attendance_permit(permit=permit, approved=True, comment="", actor=reviewer)
+
+    with pytest.raises(DomainError, match="ya fue resuelto"):
+        services.resolve_attendance_permit(permit=permit, approved=True, comment="", actor=reviewer)
+
+
+def _scan_exit(*, student, shift, control_point, event_date, hour, minute, operator=None):
+    return services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        captured_at=_at(event_date, hour, minute),
+        client_event_id="",
+        operator=operator or UserFactory(),
+    )
+
+
+def test_early_exit_without_a_permit_raises_an_inconsistencia_alert():
+    """
+    Baseline for RF-JUS-008: an early exit with no permit at all is flagged
+    the same way any other contradiction between sources is (RF-JOR-005).
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _configured_shift(cycle, closing_time=time(16, 0))
+    control_point = ControlPointFactory()
+
+    _scan_exit(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        event_date=cycle.starts_on,
+        hour=13,
+        minute=0,
+    )
+
+    alerts = AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    )
+    assert alerts.count() == 1
+    assert alerts.get().context["reason"] == "salida_anticipada_sin_permiso"
+
+
+def test_exit_at_closing_time_is_never_flagged_as_early():
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _configured_shift(cycle, closing_time=time(16, 0))
+    control_point = ControlPointFactory()
+
+    _scan_exit(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        event_date=cycle.starts_on,
+        hour=16,
+        minute=0,
+    )
+
+    assert not AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    ).exists()
+
+
+def test_approved_early_exit_permit_suppresses_the_inconsistencia_alert():
+    """
+    Escenario "Salida anticipada por cita medica" (RF-JUS-008): GIVEN un
+    encargado que registra un permiso de salida anticipada para el dia
+    siguiente, WHEN un usuario autorizado lo aprueba, THEN el permiso queda
+    vigente para esa fecha, AND la salida anticipada de ese estudiante no
+    genera alerta de inconsistencia.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _configured_shift(cycle, closing_time=time(16, 0))
+    control_point = ControlPointFactory()
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+
+    _scan_exit(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        event_date=cycle.starts_on,
+        hour=13,
+        minute=0,
+    )
+
+    assert not AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    ).exists()
+
+
+def test_pending_early_exit_permit_does_not_suppress_the_alert():
+    """
+    Escenario "Permiso pendiente al momento del movimiento" (RF-JUS-008):
+    GIVEN un permiso solicitado y aun no aprobado, WHEN el estudiante sale
+    antes del horario de cierre, THEN el sistema registra el movimiento y
+    lo trata como salida anticipada sin autorizar.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _configured_shift(cycle, closing_time=time(16, 0))
+    control_point = ControlPointFactory()
+    services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+
+    result = _scan_exit(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        event_date=cycle.starts_on,
+        hour=13,
+        minute=0,
+    )
+
+    assert result.event is not None
+    assert AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    ).exists()
+
+
+def test_rejected_early_exit_permit_does_not_suppress_the_alert():
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _configured_shift(cycle, closing_time=time(16, 0))
+    control_point = ControlPointFactory()
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=False, comment="Sin justificacion suficiente", actor=UserFactory()
+    )
+
+    _scan_exit(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        event_date=cycle.starts_on,
+        hour=13,
+        minute=0,
+    )
+
+    assert AttendanceAlert.objects.filter(
+        student=student, alert_type=AttendanceAlert.AlertType.INCONSISTENCIA
+    ).exists()
+
+
+def test_approved_late_arrival_permit_prevents_the_late_penalty():
+    """
+    Escenario "Ingreso tardio autorizado" (RF-JUS-008): GIVEN un estudiante
+    con un permiso de ingreso tardio aprobado para una fecha, WHEN registra
+    su ingreso despues de la hora limite de su jornada, THEN el estado
+    derivado del dia no lo penaliza como llegada tardia.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _configured_shift(cycle, entry_limit_time=time(7, 0))
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.LATE_ARRIVAL,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(7, 45),
+        reason="Cita medica por la manana",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(cycle.starts_on, 7, 45),
+    )
+
+    result = services.derive_day_status(student=student, shift=shift, event_date=cycle.starts_on)
+
+    assert result.status == DayStatus.PRESENT
+
+
+def test_pending_late_arrival_permit_does_not_prevent_the_late_penalty():
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _configured_shift(cycle, entry_limit_time=time(7, 0))
+    services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.LATE_ARRIVAL,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(7, 45),
+        reason="Cita medica por la manana",
+        actor=UserFactory(),
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(cycle.starts_on, 7, 45),
+    )
+
+    result = services.derive_day_status(student=student, shift=shift, event_date=cycle.starts_on)
+
+    assert result.status == DayStatus.LATE
+
+
+def test_approved_early_exit_permit_does_not_reduce_attendance_percentage():
+    """
+    RF-JUS-008: "NO DEBE reducir el porcentaje de asistencia de ese dia".
+    ``compute_attendance_percentage`` only ever reads entry-based status
+    (present/late), never exit timing, so an early exit -- permitted or
+    not -- was already never counted against it; this locks that guarantee
+    in with a verifiable test rather than leaving it implicit.
+    """
+    cycle = AcademicCycleFactory()
+    student, _section, shift = _configured_shift(
+        cycle, entry_limit_time=time(7, 0), closing_time=time(16, 0)
+    )
+    control_point = ControlPointFactory()
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(cycle.starts_on, 6, 45),
+    )
+    _scan_exit(
+        student=student,
+        shift=shift,
+        control_point=control_point,
+        event_date=cycle.starts_on,
+        hour=13,
+        minute=0,
+    )
+
+    result = services.compute_attendance_percentage(
+        student=student, shift=shift, as_of_date=cycle.starts_on
+    )
+
+    assert result.present_days == 1
+    assert result.percentage == 100.0
