@@ -422,6 +422,48 @@ def test_historical_cycle_query_keeps_completed_enrolment_after_cycle_closes():
     assert Enrolment.objects.filter(pk=enrolment.pk).exists()
 
 
+def test_special_session_without_a_classroom_does_not_block_cycle_activation():
+    """RF-AUL-003 (#101): un periodo especial (ej. Educacion Fisica) sin aula
+    fija no es un hueco estructural -- no aparece entre lo que
+    _academic_cycle_opening_gaps exige para activar el ciclo (RF-CIC-003)."""
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = create_academic_cycle(
+        institution=institution,
+        year=2028,
+        name="Ciclo 2028",
+        starts_on=date(2028, 1, 1),
+        ends_on=date(2028, 10, 31),
+        actor=actor,
+    )
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    section = create_section(academic_cycle=cycle, grade=grade, shift=shift, name="A", actor=actor)
+    subject = SubjectFactory(institution=institution, name="Educacion Fisica")
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
+    create_teaching_assignment(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        teacher=TeacherFactory().person,
+        actor=actor,
+    )
+    block = ClassScheduleBlockFactory(shift=shift)
+    session = create_class_session(
+        academic_cycle=cycle,
+        section=section,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=1,
+        actor=actor,
+    )
+    assert session.classroom_id is None
+
+    activated = activate_academic_cycle(cycle=cycle, actor=actor)
+
+    assert activated.status == AcademicCycle.CycleStatus.ACTIVE
+
+
 def test_weekly_load_report_reflects_the_actual_schedule_end_to_end():
     """RF-HOR-007 (#200): flujo completo -- ciclo, seccion, plan de estudios,
     carga horaria declarada a nivel de nivel educativo (RF-EST-006), y las
