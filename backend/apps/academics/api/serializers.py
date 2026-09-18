@@ -527,6 +527,12 @@ class ClassSessionCreateSerializer(serializers.Serializer):
     )
 
 
+class ClassScheduleCloneSerializer(serializers.Serializer):
+    source_section_id = serializers.UUIDField(
+        help_text="Public ID de la seccion cuyo horario activo se clonara."
+    )
+
+
 class WeeklyLoadRowSerializer(serializers.Serializer):
     """RF-HOR-007: declared weekly hours vs. periods actually scheduled for
     one subject in a section. Backed by a plain dict from
