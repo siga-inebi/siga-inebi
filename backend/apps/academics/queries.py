@@ -202,7 +202,12 @@ def level_subjects(level):
     return LevelSubject.objects.filter(level=level).select_related("level", "subject")
 
 
-_SECTION_RELATED = ("offering__grade__level", "offering__shift__campus", "offering__academic_cycle")
+_SECTION_RELATED = (
+    "offering__grade__level",
+    "offering__shift__campus",
+    "offering__academic_cycle",
+    "default_classroom",
+)
 
 
 def sections(institution, *, include_inactive=False, academic_cycle_id=None, grade_id=None):
@@ -236,6 +241,7 @@ _CLASS_SESSION_RELATED = (
     "section__offering__shift__campus",
     "subject",
     "schedule_block",
+    "classroom",
 )
 
 

@@ -1517,6 +1517,26 @@ def _validate_capacity(capacity):
         raise DomainError("El cupo de la seccion no puede ser negativo.")
 
 
+def classroom_capacity_warning(*, section, classroom):
+    """Return RF-AUL-004's non-blocking warning for an undersized classroom."""
+    if (
+        classroom is None
+        or section.capacity == 0
+        or classroom.capacity == 0
+        or classroom.capacity >= section.capacity
+    ):
+        return None
+    return {
+        "code": "classroom_capacity_below_section",
+        "detail": (
+            f"El aula tiene capacidad para {classroom.capacity} personas y la seccion "
+            f"declara {section.capacity}."
+        ),
+        "classroom_capacity": classroom.capacity,
+        "section_capacity": section.capacity,
+    }
+
+
 def _require_available_classroom(classroom):
     """Lock against concurrent status changes; callers own the transaction."""
     current = Classroom.objects.select_for_update().get(pk=classroom.pk)

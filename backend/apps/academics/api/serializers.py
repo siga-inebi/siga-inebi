@@ -1,5 +1,7 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from apps.academics import services
 from apps.academics.models import (
     AcademicCycle,
     Campus,
@@ -438,6 +440,13 @@ class SectionRefSerializer(serializers.ModelSerializer):
         fields = ["public_id", "name", "grade", "shift"]
 
 
+class ClassroomCapacityWarningSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    detail = serializers.CharField()
+    classroom_capacity = serializers.IntegerField()
+    section_capacity = serializers.IntegerField()
+
+
 class SectionSerializer(serializers.ModelSerializer):
     academic_cycle_id = serializers.UUIDField(
         source="offering.academic_cycle.public_id", read_only=True
@@ -447,6 +456,7 @@ class SectionSerializer(serializers.ModelSerializer):
     default_classroom_id = serializers.UUIDField(
         source="default_classroom.public_id", read_only=True, allow_null=True
     )
+    capacity_warning = serializers.SerializerMethodField()
 
     class Meta:
         model = Section
@@ -459,7 +469,15 @@ class SectionSerializer(serializers.ModelSerializer):
             "grade",
             "shift",
             "default_classroom_id",
+            "capacity_warning",
         ]
+
+    @extend_schema_field(ClassroomCapacityWarningSerializer(allow_null=True))
+    def get_capacity_warning(self, obj):
+        return services.classroom_capacity_warning(
+            section=obj,
+            classroom=obj.default_classroom,
+        )
 
 
 class SectionCreateSerializer(serializers.Serializer):
@@ -501,6 +519,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
     classroom_id = serializers.UUIDField(
         source="classroom.public_id", read_only=True, allow_null=True
     )
+    capacity_warning = serializers.SerializerMethodField()
 
     class Meta:
         model = ClassSession
@@ -513,6 +532,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
             "schedule_block",
             "teacher_id",
             "classroom_id",
+            "capacity_warning",
             "starts_on",
         ]
 
@@ -520,6 +540,13 @@ class ClassSessionSerializer(serializers.ModelSerializer):
         """RF-HOR-004: derived from the current teaching assignment, not stored."""
         teacher = obj.current_teacher
         return str(teacher.teacher_profile.public_id) if teacher else None
+
+    @extend_schema_field(ClassroomCapacityWarningSerializer(allow_null=True))
+    def get_capacity_warning(self, obj):
+        return services.classroom_capacity_warning(
+            section=obj.section,
+            classroom=obj.classroom,
+        )
 
 
 class ClassSessionCreateSerializer(serializers.Serializer):
