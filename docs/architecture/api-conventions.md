@@ -54,6 +54,19 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   Los servicios bloquean la fila del aula durante la asignacion y el cambio de
   disponibilidad para serializar ambas operaciones concurrentes.
 
+## Advertencia de capacidad de aulas (RF-AUL-004)
+
+- Las respuestas de seccion y sesion agregan `capacity_warning`, de solo lectura. Es `null`
+  cuando no hay aula, alguna capacidad vale `0` o el aula puede alojar la capacidad declarada
+  de la seccion.
+- Cuando el aula es menor, el campo contiene `code=classroom_capacity_below_section`, un mensaje
+  y los valores `classroom_capacity` y `section_capacity`.
+- La advertencia aplica al aula habitual de la seccion y al aula concreta de una sesion. Es
+  informativa: la asignacion se guarda y conserva las validaciones independientes de sede,
+  disponibilidad y cruces.
+- El valor se deriva al serializar y no se persiste; cambiar cualquiera de las capacidades se
+  refleja en la siguiente lectura sin migracion ni sincronizacion adicional.
+
 ## Seguridad
 
 - Sesion via cookie segura para frontend web.

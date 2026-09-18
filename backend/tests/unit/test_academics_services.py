@@ -13,6 +13,7 @@ from apps.academics.models import (
 )
 from apps.academics.services import (
     activate_academic_cycle,
+    classroom_capacity_warning,
     clone_academic_cycle,
     close_academic_cycle,
     correct_frozen_subject_result,
@@ -439,6 +440,27 @@ def test_create_section_accepts_a_default_classroom():
     )
 
     assert section.default_classroom_id == classroom.pk
+
+
+def test_classroom_capacity_warning_is_non_blocking_and_ignores_unknown_capacity():
+    section = SectionFactory(capacity=30)
+    classroom = ClassroomFactory(campus=section.campus, capacity=20)
+
+    assert classroom_capacity_warning(section=section, classroom=classroom) == {
+        "code": "classroom_capacity_below_section",
+        "detail": "El aula tiene capacidad para 20 personas y la seccion declara 30.",
+        "classroom_capacity": 20,
+        "section_capacity": 30,
+    }
+
+    classroom.capacity = 30
+    assert classroom_capacity_warning(section=section, classroom=classroom) is None
+    classroom.capacity = 0
+    assert classroom_capacity_warning(section=section, classroom=classroom) is None
+    section.capacity = 0
+    classroom.capacity = 20
+    assert classroom_capacity_warning(section=section, classroom=classroom) is None
+    assert classroom_capacity_warning(section=section, classroom=None) is None
 
 
 def test_create_section_rejects_default_classroom_from_another_campus():
