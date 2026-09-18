@@ -1986,6 +1986,97 @@ def create_class_session(
     return session
 
 
+@transaction.atomic
+def clone_class_schedule(*, source_section, target_section, actor=None):
+    """Clone the active schedule distribution of one section (RF-HOR-011).
+
+    The operation deliberately copies no classroom and stores no teacher.  A
+    teacher remains derived from the target section's current teaching
+    assignment (RF-HOR-004), while each source block is mapped by number to
+    the target shift.  All compatibility checks and writes share one
+    transaction so a conflict cannot leave a partial target schedule.
+    """
+    if source_section.pk == target_section.pk:
+        raise DomainError("La seccion origen y la seccion destino deben ser distintas.")
+    if source_section.academic_cycle.pk != target_section.academic_cycle.pk:
+        raise DomainError("Las secciones deben pertenecer al mismo ciclo escolar.")
+
+    require_cycle_academic_writes(
+        cycle=target_section.academic_cycle,
+        operation="class_schedule.clone",
+    )
+
+    # Serialize clone requests for the same target.  Existing session writes
+    # are still validated by create_class_session below and by DB constraints.
+    target_section = (
+        Section.objects.select_for_update()
+        .select_related("offering__academic_cycle", "offering__shift")
+        .get(pk=target_section.pk)
+    )
+    if ClassSession.objects.filter(section=target_section).exists():
+        raise DomainError("La seccion destino debe tener un historial de horario vacio.")
+
+    source_sessions = list(
+        ClassSession.objects.filter(section=source_section, is_active=True)
+        .select_related("subject", "schedule_block")
+        .order_by("day_of_week", "schedule_block__number", "pk")
+    )
+    if not source_sessions:
+        raise DomainError("La seccion origen no tiene sesiones activas para clonar.")
+
+    source_subject_ids = {session.subject_id for session in source_sessions}
+    target_plan_subject_ids = set(
+        CurriculumPlan.objects.filter(
+            academic_cycle=target_section.academic_cycle,
+            grade=target_section.grade,
+            is_active=True,
+        ).values_list("subject_id", flat=True)
+    )
+    missing_subject_ids = source_subject_ids - target_plan_subject_ids
+    if missing_subject_ids:
+        raise DomainError(
+            "El plan de estudios de la seccion destino no contiene todas las subareas "
+            "del horario origen."
+        )
+
+    target_blocks_by_number = {
+        block.number: block
+        for block in ClassScheduleBlock.objects.filter(
+            shift=target_section.shift,
+            is_active=True,
+        )
+    }
+    source_block_numbers = {session.schedule_block.number for session in source_sessions}
+    missing_block_numbers = source_block_numbers - target_blocks_by_number.keys()
+    if missing_block_numbers:
+        missing = ", ".join(str(number) for number in sorted(missing_block_numbers))
+        raise DomainError(f"La jornada destino no tiene bloques activos equivalentes: {missing}.")
+
+    cloned_sessions = []
+    for source in source_sessions:
+        cloned_sessions.append(
+            create_class_session(
+                academic_cycle=target_section.academic_cycle,
+                section=target_section,
+                subject=source.subject,
+                schedule_block=target_blocks_by_number[source.schedule_block.number],
+                day_of_week=source.day_of_week,
+                starts_on=source.starts_on,
+                actor=actor,
+            )
+        )
+
+    _audit(
+        actor,
+        "academics.class_schedule.cloned",
+        target_section,
+        source_section_id=source_section.pk,
+        target_section_id=target_section.pk,
+        session_count=len(cloned_sessions),
+    )
+    return cloned_sessions
+
+
 def deactivate_class_session(*, session, actor=None):
     if not session.is_active:
         return session

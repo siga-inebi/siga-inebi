@@ -42,6 +42,7 @@ from .serializers import (
     ClassScheduleBlockCreateSerializer,
     ClassScheduleBlockSerializer,
     ClassScheduleBlockUpdateSerializer,
+    ClassScheduleCloneSerializer,
     ClassSchedulePublicationSerializer,
     ClassSessionCreateSerializer,
     ClassSessionSerializer,
@@ -1077,6 +1078,37 @@ class SectionClassSessionListCreateView(CatalogueListCreateView):
             classroom=classroom,
             starts_on=payload.get("starts_on"),
             actor=request.user,
+        )
+
+
+class SectionClassScheduleCloneView(CatalogueView):
+    serializer_class = ClassScheduleCloneSerializer
+
+    @extend_schema(
+        summary="Clonar horario hacia una seccion",
+        description=(
+            "Copia atomicamente las sesiones activas de la seccion origen hacia la seccion "
+            "destino. Traduce los bloques por numero y no copia aulas ni docentes."
+        ),
+        tags=CATALOGUE,
+        request=ClassScheduleCloneSerializer,
+        responses={201: ClassSessionSerializer(many=True)},
+    )
+    def post(self, request, public_id):
+        payload = self.validated(ClassScheduleCloneSerializer, request)
+        target_section = queries.section_or_404(self.institution, public_id)
+        source_section = queries.section_or_404(
+            self.institution,
+            payload["source_section_id"],
+        )
+        sessions = services.clone_class_schedule(
+            source_section=source_section,
+            target_section=target_section,
+            actor=request.user,
+        )
+        return Response(
+            ClassSessionSerializer(sessions, many=True).data,
+            status=status.HTTP_201_CREATED,
         )
 
 

@@ -147,6 +147,18 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - Crear o reasignar una asignacion docente de un ciclo cerrado devuelve HTTP 400. El historial de
   asignaciones permanece consultable y no se elimina.
 
+## Clonacion de horarios
+
+- `POST /api/v1/academics/sections/{target_public_id}/class-sessions/clone/` recibe
+  `source_section_id` y copia la distribucion activa hacia una seccion vacia del mismo ciclo.
+- El plan de estudios destino debe contener todas las subareas del origen. Los bloques se traducen
+  por numero a la jornada destino; si falta alguno, se rechaza la operacion completa.
+- Se conservan subarea, dia y fecha de vigencia. El aula no se copia y el docente se deriva de las
+  asignaciones vigentes de la seccion destino.
+- La operacion es atomica y auditable. Un destino con cualquier sesion previa, incluso inactiva, o
+  un cruce detectado por las reglas existentes produce HTTP 400 sin copias parciales.
+- El endpoint requiere sesion autenticada y devuelve HTTP 201 con las sesiones creadas.
+
 ## Inscripciones activas
 
 - `GET /api/v1/enrolments/active/` expone las inscripciones con estado `active` y registro

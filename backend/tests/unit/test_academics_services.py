@@ -14,6 +14,7 @@ from apps.academics.models import (
 from apps.academics.services import (
     activate_academic_cycle,
     clone_academic_cycle,
+    clone_class_schedule,
     close_academic_cycle,
     correct_frozen_subject_result,
     create_academic_cycle,
@@ -75,6 +76,164 @@ def test_close_cycle_rejects_when_a_unit_is_still_open():
         close_academic_cycle(cycle=cycle)
     cycle.refresh_from_db()
     assert cycle.status == AcademicCycle.CycleStatus.ACTIVE
+
+
+def test_clone_class_schedule_maps_blocks_and_does_not_copy_classroom():
+    cycle = AcademicCycleFactory()
+    source_shift = ShiftFactory(campus__institution=cycle.institution)
+    target_shift = ShiftFactory(campus__institution=cycle.institution)
+    source_grade = GradeFactory(institution=cycle.institution)
+    target_grade = GradeFactory(institution=cycle.institution)
+    source = SectionFactory(academic_cycle=cycle, grade=source_grade, shift=source_shift)
+    target = SectionFactory(academic_cycle=cycle, grade=target_grade, shift=target_shift)
+    subject = SubjectFactory(institution=cycle.institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=target_grade, subject=subject)
+    source_block = ClassScheduleBlockFactory(shift=source_shift, number=2)
+    target_block = ClassScheduleBlockFactory(shift=target_shift, number=2)
+    source_session = ClassSessionFactory(
+        section=source,
+        subject=subject,
+        schedule_block=source_block,
+        day_of_week=3,
+        classroom=ClassroomFactory(campus=source_shift.campus),
+        starts_on=cycle.starts_on + timedelta(days=14),
+    )
+
+    cloned = clone_class_schedule(source_section=source, target_section=target)
+
+    assert len(cloned) == 1
+    assert cloned[0].section == target
+    assert cloned[0].subject == subject
+    assert cloned[0].schedule_block == target_block
+    assert cloned[0].day_of_week == source_session.day_of_week
+    assert cloned[0].starts_on == source_session.starts_on
+    assert cloned[0].classroom is None
+
+
+def test_clone_class_schedule_rejects_nonempty_target_including_history():
+    cycle = AcademicCycleFactory()
+    shift = ShiftFactory(campus__institution=cycle.institution)
+    source = SectionFactory(academic_cycle=cycle, shift=shift)
+    target = SectionFactory(academic_cycle=cycle, shift=shift)
+    subject = SubjectFactory(institution=cycle.institution)
+    CurriculumPlan.objects.create(
+        academic_cycle=cycle,
+        grade=target.grade,
+        subject=subject,
+    )
+    block = ClassScheduleBlockFactory(shift=shift)
+    ClassSessionFactory(section=source, subject=subject, schedule_block=block)
+    historical = ClassSessionFactory(
+        section=target,
+        subject=subject,
+        schedule_block=block,
+        is_active=False,
+    )
+
+    with pytest.raises(DomainError, match="historial de horario vacio"):
+        clone_class_schedule(source_section=source, target_section=target)
+
+    assert target.class_sessions.get() == historical
+
+
+def test_clone_class_schedule_rolls_back_when_target_plan_is_incompatible():
+    cycle = AcademicCycleFactory()
+    shift = ShiftFactory(campus__institution=cycle.institution)
+    source = SectionFactory(academic_cycle=cycle, shift=shift)
+    target = SectionFactory(academic_cycle=cycle, shift=shift)
+    block = ClassScheduleBlockFactory(shift=shift)
+    included = SubjectFactory(institution=cycle.institution)
+    missing = SubjectFactory(institution=cycle.institution)
+    CurriculumPlan.objects.create(
+        academic_cycle=cycle,
+        grade=target.grade,
+        subject=included,
+    )
+    ClassSessionFactory(section=source, subject=included, schedule_block=block, day_of_week=1)
+    ClassSessionFactory(section=source, subject=missing, schedule_block=block, day_of_week=2)
+
+    with pytest.raises(DomainError, match="no contiene todas las subareas"):
+        clone_class_schedule(source_section=source, target_section=target)
+
+    assert target.class_sessions.count() == 0
+
+
+def test_clone_class_schedule_rolls_back_every_session_on_teacher_conflict():
+    cycle = AcademicCycleFactory()
+    shift = ShiftFactory(campus__institution=cycle.institution)
+    source = SectionFactory(academic_cycle=cycle, shift=shift)
+    target = SectionFactory(academic_cycle=cycle, shift=shift)
+    occupied_section = SectionFactory(academic_cycle=cycle, shift=shift)
+    first_subject = SubjectFactory(institution=cycle.institution)
+    conflicting_subject = SubjectFactory(institution=cycle.institution)
+    occupied_subject = SubjectFactory(institution=cycle.institution)
+    for subject in (first_subject, conflicting_subject):
+        CurriculumPlan.objects.create(
+            academic_cycle=cycle,
+            grade=target.grade,
+            subject=subject,
+        )
+    first_block = ClassScheduleBlockFactory(shift=shift, number=1)
+    conflicting_block = ClassScheduleBlockFactory(shift=shift, number=2)
+    ClassSessionFactory(
+        section=source,
+        subject=first_subject,
+        schedule_block=first_block,
+        day_of_week=1,
+    )
+    ClassSessionFactory(
+        section=source,
+        subject=conflicting_subject,
+        schedule_block=conflicting_block,
+        day_of_week=2,
+    )
+    teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=cycle,
+        section=target,
+        subject=conflicting_subject,
+        teacher=teacher.person,
+        starts_on=cycle.starts_on,
+    )
+    TeachingAssignment.objects.create(
+        academic_cycle=cycle,
+        section=occupied_section,
+        subject=occupied_subject,
+        teacher=teacher.person,
+        starts_on=cycle.starts_on,
+    )
+    ClassSessionFactory(
+        section=occupied_section,
+        subject=occupied_subject,
+        schedule_block=conflicting_block,
+        day_of_week=2,
+    )
+
+    with pytest.raises(DomainError, match="El docente ya tiene otra seccion agendada"):
+        clone_class_schedule(source_section=source, target_section=target)
+
+    assert target.class_sessions.count() == 0
+
+
+def test_clone_class_schedule_rejects_when_target_shift_lacks_equivalent_block():
+    cycle = AcademicCycleFactory()
+    source_shift = ShiftFactory(campus__institution=cycle.institution)
+    target_shift = ShiftFactory(campus__institution=cycle.institution)
+    source = SectionFactory(academic_cycle=cycle, shift=source_shift)
+    target = SectionFactory(academic_cycle=cycle, shift=target_shift)
+    subject = SubjectFactory(institution=cycle.institution)
+    CurriculumPlan.objects.create(
+        academic_cycle=cycle,
+        grade=target.grade,
+        subject=subject,
+    )
+    source_block = ClassScheduleBlockFactory(shift=source_shift, number=3)
+    ClassSessionFactory(section=source, subject=subject, schedule_block=source_block)
+
+    with pytest.raises(DomainError, match="bloques activos equivalentes: 3"):
+        clone_class_schedule(source_section=source, target_section=target)
+
+    assert target.class_sessions.count() == 0
 
 
 def test_close_cycle_rejects_when_recovery_window_has_not_expired():
