@@ -102,7 +102,16 @@ class ClassroomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Classroom
-        fields = ["public_id", "name", "code", "location", "capacity", "is_active", "campus"]
+        fields = [
+            "public_id",
+            "name",
+            "code",
+            "location",
+            "capacity",
+            "is_active",
+            "campus",
+            "service_status",
+        ]
 
 
 class ClassroomCreateSerializer(serializers.Serializer):
@@ -114,6 +123,9 @@ class ClassroomCreateSerializer(serializers.Serializer):
 
 
 class ClassroomUpdateSerializer(serializers.Serializer):
+    service_status = serializers.ChoiceField(
+        choices=Classroom.ServiceStatus.choices, required=False
+    )
     name = serializers.CharField(max_length=150, required=False)
     location = serializers.CharField(max_length=255, required=False, allow_blank=True)
     capacity = serializers.IntegerField(min_value=0, required=False)

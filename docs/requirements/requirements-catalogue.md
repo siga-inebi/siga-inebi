@@ -131,8 +131,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-AUL-002 | Aula habitual de la seccion | Deberia | institutional-structure | Not implemented | #100 | TBD | Fase posterior |
 | RF-AUL-003 | Sesiones sin aula asignada | Deberia | institutional-structure | Not implemented | #101 | TBD | Fase posterior |
 | RF-AUL-004 | Capacidad del aula como advertencia | Podria | institutional-structure | Not implemented | #102 | TBD | Fase posterior |
-| RF-AUL-005 | Aulas fuera de servicio | Podria | institutional-structure | Not implemented | #103 | TBD | Fase posterior |
-| RF-AUL-006 | Conservacion de las aulas con historial | Podria | institutional-structure | Not implemented | #104 | TBD | Historia |
+| RF-AUL-005 | Aulas fuera de servicio | Podria | institutional-structure | Implemented | #103 | backend/tests/integration/test_classroom_availability.py; backend/tests/migrations/test_classroom_service_status.py; frontend/src/test/RoomsPage.test.jsx | Estados disponible, inhabilitada y mantenimiento; bloquea nuevas asignaciones y conserva sesiones existentes |
+| RF-AUL-006 | Conservacion de las aulas con historial | Podria | institutional-structure | Implemented | #104 | backend/tests/integration/test_classroom_history.py | Proteccion existente verificada: referencias historicas con PROTECT y baja logica auditable; sin cambio de contrato ni migracion |
 | RF-HOR-001 | Rejilla de bloques por jornada | Debe | institutional-structure | Implemented | #194 | TBD | Base horarios |
 | RF-HOR-002 | Los horarios de porton no se definen aqui | Debe | attendance-governance | Implemented | #195 | TBD | Limite de dominio |
 | RF-HOR-003 | La sesion de clase | Debe | institutional-structure | Implemented | #196 | TBD | Entidad horario |
