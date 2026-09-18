@@ -121,8 +121,15 @@ def create_classroom(*, campus, name, code, location="", capacity=0, actor=None)
 
 
 @transaction.atomic
-def update_classroom(*, classroom, name=None, location=None, capacity=None, actor=None):
+def update_classroom(
+    *, classroom, name=None, location=None, capacity=None, service_status=None, actor=None
+):
+    classroom = Classroom.objects.select_for_update().get(pk=classroom.pk)
     candidates = {}
+    if service_status is not None:
+        if service_status not in Classroom.ServiceStatus.values:
+            raise DomainError("El estado de servicio del aula no es valido.")
+        candidates["service_status"] = service_status
     if name is not None:
         candidates["name"] = _clean_name(name, field="nombre del aula")
     if location is not None:
@@ -1510,13 +1517,23 @@ def _validate_capacity(capacity):
         raise DomainError("El cupo de la seccion no puede ser negativo.")
 
 
-@transaction.atomic
-def _validate_default_classroom(classroom, shift):
+def _require_available_classroom(classroom):
+    """Lock against concurrent status changes; callers own the transaction."""
+    current = Classroom.objects.select_for_update().get(pk=classroom.pk)
+    _require_active(current, "el aula")
+    if current.service_status != Classroom.ServiceStatus.AVAILABLE:
+        raise DomainError("El aula esta fuera de servicio y no admite nuevas asignaciones.")
+
+
+def _validate_default_classroom(classroom, shift, *, existing_id=None):
     """RF-AUL-002: a section's habitual classroom must sit at its own campus."""
     if classroom is not None and classroom.campus_id != shift.campus_id:
         raise DomainError("El aula habitual debe pertenecer a la misma sede que la seccion.")
+    if classroom is not None and classroom.pk != existing_id:
+        _require_available_classroom(classroom)
 
 
+@transaction.atomic
 def create_section(
     *, academic_cycle, grade, shift, name, capacity=0, default_classroom=None, actor=None
 ):
@@ -1568,6 +1585,7 @@ def create_section(
     return section
 
 
+@transaction.atomic
 def update_section(*, section, name=None, capacity=None, default_classroom=None, actor=None):
     """Rename a section, change its declared capacity, or set its habitual
     classroom (RF-AUL-002). Planning-only (RF-EST-011)."""
@@ -1576,7 +1594,9 @@ def update_section(*, section, name=None, capacity=None, default_classroom=None,
     if name is not None:
         name = _clean_name(name)
     _validate_capacity(capacity)
-    _validate_default_classroom(default_classroom, section.shift)
+    _validate_default_classroom(
+        default_classroom, section.shift, existing_id=section.default_classroom_id
+    )
 
     with unique_violation_as(_section_conflicts(name or section.name)):
         return _changed(
@@ -1858,6 +1878,7 @@ def _class_session_conflicts():
     }
 
 
+@transaction.atomic
 def create_class_session(
     *,
     academic_cycle,
@@ -1906,6 +1927,8 @@ def create_class_session(
         raise DomainError("El bloque de horario debe pertenecer a la misma jornada que la seccion.")
     if classroom is not None and classroom.campus_id != section.offering.shift.campus_id:
         raise DomainError("El aula debe pertenecer a la misma sede que la seccion.")
+    if classroom is not None:
+        _require_available_classroom(classroom)
     starts_on = starts_on or academic_cycle.starts_on
     if starts_on < academic_cycle.starts_on or starts_on > academic_cycle.ends_on:
         raise DomainError("La fecha de vigencia de la sesion debe caer dentro del ciclo escolar.")
