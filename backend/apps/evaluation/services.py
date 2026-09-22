@@ -372,6 +372,103 @@ def set_cycle_unit_count(
     return config
 
 
+@transaction.atomic
+def clone_cycle_evaluation_config(
+    *,
+    source_cycle: AcademicCycle,
+    target_cycle: AcademicCycle,
+    actor=None,
+) -> list[EvaluationUnit]:
+    """
+    Clone a cycle's evaluation configuration into another cycle (RF-EVC-006).
+
+    Copies every active unit of ``source_cycle`` -- evaluation period, capture
+    window and, when set, recovery window -- into ``target_cycle``, along with
+    its own unit-count override (RF-EVC-005) if it has one. Every date is
+    translated by the offset between the two cycles' start dates, so the
+    cloned units keep the same relative shape (durations, gaps, overlaps)
+    the source had; each unit is created through create_evaluation_unit (and
+    set_recovery_window) so the existing per-unit validation and audit trail
+    apply unchanged.
+
+    RN-CIC-001: the clone is an independent copy. Nothing here references the
+    source rows afterwards, so editing or closing a cloned unit never touches
+    the cycle it came from.
+
+    The target must still be in preparation (DRAFT) and hold no units of its
+    own yet, so the clone lands on a clean, still-editable cycle rather than
+    silently mixing with or overwriting something already there.
+
+    Args:
+        source_cycle: Cycle whose configuration is copied.
+        target_cycle: Cycle that receives the copy.
+        actor: User performing the action (for audit trail).
+
+    Returns:
+        list[EvaluationUnit]: The newly created units, in source order.
+
+    Raises:
+        DomainError: If the target cycle is not a draft, the target already
+            has units, or the source cycle has no units to clone.
+    """
+    if target_cycle.status != AcademicCycle.CycleStatus.DRAFT:
+        raise DomainError(
+            "Solo se puede clonar la configuracion de evaluacion hacia un ciclo en preparacion."
+        )
+    if EvaluationUnit.objects.filter(academic_cycle=target_cycle, is_active=True).exists():
+        raise DomainError("El ciclo destino ya tiene unidades de evaluacion configuradas.")
+
+    source_units = list(
+        EvaluationUnit.objects.filter(academic_cycle=source_cycle, is_active=True).order_by(
+            "number"
+        )
+    )
+    if not source_units:
+        raise DomainError("El ciclo de origen no tiene unidades de evaluacion configuradas.")
+
+    date_shift = target_cycle.starts_on - source_cycle.starts_on
+
+    cloned_units = []
+    for source_unit in source_units:
+        cloned_unit = create_evaluation_unit(
+            academic_cycle=target_cycle,
+            number=source_unit.number,
+            name=source_unit.name,
+            starts_on=source_unit.starts_on + date_shift,
+            ends_on=source_unit.ends_on + date_shift,
+            capture_starts_on=source_unit.capture_starts_on + date_shift,
+            capture_ends_on=source_unit.capture_ends_on + date_shift,
+            actor=actor,
+        )
+        if source_unit.recovery_starts_on is not None:
+            cloned_unit = set_recovery_window(
+                cloned_unit,
+                recovery_starts_on=source_unit.recovery_starts_on + date_shift,
+                recovery_ends_on=source_unit.recovery_ends_on + date_shift,
+                actor=actor,
+            )
+        cloned_units.append(cloned_unit)
+
+    source_override = getattr(source_cycle, "evaluation_config", None)
+    if source_override is not None and source_override.unit_count is not None:
+        set_cycle_unit_count(
+            academic_cycle=target_cycle,
+            unit_count=source_override.unit_count,
+            actor=actor,
+        )
+
+    _audit(
+        actor,
+        "evaluation.config_cloned",
+        target_cycle,
+        source_cycle_id=str(source_cycle.public_id),
+        target_cycle_id=str(target_cycle.public_id),
+        unit_count=len(cloned_units),
+    )
+
+    return cloned_units
+
+
 def create_evaluation_unit(
     academic_cycle: AcademicCycle,
     number: int,

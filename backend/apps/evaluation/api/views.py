@@ -29,6 +29,7 @@ from apps.evaluation.api.serializers import (
     BulkGradeUploadSerializer,
     CaptureExceptionGrantSerializer,
     CaptureProgressReportSerializer,
+    CloneCycleEvaluationConfigSerializer,
     CycleEvaluationConfigSerializer,
     EvaluationGlobalConfigSerializer,
     EvaluationUnitSerializer,
@@ -41,6 +42,7 @@ from apps.evaluation.services import (
     assess_recovery_eligibility,
     build_capture_progress_report,
     bulk_register_unit_grades,
+    clone_cycle_evaluation_config,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -430,6 +432,69 @@ class CycleEvaluationConfigView(APIView):
                 "effective_unit_count": get_effective_unit_count(cycle),
             },
             status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Clonar la configuracion de evaluacion hacia otro ciclo",
+        description=(
+            "Copia las unidades, sus ventanas de captura y recuperacion, y el "
+            "override de cantidad de unidades (si existe) de este ciclo hacia "
+            "``target_cycle``, con las fechas trasladadas segun la diferencia "
+            "entre las fechas de inicio de ambos ciclos. El ciclo destino debe "
+            "estar en preparacion y sin unidades propias; la configuracion "
+            "clonada queda editable antes de activarse (RF-EVC-006)."
+        ),
+        tags=TAGS,
+        request=CloneCycleEvaluationConfigSerializer,
+        responses={201: EvaluationUnitSerializer(many=True)},
+    ),
+)
+class CloneCycleEvaluationConfigView(APIView):
+    """
+    Clone a cycle's evaluation configuration into another cycle (RF-EVC-006).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    POST {base}/evaluation-config/clone/
+    """
+
+    def check_configuration_permission(self, cycle):
+        """Require the atomic permission and an effective institution scope."""
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        return user.has_scoped_permission(
+            EVALUATION_CONFIGURE_PERMISSION,
+            scope={"institution": cycle.institution},
+        )
+
+    def post(self, request, *args, **kwargs):
+        source_cycle = queries.academic_cycle_or_none(kwargs.get("cycle_public_id"))
+        if source_cycle is None:
+            raise ResourceNotFoundError("Cycle not found.")
+
+        if not self.check_configuration_permission(source_cycle):
+            raise AuthorizationError(
+                "Permission denied. The actor needs evaluation configuration permission and scope."
+            )
+
+        serializer = CloneCycleEvaluationConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        target_cycle = serializer.validated_data["target_cycle"]
+
+        units = clone_cycle_evaluation_config(
+            source_cycle=source_cycle,
+            target_cycle=target_cycle,
+            actor=request.user,
+        )
+
+        return Response(
+            EvaluationUnitSerializer(units, many=True).data,
+            status=status.HTTP_201_CREATED,
         )
 
 

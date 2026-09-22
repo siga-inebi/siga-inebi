@@ -9,7 +9,7 @@ import io
 
 from rest_framework import serializers
 
-from apps.academics.models import Section, Subject
+from apps.academics.models import AcademicCycle, Section, Subject
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import (
     GRADE_MAX_VALUE,
@@ -160,6 +160,16 @@ class CycleEvaluationConfigSerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError("unit_count debe ser un entero positivo.")
         return value
+
+
+class CloneCycleEvaluationConfigSerializer(serializers.Serializer):
+    """Contract for cloning a cycle's evaluation configuration (RF-EVC-006)."""
+
+    target_cycle = serializers.SlugRelatedField(
+        slug_field="public_id",
+        queryset=AcademicCycle.objects.all(),
+        help_text="Public ID del ciclo en preparacion que recibe la configuracion clonada.",
+    )
 
 
 class GradeSerializer(serializers.ModelSerializer):

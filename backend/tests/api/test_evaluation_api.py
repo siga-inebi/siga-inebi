@@ -15,6 +15,7 @@ Scenario 5: Recuperación fuera de fecha
 Scenario 6: Docente que no alcanzó a subir notas
 Scenario 7: Expiración automática
 Scenario 8: Ciclo que se aparta del valor global
+Scenario 13: Preparación del ciclo siguiente
 """
 
 from datetime import date, timedelta
@@ -717,6 +718,129 @@ class TestEvaluationConfigAPI:
         response = auth_client.get(
             reverse("cycle-evaluation-config", kwargs={"cycle_public_id": str(uuid.uuid4())})
         )
+        assert response.status_code == 404
+
+
+class TestCloneCycleEvaluationConfigAPI:
+    """Tests for the evaluation-config clone endpoint (RF-EVC-006)."""
+
+    def _source_and_target(self, institution, *, target_status="draft"):
+        source = AcademicCycleFactory(
+            institution=institution,
+            year=2025,
+            starts_on=date(2025, 1, 1),
+            ends_on=date(2025, 10, 31),
+            status="closed",
+        )
+        target = AcademicCycleFactory(
+            institution=institution,
+            year=2026,
+            starts_on=date(2026, 1, 5),
+            ends_on=date(2026, 11, 4),
+            status=target_status,
+        )
+        return source, target
+
+    def test_clone_success(self, auth_client, institution):
+        """
+        Scenario 13: Preparación del ciclo siguiente
+        POST /api/v1/academics/cycles/{source_id}/evaluation-config/clone/
+        """
+        source, target = self._source_and_target(institution)
+        unit = EvaluationUnitFactory(
+            academic_cycle=source,
+            number=1,
+            starts_on=date(2025, 1, 15),
+            ends_on=date(2025, 3, 15),
+            capture_starts_on=date(2025, 3, 10),
+            capture_ends_on=date(2025, 3, 20),
+        )
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+
+        response = auth_client.post(
+            reverse(
+                "cycle-evaluation-config-clone", kwargs={"cycle_public_id": str(source.public_id)}
+            ),
+            {"target_cycle": str(target.public_id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert len(body) == 1
+        shift = target.starts_on - source.starts_on
+        assert body[0]["starts_on"] == str(unit.starts_on + shift)
+        assert body[0]["ends_on"] == str(unit.ends_on + shift)
+        assert body[0]["capture_starts_on"] == str(unit.capture_starts_on + shift)
+        assert body[0]["capture_ends_on"] == str(unit.capture_ends_on + shift)
+        assert EvaluationUnit.objects.filter(academic_cycle=target).count() == 1
+
+        from apps.audit.models import AuditEvent
+
+        assert AuditEvent.objects.filter(action="evaluation.config_cloned").exists()
+
+    def test_clone_requires_configuration_permission(self, auth_client, institution):
+        source, target = self._source_and_target(institution)
+        EvaluationUnitFactory(academic_cycle=source, number=1)
+
+        response = auth_client.post(
+            reverse(
+                "cycle-evaluation-config-clone", kwargs={"cycle_public_id": str(source.public_id)}
+            ),
+            {"target_cycle": str(target.public_id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert not EvaluationUnit.objects.filter(academic_cycle=target).exists()
+
+    def test_clone_requires_institution_scope(self, auth_client, institution):
+        source, target = self._source_and_target(institution)
+        EvaluationUnitFactory(academic_cycle=source, number=1)
+        permission = PermissionFactory(codename="evaluation_configure_units")
+        RoleAssignmentFactory(
+            user=auth_client.user,
+            role=RoleFactory(permissions=[permission]),
+            identity_scope=False,
+        )
+
+        response = auth_client.post(
+            reverse(
+                "cycle-evaluation-config-clone", kwargs={"cycle_public_id": str(source.public_id)}
+            ),
+            {"target_cycle": str(target.public_id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+
+    def test_clone_target_not_in_draft_returns_400(self, auth_client, institution):
+        source, target = self._source_and_target(institution, target_status="closed")
+        EvaluationUnitFactory(academic_cycle=source, number=1)
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+
+        response = auth_client.post(
+            reverse(
+                "cycle-evaluation-config-clone", kwargs={"cycle_public_id": str(source.public_id)}
+            ),
+            {"target_cycle": str(target.public_id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+
+    def test_clone_source_not_found_returns_404(self, auth_client, institution):
+        import uuid
+
+        target = AcademicCycleFactory(institution=institution, status="draft")
+        _grant_evaluation_configuration(auth_client.user, institution=institution)
+
+        response = auth_client.post(
+            reverse("cycle-evaluation-config-clone", kwargs={"cycle_public_id": str(uuid.uuid4())}),
+            {"target_cycle": str(target.public_id)},
+            content_type="application/json",
+        )
+
         assert response.status_code == 404
 
 

@@ -6,6 +6,7 @@ RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
 RF-EVC-005: Configuracion global heredable
+RF-EVC-006: Clonación de la configuración entre ciclos
 
 Scenario 1: Configuración de cuatro unidades
 Scenario 2: Unidades solapadas
@@ -19,6 +20,7 @@ Scenario 9: Registro de una nota por el docente
 Scenario 10: Nota fuera de rango
 Scenario 11: Promedio en curso con notas pendientes
 Scenario 12: Promedio de las unidades
+Scenario 13: Preparación del ciclo siguiente
 """
 
 from datetime import date, timedelta
@@ -28,7 +30,7 @@ from unittest.mock import patch
 import pytest
 from django.utils import timezone
 
-from apps.academics.models import CurriculumPlan, TeachingAssignment
+from apps.academics.models import AcademicCycle, CurriculumPlan, TeachingAssignment
 from apps.common.models import DomainError
 from apps.enrolments.services import create_enrolment
 from apps.evaluation.models import EvaluationUnit, Grade, RecoveryGrade
@@ -36,6 +38,7 @@ from apps.evaluation.services import (
     assess_recovery_eligibility,
     build_capture_progress_report,
     bulk_register_unit_grades,
+    clone_cycle_evaluation_config,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -52,7 +55,12 @@ from apps.evaluation.services import (
     validate_capture_window_open,
     validate_recovery_window_open,
 )
-from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    InstitutionFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.evaluation import CaptureExceptionGrantFactory, EvaluationUnitFactory
 from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
@@ -681,6 +689,125 @@ class TestGlobalEvaluationConfig:
 
         with pytest.raises(DomainError, match="entero positivo"):
             set_cycle_unit_count(academic_cycle=cycle, unit_count=0)
+
+
+class TestCloneCycleEvaluationConfig:
+    """Tests for RF-EVC-006: Clonación de la configuración entre ciclos."""
+
+    def _source_and_target(self, *, target_status=AcademicCycle.CycleStatus.DRAFT):
+        institution = InstitutionFactory()
+        source = AcademicCycleFactory(
+            institution=institution,
+            year=2025,
+            starts_on=date(2025, 1, 1),
+            ends_on=date(2025, 10, 31),
+            status=AcademicCycle.CycleStatus.CLOSED,
+        )
+        target = AcademicCycleFactory(
+            institution=institution,
+            year=2026,
+            starts_on=date(2026, 1, 5),
+            ends_on=date(2026, 11, 4),
+            status=target_status,
+        )
+        return source, target
+
+    def test_clone_translates_dates_and_windows(self):
+        """
+        Scenario 13: Preparación del ciclo siguiente
+        GIVEN un ciclo con su configuración completa
+        WHEN un usuario autorizado clona esa configuración hacia el ciclo siguiente
+        THEN el nuevo ciclo queda con la misma estructura y las fechas trasladadas
+        AND puede editarse antes de activarse
+        """
+        source, target = self._source_and_target()
+        unit_1 = EvaluationUnitFactory(
+            academic_cycle=source,
+            number=1,
+            name="Unidad 1",
+            starts_on=date(2025, 1, 15),
+            ends_on=date(2025, 3, 15),
+            capture_starts_on=date(2025, 3, 10),
+            capture_ends_on=date(2025, 3, 20),
+        )
+        set_recovery_window(
+            unit_1, recovery_starts_on=date(2025, 3, 21), recovery_ends_on=date(2025, 3, 25)
+        )
+        EvaluationUnitFactory(
+            academic_cycle=source,
+            number=2,
+            name="Unidad 2",
+            starts_on=date(2025, 3, 16),
+            ends_on=date(2025, 5, 16),
+            capture_starts_on=date(2025, 5, 11),
+            capture_ends_on=date(2025, 5, 21),
+        )
+        shift = target.starts_on - source.starts_on
+
+        cloned = clone_cycle_evaluation_config(source_cycle=source, target_cycle=target)
+
+        assert len(cloned) == 2
+        cloned_1, cloned_2 = cloned
+        assert cloned_1.academic_cycle_id == target.id
+        assert cloned_1.number == 1
+        assert cloned_1.name == "Unidad 1"
+        assert cloned_1.starts_on == date(2025, 1, 15) + shift
+        assert cloned_1.ends_on == date(2025, 3, 15) + shift
+        assert cloned_1.capture_starts_on == date(2025, 3, 10) + shift
+        assert cloned_1.capture_ends_on == date(2025, 3, 20) + shift
+        assert cloned_1.recovery_starts_on == date(2025, 3, 21) + shift
+        assert cloned_1.recovery_ends_on == date(2025, 3, 25) + shift
+
+        assert cloned_2.number == 2
+        assert cloned_2.recovery_starts_on is None
+        assert cloned_2.recovery_ends_on is None
+
+        # The cloned configuration stays editable before activation.
+        assert target.status == AcademicCycle.CycleStatus.DRAFT
+
+    def test_clone_carries_cycle_unit_count_override(self):
+        source, target = self._source_and_target()
+        EvaluationUnitFactory(academic_cycle=source, number=1)
+        set_cycle_unit_count(academic_cycle=source, unit_count=3)
+
+        clone_cycle_evaluation_config(source_cycle=source, target_cycle=target)
+
+        assert get_effective_unit_count(target) == 3
+
+    def test_clone_is_independent_from_source(self):
+        """RN-CIC-001: cloning must not leave the target as a shared, mutable
+        snapshot of the source -- editing one must never touch the other."""
+        source, target = self._source_and_target()
+        source_unit = EvaluationUnitFactory(academic_cycle=source, number=1)
+
+        [cloned_unit] = clone_cycle_evaluation_config(source_cycle=source, target_cycle=target)
+        close_evaluation_unit(cloned_unit)
+
+        source_unit.refresh_from_db()
+        assert source_unit.status == EvaluationUnit.UnitStatus.OPEN
+        cloned_unit.refresh_from_db()
+        assert cloned_unit.status == EvaluationUnit.UnitStatus.CLOSED
+
+    def test_reject_target_not_in_draft(self):
+        source, target = self._source_and_target(target_status=AcademicCycle.CycleStatus.CLOSED)
+        EvaluationUnitFactory(academic_cycle=source, number=1)
+
+        with pytest.raises(DomainError, match="en preparacion"):
+            clone_cycle_evaluation_config(source_cycle=source, target_cycle=target)
+
+    def test_reject_target_with_existing_units(self):
+        source, target = self._source_and_target()
+        EvaluationUnitFactory(academic_cycle=source, number=1)
+        EvaluationUnitFactory(academic_cycle=target, number=1)
+
+        with pytest.raises(DomainError, match="ya tiene unidades"):
+            clone_cycle_evaluation_config(source_cycle=source, target_cycle=target)
+
+    def test_reject_source_without_units(self):
+        source, target = self._source_and_target()
+
+        with pytest.raises(DomainError, match="no tiene unidades"):
+            clone_cycle_evaluation_config(source_cycle=source, target_cycle=target)
 
 
 class TestRegisterUnitGrade:

@@ -100,7 +100,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EVC-003 | Ventana de recuperacion | Debe | academic-evaluation | Not implemented | #180 | TBD | Requiere estados |
 | RF-EVC-004 | Brecha excepcional autorizada | Deberia | academic-evaluation | Not implemented | #181 | TBD | Control especial |
 | RF-EVC-005 | Configuracion global heredable | Deberia | academic-evaluation | Not implemented | #182 | TBD | Parametrizacion posterior |
-| RF-EVC-006 | Clonacion de la configuracion entre ciclos | Podria | academic-evaluation | Not implemented | #183 | TBD | Posterior |
+| RF-EVC-006 | Clonacion de la configuracion entre ciclos | Podria | academic-evaluation | Implemented | #183 | backend/tests/{unit/test_evaluation_services.py,api/test_evaluation_api.py,integration/test_evaluation.py} | Fechas trasladadas por offset de inicio de ciclo |
 | RF-EVC-007 | Estados de la unidad | Debe | academic-evaluation | Implemented | #184 | backend/tests/{unit/test_evaluation_services.py,api/test_evaluation_api.py,integration/test_evaluation.py} | Cierre explícito y auditado bloquea captura sin excepción vigente |
 | RF-RES-001 | Nota final de la subarea | Debe | academic-evaluation | Not implemented | #255 | TBD | Resultado derivado |
 | RF-RES-002 | Punto unico de redondeo | Debe | academic-evaluation | Not implemented | #256 | TBD | Regla critica |
