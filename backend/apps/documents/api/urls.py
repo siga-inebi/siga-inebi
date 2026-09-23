@@ -11,7 +11,8 @@ from .views import (
     DocumentTemplateListCreateView,
     DocumentTemplatePreviewView,
     DocumentTemplateVersionListView,
-    DocumentTypeListView,
+    DocumentTypeDetailView,
+    DocumentTypeListCreateView,
     DocumentVerificationView,
     EnrolmentDocumentRecordListView,
     FieldTagListView,
@@ -68,7 +69,12 @@ urlpatterns = [
         name="enrolment-document-record-list",
     ),
     path("field-tags/", FieldTagListView.as_view(), name="document-field-tag-list"),
-    path("types/", DocumentTypeListView.as_view(), name="document-type-list"),
+    path("types/", DocumentTypeListCreateView.as_view(), name="document-type-list-create"),
+    path(
+        "types/<uuid:public_id>/",
+        DocumentTypeDetailView.as_view(),
+        name="document-type-detail",
+    ),
     path(
         "official-issuance/eligibility/",
         OfficialDocumentEligibilityView.as_view(),
