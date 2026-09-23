@@ -238,9 +238,9 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RNF-LEG-001 | Datos de menores: control de acceso por rol, minimizacion y plazos de retencion declarados | Debe | security-compliance | Not implemented | #274 | TBD | Politica pendiente parcial |
 | RNF-LOC-001 | Servidor y base de datos fijados en la zona horaria del establecimiento; los eventos y las fechas de efecto se interpretan en hora local | Debe | platform | Not implemented | #275 | TBD | America/Guatemala esperable |
 | RNF-LOC-002 | Interfaz, documentos y reportes en espanol | Debe | platform | Not implemented | #276 | TBD | Convencion general |
-| RNF-MAN-001 | Ningun catalogo institucional fijado en codigo: tipos de documento, plantillas, parametros de jornada, ponderaciones y etiquetas son configurables | Debe | platform | Not implemented | #277 | TBD | Base de configuracion |
+| RNF-MAN-001 | Ningun catalogo institucional fijado en codigo: tipos de documento, plantillas, parametros de jornada, ponderaciones y etiquetas son configurables | Debe | platform | Implemented | #277 | TBD | Tipos de documento en `documents.DocumentKind`; inventario y excepciones en docs/architecture/configuration-catalogues.md |
 | RNF-MAN-002 | Los textos de los documentos institucionales se editan sin desplegar el sistema | Debe | document-generation | Not implemented | #278 | TBD | Requiere catalogo/plantillas |
-| RNF-OPE-001 | Registro de errores y monitoreo minimo del proceso trabajador y de las tareas programadas | Debe | platform | Not implemented | #279 | TBD | Worker simple |
+| RNF-OPE-001 | Registro de errores y monitoreo minimo del proceso trabajador y de las tareas programadas | Debe | platform | Implemented | #279 | TBD | `common.TaskRun` mas logger `siga.tasks`; contrato en docs/architecture/operations-monitoring.md. El worker sigue diferido por ADR-0009 |
 | RNF-PRI-001 | El codigo QR no codifica datos personales | Debe | attendance-capture | Not implemented | #280 | TBD | Privacidad |
 | RNF-PRI-002 | La pantalla de escaneo no expone informacion de salud, academica ni de contacto | Debe | attendance-capture | Not implemented | #281 | TBD | Minimizacion visual |
 | RNF-PRI-003 | No se almacenan datos personales de menores en el dispositivo del operador | Debe | attendance-capture | Not implemented | #282 | TBD | Seguridad local |

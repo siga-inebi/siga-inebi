@@ -1,7 +1,7 @@
 """Read-side queries for the documents domain."""
 
 from apps.common.exceptions import ResourceNotFoundError
-from apps.documents.models import DocumentRecord, DocumentTemplate
+from apps.documents.models import DocumentKind, DocumentRecord, DocumentTemplate
 from apps.enrolments.models import Enrolment
 from apps.students.models import Student
 
@@ -10,8 +10,29 @@ def _filter_active(queryset, *, include_inactive=False):
     return queryset if include_inactive else queryset.filter(is_active=True)
 
 
+def document_kinds_all(institution):
+    return DocumentKind.objects.filter(institution=institution).order_by("label")
+
+
+def document_kinds(institution, *, include_inactive=False):
+    return _filter_active(document_kinds_all(institution), include_inactive=include_inactive)
+
+
+def document_kind_or_404(institution, public_id):
+    try:
+        return document_kinds_all(institution).get(public_id=public_id)
+    except DocumentKind.DoesNotExist as exc:
+        raise ResourceNotFoundError("DocumentKind not found.") from exc
+    except (ValueError, TypeError) as exc:
+        raise ResourceNotFoundError("DocumentKind not found.") from exc
+
+
 def document_templates_all(institution):
-    return DocumentTemplate.objects.filter(institution=institution).order_by("name")
+    return (
+        DocumentTemplate.objects.filter(institution=institution)
+        .select_related("document_kind")
+        .order_by("name")
+    )
 
 
 def document_templates(institution, *, include_inactive=False):
