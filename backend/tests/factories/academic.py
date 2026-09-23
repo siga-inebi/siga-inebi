@@ -23,9 +23,28 @@ from apps.academics.models import (
 class InstitutionFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Institution
+        # The hook below only creates related rows; it never touches the
+        # institution, so the extra save factory_boy would run is pure noise.
+        skip_postgeneration_save = True
 
     name = factory.Sequence(lambda n: f"Institution {n}")
     short_name = factory.Sequence(lambda n: f"INST{n}")
+
+    @factory.post_generation
+    def document_kinds(self, create, extracted, **kwargs):
+        """
+        Give the institution the starting document-type catalogue.
+
+        RNF-MAN-001 turned document types into rows, and both paths that create
+        an institution for real -- the data migration and ``seed_demo_data`` --
+        seed them. A test institution without them could not hold a single
+        template, so it would not represent an institution at all.
+        """
+        if not create:
+            return
+        from apps.documents.services import ensure_default_document_kinds
+
+        ensure_default_document_kinds(institution=self)
 
 
 class AcademicCycleFactory(factory.django.DjangoModelFactory):

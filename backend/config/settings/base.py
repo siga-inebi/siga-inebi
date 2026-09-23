@@ -103,6 +103,26 @@ DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES = env_int(
     DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES,
 )
 
+# RNF-RES-001 / RNF-RES-002: respaldo y recuperacion.
+#
+# Las dos pilas tienen directorios separados a proposito: el requerimiento pide
+# que los esquemas sean independientes, y compartir destino invita a que un
+# borrado o una rotacion se lleve las dos.
+#
+# RPO y RTO son declaraciones institucionales, no medidas de infraestructura.
+# Los valores por defecto son la declaracion de referencia documentada en
+# `docs/architecture/backup-and-recovery.md` (PD-002) y se ajustan por entorno
+# en cuanto el establecimiento confirme los suyos.
+BACKUP_ROOT = env("BACKUP_ROOT", str(BASE_DIR.parent / "backups"))
+# Los scripts viven en el repositorio, fuera de `backend/`. La imagen del
+# backend solo copia `backend/`, asi que en contenedor se montan aparte y esta
+# variable dice donde quedaron.
+BACKUP_SCRIPTS_DIR = env("BACKUP_SCRIPTS_DIR", str(BASE_DIR.parent / "scripts" / "backup"))
+DATABASE_BACKUP_DIR = env("DATABASE_BACKUP_DIR", f"{BACKUP_ROOT}/database")
+FILES_BACKUP_DIR = env("FILES_BACKUP_DIR", f"{BACKUP_ROOT}/files")
+RECOVERY_POINT_OBJECTIVE_HOURS = env_int("RECOVERY_POINT_OBJECTIVE_HOURS", 24)
+RECOVERY_TIME_OBJECTIVE_HOURS = env_int("RECOVERY_TIME_OBJECTIVE_HOURS", 4)
+
 DATABASE_ENGINE = env("DATABASE_ENGINE", "postgresql")
 SQLITE_PATH = env("SQLITE_PATH", "db.sqlite3")
 
@@ -218,6 +238,12 @@ SPECTACULAR_SETTINGS = {
     # cuando se generen tipos desde el schema (ahi el nombre si importa).
 }
 
+# RNF-OPE-001: nivel del registro operativo, ajustable por despliegue sin tocar
+# codigo. INFO deja una linea por inicio y fin de cada tarea; WARNING la calla y
+# conserva solo los fallos.
+LOG_LEVEL = env("DJANGO_LOG_LEVEL", "INFO").upper()
+TASK_LOG_LEVEL = env("TASK_LOG_LEVEL", LOG_LEVEL).upper()
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -225,14 +251,33 @@ LOGGING = {
         "simple": {
             "format": "%(levelname)s %(name)s %(message)s",
         },
+        # Las lineas de tarea se leen en un log recolectado, a veces meses
+        # despues, asi que llevan marca de tiempo y proceso: sin eso no se puede
+        # distinguir dos corridas de la misma tarea.
+        "operational": {
+            "format": "%(asctime)s %(levelname)s %(name)s pid=%(process)d %(message)s",
+        },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "simple",
-        }
+        },
+        "operational": {
+            "class": "logging.StreamHandler",
+            "formatter": "operational",
+        },
     },
     "loggers": {
+        # RNF-OPE-001: registro del proceso trabajador y de las tareas
+        # programadas. Va a su propio handler para que el formato con marca de
+        # tiempo no cambie el resto de la salida, y no propaga para no
+        # duplicar cada linea en la raiz.
+        "siga.tasks": {
+            "handlers": ["operational"],
+            "level": TASK_LOG_LEVEL,
+            "propagate": False,
+        },
         # Django's default configuration attaches AdminEmailHandler to this
         # logger, and every 4xx/5xx response goes through it. That handler
         # renders a traceback template even when ADMINS is empty, so an error
@@ -246,7 +291,7 @@ LOGGING = {
     },
     "root": {
         "handlers": ["console"],
-        "level": "INFO",
+        "level": LOG_LEVEL,
     },
 }
 

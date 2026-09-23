@@ -31,6 +31,9 @@ from .serializers import (
     AttendanceEventSerializer,
     AttendancePercentageQuerySerializer,
     AttendancePercentageResultSerializer,
+    AttendancePermitRequestSerializer,
+    AttendancePermitResolutionRequestSerializer,
+    AttendancePermitSerializer,
     AttendancePresenceQuerySerializer,
     CaptureBatchRecoverySerializer,
     CaptureBatchSerializer,
@@ -1147,3 +1150,83 @@ class JustificationAttachmentView(GenericAPIView):
         return Response(
             JustificationAttachmentSerializer(attachment).data, status=status.HTTP_201_CREATED
         )
+
+
+PERMIT_TAGS = ["attendance: permisos"]
+PERMIT_REQUEST_PERMISSION = "attendance_permit_request"
+PERMIT_RESOLVE_PERMISSION = "attendance_permit_resolve"
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Solicitar permiso de salida anticipada o ingreso tardio",
+        description=(
+            "RF-JUS-008: un permiso se solicita ANTES del hecho, a diferencia "
+            "de una justificacion (presentada despues). Queda pendiente hasta "
+            "su resolucion."
+        ),
+        tags=PERMIT_TAGS,
+        request=AttendancePermitRequestSerializer,
+        responses={201: AttendancePermitSerializer},
+    ),
+)
+class AttendancePermitSubmitView(GenericAPIView):
+    """RF-JUS-008 contract: submit a prospective early-exit/late-arrival permit."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendancePermitSerializer
+
+    def post(self, request):
+        serializer = AttendancePermitRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        if not can_access_student(
+            user=request.user, codename=PERMIT_REQUEST_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        permit = services.submit_attendance_permit(
+            student=student,
+            permit_type=payload["permit_type"],
+            permit_date=payload["permit_date"],
+            scheduled_time=payload["scheduled_time"],
+            reason=payload["reason"],
+            actor=request.user,
+        )
+        return Response(AttendancePermitSerializer(permit).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Resolver permiso de salida anticipada o ingreso tardio",
+        description=(
+            "RF-JUS-008: aprueba o rechaza un permiso pendiente. El rechazo "
+            "exige un comentario. Una vez resuelto, el permiso queda "
+            "inmutable -- resolverlo de nuevo se rechaza."
+        ),
+        tags=PERMIT_TAGS,
+        request=AttendancePermitResolutionRequestSerializer,
+        responses={200: AttendancePermitSerializer},
+    ),
+)
+class AttendancePermitResolveView(GenericAPIView):
+    """RF-JUS-008 contract: approve or reject a pending permit."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendancePermitSerializer
+
+    def post(self, request, public_id):
+        _require_permission(request, PERMIT_RESOLVE_PERMISSION)
+        serializer = AttendancePermitResolutionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        permit = queries.attendance_permit_for_payload(public_id)
+        permit = services.resolve_attendance_permit(
+            permit=permit,
+            approved=payload["approved"],
+            comment=payload["comment"],
+            actor=request.user,
+        )
+        return Response(AttendancePermitSerializer(permit).data)
