@@ -1,6 +1,7 @@
 from django.urls import include, path
 
 from apps.evaluation.api.views import (
+    CloneCycleEvaluationConfigView,
     CurrentAverageView,
     CycleEvaluationConfigView,
     EnrolmentGradesView,
@@ -101,6 +102,11 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/evaluation-config/",
         CycleEvaluationConfigView.as_view(),
         name="cycle-evaluation-config",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/evaluation-config/clone/",
+        CloneCycleEvaluationConfigView.as_view(),
+        name="cycle-evaluation-config-clone",
     ),
     path(
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/grades/",

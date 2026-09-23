@@ -6,6 +6,7 @@ RF-EVC-002: Ventana de captura de notas
 RF-EVC-003: Ventana de recuperacion
 RF-EVC-004: Brecha excepcional autorizada
 RF-EVC-005: Configuracion global heredable
+RF-EVC-006: Clonación de la configuración entre ciclos
 
 Cross-domain flows: evaluation interacts with academics domain (cycles).
 """
@@ -24,6 +25,7 @@ from apps.evaluation.services import (
     assess_recovery_eligibility,
     build_capture_progress_report,
     bulk_register_unit_grades,
+    clone_cycle_evaluation_config,
     close_evaluation_unit,
     create_evaluation_unit,
     get_current_average,
@@ -40,7 +42,12 @@ from apps.evaluation.services import (
     validate_capture_window_open,
     validate_recovery_window_open,
 )
-from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    InstitutionFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.attendance import AttendanceEventFactory, JornadaParametersFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.people import PersonFactory
@@ -505,6 +512,96 @@ class TestGlobalEvaluationConfigIntegration:
         assert event.resource_identifier == str(config.pk)
         assert event.context["cycle_id"] == str(cycle.public_id)
         assert event.context["unit_count"] == 2
+
+
+class TestCloneCycleEvaluationConfigIntegration:
+    """Integration tests for RF-EVC-006: Clonación de la configuración entre ciclos."""
+
+    def test_prepare_next_cycle_from_previous_configuration(self):
+        """
+        Scenario 13: Preparación del ciclo siguiente (cross-domain)
+        GIVEN un ciclo con su configuración completa
+        WHEN un usuario autorizado clona esa configuración hacia el ciclo siguiente
+        THEN el nuevo ciclo queda con la misma estructura y las fechas trasladadas
+        AND puede editarse antes de activarse
+        """
+        institution = InstitutionFactory()
+        source = AcademicCycleFactory(
+            institution=institution,
+            year=2025,
+            starts_on=date(2025, 1, 1),
+            ends_on=date(2025, 10, 31),
+            status=AcademicCycle.CycleStatus.CLOSED,
+        )
+        EvaluationUnitFactory(
+            academic_cycle=source,
+            number=1,
+            name="Primer trimestre",
+            starts_on=date(2025, 1, 15),
+            ends_on=date(2025, 4, 15),
+            capture_starts_on=date(2025, 4, 10),
+            capture_ends_on=date(2025, 4, 20),
+        )
+        set_cycle_unit_count(academic_cycle=source, unit_count=3)
+
+        target = AcademicCycleFactory(
+            institution=institution,
+            year=2026,
+            starts_on=date(2026, 1, 12),
+            ends_on=date(2026, 11, 6),
+            status=AcademicCycle.CycleStatus.DRAFT,
+        )
+
+        cloned = clone_cycle_evaluation_config(source_cycle=source, target_cycle=target)
+
+        assert len(cloned) == 1
+        cloned_unit = cloned[0]
+        shift = target.starts_on - source.starts_on
+        assert cloned_unit.academic_cycle_id == target.id
+        assert cloned_unit.name == "Primer trimestre"
+        assert cloned_unit.starts_on == date(2025, 1, 15) + shift
+        assert cloned_unit.capture_ends_on == date(2025, 4, 20) + shift
+        assert get_effective_unit_count(target) == 3
+
+        # The clone is still a draft cycle: its configuration can be edited
+        # before activation, and doing so never touches the source cycle.
+        assert target.status == AcademicCycle.CycleStatus.DRAFT
+        set_recovery_window(
+            cloned_unit,
+            recovery_starts_on=cloned_unit.ends_on + timedelta(days=1),
+            recovery_ends_on=cloned_unit.ends_on + timedelta(days=6),
+        )
+        cloned_unit.refresh_from_db()
+        assert cloned_unit.recovery_starts_on is not None
+
+        source_unit = EvaluationUnit.objects.get(academic_cycle=source, number=1)
+        assert source_unit.recovery_starts_on is None
+
+    def test_clone_audit_trail(self):
+        """Test that cloning the configuration is recorded in the audit trail."""
+        source = AcademicCycleFactory(
+            year=2025,
+            starts_on=date(2025, 1, 1),
+            ends_on=date(2025, 10, 31),
+            status=AcademicCycle.CycleStatus.CLOSED,
+        )
+        EvaluationUnitFactory(academic_cycle=source, number=1)
+        target = AcademicCycleFactory(
+            institution=source.institution,
+            year=2026,
+            starts_on=date(2026, 1, 1),
+            ends_on=date(2026, 11, 30),
+            status=AcademicCycle.CycleStatus.DRAFT,
+        )
+
+        clone_cycle_evaluation_config(source_cycle=source, target_cycle=target)
+
+        from apps.audit.models import AuditEvent
+
+        event = AuditEvent.objects.get(action="evaluation.config_cloned")
+        assert event.context["source_cycle_id"] == str(source.public_id)
+        assert event.context["target_cycle_id"] == str(target.public_id)
+        assert event.context["unit_count"] == 1
 
 
 class TestRegisterUnitGradeIntegration:
