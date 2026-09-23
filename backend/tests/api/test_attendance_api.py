@@ -2778,3 +2778,54 @@ def test_permit_resolve_endpoint_rejects_second_resolution(auth_client):
     )
 
     assert second.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-009 — efecto del permiso sobre el cierre declarado (contrato)
+# --------------------------------------------------------------------------- #
+
+
+def test_section_closure_preview_excludes_a_student_with_an_approved_permit(auth_client):
+    """
+    Escenario "Cierre de seccion con un permiso vigente" (RF-JUS-009), a
+    nivel de contrato: el resumen de vista previa del cierre muestra al
+    estudiante omitido por permiso vigente, no incluido.
+    """
+    _grant_declared_closure_permission(auth_client.user)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle, shift=parameters.shift)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    AttendanceEventFactory(
+        student=student,
+        shift=parameters.shift,
+        event_date=parameters.effective_from,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0))),
+    )
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=parameters.effective_from,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+
+    response = auth_client.get(_section_closure_preview_url(section, parameters.effective_from))
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["included"] == []
+    assert len(data["omitted"]) == 1
+    assert data["omitted"][0]["student_id"] == str(student.public_id)
+    assert data["omitted"][0]["reason"] == "Tiene permiso de salida anticipada vigente."

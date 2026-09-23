@@ -4308,3 +4308,45 @@ def test_approved_early_exit_permit_does_not_reduce_attendance_percentage():
 
     assert result.present_days == 1
     assert result.percentage == 100.0
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-009 — efecto del permiso sobre el cierre declarado
+# --------------------------------------------------------------------------- #
+
+
+def test_section_closure_excludes_a_student_with_an_approved_early_exit_permit():
+    """
+    Escenario "Cierre de seccion con un permiso vigente" (RF-JUS-009):
+    GIVEN una seccion donde un estudiante tiene permiso de salida
+    anticipada aprobado, WHEN un docente declara el cierre de esa seccion,
+    THEN el sistema omite a ese estudiante y lo informa como omitido por
+    permiso vigente.
+    """
+    cycle = AcademicCycleFactory()
+    student, section, shift = _configured_shift(cycle, closing_time=time(16, 0))
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=_at(cycle.starts_on, 7, 0),
+    )
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+
+    result = services.preview_section_closure(section=section, event_date=cycle.starts_on)
+
+    assert student not in result.included
+    omission = next(o for o in result.omitted if o.student == student)
+    assert omission.reason == "Tiene permiso de salida anticipada vigente."
