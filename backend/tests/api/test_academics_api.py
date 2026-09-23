@@ -344,6 +344,50 @@ def test_create_class_session_api_creates_session(auth_client, institution):
     assert body["starts_on"] == section.academic_cycle.starts_on.isoformat()
 
 
+def test_clone_class_schedule_api_contract(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    grade = GradeFactory(institution=institution)
+    source = SectionFactory(academic_cycle=cycle, grade=grade, shift=shift)
+    target = SectionFactory(academic_cycle=cycle, grade=grade, shift=shift)
+    subject = SubjectFactory(institution=institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=grade, subject=subject)
+    block = ClassScheduleBlockFactory(shift=shift)
+    source_session = ClassSessionFactory(
+        section=source,
+        subject=subject,
+        schedule_block=block,
+        day_of_week=4,
+    )
+
+    response = auth_client.post(
+        reverse("section-class-schedule-clone", args=[target.public_id]),
+        {"source_section_id": str(source.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert len(response.json()) == 1
+    assert response.json()[0]["subject"]["public_id"] == str(subject.public_id)
+    assert response.json()[0]["day_of_week"] == source_session.day_of_week
+    assert target.class_sessions.count() == 1
+
+
+def test_clone_class_schedule_api_requires_authentication(client, institution):
+    cycle = AcademicCycleFactory(institution=institution)
+    source = SectionFactory(academic_cycle=cycle)
+    target = SectionFactory(academic_cycle=cycle)
+
+    response = client.post(
+        reverse("section-class-schedule-clone", args=[target.public_id]),
+        {"source_section_id": str(source.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert target.class_sessions.count() == 0
+
+
 def test_create_class_session_api_accepts_a_mid_cycle_starts_on(auth_client, institution):
     """RF-HOR-008 (#201): fecha de vigencia explicita para una reestructuracion
     a mitad de ciclo."""
