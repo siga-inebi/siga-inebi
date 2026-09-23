@@ -4,6 +4,7 @@ from apps.academics.models import AcademicCycle, Grade, Section, Shift
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     CaptureBatch,
     ControlPoint,
     JornadaParameters,
@@ -78,6 +79,10 @@ def justification_reasons():
 
 def justification_reason_for_payload(public_id):
     return _payload_get(JustificationReason.objects.all(), public_id, "el motivo")
+
+
+def attendance_permit_for_payload(public_id):
+    return _payload_get(AttendancePermit.objects.all(), public_id, "el permiso")
 
 
 def capture_batch_for_payload(public_id, *, operator):

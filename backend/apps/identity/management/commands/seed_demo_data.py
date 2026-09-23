@@ -25,6 +25,7 @@ from apps.academics.models import (
 )
 from apps.academics.services import ensure_national_levels
 from apps.attendance.models import JornadaParameters
+from apps.documents.services import ensure_default_document_kinds
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
 from apps.identity.models import Role, RoleAssignment, ScopeGrant
@@ -209,6 +210,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         institution, _ = Institution.objects.get_or_create(name="Instituto Demo SIGA-INEBI")
+        # RNF-MAN-001: the document-type catalogue is data, so a freshly seeded
+        # institution needs its starting rows or no template can be created.
+        ensure_default_document_kinds(institution=institution)
         cycle, _ = AcademicCycle.objects.get_or_create(
             institution=institution,
             year=2026,

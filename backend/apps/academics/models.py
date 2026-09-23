@@ -49,11 +49,19 @@ class Campus(TimeStampedModel):
 class Classroom(TimeStampedModel):
     """Physical classroom, laboratory, or other teaching space (RF-AUL-001)."""
 
+    class ServiceStatus(models.TextChoices):
+        AVAILABLE = "available", "Disponible"
+        UNAVAILABLE = "unavailable", "Temporalmente inhabilitada"
+        MAINTENANCE = "maintenance", "En mantenimiento"
+
     campus = models.ForeignKey(Campus, on_delete=models.PROTECT, related_name="classrooms")
     name = models.CharField(max_length=150)
     code = models.CharField(max_length=30)
     location = models.CharField(max_length=255, blank=True)
     capacity = models.PositiveIntegerField(default=0)
+    service_status = models.CharField(
+        max_length=20, choices=ServiceStatus.choices, default=ServiceStatus.AVAILABLE
+    )
 
     class Meta:
         ordering = ["campus__name", "name"]
