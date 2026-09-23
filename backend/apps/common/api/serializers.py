@@ -36,3 +36,15 @@ class TaskHealthSerializer(serializers.Serializer):
     last_status = serializers.CharField(allow_blank=True)
     last_duration_ms = serializers.IntegerField(allow_null=True)
     last_error_message = serializers.CharField(allow_blank=True)
+
+
+class BackupStackHealthSerializer(serializers.Serializer):
+    stack = serializers.CharField()
+    artifact = serializers.CharField(allow_blank=True)
+    created_at = serializers.DateTimeField(allow_null=True)
+    age_hours = serializers.FloatField(allow_null=True)
+    size_bytes = serializers.IntegerField(allow_null=True)
+    sha256 = serializers.CharField(allow_blank=True)
+    rpo_hours = serializers.IntegerField()
+    meets_rpo = serializers.BooleanField()
+    backup_count = serializers.IntegerField()

@@ -11,9 +11,14 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions
 from rest_framework.generics import GenericAPIView
 
-from apps.common import queries, services
+from apps.common import backups, queries, services
 
-from .serializers import TaskHealthSerializer, TaskRunQuerySerializer, TaskRunSerializer
+from .serializers import (
+    BackupStackHealthSerializer,
+    TaskHealthSerializer,
+    TaskRunQuerySerializer,
+    TaskRunSerializer,
+)
 
 TAGS = ["platform: operacion"]
 
@@ -66,4 +71,27 @@ class TaskHealthView(GenericAPIView):
     def get(self, request):
         summary = services.task_health_summary(actor=request.user)
         page = self.paginate_queryset(summary)
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Estado de los respaldos frente al RPO declarado",
+        description=(
+            "Una fila por pila de respaldo, base de datos y archivos, nunca agregadas: "
+            "los dos esquemas son independientes (RNF-RES-001). `meets_rpo` compara la "
+            "edad del respaldo mas reciente contra el RPO declarado (RNF-RES-002). "
+            "Requiere el permiso `platform.monitor`."
+        ),
+        tags=TAGS,
+        responses={200: BackupStackHealthSerializer(many=True)},
+    ),
+)
+class BackupHealthView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = BackupStackHealthSerializer
+
+    def get(self, request):
+        services.ensure_platform_monitor_permission(actor=request.user)
+        page = self.paginate_queryset(backups.backup_health())
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
