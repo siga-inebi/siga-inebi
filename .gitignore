@@ -65,3 +65,7 @@ credentials/
 
 # Project-specific
 uploads/
+
+# RNF-RES-001: los respaldos contienen datos reales del establecimiento y no se
+# versionan jamas. El directorio se crea con `make backup`.
+backups/

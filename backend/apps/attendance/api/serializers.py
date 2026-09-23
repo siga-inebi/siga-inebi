@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     CaptureBatch,
     ControlPoint,
     DayStatus,
@@ -628,3 +629,49 @@ class JustificationAttachmentSerializer(serializers.ModelSerializer):
 
 class JustificationAttachmentUploadSerializer(serializers.Serializer):
     file = serializers.FileField(help_text="Documento de respaldo (PDF/JPG/PNG).")
+
+
+class AttendancePermitRequestSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+    permit_type = serializers.ChoiceField(
+        choices=AttendancePermit.PermitType.choices,
+        help_text="Salida anticipada o ingreso tardio.",
+    )
+    permit_date = serializers.DateField(help_text="Fecha para la que se solicita el permiso.")
+    scheduled_time = serializers.TimeField(help_text="Horario previsto del hecho.")
+    reason = serializers.CharField(help_text="Motivo del permiso.")
+
+
+class AttendancePermitSerializer(serializers.ModelSerializer):
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    submitted_by_id = serializers.IntegerField(source="submitted_by.pk", read_only=True)
+    resolved_by_id = serializers.IntegerField(
+        source="resolved_by.pk", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = AttendancePermit
+        fields = [
+            "public_id",
+            "student_id",
+            "permit_type",
+            "permit_date",
+            "scheduled_time",
+            "reason",
+            "status",
+            "submitted_by_id",
+            "resolved_by_id",
+            "resolved_at",
+            "resolution_comment",
+            "created_at",
+        ]
+
+
+class AttendancePermitResolutionRequestSerializer(serializers.Serializer):
+    approved = serializers.BooleanField(help_text="True para aprobar, False para rechazar.")
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Obligatorio al rechazar; opcional al aprobar.",
+    )

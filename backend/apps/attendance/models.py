@@ -586,3 +586,61 @@ class JustificationAttachment(TimeStampedModel):
 
     def __str__(self):
         return f"Adjunto de {self.justification}: {self.filename}"
+
+
+class AttendancePermit(TimeStampedModel):
+    """
+    RF-JUS-008: a guardian's PROSPECTIVE request to authorize a student's
+    early exit or late arrival on a specific date -- requested BEFORE the
+    fact, unlike ``attendance.Justification`` (a separate feature,
+    presented AFTER). A permit only changes anything once it's
+    ``APPROVED``: ``services.record_attendance_event``/``derive_day_status``
+    check for one dated exactly ``permit_date``, so it's never mistakenly
+    treated as covering any other day. A still-pending or rejected permit
+    changes nothing about how the actual movement is recorded (RF-JUS-008's
+    "Permiso pendiente al momento del movimiento" scenario) -- resolution
+    never retroactively edits an ``AttendanceEvent`` that already happened.
+
+    Same resolution/immutability shape as ``Justification``
+    (``resolved_by``/``resolved_at``/``resolution_comment``, enforced in
+    ``services.resolve_attendance_permit``, not here): a correction is a
+    brand-new permit, never an edit of a resolved one (AGENTS.md #12).
+    """
+
+    class PermitType(models.TextChoices):
+        EARLY_EXIT = "early_exit", "Salida anticipada"
+        LATE_ARRIVAL = "late_arrival", "Ingreso tardio"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        APPROVED = "approved", "Aprobado"
+        REJECTED = "rejected", "Rechazado"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="attendance_permits"
+    )
+    permit_type = models.CharField(max_length=15, choices=PermitType.choices)
+    permit_date = models.DateField()
+    scheduled_time = models.TimeField(help_text="Horario previsto del hecho.")
+    reason = models.TextField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    submitted_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="attendance_permits_submitted",
+    )
+    resolved_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="attendance_permits_resolved",
+        null=True,
+        blank=True,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_comment = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Permiso de {self.student} ({self.permit_type}, {self.permit_date})"

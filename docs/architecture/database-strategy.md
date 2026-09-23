@@ -35,3 +35,14 @@
   enganaria a quien lee.
 - Las fechas de efecto y los dias escolares se derivan del reloj local. Un movimiento capturado a
   las 23:30 pertenece a su dia local, no al dia siguiente en UTC.
+
+## Respaldo y restauracion
+
+El respaldo de la base es independiente del de la pila de archivos y se produce
+con `pg_dump --format=custom`, que es lo que permite restaurarlo con
+`pg_restore` en la infraestructura objetivo. El cliente de PostgreSQL debe
+compartir version mayor con el servidor; por eso el servidor esta fijado en
+`postgres:16-alpine` y la imagen del backend instala `postgresql-client-16`.
+
+Detalle completo, metas de recuperacion y simulacro en
+`docs/architecture/backup-and-recovery.md` (RNF-RES-001, RNF-RES-002).

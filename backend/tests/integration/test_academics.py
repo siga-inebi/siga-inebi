@@ -17,6 +17,7 @@ from apps.academics.queries import historical_cycle_or_404, weekly_load_report
 from apps.academics.services import (
     activate_academic_cycle,
     classroom_capacity_warning,
+    clone_class_schedule,
     close_academic_cycle,
     correct_frozen_subject_result,
     create_academic_cycle,
@@ -38,6 +39,7 @@ from tests.factories.academic import (
     AcademicCycleFactory,
     ClassroomFactory,
     ClassScheduleBlockFactory,
+    ClassSessionFactory,
     GradeFactory,
     InstitutionFactory,
     SectionFactory,
@@ -204,6 +206,53 @@ def test_prepared_cycle_accepts_structure_while_active_cycle_remains_current():
     with pytest.raises(DomainError, match="Hay que cerrar"):
         activate_academic_cycle(cycle=prepared, actor=actor)
     assert AuditEvent.objects.filter(action="academics.cycle.created").count() == 2
+
+
+def test_clone_schedule_uses_target_assignments_and_records_one_summary_event():
+    institution = InstitutionFactory()
+    actor = UserFactory()
+    cycle = AcademicCycleFactory(institution=institution)
+    source_shift = ShiftFactory(campus__institution=institution)
+    target_shift = ShiftFactory(campus__institution=institution)
+    source_grade = GradeFactory(institution=institution)
+    target_grade = GradeFactory(institution=institution)
+    source = SectionFactory(academic_cycle=cycle, grade=source_grade, shift=source_shift)
+    target = SectionFactory(academic_cycle=cycle, grade=target_grade, shift=target_shift)
+    subject = SubjectFactory(institution=institution)
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=target_grade, subject=subject)
+    source_block = ClassScheduleBlockFactory(shift=source_shift, number=1)
+    target_block = ClassScheduleBlockFactory(shift=target_shift, number=1)
+    source_classroom = ClassroomFactory(campus=source_shift.campus)
+    ClassSessionFactory(
+        section=source,
+        subject=subject,
+        schedule_block=source_block,
+        classroom=source_classroom,
+    )
+    target_teacher = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=cycle,
+        section=target,
+        subject=subject,
+        teacher=target_teacher.person,
+        starts_on=cycle.starts_on,
+    )
+
+    cloned = clone_class_schedule(
+        source_section=source,
+        target_section=target,
+        actor=actor,
+    )
+
+    assert len(cloned) == 1
+    assert cloned[0].schedule_block == target_block
+    assert cloned[0].classroom is None
+    assert cloned[0].current_teacher == target_teacher.person
+    event = AuditEvent.objects.get(action="academics.class_schedule.cloned")
+    assert event.actor == actor
+    assert event.context["source_section_id"] == source.pk
+    assert event.context["target_section_id"] == target.pk
+    assert event.context["session_count"] == 1
 
 
 def test_active_cycle_structure_changes_do_not_alter_previous_cycle_records():
