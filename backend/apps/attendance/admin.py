@@ -4,6 +4,7 @@ from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     CaptureBatch,
     ControlPoint,
     JornadaParameters,
@@ -146,3 +147,19 @@ class JustificationAttachmentAdmin(admin.ModelAdmin):
 
     list_display = ["justification", "uploaded_by", "content_type", "created_at"]
     date_hierarchy = "created_at"
+
+
+@admin.register(AttendancePermit)
+class AttendancePermitAdmin(admin.ModelAdmin):
+    """Support surface only: submission and resolution go through the API, not here."""
+
+    list_display = [
+        "student",
+        "permit_type",
+        "permit_date",
+        "status",
+        "submitted_by",
+        "created_at",
+    ]
+    list_filter = ["status", "permit_type"]
+    date_hierarchy = "permit_date"
