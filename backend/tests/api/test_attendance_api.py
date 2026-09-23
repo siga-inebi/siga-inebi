@@ -32,6 +32,7 @@ from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     CaptureBatch,
     Justification,
     JustificationPolicy,
@@ -2642,3 +2643,138 @@ def test_justification_attachment_read_endpoint_allows_the_submitter(auth_client
     )
 
     assert response.status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# RF-JUS-008 — contrato de permisos de salida anticipada/ingreso tardio
+# --------------------------------------------------------------------------- #
+
+PERMIT_REQUEST_PERMISSION = "attendance_permit_request"
+PERMIT_RESOLVE_PERMISSION = "attendance_permit_resolve"
+
+
+def test_permit_submit_endpoint_requires_permission_and_scope(auth_client):
+    student = StudentFactory()
+
+    response = auth_client.post(
+        reverse("attendance-permit-submit"),
+        {
+            "student_id": str(student.public_id),
+            "permit_type": "early_exit",
+            "permit_date": str(timezone.localdate()),
+            "scheduled_time": "13:00:00",
+            "reason": "Cita medica",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert not AttendancePermit.objects.filter(student=student).exists()
+
+
+def test_permit_submit_endpoint_accepts_within_scope(auth_client):
+    student = StudentFactory()
+    _grant_student_scope(auth_client.user, student, codename=PERMIT_REQUEST_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-permit-submit"),
+        {
+            "student_id": str(student.public_id),
+            "permit_type": "early_exit",
+            "permit_date": str(timezone.localdate()),
+            "scheduled_time": "13:00:00",
+            "reason": "Cita medica",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["student_id"] == str(student.public_id)
+    assert body["permit_type"] == "early_exit"
+    assert body["status"] == AttendancePermit.Status.PENDING
+
+
+def _submit_pending_permit(client, student, **overrides):
+    _grant_student_scope(client.user, student, codename=PERMIT_REQUEST_PERMISSION)
+    payload = {
+        "student_id": str(student.public_id),
+        "permit_type": "early_exit",
+        "permit_date": str(timezone.localdate()),
+        "scheduled_time": "13:00:00",
+        "reason": "Cita medica",
+    }
+    payload.update(overrides)
+    response = client.post(
+        reverse("attendance-permit-submit"), payload, content_type="application/json"
+    )
+    assert response.status_code == 201
+    return AttendancePermit.objects.get(public_id=response.json()["public_id"])
+
+
+def test_permit_resolve_endpoint_requires_permission(auth_client):
+    student = StudentFactory()
+    permit = _submit_pending_permit(auth_client, student)
+
+    response = auth_client.post(
+        reverse("attendance-permit-resolve", args=[permit.public_id]),
+        {"approved": True, "comment": ""},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    permit.refresh_from_db()
+    assert permit.status == AttendancePermit.Status.PENDING
+
+
+def test_permit_resolve_endpoint_approves(auth_client):
+    student = StudentFactory()
+    permit = _submit_pending_permit(auth_client, student)
+    _grant(auth_client.user, PERMIT_RESOLVE_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-permit-resolve", args=[permit.public_id]),
+        {"approved": True, "comment": ""},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == AttendancePermit.Status.APPROVED
+    assert body["resolved_by_id"] == auth_client.user.pk
+
+
+def test_permit_resolve_endpoint_rejects_without_comment(auth_client):
+    student = StudentFactory()
+    permit = _submit_pending_permit(auth_client, student)
+    _grant(auth_client.user, PERMIT_RESOLVE_PERMISSION)
+
+    response = auth_client.post(
+        reverse("attendance-permit-resolve", args=[permit.public_id]),
+        {"approved": False, "comment": ""},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    permit.refresh_from_db()
+    assert permit.status == AttendancePermit.Status.PENDING
+
+
+def test_permit_resolve_endpoint_rejects_second_resolution(auth_client):
+    student = StudentFactory()
+    permit = _submit_pending_permit(auth_client, student)
+    _grant(auth_client.user, PERMIT_RESOLVE_PERMISSION)
+    first = auth_client.post(
+        reverse("attendance-permit-resolve", args=[permit.public_id]),
+        {"approved": True, "comment": ""},
+        content_type="application/json",
+    )
+    assert first.status_code == 200
+
+    second = auth_client.post(
+        reverse("attendance-permit-resolve", args=[permit.public_id]),
+        {"approved": False, "comment": "Cambio de decision"},
+        content_type="application/json",
+    )
+
+    assert second.status_code == 400
