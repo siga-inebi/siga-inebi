@@ -40,13 +40,15 @@ from .serializers import (
     DocumentBatchCompileSerializer,
     DocumentDeliveryReceiptCreateSerializer,
     DocumentDeliveryReceiptSerializer,
+    DocumentKindCreateSerializer,
+    DocumentKindSerializer,
+    DocumentKindUpdateSerializer,
     DocumentRecordSerializer,
     DocumentReplaceSerializer,
     DocumentTemplateCreateSerializer,
     DocumentTemplatePreviewResponseSerializer,
     DocumentTemplatePreviewSerializer,
     DocumentTemplateSerializer,
-    DocumentTemplateTypeSerializer,
     DocumentTemplateUpdateSerializer,
     DocumentTemplateVersionSerializer,
     DocumentUploadSerializer,
@@ -240,21 +242,70 @@ class FieldTagListView(GenericAPIView):
 @extend_schema_view(
     get=extend_schema(
         summary="Listar tipos de documento",
-        description="Catalogo fijo de tipos de documento soportados por la institucion.",
+        description=(
+            "Catalogo institucional de tipos de documento, administrable sin redespliegue "
+            "(RNF-MAN-001). Solo activos salvo `include_inactive=true`."
+        ),
         tags=CATALOGUE,
-        responses={200: DocumentTemplateTypeSerializer(many=True)},
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: DocumentKindSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar tipo de documento",
+        description="El codigo se normaliza a minusculas, es unico por institucion e inmutable.",
+        tags=CATALOGUE,
+        request=DocumentKindCreateSerializer,
+        responses={201: DocumentKindSerializer},
     ),
 )
-class DocumentTypeListView(GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = DocumentTemplateTypeSerializer
+class DocumentTypeListCreateView(CatalogueListCreateView):
+    list_serializer = DocumentKindSerializer
+    create_serializer = DocumentKindCreateSerializer
 
-    def get(self, request):
-        catalogue = services.list_document_types()
-        types = [{"code": code, "label": label} for code, label in catalogue]
-        page = self.paginate_queryset(types)
-        serializer = self.get_serializer(page, many=True)
-        return self.get_paginated_response(serializer.data)
+    def list_queryset(self, request):
+        return queries.document_kinds(self.institution, include_inactive=_include_inactive(request))
+
+    def create(self, request, payload):
+        return services.create_document_kind(
+            institution=self.institution, actor=request.user, **payload
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar tipo de documento",
+        tags=CATALOGUE,
+        responses={200: DocumentKindSerializer},
+    ),
+    patch=extend_schema(
+        summary="Actualizar tipo de documento",
+        description="El codigo es inmutable; se actualizan nombre visible y descripcion.",
+        tags=CATALOGUE,
+        request=DocumentKindUpdateSerializer,
+        responses={200: DocumentKindSerializer},
+    ),
+    delete=extend_schema(
+        summary="Desactivar tipo de documento",
+        description=(
+            "Desactiva el tipo en lugar de borrarlo. Se rechaza mientras existan "
+            "plantillas activas de ese tipo."
+        ),
+        tags=CATALOGUE,
+        responses={204: None},
+    ),
+)
+class DocumentTypeDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = DocumentKindSerializer
+    update_serializer = DocumentKindUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.document_kind_or_404(self.institution, public_id)
+
+    def update(self, request, kind, payload):
+        services.update_document_kind(kind=kind, actor=request.user, **payload)
+
+    def deactivate(self, request, kind):
+        services.deactivate_document_kind(kind=kind, actor=request.user)
 
 
 @extend_schema_view(

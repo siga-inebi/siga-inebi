@@ -66,7 +66,7 @@ def test_document_template_version_sequence_is_unique_per_template_at_db_level()
 
     with pytest.raises(IntegrityError):
         DocumentTemplateVersion.objects.create(
-            template=template, sequence=1, name="Other", kind=DocumentTemplate.TemplateKind.OTHER
+            template=template, sequence=1, name="Other", kind="other"
         )
 
 
