@@ -21,6 +21,7 @@ urlpatterns = [
     path("auth/logout/all/", LogoutAllSessionsView.as_view(), name="auth-logout-all"),
     path("auth/me/", MeView.as_view(), name="auth-me"),
     path("auth/password/change/", PasswordChangeView.as_view(), name="auth-password-change"),
+    path("platform/", include("apps.common.api.urls")),
     path("audit/", include("apps.audit.api.urls")),
     path("identity/", include("apps.identity.api.urls")),
     path("people/", include("apps.people.api.urls")),
