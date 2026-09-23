@@ -8,6 +8,28 @@ Reglas:
 - No asumir datos reales.
 - Documentar entradas, salidas y riesgos antes de agregar script.
 
+## Respaldo y recuperacion
+
+`backup/` contiene los scripts de respaldo y restauracion de las dos pilas
+independientes del sistema, base de datos y archivos adjuntos (RNF-RES-001), mas
+el simulacro cronometrado que prueba el RTO declarado (RNF-RES-002).
+
+```sh
+make backup            # ambas pilas, cada una autonoma
+make backup-check      # verifica el RPO declarado
+make restore-database  # restaura el respaldo mas reciente de la base
+make restore-files     # restaura el respaldo mas reciente de archivos
+make recovery-drill    # restauracion cronometrada en una base desechable
+```
+
+Los scripts no contienen secretos: la credencial viaja por `PGPASSWORD` o
+`DATABASE_PASSWORD` del entorno y nunca se imprime. Los artefactos van a
+`BACKUP_ROOT` (por defecto `./backups`, ignorado por git porque contienen datos
+reales del establecimiento).
+
+Contrato completo, manifiestos, requisito de version de PostgreSQL, cadencia y
+metas de recuperacion en `docs/architecture/backup-and-recovery.md`.
+
 ## Vincular issues cerrados al Project
 
 `github/link-closed-issues-to-project.sh` compara los issues cerrados del repositorio con los

@@ -34,6 +34,10 @@ const enrolmentsServiceMock = vi.hoisted(() => ({
 }));
 
 const documentsServiceMock = vi.hoisted(() => ({
+  listTypes: vi.fn(),
+  createType: vi.fn(),
+  updateType: vi.fn(),
+  deactivateType: vi.fn(),
   listTemplates: vi.fn(),
   getTemplate: vi.fn(),
   createTemplate: vi.fn(),
@@ -115,6 +119,7 @@ import { AttendancePage } from "@attendance/AttendancePage.jsx";
 import { CyclesPage } from "@cycles/CyclesPage.jsx";
 import { EnrolmentsPage } from "@enrolments/EnrolmentsPage.jsx";
 import { TeachingAssignmentsPage } from "@academics/TeachingAssignmentsPage.jsx";
+import { DocumentTypesPage } from "@documents/DocumentTypesPage.jsx";
 import { TemplatesPage } from "@documents/TemplatesPage.jsx";
 import { todayInputValue } from "@shared/utils/format.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
@@ -154,6 +159,23 @@ const ENROLMENT = {
   status: "active",
   is_active: true,
 };
+
+const DOCUMENT_TYPES = [
+  {
+    public_id: "kind-1",
+    code: "certificate",
+    label: "Constancia",
+    description: "",
+    is_active: true,
+  },
+  {
+    public_id: "kind-2",
+    code: "report",
+    label: "Reporte",
+    description: "",
+    is_active: true,
+  },
+];
 
 const TEMPLATE = {
   public_id: "tpl-1",
@@ -302,6 +324,12 @@ describe("pantallas de los modulos con backend previo", () => {
       .mockReset()
       .mockResolvedValue({ eligible: true, blocking_document_codes: [] });
 
+    documentsServiceMock.listTypes
+      .mockReset()
+      .mockResolvedValue(paged(DOCUMENT_TYPES));
+    documentsServiceMock.createType.mockReset().mockResolvedValue({});
+    documentsServiceMock.updateType.mockReset().mockResolvedValue({});
+    documentsServiceMock.deactivateType.mockReset().mockResolvedValue({});
     documentsServiceMock.listTemplates
       .mockReset()
       .mockResolvedValue(paged([TEMPLATE]));
@@ -671,7 +699,76 @@ describe("pantallas de los modulos con backend previo", () => {
     });
   });
 
+  describe("DocumentTypesPage", () => {
+    test("lista el catalogo institucional de tipos", async () => {
+      renderWithRouter(<DocumentTypesPage />);
+
+      expect(await screen.findByText("Constancia")).toBeInTheDocument();
+      expect(screen.getByText("Reporte")).toBeInTheDocument();
+      expect(screen.getByText("certificate")).toBeInTheDocument();
+    });
+
+    test("da de alta un tipo nuevo sin tocar el sistema", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<DocumentTypesPage />);
+      await screen.findByText("Constancia");
+
+      await user.click(screen.getByRole("button", { name: /Nuevo tipo/ }));
+      const window = await screen.findByRole("dialog", {
+        name: "Nuevo tipo de documento",
+      });
+
+      await user.type(
+        within(window).getByLabelText(/^Nombre visible/),
+        "Finiquito"
+      );
+      await user.type(within(window).getByLabelText(/^Codigo/), "finiquito");
+      await user.click(
+        within(window).getByRole("button", { name: "Crear tipo" })
+      );
+
+      expect(documentsServiceMock.createType).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "finiquito", label: "Finiquito" })
+      );
+    });
+
+    test("editar no ofrece el codigo, que es inmutable", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<DocumentTypesPage />);
+      await screen.findByText("Constancia");
+
+      await user.click(screen.getAllByRole("button", { name: "Editar" })[0]);
+
+      const window = await screen.findByRole("dialog", {
+        name: "Editar Constancia",
+      });
+      expect(
+        within(window).queryByLabelText(/^Codigo/)
+      ).not.toBeInTheDocument();
+    });
+  });
+
   describe("TemplatesPage", () => {
+    test("el selector de tipo se llena con el catalogo del backend", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<TemplatesPage />);
+      await screen.findByText("Constancia de inscripcion");
+
+      await user.click(screen.getByRole("button", { name: /Nueva plantilla/ }));
+      const window = await screen.findByRole("dialog", {
+        name: "Nueva plantilla documental",
+      });
+
+      await user.click(within(window).getByLabelText(/^Tipo/));
+
+      expect(
+        await screen.findByRole("option", { name: "Constancia" })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("option", { name: "Reporte" })
+      ).toBeInTheDocument();
+    });
+
     test("lista las plantillas con su tipo y encabezado", async () => {
       renderWithRouter(<TemplatesPage />);
 

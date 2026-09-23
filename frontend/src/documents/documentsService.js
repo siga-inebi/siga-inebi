@@ -3,24 +3,39 @@ import { withQuery } from "@shared/api/query.js";
 
 const ROOT = "/documents";
 
-/** Tipos de plantilla documental. */
-export const TEMPLATE_KIND_LABEL = {
-  certificate: "Constancia",
-  report: "Reporte",
-  other: "Otro",
-};
-
+/**
+ * Color del chip por tipo de documento.
+ *
+ * No es un catalogo: los tipos viven en la base de datos y se administran desde
+ * "Tipos de documento" (RNF-MAN-001). Esto solo decora los codigos que el
+ * producto trae de fabrica; un tipo nuevo se dibuja en gris y funciona igual,
+ * asi que agregar uno nunca obliga a tocar el frontend.
+ */
 export const TEMPLATE_KIND_VARIANT = {
   certificate: "primary",
   report: "purple",
   other: "neutral",
 };
 
-export const TEMPLATE_KIND_OPTIONS = Object.entries(TEMPLATE_KIND_LABEL).map(
-  ([value, label]) => ({ value, label })
-);
+/** Opciones de un select a partir del catalogo que devuelve el backend. */
+export function templateKindOptions(kinds) {
+  return kinds.map((kind) => ({ value: kind.code, label: kind.label }));
+}
+
+/** Busca la etiqueta visible de un codigo; cae al codigo si el tipo ya no esta. */
+export function templateKindLabel(kinds, code) {
+  return kinds.find((kind) => kind.code === code)?.label ?? code;
+}
 
 export const documentsService = {
+  /** Catalogo institucional de tipos de documento (RNF-MAN-001). */
+  listTypes: (params) => apiClient.get(withQuery(`${ROOT}/types/`, params)),
+  createType: (payload) => apiClient.post(`${ROOT}/types/`, payload),
+  updateType: (publicId, payload) =>
+    apiClient.patch(`${ROOT}/types/${publicId}/`, payload),
+  /** Baja logica: el tipo queda inactivo y sigue listandose con include_inactive. */
+  deactivateType: (publicId) => apiClient.del(`${ROOT}/types/${publicId}/`),
+
   listTemplates: (params) =>
     apiClient.get(withQuery(`${ROOT}/templates/`, params)),
   getTemplate: (publicId) => apiClient.get(`${ROOT}/templates/${publicId}/`),

@@ -41,6 +41,7 @@ from .views import (
     LevelNextCodeView,
     LevelSubjectDetailView,
     LevelSubjectListCreateView,
+    SectionClassScheduleCloneView,
     SectionClassSessionListCreateView,
     SectionDetailView,
     SectionListCreateView,
@@ -207,6 +208,11 @@ urlpatterns = [
         "sections/<uuid:public_id>/class-sessions/",
         SectionClassSessionListCreateView.as_view(),
         name="section-class-session-list-create",
+    ),
+    path(
+        "sections/<uuid:public_id>/class-sessions/clone/",
+        SectionClassScheduleCloneView.as_view(),
+        name="section-class-schedule-clone",
     ),
     path(
         "class-sessions/<uuid:public_id>/",

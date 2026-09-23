@@ -1,5 +1,7 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from apps.academics import services
 from apps.academics.models import (
     AcademicCycle,
     Campus,
@@ -102,7 +104,16 @@ class ClassroomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Classroom
-        fields = ["public_id", "name", "code", "location", "capacity", "is_active", "campus"]
+        fields = [
+            "public_id",
+            "name",
+            "code",
+            "location",
+            "capacity",
+            "is_active",
+            "campus",
+            "service_status",
+        ]
 
 
 class ClassroomCreateSerializer(serializers.Serializer):
@@ -114,6 +125,9 @@ class ClassroomCreateSerializer(serializers.Serializer):
 
 
 class ClassroomUpdateSerializer(serializers.Serializer):
+    service_status = serializers.ChoiceField(
+        choices=Classroom.ServiceStatus.choices, required=False
+    )
     name = serializers.CharField(max_length=150, required=False)
     location = serializers.CharField(max_length=255, required=False, allow_blank=True)
     capacity = serializers.IntegerField(min_value=0, required=False)
@@ -426,6 +440,13 @@ class SectionRefSerializer(serializers.ModelSerializer):
         fields = ["public_id", "name", "grade", "shift"]
 
 
+class ClassroomCapacityWarningSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    detail = serializers.CharField()
+    classroom_capacity = serializers.IntegerField()
+    section_capacity = serializers.IntegerField()
+
+
 class SectionSerializer(serializers.ModelSerializer):
     academic_cycle_id = serializers.UUIDField(
         source="offering.academic_cycle.public_id", read_only=True
@@ -435,6 +456,7 @@ class SectionSerializer(serializers.ModelSerializer):
     default_classroom_id = serializers.UUIDField(
         source="default_classroom.public_id", read_only=True, allow_null=True
     )
+    capacity_warning = serializers.SerializerMethodField()
 
     class Meta:
         model = Section
@@ -447,7 +469,15 @@ class SectionSerializer(serializers.ModelSerializer):
             "grade",
             "shift",
             "default_classroom_id",
+            "capacity_warning",
         ]
+
+    @extend_schema_field(ClassroomCapacityWarningSerializer(allow_null=True))
+    def get_capacity_warning(self, obj):
+        return services.classroom_capacity_warning(
+            section=obj,
+            classroom=obj.default_classroom,
+        )
 
 
 class SectionCreateSerializer(serializers.Serializer):
@@ -489,6 +519,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
     classroom_id = serializers.UUIDField(
         source="classroom.public_id", read_only=True, allow_null=True
     )
+    capacity_warning = serializers.SerializerMethodField()
 
     class Meta:
         model = ClassSession
@@ -501,6 +532,7 @@ class ClassSessionSerializer(serializers.ModelSerializer):
             "schedule_block",
             "teacher_id",
             "classroom_id",
+            "capacity_warning",
             "starts_on",
         ]
 
@@ -508,6 +540,13 @@ class ClassSessionSerializer(serializers.ModelSerializer):
         """RF-HOR-004: derived from the current teaching assignment, not stored."""
         teacher = obj.current_teacher
         return str(teacher.teacher_profile.public_id) if teacher else None
+
+    @extend_schema_field(ClassroomCapacityWarningSerializer(allow_null=True))
+    def get_capacity_warning(self, obj):
+        return services.classroom_capacity_warning(
+            section=obj.section,
+            classroom=obj.classroom,
+        )
 
 
 class ClassSessionCreateSerializer(serializers.Serializer):
@@ -524,6 +563,12 @@ class ClassSessionCreateSerializer(serializers.Serializer):
             "Opcional. Fecha desde la que la sesion es vigente (RF-HOR-008), para "
             "reestructuraciones a mitad de ciclo. Por omision, el inicio del ciclo."
         ),
+    )
+
+
+class ClassScheduleCloneSerializer(serializers.Serializer):
+    source_section_id = serializers.UUIDField(
+        help_text="Public ID de la seccion cuyo horario activo se clonara."
     )
 
 

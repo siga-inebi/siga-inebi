@@ -6,6 +6,8 @@ from apps.attendance.api.views import (
     AttendanceEventListCreateView,
     AttendanceEventResolutionView,
     AttendancePercentageView,
+    AttendancePermitResolveView,
+    AttendancePermitSubmitView,
     AttendancePresenceListView,
     AttendanceScanView,
     CaptureBatchConfirmView,
@@ -159,5 +161,15 @@ urlpatterns = [
         "justifications/<uuid:public_id>/attachment/",
         JustificationAttachmentView.as_view(),
         name="attendance-justification-attachment",
+    ),
+    path(
+        "permits/",
+        AttendancePermitSubmitView.as_view(),
+        name="attendance-permit-submit",
+    ),
+    path(
+        "permits/<uuid:public_id>/resolve/",
+        AttendancePermitResolveView.as_view(),
+        name="attendance-permit-resolve",
     ),
 ]

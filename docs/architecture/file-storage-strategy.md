@@ -20,7 +20,9 @@
 - Limite de tamano configurable.
 - Normalizacion de imagenes cuando aplique.
 - Retencion y no eliminacion segun dominio y decision futura.
-- Backups de archivos separados de backups DB.
+- Backups de archivos separados de backups DB: dos artefactos, dos manifiestos y dos
+  pares de scripts, cada pila restaurable por su cuenta (RNF-RES-001). Ver
+  `docs/architecture/backup-and-recovery.md`.
 
 ## Riesgos a evitar
 

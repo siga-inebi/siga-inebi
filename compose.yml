@@ -28,6 +28,13 @@ services:
       start_period: 10s
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # RNF-RES-001: el respaldo de la base se produce con el cliente de ESTA
+      # imagen, que por construccion comparte version mayor con el servidor. Un
+      # pg_dump de otra version mayor genera un archivo que la infraestructura
+      # objetivo no puede restaurar, y ese es el unico requisito que este
+      # requerimiento no puede dejar al azar del host.
+      - ./scripts/backup:/opt/backup:ro
+      - ${BACKUP_ROOT:-./backups}:/backups
     networks:
       - app_net
 

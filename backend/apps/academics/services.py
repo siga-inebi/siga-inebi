@@ -121,8 +121,15 @@ def create_classroom(*, campus, name, code, location="", capacity=0, actor=None)
 
 
 @transaction.atomic
-def update_classroom(*, classroom, name=None, location=None, capacity=None, actor=None):
+def update_classroom(
+    *, classroom, name=None, location=None, capacity=None, service_status=None, actor=None
+):
+    classroom = Classroom.objects.select_for_update().get(pk=classroom.pk)
     candidates = {}
+    if service_status is not None:
+        if service_status not in Classroom.ServiceStatus.values:
+            raise DomainError("El estado de servicio del aula no es valido.")
+        candidates["service_status"] = service_status
     if name is not None:
         candidates["name"] = _clean_name(name, field="nombre del aula")
     if location is not None:
@@ -1510,13 +1517,43 @@ def _validate_capacity(capacity):
         raise DomainError("El cupo de la seccion no puede ser negativo.")
 
 
-@transaction.atomic
-def _validate_default_classroom(classroom, shift):
+def classroom_capacity_warning(*, section, classroom):
+    """Return RF-AUL-004's non-blocking warning for an undersized classroom."""
+    if (
+        classroom is None
+        or section.capacity == 0
+        or classroom.capacity == 0
+        or classroom.capacity >= section.capacity
+    ):
+        return None
+    return {
+        "code": "classroom_capacity_below_section",
+        "detail": (
+            f"El aula tiene capacidad para {classroom.capacity} personas y la seccion "
+            f"declara {section.capacity}."
+        ),
+        "classroom_capacity": classroom.capacity,
+        "section_capacity": section.capacity,
+    }
+
+
+def _require_available_classroom(classroom):
+    """Lock against concurrent status changes; callers own the transaction."""
+    current = Classroom.objects.select_for_update().get(pk=classroom.pk)
+    _require_active(current, "el aula")
+    if current.service_status != Classroom.ServiceStatus.AVAILABLE:
+        raise DomainError("El aula esta fuera de servicio y no admite nuevas asignaciones.")
+
+
+def _validate_default_classroom(classroom, shift, *, existing_id=None):
     """RF-AUL-002: a section's habitual classroom must sit at its own campus."""
     if classroom is not None and classroom.campus_id != shift.campus_id:
         raise DomainError("El aula habitual debe pertenecer a la misma sede que la seccion.")
+    if classroom is not None and classroom.pk != existing_id:
+        _require_available_classroom(classroom)
 
 
+@transaction.atomic
 def create_section(
     *, academic_cycle, grade, shift, name, capacity=0, default_classroom=None, actor=None
 ):
@@ -1568,6 +1605,7 @@ def create_section(
     return section
 
 
+@transaction.atomic
 def update_section(*, section, name=None, capacity=None, default_classroom=None, actor=None):
     """Rename a section, change its declared capacity, or set its habitual
     classroom (RF-AUL-002). Planning-only (RF-EST-011)."""
@@ -1576,7 +1614,9 @@ def update_section(*, section, name=None, capacity=None, default_classroom=None,
     if name is not None:
         name = _clean_name(name)
     _validate_capacity(capacity)
-    _validate_default_classroom(default_classroom, section.shift)
+    _validate_default_classroom(
+        default_classroom, section.shift, existing_id=section.default_classroom_id
+    )
 
     with unique_violation_as(_section_conflicts(name or section.name)):
         return _changed(
@@ -1858,6 +1898,7 @@ def _class_session_conflicts():
     }
 
 
+@transaction.atomic
 def create_class_session(
     *,
     academic_cycle,
@@ -1906,6 +1947,8 @@ def create_class_session(
         raise DomainError("El bloque de horario debe pertenecer a la misma jornada que la seccion.")
     if classroom is not None and classroom.campus_id != section.offering.shift.campus_id:
         raise DomainError("El aula debe pertenecer a la misma sede que la seccion.")
+    if classroom is not None:
+        _require_available_classroom(classroom)
     starts_on = starts_on or academic_cycle.starts_on
     if starts_on < academic_cycle.starts_on or starts_on > academic_cycle.ends_on:
         raise DomainError("La fecha de vigencia de la sesion debe caer dentro del ciclo escolar.")
@@ -1984,6 +2027,97 @@ def create_class_session(
         starts_on=starts_on.isoformat(),
     )
     return session
+
+
+@transaction.atomic
+def clone_class_schedule(*, source_section, target_section, actor=None):
+    """Clone the active schedule distribution of one section (RF-HOR-011).
+
+    The operation deliberately copies no classroom and stores no teacher.  A
+    teacher remains derived from the target section's current teaching
+    assignment (RF-HOR-004), while each source block is mapped by number to
+    the target shift.  All compatibility checks and writes share one
+    transaction so a conflict cannot leave a partial target schedule.
+    """
+    if source_section.pk == target_section.pk:
+        raise DomainError("La seccion origen y la seccion destino deben ser distintas.")
+    if source_section.academic_cycle.pk != target_section.academic_cycle.pk:
+        raise DomainError("Las secciones deben pertenecer al mismo ciclo escolar.")
+
+    require_cycle_academic_writes(
+        cycle=target_section.academic_cycle,
+        operation="class_schedule.clone",
+    )
+
+    # Serialize clone requests for the same target.  Existing session writes
+    # are still validated by create_class_session below and by DB constraints.
+    target_section = (
+        Section.objects.select_for_update()
+        .select_related("offering__academic_cycle", "offering__shift")
+        .get(pk=target_section.pk)
+    )
+    if ClassSession.objects.filter(section=target_section).exists():
+        raise DomainError("La seccion destino debe tener un historial de horario vacio.")
+
+    source_sessions = list(
+        ClassSession.objects.filter(section=source_section, is_active=True)
+        .select_related("subject", "schedule_block")
+        .order_by("day_of_week", "schedule_block__number", "pk")
+    )
+    if not source_sessions:
+        raise DomainError("La seccion origen no tiene sesiones activas para clonar.")
+
+    source_subject_ids = {session.subject_id for session in source_sessions}
+    target_plan_subject_ids = set(
+        CurriculumPlan.objects.filter(
+            academic_cycle=target_section.academic_cycle,
+            grade=target_section.grade,
+            is_active=True,
+        ).values_list("subject_id", flat=True)
+    )
+    missing_subject_ids = source_subject_ids - target_plan_subject_ids
+    if missing_subject_ids:
+        raise DomainError(
+            "El plan de estudios de la seccion destino no contiene todas las subareas "
+            "del horario origen."
+        )
+
+    target_blocks_by_number = {
+        block.number: block
+        for block in ClassScheduleBlock.objects.filter(
+            shift=target_section.shift,
+            is_active=True,
+        )
+    }
+    source_block_numbers = {session.schedule_block.number for session in source_sessions}
+    missing_block_numbers = source_block_numbers - target_blocks_by_number.keys()
+    if missing_block_numbers:
+        missing = ", ".join(str(number) for number in sorted(missing_block_numbers))
+        raise DomainError(f"La jornada destino no tiene bloques activos equivalentes: {missing}.")
+
+    cloned_sessions = []
+    for source in source_sessions:
+        cloned_sessions.append(
+            create_class_session(
+                academic_cycle=target_section.academic_cycle,
+                section=target_section,
+                subject=source.subject,
+                schedule_block=target_blocks_by_number[source.schedule_block.number],
+                day_of_week=source.day_of_week,
+                starts_on=source.starts_on,
+                actor=actor,
+            )
+        )
+
+    _audit(
+        actor,
+        "academics.class_schedule.cloned",
+        target_section,
+        source_section_id=source_section.pk,
+        target_section_id=target_section.pk,
+        session_count=len(cloned_sessions),
+    )
+    return cloned_sessions
 
 
 def deactivate_class_session(*, session, actor=None):

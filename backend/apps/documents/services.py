@@ -27,10 +27,12 @@ from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import AuthorizationError, DomainError
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
+from apps.documents.kind_catalog import DEFAULT_DOCUMENT_KIND_CODE, DEFAULT_DOCUMENT_KINDS
 from apps.documents.models import (
     DocumentBatchRun,
     DocumentDeliveryReceipt,
     DocumentDownloadToken,
+    DocumentKind,
     DocumentRecord,
     DocumentTemplate,
     DocumentTemplateVersion,
@@ -46,7 +48,6 @@ SENSITIVE_FIELD_TAGS_PERMISSION = "student_view_sensitive"
 OFFICIAL_ISSUANCE_PERMISSION = "document_issue"
 DOCUMENT_READ_PERMISSION = "document_read"
 DOCUMENT_UPLOAD_PERMISSION = "document_upload"
-DOCUMENT_TYPE_CATALOG = DocumentTemplate.TemplateKind.choices
 ALLOWED_DOCUMENT_CONTENT_TYPES = {
     "application/pdf": {".pdf"},
     "image/jpeg": {".jpg", ".jpeg"},
@@ -266,21 +267,157 @@ def replace_document_record(*, actor, record, upload):
     return replacement
 
 
-def list_document_types():
-    """Return the fixed document-type catalogue for the current domain."""
-    return tuple(DOCUMENT_TYPE_CATALOG)
+def normalize_document_kind_code(value, *, field="code"):
+    """
+    Codes are lower case and hyphen/underscore friendly, never blank.
+
+    Lower case because the codes the API already published ("certificate",
+    "report", "other") are lower case, and a catalogue an administrator can now
+    type into must not be able to introduce a second "Certificate" that reads
+    as the same type but matches nothing.
+    """
+    code = (value or "").strip().lower()
+    if not code:
+        raise DomainError(f"Se requiere {field} con contenido.")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", code):
+        raise DomainError(
+            "El codigo del tipo de documento solo admite minusculas, digitos, guion y guion bajo."
+        )
+    return code
+
+
+def ensure_default_document_kinds(*, institution):
+    """
+    Give an institution the starting catalogue if it has none (RNF-MAN-001).
+
+    Idempotent and additive: an institution that already has rows -- including
+    one where every row was deactivated on purpose -- is left alone, so this
+    never resurrects a type an administrator retired.
+    """
+    if DocumentKind.objects.filter(institution=institution).exists():
+        return DocumentKind.objects.filter(institution=institution)
+
+    DocumentKind.objects.bulk_create(
+        [
+            DocumentKind(institution=institution, code=code, label=label)
+            for code, label in DEFAULT_DOCUMENT_KINDS
+        ]
+    )
+    return DocumentKind.objects.filter(institution=institution)
+
+
+def list_document_types(*, institution, include_inactive=False):
+    """
+    The institution's document-type catalogue as ``(code, label)`` pairs.
+
+    Read from the database, never from a constant: RNF-MAN-001 requires that
+    adding or relabelling a document type be an administrative action, not a
+    deploy.
+    """
+    kinds = DocumentKind.objects.filter(institution=institution)
+    if not include_inactive:
+        kinds = kinds.filter(is_active=True)
+    return tuple(kinds.order_by("label").values_list("code", "label"))
+
+
+def resolve_document_kind(*, institution, code, allow_inactive=False):
+    """Resolve a catalogue row by code, or explain which codes exist."""
+    normalized = str(code or "").strip().lower()
+    kinds = DocumentKind.objects.filter(institution=institution, code=normalized)
+    if not allow_inactive:
+        kinds = kinds.filter(is_active=True)
+    kind = kinds.first()
+    if kind is None:
+        available = ", ".join(
+            sorted(code for code, _label in list_document_types(institution=institution))
+        )
+        configured = available or "ninguno"
+        raise DomainError(
+            f"Tipo de documento no admitido: '{code}'. Tipos configurados: {configured}."
+        )
+    return kind
+
+
+def _document_kind_conflicts(code):
+    return {
+        "unique_document_kind_code_per_institution": (
+            f"Ya existe un tipo de documento con el codigo '{code}' en esta institucion."
+        ),
+    }
+
+
+@transaction.atomic
+def create_document_kind(*, institution, code, label, description="", actor=None, is_active=True):
+    """Register a document type in the institutional catalogue (RNF-MAN-001)."""
+    code = normalize_document_kind_code(code)
+    label = _clean_name(label, field="label")
+
+    with unique_violation_as(_document_kind_conflicts(code)):
+        kind = DocumentKind.objects.create(
+            institution=institution,
+            code=code,
+            label=label,
+            description=(description or "").strip(),
+            is_active=is_active,
+        )
+
+    _audit(actor, "documents.kind.created", kind, code=code, label=label)
+    return kind
+
+
+@transaction.atomic
+def update_document_kind(*, kind, label=None, description=None, actor=None):
+    """
+    Relabel a document type. The code is immutable, like every other catalogue
+    code in the repo: templates and the immutable version snapshots already
+    reference it.
+    """
+    if label is not None:
+        label = _clean_name(label, field="label")
+    if description is not None:
+        description = description.strip()
+
+    return _changed(
+        kind,
+        actor,
+        "documents.kind.updated",
+        label=label,
+        description=description,
+    )
+
+
+@transaction.atomic
+def deactivate_document_kind(*, kind, actor=None):
+    """
+    Retire a document type without deleting it (ADR-0006). Idempotent.
+
+    A type still referenced by an active template stays: deactivating it would
+    leave that template pointing at a type no longer offered, and the issuance
+    path resolves templates by type.
+    """
+    if not kind.is_active:
+        return kind
+
+    if kind.templates.filter(is_active=True).exists():
+        raise DomainError(
+            "No se puede desactivar un tipo de documento con plantillas activas; "
+            "desactive primero las plantillas."
+        )
+
+    kind.is_active = False
+    kind.save(update_fields=["is_active", "updated_at"])
+    _audit(actor, "documents.kind.deactivated", kind)
+    return kind
 
 
 def get_active_document_template(*, institution, kind):
     """Resolve the single active template for a given institutional document kind."""
-    normalized_kind = str(kind or "").strip().lower()
-    valid_kinds = {code for code, _label in DOCUMENT_TYPE_CATALOG}
-    if normalized_kind not in valid_kinds:
-        raise DomainError(f"Tipo de documento no admitido: '{kind}'.")
+    document_kind = resolve_document_kind(institution=institution, code=kind)
+    normalized_kind = document_kind.code
 
     templates = DocumentTemplate.objects.filter(
         institution=institution,
-        kind=normalized_kind,
+        document_kind=document_kind,
         is_active=True,
     ).order_by("created_at")
     if templates.count() != 1:
@@ -685,7 +822,7 @@ def _record_version(template):
             template=template,
             sequence=next_sequence,
             name=template.name,
-            kind=template.kind,
+            kind=template.document_kind.code,
             description=template.description,
             content=template.content,
         )
@@ -697,7 +834,7 @@ def create_document_template(
     institution,
     name,
     code,
-    kind=DocumentTemplate.TemplateKind.OTHER,
+    kind=DEFAULT_DOCUMENT_KIND_CODE,
     description="",
     content="",
     actor=None,
@@ -713,19 +850,20 @@ def create_document_template(
     name = _clean_name(name)
     code = _clean_code(code)
     content = (content or "").strip()
+    document_kind = resolve_document_kind(institution=institution, code=kind)
 
     with unique_violation_as(_document_template_conflicts(code)):
         template = DocumentTemplate.objects.create(
             institution=institution,
             name=name,
             code=code,
-            kind=kind,
+            document_kind=document_kind,
             description=(description or "").strip(),
             content=content,
             is_active=is_active,
         )
 
-    _audit(actor, "documents.template.created", template, code=code, kind=kind)
+    _audit(actor, "documents.template.created", template, code=code, kind=document_kind.code)
     _record_version(template)
     return template
 
@@ -745,16 +883,22 @@ def update_document_template(
         description = description.strip()
     if content is not None:
         content = content.strip()
-
-    updated = _changed(
-        template,
-        actor,
-        "documents.template.updated",
-        name=name,
-        description=description,
-        kind=kind,
-        content=content,
+    document_kind = (
+        resolve_document_kind(institution=template.institution, code=kind)
+        if kind is not None
+        else None
     )
+
+    with unique_violation_as(_document_template_conflicts(template.code)):
+        updated = _changed(
+            template,
+            actor,
+            "documents.template.updated",
+            name=name,
+            description=description,
+            document_kind=document_kind,
+            content=content,
+        )
 
     if any(value is not None for value in (name, description, kind, content)):
         _record_version(updated)

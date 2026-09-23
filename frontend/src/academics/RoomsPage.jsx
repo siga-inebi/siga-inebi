@@ -54,14 +54,36 @@ const CREATE_FIELDS = (campuses) => [
   },
 ];
 
+const SERVICE_STATUS_OPTIONS = [
+  { value: "available", label: "Disponible" },
+  { value: "unavailable", label: "Temporalmente inhabilitada" },
+  { value: "maintenance", label: "En mantenimiento" },
+];
+
 const EDIT_FIELDS = [
   { name: "name", label: "Nombre", required: true },
   { name: "location", label: "Ubicacion" },
   { name: "capacity", label: "Capacidad", type: "number", min: 0 },
+  {
+    name: "service_status",
+    label: "Disponibilidad",
+    type: "select",
+    options: SERVICE_STATUS_OPTIONS,
+    required: true,
+    help: "Fuera de servicio se bloquean nuevas asignaciones. Las sesiones existentes se conservan.",
+  },
 ];
 
 const COLUMNS = [
   { key: "name", label: "Aula", render: (row) => row.name },
+  {
+    key: "service_status",
+    label: "Disponibilidad",
+    render: (row) =>
+      SERVICE_STATUS_OPTIONS.find(
+        (option) => option.value === (row.service_status ?? "available")
+      )?.label,
+  },
   {
     key: "code",
     label: "Codigo",
@@ -213,6 +235,7 @@ export function RoomsPage() {
             name: editing.room.name,
             location: editing.room.location || "",
             capacity: editing.room.capacity,
+            service_status: editing.room.service_status ?? "available",
           }}
           key={editing.room.public_id}
           onCancel={() => setEditing(null)}

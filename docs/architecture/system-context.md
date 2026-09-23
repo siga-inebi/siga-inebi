@@ -51,6 +51,14 @@ SIGA-INEBI centraliza informacion academica, administrativa y operativa del esta
   cuanto el establecimiento confirme su matricula real. `CONN_MAX_AGE`
   (ver `backend/config/settings/base.py`) reusa conexiones a PostgreSQL para
   no competir por CPU en cada peticion bajo ese perfil.
+- RNF-OPE-001: toda ejecucion desatendida (tarea programada y, cuando exista,
+  trabajo del worker) deja una fila `common.TaskRun` y una linea del logger
+  `siga.tasks`. El contrato, las tareas instrumentadas y la superficie de
+  consulta estan en `docs/architecture/operations-monitoring.md`.
+- RNF-RES-001 / RNF-RES-002: la base de datos y la pila de archivos se
+  respaldan y se restauran por separado, con RPO de 24 h y RTO de 4 h
+  declarados como referencia y probados con un simulacro cronometrado.
+  Ver `docs/architecture/backup-and-recovery.md`.
 - RNF-DIS-001: el servicio se opera para estar disponible durante la
   ventana de jornada lectiva en dias de clases; no se compromete operacion
   continua 24/7 ni esquemas de alta disponibilidad (replicas, failover

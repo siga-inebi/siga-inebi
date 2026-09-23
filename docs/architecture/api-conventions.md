@@ -34,6 +34,39 @@ excepciones. El sobre de error se conserva como `error.status_code` y `error.det
 404 y 403, `detail` mantiene la forma `{"detail": "..."}` usada por DRF; asi el traslado de una
 consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 
+## Disponibilidad de aulas (RF-AUL-005)
+
+- Las respuestas de aulas agregan `service_status`: `available` (Disponible),
+  `unavailable` (Temporalmente inhabilitada) o `maintenance` (En mantenimiento).
+- `PATCH /api/v1/academics/classrooms/{public_id}/` acepta ese campo opcional.
+  Un valor invalido devuelve HTTP 400. Omitirlo conserva el estado actual.
+- Las aulas nuevas y las existentes al migrar reciben `available`. La migracion
+  conserva `is_active`: un aula dada de baja no se reactiva.
+- El estado de servicio es independiente de la baja logica. Solo aulas activas y
+  disponibles admiten nuevas sesiones o nuevas asignaciones como aula habitual.
+  El rechazo ocurre en servicios de dominio y se expone como HTTP 400.
+- Decision confirmada para #103: cambiar la disponibilidad conserva las sesiones
+  y referencias existentes, incluso futuras. No se cancelan ni reasignan clases.
+  Conservar la misma aula habitual al editar una seccion no es una nueva asignacion.
+- Volver a `available` habilita nuevas asignaciones si el aula sigue activa.
+  El cambio registra actor y valores anterior/posterior en la auditoria existente.
+- Se conservan los controles de autenticacion e institucion del catalogo.
+  Los servicios bloquean la fila del aula durante la asignacion y el cambio de
+  disponibilidad para serializar ambas operaciones concurrentes.
+
+## Advertencia de capacidad de aulas (RF-AUL-004)
+
+- Las respuestas de seccion y sesion agregan `capacity_warning`, de solo lectura. Es `null`
+  cuando no hay aula, alguna capacidad vale `0` o el aula puede alojar la capacidad declarada
+  de la seccion.
+- Cuando el aula es menor, el campo contiene `code=classroom_capacity_below_section`, un mensaje
+  y los valores `classroom_capacity` y `section_capacity`.
+- La advertencia aplica al aula habitual de la seccion y al aula concreta de una sesion. Es
+  informativa: la asignacion se guarda y conserva las validaciones independientes de sede,
+  disponibilidad y cruces.
+- El valor se deriva al serializar y no se persiste; cambiar cualquiera de las capacidades se
+  refleja en la siguiente lectura sin migracion ni sincronizacion adicional.
+
 ## Seguridad
 
 - Sesion via cookie segura para frontend web.
