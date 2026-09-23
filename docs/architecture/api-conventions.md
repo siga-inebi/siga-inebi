@@ -54,6 +54,19 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   Los servicios bloquean la fila del aula durante la asignacion y el cambio de
   disponibilidad para serializar ambas operaciones concurrentes.
 
+## Advertencia de capacidad de aulas (RF-AUL-004)
+
+- Las respuestas de seccion y sesion agregan `capacity_warning`, de solo lectura. Es `null`
+  cuando no hay aula, alguna capacidad vale `0` o el aula puede alojar la capacidad declarada
+  de la seccion.
+- Cuando el aula es menor, el campo contiene `code=classroom_capacity_below_section`, un mensaje
+  y los valores `classroom_capacity` y `section_capacity`.
+- La advertencia aplica al aula habitual de la seccion y al aula concreta de una sesion. Es
+  informativa: la asignacion se guarda y conserva las validaciones independientes de sede,
+  disponibilidad y cruces.
+- El valor se deriva al serializar y no se persiste; cambiar cualquiera de las capacidades se
+  refleja en la siguiente lectura sin migracion ni sincronizacion adicional.
+
 ## Seguridad
 
 - Sesion via cookie segura para frontend web.
@@ -166,18 +179,6 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   con HTTP 400 y no puede usarse para escribir sobre un ciclo cerrado por la puerta de atras.
 - Crear o reasignar una asignacion docente de un ciclo cerrado devuelve HTTP 400. El historial de
   asignaciones permanece consultable y no se elimina.
-
-## Clonacion de horarios
-
-- `POST /api/v1/academics/sections/{target_public_id}/class-sessions/clone/` recibe
-  `source_section_id` y copia la distribucion activa hacia una seccion vacia del mismo ciclo.
-- El plan de estudios destino debe contener todas las subareas del origen. Los bloques se traducen
-  por numero a la jornada destino; si falta alguno, se rechaza la operacion completa.
-- Se conservan subarea, dia y fecha de vigencia. El aula no se copia y el docente se deriva de las
-  asignaciones vigentes de la seccion destino.
-- La operacion es atomica y auditable. Un destino con cualquier sesion previa, incluso inactiva, o
-  un cruce detectado por las reglas existentes produce HTTP 400 sin copias parciales.
-- El endpoint requiere sesion autenticada y devuelve HTTP 201 con las sesiones creadas.
 
 ## Inscripciones activas
 

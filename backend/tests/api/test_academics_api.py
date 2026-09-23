@@ -264,6 +264,37 @@ def test_create_section_api_accepts_a_default_classroom(auth_client, institution
     assert response.json()["default_classroom_id"] == str(classroom.public_id)
 
 
+def test_section_api_warns_without_blocking_an_undersized_default_classroom(
+    auth_client, institution
+):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
+    grade = GradeFactory(institution=institution)
+    shift = ShiftFactory(campus__institution=institution)
+    classroom = ClassroomFactory(campus=shift.campus, capacity=20)
+
+    response = auth_client.post(
+        reverse("section-list-create"),
+        {
+            "academic_cycle_id": str(cycle.public_id),
+            "grade_id": str(grade.public_id),
+            "shift_id": str(shift.public_id),
+            "name": "A",
+            "capacity": 30,
+            "default_classroom_id": str(classroom.public_id),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["capacity_warning"] == {
+        "code": "classroom_capacity_below_section",
+        "detail": "El aula tiene capacidad para 20 personas y la seccion declara 30.",
+        "classroom_capacity": 20,
+        "section_capacity": 30,
+    }
+    assert response.json()["default_classroom_id"] == str(classroom.public_id)
+
+
 def test_create_section_api_rejects_default_classroom_from_another_campus(auth_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
@@ -300,6 +331,8 @@ def test_update_section_api_sets_the_default_classroom(auth_client, institution)
 
     assert response.status_code == 200
     assert response.json()["default_classroom_id"] == str(classroom.public_id)
+    assert response.json()["capacity_warning"]["classroom_capacity"] == classroom.capacity
+    assert response.json()["capacity_warning"]["section_capacity"] == section.capacity
 
 
 def test_deactivate_section_api_contract(auth_client, institution):
@@ -454,6 +487,32 @@ def test_create_class_session_api_does_not_require_a_classroom(auth_client, inst
     assert response.json()["classroom_id"] is None
 
 
+def test_class_session_api_warns_without_blocking_an_undersized_classroom(auth_client, institution):
+    section = SectionFactory(
+        academic_cycle=AcademicCycleFactory(institution=institution),
+        capacity=30,
+    )
+    subject = SubjectFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=section.shift)
+    classroom = ClassroomFactory(campus=section.campus, capacity=20)
+
+    response = auth_client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(subject.public_id),
+            "schedule_block_id": str(block.public_id),
+            "day_of_week": 1,
+            "classroom_id": str(classroom.public_id),
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["capacity_warning"]["classroom_capacity"] == 20
+    assert response.json()["capacity_warning"]["section_capacity"] == 30
+    assert response.json()["classroom_id"] == str(classroom.public_id)
+
+
 def test_class_session_api_exposes_the_current_teacher(auth_client, institution):
     """RF-HOR-004: el docente se deriva de la asignacion vigente, se muestra en la sesion."""
     cycle = AcademicCycleFactory(institution=institution)
@@ -601,14 +660,27 @@ def test_class_session_detail_roundtrip(auth_client, institution):
 def test_class_session_endpoints_require_authentication(client, institution):
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
     session = ClassSessionFactory(section=section)
+    classroom = ClassroomFactory(campus=section.campus, capacity=20)
 
     list_response = client.get(
         reverse("section-class-session-list-create", args=[section.public_id])
     )
     detail_response = client.get(reverse("class-session-detail", args=[session.public_id]))
+    create_response = client.post(
+        reverse("section-class-session-list-create", args=[section.public_id]),
+        {
+            "subject_id": str(session.subject.public_id),
+            "schedule_block_id": str(session.schedule_block.public_id),
+            "day_of_week": 2,
+            "classroom_id": str(classroom.public_id),
+        },
+        content_type="application/json",
+    )
 
     assert list_response.status_code == 403
     assert detail_response.status_code == 403
+    assert create_response.status_code == 403
+    assert section.class_sessions.count() == 1
 
 
 def test_weekly_load_api_reports_a_match(auth_client, institution):
