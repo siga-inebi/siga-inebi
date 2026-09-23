@@ -20,6 +20,8 @@ ATOMIC_PERMISSIONS = (
     ("attendance.record_manual", "Can record attendance manually"),
     ("attendance.justification.request", "Can request attendance justifications"),
     ("attendance.justification.resolve", "Can resolve attendance justifications"),
+    ("attendance.permit.request", "Can request attendance permits"),
+    ("attendance.permit.resolve", "Can resolve attendance permits"),
     ("attendance.jornada.configure", "Can configure jornada parameters"),
     ("evaluation.configure_units", "Can configure evaluation units"),
     ("reporting.alert.view", "Can view reporting alerts"),
