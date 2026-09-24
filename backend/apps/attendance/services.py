@@ -20,6 +20,7 @@ import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
@@ -42,7 +43,7 @@ from apps.attendance.models import (
     SectionClosureLog,
     StudentCredential,
 )
-from apps.audit.services import record_event
+from apps.audit.services import declare_data_retention, record_event
 from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
@@ -2417,6 +2418,20 @@ def attach_justification_document(*, justification, upload, actor):
         resource="JustificationAttachment",
         resource_identifier=str(attachment.public_id),
         context={"justification_id": str(justification.public_id)},
+    )
+    # RF-ARC-006: keep a declarative retention record for the attachment while
+    # keeping the actual institutional policy outside the code path. This is a
+    # compliance trace, not an automatic purge.
+    declare_data_retention(
+        actor=actor,
+        category="attendance.justification_attachment",
+        period_days=settings.JUSTIFICATION_ATTACHMENT_RETENTION_DAYS,
+        legal_basis=(
+            "Retencion declarada por la institucion para respaldos de justificacion; "
+            "la eliminacion automatica queda fuera del alcance del sistema hasta "
+            "definir la politica legal operativa final."
+        ),
+        applies_to_minors=False,
     )
     return attachment
 

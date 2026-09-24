@@ -19,6 +19,7 @@ All in isolation from the API layer.
 from datetime import datetime, time, timedelta
 
 import pytest
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -3955,6 +3956,24 @@ def test_attach_justification_document_rejects_a_second_attachment():
         services.attach_justification_document(
             justification=justification, upload=_pdf_upload("otra.pdf"), actor=guardian
         )
+
+
+def test_attach_justification_document_records_retention_for_the_attachment():
+    student = StudentFactory()
+    guardian = UserFactory()
+    justification = services.submit_justification(
+        student=student, absence_date=timezone.localdate(), reason="Cita medica", actor=guardian
+    )
+
+    services.attach_justification_document(
+        justification=justification, upload=_pdf_upload(), actor=guardian
+    )
+
+    event = AuditEvent.objects.get(action="compliance.retention.declared")
+    assert event.resource == "DataRetentionDeclaration"
+    assert event.resource_identifier == "attendance.justification_attachment"
+    assert event.context["category"] == "attendance.justification_attachment"
+    assert event.context["period_days"] == settings.JUSTIFICATION_ATTACHMENT_RETENTION_DAYS
 
 
 # --------------------------------------------------------------------------- #
