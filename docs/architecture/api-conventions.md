@@ -267,6 +267,17 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - Requiere `enrollment_create` y alcance efectivo sobre cada estudiante. El resumen del lote
   queda auditado.
 
+### Promocion, repitencia y graduacion
+
+- `GET /api/v1/enrolments/{enrolment_id}/promotion/` conserva los campos de RF-RES-006 y agrega
+  `progression`, `eligible_grade_id`, `eligible_grade_name` y `result_source`.
+- `progression` es `promoted` cuando existe un grado inmediato superior, `repeating` cuando el
+  resultado es no promovido y `graduated` cuando se aprueba el ultimo grado configurado.
+- La repitencia devuelve el mismo grado como elegible; la graduacion devuelve grado elegible
+  nulo. La consulta no crea una reinscripcion.
+- Si existe un resultado congelado al cierre del ciclo, ese snapshot es la fuente autoritativa;
+  solo ciclos sin snapshot usan el calculo vigente como compatibilidad.
+
 ## Administracion de roles
 
 - `GET /api/v1/identity/roles/` devuelve roles y su composicion atomica.

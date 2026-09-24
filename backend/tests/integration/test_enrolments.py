@@ -4,7 +4,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.academics.models import CurriculumPlan
+from apps.academics.models import CurriculumPlan, FrozenPromotionResult, FrozenSubjectResult
 from apps.attendance import services as attendance_services
 from apps.attendance.models import AttendanceEvent, StudentCredential
 from apps.audit.models import AuditEvent
@@ -16,6 +16,7 @@ from apps.enrolments.services import (
     bulk_reenrol_students,
     change_section,
     create_enrolment,
+    determine_grade_eligibility,
     determine_promotion,
     enrolment_history,
     matriculate_student,
@@ -29,7 +30,12 @@ from apps.enrolments.services import (
 from apps.evaluation.models import Grade as EvaluationGrade
 from apps.evaluation.models import RecoveryGrade
 from apps.evaluation.services import register_unit_grade
-from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    GradeFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.attendance import AttendanceEventFactory
 from tests.factories.evaluation import EvaluationUnitFactory
 from tests.factories.identity import UserFactory
@@ -702,3 +708,39 @@ def test_promotion_crosses_curriculum_plan_grades_and_recovery_domains():
     enrolment.refresh_from_db()
     assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
     assert EvaluationGrade.objects.filter(enrolment=enrolment).count() == 2
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+@pytest.mark.django_db
+def test_grade_eligibility_consumes_frozen_promotion_and_academic_order():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    subject = SubjectFactory(institution=section.academic_cycle.institution)
+    next_grade = GradeFactory(
+        level=section.grade.level,
+        sequence=section.grade.sequence + 1,
+    )
+    FrozenSubjectResult.objects.create(
+        enrolment=enrolment,
+        subject=subject,
+        final_grade=80,
+        condition="approved",
+    )
+    FrozenPromotionResult.objects.create(
+        enrolment=enrolment,
+        promoted=True,
+        condition="promoted",
+        failed_subjects=[],
+    )
+
+    result = determine_grade_eligibility(enrolment)
+
+    assert result["result_source"] == "frozen"
+    assert result["progression"] == "promoted"
+    assert result["eligible_grade_id"] == str(next_grade.public_id)

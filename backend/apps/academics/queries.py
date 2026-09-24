@@ -438,6 +438,20 @@ def latest_frozen_promotion_result(*, enrolment):
     return frozen_promotion_result_history(enrolment=enrolment).first()
 
 
+def next_active_grade(*, grade):
+    """Return the next configured grade in the institution's pedagogical order."""
+    return (
+        Grade.objects.filter(institution_id=grade.institution_id, is_active=True)
+        .filter(
+            Q(level__sequence__gt=grade.level.sequence)
+            | Q(level_id=grade.level_id, sequence__gt=grade.sequence)
+        )
+        .select_related("level")
+        .order_by("level__sequence", "sequence", "name", "pk")
+        .first()
+    )
+
+
 def class_schedule_publication(academic_cycle):
     """
     Existing publication row, or an unsaved default (never published).
