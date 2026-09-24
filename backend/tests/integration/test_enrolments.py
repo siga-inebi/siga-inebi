@@ -185,7 +185,13 @@ def test_cannot_duplicate_incompatible_active_enrolment():
         section=section,
     )
 
-    with pytest.raises(DomainError, match="ya tiene una inscripcion activa"):
+    # Esta captura viola simultaneamente las dos restricciones de duplicado:
+    # misma matricula activa y misma seccion historica. PostgreSQL puede
+    # reportar cualquiera primero; ambas son rechazos de dominio correctos.
+    with pytest.raises(
+        DomainError,
+        match="ya tiene una inscripcion activa|ya estuvo inscrito en esa seccion",
+    ):
         create_enrolment(
             student=student,
             academic_cycle=section.academic_cycle,
