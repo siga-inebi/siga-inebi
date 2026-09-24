@@ -467,6 +467,12 @@ def create_enrolment(
         raise DomainError(
             "La fecha de fin de la matricula no puede ser anterior a su fecha de vigencia."
         )
+    if Enrolment.objects.filter(
+        student_id=student.pk,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    ).exists():
+        raise DomainError(DUPLICATE_ENROLMENT_MESSAGES["unique_active_enrolment_per_student"])
+
     _ensure_section_has_capacity(section)
 
     with unique_violation_as(DUPLICATE_ENROLMENT_MESSAGES):

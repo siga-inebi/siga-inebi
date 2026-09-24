@@ -105,9 +105,7 @@ DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES = env_int(
 # RF-ARC-006: la politica exacta de retencion institucional de justificaciones
 # se define por la institucion, pero el sistema debe conservar una referencia
 # operativa por defecto y dejarla configurable sin tocar codigo.
-JUSTIFICATION_ATTACHMENT_RETENTION_DAYS = env_int(
-    "JUSTIFICATION_ATTACHMENT_RETENTION_DAYS", 365
-)
+JUSTIFICATION_ATTACHMENT_RETENTION_DAYS = env_int("JUSTIFICATION_ATTACHMENT_RETENTION_DAYS", 365)
 
 # RNF-RES-001 / RNF-RES-002: respaldo y recuperacion.
 #
