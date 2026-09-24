@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pytest
 from django.utils import timezone
 
-from apps.academics.models import CurriculumPlan
+from apps.academics.models import CurriculumPlan, FrozenPromotionResult, FrozenSubjectResult
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
 from apps.enrolments.models import (
@@ -18,6 +18,7 @@ from apps.enrolments.services import (
     bulk_reenrol_students,
     change_section,
     create_enrolment,
+    determine_grade_eligibility,
     determine_promotion,
     enrolment_history,
     matriculate_student,
@@ -1195,3 +1196,105 @@ class TestDeterminePromotion:
 
         enrolment.refresh_from_db()
         assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+class TestDetermineGradeEligibility:
+    """RF-MOV-006 maps the definitive result to the next academic path."""
+
+    def _cycle_with_plan(self, subject_count):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subjects = []
+        for _ in range(subject_count):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle,
+                grade=section.grade,
+                subject=subject,
+            )
+            subjects.append(subject)
+        return enrolment, unit, subjects
+
+    def _grade(self, enrolment, unit, subject, value):
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=PersonFactory(),
+            value=value,
+        )
+
+    def test_promoted_student_is_eligible_for_the_immediate_next_grade(self):
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 80)
+        next_grade = GradeFactory(
+            level=enrolment.grade.level,
+            sequence=enrolment.grade.sequence + 1,
+        )
+
+        result = determine_grade_eligibility(enrolment)
+
+        assert result["progression"] == "promoted"
+        assert result["eligible_grade_id"] == str(next_grade.public_id)
+        assert result["eligible_grade_name"] == next_grade.name
+        assert result["result_source"] == "live"
+
+    def test_not_promoted_student_repeats_the_same_grade(self):
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 59)
+
+        result = determine_grade_eligibility(enrolment)
+
+        assert result["progression"] == "repeating"
+        assert result["eligible_grade_id"] == str(enrolment.grade.public_id)
+        assert result["eligible_grade_name"] == enrolment.grade.name
+
+    def test_promoted_student_in_last_configured_grade_graduates(self):
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 80)
+
+        result = determine_grade_eligibility(enrolment)
+
+        assert result["progression"] == "graduated"
+        assert result["eligible_grade_id"] is None
+        assert result["eligible_grade_name"] is None
+
+    def test_frozen_result_is_authoritative_for_closed_cycle(self):
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 95)
+        FrozenSubjectResult.objects.create(
+            enrolment=enrolment,
+            subject=subjects[0],
+            final_grade=50,
+            condition="failed",
+        )
+        FrozenPromotionResult.objects.create(
+            enrolment=enrolment,
+            promoted=False,
+            condition="not_promoted",
+            failed_subjects=[subjects[0].name],
+        )
+
+        result = determine_grade_eligibility(enrolment)
+
+        assert result["promoted"] is False
+        assert result["progression"] == "repeating"
+        assert result["eligible_grade_id"] == str(enrolment.grade.public_id)
+        assert result["total_subjects"] == 1
+        assert result["result_source"] == "frozen"

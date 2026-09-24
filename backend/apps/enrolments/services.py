@@ -2,6 +2,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
+from apps.academics import queries as academics_queries
 from apps.academics.cycle_policies import require_cycle_academic_writes
 from apps.academics.models import Section
 from apps.audit.services import record_event
@@ -414,9 +415,8 @@ def determine_promotion(enrolment: Enrolment) -> dict:
     rule should not apply to.
 
     This only determines the condition -- it never creates the next cycle's
-    enrolment or changes this one's ``status``. That transition belongs to
-    RF-MOV-006 (issue #238, ``enrollment-lifecycle`` but a different issue,
-    not implemented here).
+    enrolment or changes this one's ``status``. RF-MOV-006 maps this result
+    to the eligible grade in ``determine_grade_eligibility`` below.
 
     Returns:
         dict with ``enrolment_id``, ``promoted`` (bool), ``condition``
@@ -439,6 +439,53 @@ def determine_promotion(enrolment: Enrolment) -> dict:
         "condition": "promoted" if promoted else "not_promoted",
         "failed_subjects": failed_subjects,
         "total_subjects": len(subjects),
+    }
+
+
+def determine_grade_eligibility(enrolment: Enrolment) -> dict:
+    """Determine promotion, repetition or graduation and the eligible grade (RF-MOV-006).
+
+    A closed cycle reads its latest immutable promotion snapshot. An open or
+    historical cycle without a snapshot falls back to RF-RES-006's live
+    calculation for backward compatibility. This function only determines the
+    next academic path; creating the next-cycle enrolment remains RF-MOV-007.
+    """
+    frozen = academics_queries.latest_frozen_promotion_result(enrolment=enrolment)
+    if frozen is None:
+        result = determine_promotion(enrolment)
+        result_source = "live"
+    else:
+        total_subjects = (
+            academics_queries.frozen_subject_results_for_enrolment(enrolment=enrolment)
+            .order_by()
+            .values("subject_id")
+            .distinct()
+            .count()
+        )
+        result = {
+            "enrolment_id": str(enrolment.public_id),
+            "promoted": frozen.promoted,
+            "condition": frozen.condition,
+            "failed_subjects": frozen.failed_subjects,
+            "total_subjects": total_subjects,
+        }
+        result_source = "frozen"
+
+    if not result["promoted"]:
+        eligible_grade = enrolment.grade
+        progression = "repeating"
+    else:
+        eligible_grade = academics_queries.next_active_grade(grade=enrolment.grade)
+        progression = "promoted" if eligible_grade is not None else "graduated"
+
+    return {
+        **result,
+        "progression": progression,
+        "eligible_grade_id": (
+            str(eligible_grade.public_id) if eligible_grade is not None else None
+        ),
+        "eligible_grade_name": eligible_grade.name if eligible_grade is not None else None,
+        "result_source": result_source,
     }
 
 
