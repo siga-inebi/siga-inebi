@@ -426,3 +426,90 @@ describe("AttendancePage — verificacion preventiva de camara (RNF-USA-001)", (
     await openScanWindow(user);
   });
 });
+
+describe("AttendancePage — sin persistencia local de datos de menores (RNF-PRI-003)", () => {
+  // Lo unico que la aplicacion puede dejar en el navegador es la preferencia
+  // de tema de MUI; ningun dato del estudiante.
+  const ALLOWED_KEYS = ["mui-mode"];
+
+  function storedEntries(storage) {
+    return Object.keys(storage).map((key) => [key, storage.getItem(key)]);
+  }
+
+  test("escanear y consultar presencia no deja datos del estudiante en el dispositivo", async () => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    const openDatabase = vi.fn();
+    vi.stubGlobal("indexedDB", { open: openDatabase });
+    attendanceServiceMock.recordScan.mockResolvedValue([
+      {
+        client_event_id: "any",
+        outcome: "created",
+        event: { origin: "scan", movement_type: "entry" },
+        duplicate_of: null,
+        reason: "",
+      },
+    ]);
+    attendanceServiceMock.listPresence.mockResolvedValue(
+      paged([
+        {
+          student_id: "student-1",
+          section_id: "section-1",
+          entry_event: { captured_at: "2026-08-19T13:00:00Z" },
+        },
+      ])
+    );
+    const user = userEvent.setup();
+    renderWithRouter(<AttendancePage />);
+
+    const scanDialog = await openScanWindow(user);
+    await user.type(
+      within(scanDialog).getByLabelText(/^Codigo de estudiante/),
+      "EST-1"
+    );
+    await selectOption(
+      user,
+      /^Punto de control/,
+      /Porton principal/,
+      scanDialog
+    );
+    await selectOption(user, /^Jornada/, /Matutina/, scanDialog);
+    await user.click(
+      within(scanDialog).getByRole("button", { name: "Registrar" })
+    );
+    expect(
+      await within(scanDialog).findByText("Registrado")
+    ).toBeInTheDocument();
+    await user.click(
+      within(scanDialog).getAllByRole("button", { name: "Cerrar" })[0]
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Registrar por escaneo" })
+      ).not.toBeInTheDocument()
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Presencia en tiempo real" })
+    );
+    const presenceDialog = await screen.findByRole("dialog", {
+      name: "Presencia en tiempo real",
+    });
+    await selectOption(user, /^Jornada/, /Matutina/, presenceDialog);
+    await user.click(
+      within(presenceDialog).getByRole("button", { name: "Buscar" })
+    );
+    expect(
+      await within(presenceDialog).findByText("Luis Perez · EST-1")
+    ).toBeInTheDocument();
+
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+      for (const [key, value] of storedEntries(storage)) {
+        expect(ALLOWED_KEYS).toContain(key);
+        expect(value).not.toMatch(/EST-1|Luis|Perez|student-1/);
+      }
+    }
+    expect(openDatabase).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  }, 15000);
+});
