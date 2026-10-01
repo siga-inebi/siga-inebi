@@ -2848,3 +2848,67 @@ def test_section_closure_preview_excludes_a_student_with_an_approved_permit(auth
     assert len(data["omitted"]) == 1
     assert data["omitted"][0]["student_id"] == str(student.public_id)
     assert data["omitted"][0]["reason"] == "Tiene permiso de salida anticipada vigente."
+
+
+# --------------------------------------------------------------------------- #
+# RNF-PRI-003 — ninguna respuesta con datos de menores queda en el dispositivo
+# --------------------------------------------------------------------------- #
+
+
+def test_credential_print_content_is_not_stored_on_the_operator_device(auth_client):
+    """
+    RNF-PRI-003, camino feliz: la respuesta con nombre y foto del estudiante
+    prohibe al navegador guardarla en su cache de disco.
+    """
+    student = StudentFactory()
+    _enrol(student)
+    services.issue_credential(student=student)
+    _grant_student_scope(auth_client.user, student, codename=CREDENTIAL_ISSUE_PERMISSION)
+
+    response = auth_client.get(_print_content_url(student))
+
+    assert response.status_code == 200
+    assert response.json()["full_name"]
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_presence_list_is_not_stored_on_the_operator_device(auth_client):
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
+    )
+    _grant_student_scope(auth_client.user, student)
+    JornadaParametersFactory(shift=shift, academic_cycle=cycle, effective_from=cycle.starts_on)
+    AttendanceEventFactory(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 0))),
+    )
+
+    response = auth_client.get(_presence_url(shift, event_date=str(cycle.starts_on)))
+
+    assert response.status_code == 200
+    assert response.json()["results"]
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_justification_attachment_read_is_not_stored_on_the_operator_device(auth_client):
+    student = StudentFactory()
+    justification = _submit_pending_justification(auth_client, student)
+    auth_client.post(
+        reverse("attendance-justification-attachment", args=[justification.public_id]),
+        {"file": _pdf_upload()},
+    )
+
+    response = auth_client.get(
+        reverse("attendance-justification-attachment", args=[justification.public_id])
+    )
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"

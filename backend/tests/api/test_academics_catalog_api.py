@@ -473,9 +473,10 @@ def test_list_levels_etag_changes_when_data_changes(auth_client, institution):
 def test_teaching_assignment_history_does_not_send_cache_headers(auth_client, institution):
     # A diferencia de los catalogos de baja rotacion, el historial de
     # asignaciones muta seguido: no debe quedar cacheado por accidente.
+    # RNF-PRI-003: sin opt-in, la API responde `no-store` por defecto.
     response = auth_client.get(reverse("teaching-assignment-history"))
 
-    assert "Cache-Control" not in response.headers
+    assert response.headers["Cache-Control"] == "no-store"
     assert "ETag" not in response.headers
 
 

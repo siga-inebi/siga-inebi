@@ -9,12 +9,15 @@ RF-ASI-001/002/004/010 — captura por escaneo con matricula, punto de control
 y supresion de duplicados reales.
 RF-CRE-001 — emision de credencial sobre una matricula real.
 RF-CRE-006 — resolucion de identificador contra matricula y retiro reales.
+RNF-PRI-003 — el escaneo de una matricula real no queda en el dispositivo del
+operador, y el catalogo academico conserva su cache explicita.
 """
 
 from datetime import datetime, time, timedelta
 
 import pytest
 from django.db import IntegrityError
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.academics.models import ClassScheduleBlock
@@ -33,11 +36,17 @@ from apps.enrolments.services import create_enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
     CampusFactory,
+    LevelFactory,
     SectionFactory,
     ShiftFactory,
 )
-from tests.factories.attendance import ControlPointFactory
-from tests.factories.identity import UserFactory
+from tests.factories.attendance import ControlPointFactory, JornadaParametersFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    UserFactory,
+)
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.django_db]
@@ -579,3 +588,59 @@ def test_deactivating_a_class_schedule_block_leaves_the_gate_window_untouched():
     gate_window.refresh_from_db()
     assert gate_window.is_active
     assert gate_window.closing_time == time(16, 0)
+
+
+def test_gate_scan_of_a_real_enrolment_is_not_stored_while_catalogues_keep_their_cache(
+    client, institution
+):
+    """
+    RNF-PRI-003: en la misma sesion de un operador de porton, la respuesta del
+    escaneo (codigo y movimiento de un menor matriculado) sale con `no-store`;
+    el catalogo de niveles, que no tiene datos de menores, conserva el
+    `Cache-Control` que su vista pidio explicitamente.
+    """
+    operator = UserFactory()
+    role = RoleFactory(
+        permissions=[
+            PermissionFactory(codename="attendance_scan"),
+            PermissionFactory(codename="attendance_record_entry"),
+        ]
+    )
+    RoleAssignmentFactory(user=operator, role=role)
+    client.force_login(operator)
+    parameters = JornadaParametersFactory()
+    section = SectionFactory(academic_cycle=parameters.academic_cycle)
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=parameters.academic_cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    LevelFactory(institution=institution)
+
+    scan = client.post(
+        reverse("attendance-scan"),
+        {
+            "items": [
+                {
+                    "client_event_id": "gate-1",
+                    "student_code": student.student_code,
+                    "shift_id": str(parameters.shift.public_id),
+                    "control_point_id": str(control_point.public_id),
+                    "movement_type": AttendanceEvent.MovementType.ENTRY,
+                    "captured_at": timezone.now().isoformat(),
+                }
+            ]
+        },
+        content_type="application/json",
+    )
+    catalogue = client.get(reverse("level-list-create"))
+
+    assert scan.status_code == 200
+    assert scan.json()[0]["outcome"] == "created"
+    assert scan.headers["Cache-Control"] == "no-store"
+    assert catalogue.status_code == 200
+    assert "private" in catalogue.headers["Cache-Control"]
+    assert "no-store" not in catalogue.headers["Cache-Control"]
