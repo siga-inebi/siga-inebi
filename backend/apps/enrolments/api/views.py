@@ -459,14 +459,15 @@ class PromotionDetailView(GenericAPIView):
         description=(
             "Determina si la matrícula queda promovida exigiendo al menos sesenta puntos "
             "en cada subárea de su plan de estudios, considerando la recuperación cuando "
-            "exista. No promueve con base en un promedio general ni modifica la matrícula."
+            "exista. También devuelve el grado elegible y distingue promoción, repitencia "
+            "y graduación. No crea la matrícula del ciclo siguiente."
         ),
         responses={200: PromotionSerializer},
         tags=["enrolments"],
     )
     def get(self, request, enrolment_id):
         enrolment = queries.enrolment_or_404(enrolment_id)
-        result = services.determine_promotion(enrolment)
+        result = services.determine_grade_eligibility(enrolment)
         return Response(PromotionSerializer(result).data)
 
 

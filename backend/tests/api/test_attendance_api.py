@@ -2579,6 +2579,25 @@ def test_justification_attachment_upload_endpoint_succeeds_for_the_submitter(aut
     assert response.json()["content_type"] == "application/pdf"
 
 
+def test_justification_attachment_upload_records_retention_declaration(auth_client):
+    student = StudentFactory()
+    justification = _submit_pending_justification(auth_client, student)
+
+    response = auth_client.post(
+        reverse("attendance-justification-attachment", args=[justification.public_id]),
+        {"file": _pdf_upload()},
+    )
+
+    assert response.status_code == 201
+    event = AuditEvent.objects.get(
+        action="compliance.retention.declared",
+        resource_identifier="attendance.justification_attachment",
+    )
+    assert event.resource == "DataRetentionDeclaration"
+    assert event.context["category"] == "attendance.justification_attachment"
+    assert event.context["period_days"] == 365
+
+
 def test_justification_attachment_read_endpoint_denies_an_unrelated_user(auth_client):
     """
     RF-JUS-007: "accesibles unicamente para el encargado que los cargo y

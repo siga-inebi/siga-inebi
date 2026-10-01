@@ -232,10 +232,14 @@ class StudentTransferOutCreateSerializer(serializers.Serializer):
 
 
 class PromotionSerializer(serializers.Serializer):
-    """Read-only outcome of RF-RES-006's promotion determination."""
+    """Read-only promotion outcome and eligible academic path."""
 
     enrolment_id = serializers.UUIDField()
     promoted = serializers.BooleanField()
     condition = serializers.ChoiceField(choices=["promoted", "not_promoted"])
     failed_subjects = serializers.ListField(child=serializers.CharField())
     total_subjects = serializers.IntegerField()
+    progression = serializers.ChoiceField(choices=["promoted", "repeating", "graduated"])
+    eligible_grade_id = serializers.UUIDField(allow_null=True)
+    eligible_grade_name = serializers.CharField(allow_null=True)
+    result_source = serializers.ChoiceField(choices=["live", "frozen"])
