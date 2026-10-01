@@ -15,7 +15,12 @@ from apps.enrolments.services import (
     withdraw_student,
 )
 from apps.evaluation.services import create_evaluation_unit, register_unit_grade
-from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    GradeFactory,
+    SectionFactory,
+    SubjectFactory,
+)
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -838,10 +843,17 @@ def test_promotion_endpoint_declares_not_promoted_with_a_failed_subject(auth_cli
     assert body["promoted"] is False
     assert body["condition"] == "not_promoted"
     assert body["total_subjects"] == 2
+    assert body["progression"] == "repeating"
+    assert body["eligible_grade_id"] == str(enrolment.grade.public_id)
+    assert body["result_source"] == "live"
 
 
 def test_promotion_endpoint_declares_promoted_when_all_subjects_pass(auth_client):
     enrolment = _cycle_with_graded_plan([60, 75])
+    next_grade = GradeFactory(
+        level=enrolment.grade.level,
+        sequence=enrolment.grade.sequence + 1,
+    )
 
     response = auth_client.get(reverse("enrolment-promotion", args=[enrolment.public_id]))
 
@@ -850,6 +862,9 @@ def test_promotion_endpoint_declares_promoted_when_all_subjects_pass(auth_client
     assert body["promoted"] is True
     assert body["condition"] == "promoted"
     assert body["failed_subjects"] == []
+    assert body["progression"] == "promoted"
+    assert body["eligible_grade_id"] == str(next_grade.public_id)
+    assert body["eligible_grade_name"] == next_grade.name
 
 
 def test_promotion_endpoint_requires_authentication(client):
