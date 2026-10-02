@@ -11,10 +11,10 @@ def _items(response):
     return response.json()["results"]
 
 
-def test_classroom_crud_keeps_code_and_campus_immutable(auth_client, institution):
+def test_classroom_crud_keeps_code_and_campus_immutable(admin_client, institution):
     campus = CampusFactory(institution=institution, code="CENTRAL")
 
-    created = auth_client.post(
+    created = admin_client.post(
         reverse("classroom-list-create"),
         {
             "campus_id": str(campus.public_id),
@@ -31,7 +31,7 @@ def test_classroom_crud_keeps_code_and_campus_immutable(auth_client, institution
     assert body["code"] == "LAB-01"
     assert body["campus"]["public_id"] == str(campus.public_id)
 
-    updated = auth_client.patch(
+    updated = admin_client.patch(
         reverse("classroom-detail", args=[body["public_id"]]),
         {"name": "Laboratorio de ciencias naturales", "capacity": 30},
         content_type="application/json",
@@ -43,11 +43,11 @@ def test_classroom_crud_keeps_code_and_campus_immutable(auth_client, institution
     assert updated.json()["capacity"] == 30
 
 
-def test_classroom_code_is_unique_per_campus(auth_client, institution):
+def test_classroom_code_is_unique_per_campus(admin_client, institution):
     campus = CampusFactory(institution=institution)
     ClassroomFactory(campus=campus, code="A-101")
 
-    duplicate = auth_client.post(
+    duplicate = admin_client.post(
         reverse("classroom-list-create"),
         {"campus_id": str(campus.public_id), "name": "Otra aula", "code": "a-101"},
         content_type="application/json",
@@ -57,14 +57,14 @@ def test_classroom_code_is_unique_per_campus(auth_client, institution):
     assert "ya existe" in duplicate.json()["error"]["detail"]
 
 
-def test_classroom_history_is_preserved_by_logical_deactivation(auth_client, institution):
+def test_classroom_history_is_preserved_by_logical_deactivation(admin_client, institution):
     campus = CampusFactory(institution=institution)
     active = ClassroomFactory(campus=campus, code="A-101")
     inactive = ClassroomFactory(campus=campus, code="A-102")
 
-    deleted = auth_client.delete(reverse("classroom-detail", args=[inactive.public_id]))
-    default_list = auth_client.get(reverse("classroom-list-create"))
-    history_list = auth_client.get(reverse("classroom-list-create"), {"include_inactive": "true"})
+    deleted = admin_client.delete(reverse("classroom-detail", args=[inactive.public_id]))
+    default_list = admin_client.get(reverse("classroom-list-create"))
+    history_list = admin_client.get(reverse("classroom-list-create"), {"include_inactive": "true"})
 
     assert deleted.status_code == 204
     assert [row["public_id"] for row in _items(default_list)] == [str(active.public_id)]

@@ -76,26 +76,26 @@ def test_physical_deletion_rejects_previous_cycle_references(historical_classroo
 
 @pytest.mark.api
 def test_api_deactivation_preserves_previous_cycle_history_and_audit(
-    auth_client, historical_classroom
+    admin_client, historical_classroom
 ):
     classroom, reference, field = historical_classroom
     detail_url = reverse("classroom-detail", args=[classroom.public_id])
 
-    response = auth_client.delete(detail_url)
+    response = admin_client.delete(detail_url)
 
     assert response.status_code == 204
     classroom.refresh_from_db()
     reference.refresh_from_db()
     assert classroom.is_active is False
     assert getattr(reference, field) == classroom.pk
-    detail = auth_client.get(detail_url)
+    detail = admin_client.get(detail_url)
     assert detail.status_code == 200
     assert detail.json()["public_id"] == str(classroom.public_id)
     assert detail.json()["is_active"] is False
     event = AuditEvent.objects.get(
         action="academics.classroom.deactivated", resource_identifier=str(classroom.pk)
     )
-    assert event.actor_id == auth_client.user.pk
+    assert event.actor_id == admin_client.user.pk
     assert event.context["code"] == classroom.code
 
 
