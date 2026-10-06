@@ -9,6 +9,10 @@ RF-ASI-001/002/004/010 — captura por escaneo con matricula, punto de control
 y supresion de duplicados reales.
 RF-CRE-001 — emision de credencial sobre una matricula real.
 RF-CRE-006 — resolucion de identificador contra matricula y retiro reales.
+RF-JUS-008 — permisos prospectivos aprobados y pendientes afectan los
+movimientos y el estado derivado segun su vigencia.
+RF-JUS-009 — un permiso aprobado vigente excluye al estudiante del cierre
+declarado de su seccion.
 RNF-PRI-003 — el escaneo de una matricula real no queda en el dispositivo del
 operador, y el catalogo academico conserva su cache explicita.
 """
@@ -26,6 +30,7 @@ from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     DayStatus,
     JornadaParameters,
     StudentCredential,
@@ -50,6 +55,190 @@ from tests.factories.identity import (
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.django_db]
+
+
+def _enrolled_student_with_jornada_parameters(*, entry_limit_time=time(7, 0)):
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=entry_limit_time,
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    return cycle, student, shift
+
+
+def test_approved_early_exit_permit_suppresses_alert_for_a_real_enrolment():
+    """RF-JUS-008 escenario 1: el permiso vigente evita la inconsistencia."""
+    cycle, student, shift = _enrolled_student_with_jornada_parameters()
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+
+    services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=ControlPointFactory(campus=shift.campus),
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(13, 0))),
+        client_event_id="early-exit-with-permit",
+        operator=UserFactory(),
+    )
+
+    permit.refresh_from_db()
+    assert permit.status == AttendancePermit.Status.APPROVED
+    assert not AttendanceAlert.objects.filter(
+        student=student,
+        event_date=cycle.starts_on,
+        alert_type=AttendanceAlert.AlertType.INCONSISTENCIA,
+    ).exists()
+
+
+def test_approved_late_arrival_permit_keeps_a_real_enrolment_present():
+    """RF-JUS-008 escenario 2: la entrada tarde autorizada no se penaliza."""
+    cycle, student, shift = _enrolled_student_with_jornada_parameters()
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.LATE_ARRIVAL,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(7, 45),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+    services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 45))),
+    )
+
+    result = services.derive_day_status(student=student, shift=shift, event_date=cycle.starts_on)
+
+    assert result.status == DayStatus.PRESENT
+
+
+def test_pending_early_exit_permit_keeps_the_early_exit_unauthorized_for_a_real_enrolment():
+    """RF-JUS-008 escenario 3: un permiso pendiente no suprime la alerta."""
+    cycle, student, shift = _enrolled_student_with_jornada_parameters()
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+
+    movement = services.record_scan_movement(
+        student=student,
+        shift=shift,
+        control_point=ControlPointFactory(campus=shift.campus),
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(13, 0))),
+        client_event_id="early-exit-with-pending-permit",
+        operator=UserFactory(),
+    )
+
+    assert permit.status == AttendancePermit.Status.PENDING
+    assert movement.event.movement_type == AttendanceEvent.MovementType.EXIT
+    assert AttendanceAlert.objects.filter(
+        student=student,
+        event_date=cycle.starts_on,
+        alert_type=AttendanceAlert.AlertType.INCONSISTENCIA,
+        context__reason="salida_anticipada_sin_permiso",
+    ).exists()
+
+
+def test_section_closure_omits_an_enrolled_student_with_a_current_approved_early_exit_permit():
+    """
+    RF-JUS-009: una matricula real en la seccion, con ingreso registrado y
+    permiso de salida anticipada aprobado para la misma fecha, no recibe una
+    salida declarada cuando el docente confirma el cierre.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 0))),
+    )
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+
+    result = services.close_section(
+        section=section,
+        event_date=cycle.starts_on,
+        actor=UserFactory(),
+        confirmed=True,
+    )
+
+    assert result.included == []
+    assert [(item.student, item.reason) for item in result.omitted] == [
+        (student, "Tiene permiso de salida anticipada vigente.")
+    ]
+    assert not AttendanceEvent.objects.filter(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+    ).exists()
 
 
 def test_two_jornadas_with_different_schedules_evaluate_against_their_own_parameters():

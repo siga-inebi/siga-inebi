@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.people.api.serializers import PersonSerializer
+from apps.people.api.serializers import PersonSerializer, validate_institutional_person
 from apps.teachers.models import Teacher
 from apps.teachers.services import create_teacher
 
@@ -47,6 +47,10 @@ class TeacherSerializer(serializers.ModelSerializer):
             appointment_date=validated_data.get("appointment_date"),
             actor=actor,
         )
+
+    def validate(self, attrs):
+        validate_institutional_person(attrs.get("person"))
+        return attrs
 
     def update(self, instance, validated_data):
         # Nested person edits aren't supported here either — edit via /api/v1/people/<id>/.

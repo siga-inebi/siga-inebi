@@ -21,8 +21,15 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 const GUARDIAN_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
   { name: "last_name", label: "Apellidos", required: true },
-  { name: "email", label: "Correo (opcional)", type: "email" },
-  { name: "phone_number", label: "Telefono (opcional)", type: "tel" },
+  { name: "cui", label: "CUI", required: true, help: "13 dígitos, sin guiones." },
+  { name: "birth_date", label: "Fecha de nacimiento", type: "date", required: true },
+  { name: "sex", label: "Sexo", type: "select", required: true, options: [{ value: "female", label: "Femenino" }, { value: "male", label: "Masculino" }] },
+  { name: "nationality", label: "Nacionalidad", required: true },
+  { name: "phone_number", label: "Teléfono", type: "tel", required: true },
+  { name: "email", label: "Correo", type: "email" },
+  { name: "address", label: "Dirección", required: true, span: "full" },
+  { name: "department", label: "Departamento", required: true },
+  { name: "municipality", label: "Municipio", required: true },
 ];
 
 const EMPTY_GUARDIAN = {
@@ -30,11 +37,14 @@ const EMPTY_GUARDIAN = {
   last_name: "",
   email: "",
   phone_number: "",
+  cui: "", birth_date: "", sex: "", nationality: "Guatemalteca", address: "", department: "", municipality: "",
 };
 
 function fullName(guardian) {
   return `${guardian.person.first_name} ${guardian.person.last_name}`.trim();
 }
+
+const personPayload = (values) => Object.fromEntries(Object.entries({ first_name: values.first_name, last_name: values.last_name, cui: values.cui, birth_date: values.birth_date, sex: values.sex, nationality: values.nationality, email: values.email, phone_number: values.phone_number, address: values.address, department: values.department, municipality: values.municipality }).filter(([, value]) => value !== "" && value != null));
 
 function guardianColumns({ onView }) {
   return [
@@ -91,12 +101,7 @@ export function GuardiansPage() {
 
   const handleCreate = async (values) => {
     const created = await guardiansService.create({
-      person: {
-        first_name: values.first_name,
-        last_name: values.last_name,
-        email: values.email,
-        phone_number: values.phone_number,
-      },
+      person: personPayload(values),
     });
     list.addItem(created);
     setCreating(false);
