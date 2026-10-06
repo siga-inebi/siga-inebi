@@ -9,6 +9,8 @@ RF-ASI-001/002/004/010 — captura por escaneo con matricula, punto de control
 y supresion de duplicados reales.
 RF-CRE-001 — emision de credencial sobre una matricula real.
 RF-CRE-006 — resolucion de identificador contra matricula y retiro reales.
+RF-JUS-009 — un permiso aprobado vigente excluye al estudiante del cierre
+declarado de su seccion.
 RNF-PRI-003 — el escaneo de una matricula real no queda en el dispositivo del
 operador, y el catalogo academico conserva su cache explicita.
 """
@@ -26,6 +28,7 @@ from apps.attendance import services
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     DayStatus,
     JornadaParameters,
     StudentCredential,
@@ -50,6 +53,72 @@ from tests.factories.identity import (
 from tests.factories.students import StudentFactory
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.django_db]
+
+
+def test_section_closure_omits_an_enrolled_student_with_a_current_approved_early_exit_permit():
+    """
+    RF-JUS-009: una matricula real en la seccion, con ingreso registrado y
+    permiso de salida anticipada aprobado para la misma fecha, no recibe una
+    salida declarada cuando el docente confirma el cierre.
+    """
+    cycle = AcademicCycleFactory()
+    section = SectionFactory(academic_cycle=cycle)
+    shift = section.offering.shift
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=cycle,
+        grade=section.offering.grade,
+        section=section,
+    )
+    services.set_jornada_parameters(
+        shift=shift,
+        academic_cycle=cycle,
+        entry_limit_time=time(7, 30),
+        tolerance_minutes=10,
+        closing_time=time(16, 0),
+        duplicate_suppression_minutes=5,
+        school_days=[1, 2, 3, 4, 5],
+        effective_from=cycle.starts_on,
+    )
+    services.record_attendance_event(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.ENTRY,
+        origin=AttendanceEvent.Origin.SCAN,
+        captured_at=timezone.make_aware(datetime.combine(cycle.starts_on, time(7, 0))),
+    )
+    permit = services.submit_attendance_permit(
+        student=student,
+        permit_type=AttendancePermit.PermitType.EARLY_EXIT,
+        permit_date=cycle.starts_on,
+        scheduled_time=time(13, 0),
+        reason="Cita medica",
+        actor=UserFactory(),
+    )
+    services.resolve_attendance_permit(
+        permit=permit, approved=True, comment="", actor=UserFactory()
+    )
+
+    result = services.close_section(
+        section=section,
+        event_date=cycle.starts_on,
+        actor=UserFactory(),
+        confirmed=True,
+    )
+
+    assert result.included == []
+    assert [(item.student, item.reason) for item in result.omitted] == [
+        (student, "Tiene permiso de salida anticipada vigente.")
+    ]
+    assert not AttendanceEvent.objects.filter(
+        student=student,
+        shift=shift,
+        event_date=cycle.starts_on,
+        movement_type=AttendanceEvent.MovementType.EXIT,
+        origin=AttendanceEvent.Origin.DECLARED,
+    ).exists()
 
 
 def test_two_jornadas_with_different_schedules_evaluate_against_their_own_parameters():
