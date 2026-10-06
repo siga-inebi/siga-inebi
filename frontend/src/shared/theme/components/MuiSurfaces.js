@@ -107,6 +107,7 @@ export const MuiTooltip = {
       fontSize: "0.75rem",
       borderRadius: appRadii.tooltip,
       backgroundColor: palette(theme).text.primary,
+      color: palette(theme).background.paper,
     }),
     arrow: ({ theme }) => ({ color: palette(theme).text.primary }),
   },
