@@ -1,4 +1,5 @@
 from rest_framework import serializers
+
 from apps.people.api.serializers import PersonSerializer, validate_institutional_person
 from apps.students.models import (
     EmergencyContact,
@@ -68,7 +69,8 @@ class StudentSerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
-        validate_institutional_person(attrs.get("person"))
+        if self.instance is None:
+            validate_institutional_person(attrs.get("person"))
         return attrs
 
     def update(self, instance, validated_data):
@@ -98,7 +100,8 @@ class GuardianSerializer(serializers.ModelSerializer):
         return create_guardian(person_data=person_data, actor=actor)
 
     def validate(self, attrs):
-        validate_institutional_person(attrs.get("person"))
+        if self.instance is None:
+            validate_institutional_person(attrs.get("person"))
         return attrs
 
     def update(self, instance, validated_data):

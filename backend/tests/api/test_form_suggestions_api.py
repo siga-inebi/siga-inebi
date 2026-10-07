@@ -37,6 +37,21 @@ def _grant_student_editing(user):
     return ScopeGrantFactory(assignment=assignment, module_key="students")
 
 
+def _institutional_person(first_name, last_name, cui, birth_date):
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "cui": cui,
+        "birth_date": birth_date,
+        "phone_number": "55501234",
+        "sex": "female",
+        "nationality": "Guatemalteca",
+        "address": "1a Calle 2-34 Zona 1",
+        "department": "Guatemala",
+        "municipality": "Guatemala",
+    }
+
+
 # --------------------------------------------------------------------------- #
 # codigos
 # --------------------------------------------------------------------------- #
@@ -48,7 +63,7 @@ def test_student_next_code_matches_what_creating_would_assign(auth_client, insti
 
     created = auth_client.post(
         reverse("student-list"),
-        {"person": {"first_name": "Ana", "last_name": "Lopez"}},
+        {"person": _institutional_person("Ana", "Lopez", "1234567890123", "2010-03-15")},
         content_type="application/json",
     )
 
@@ -61,7 +76,10 @@ def test_student_creation_still_accepts_an_explicit_code(auth_client, institutio
 
     response = auth_client.post(
         reverse("student-list"),
-        {"person": {"first_name": "Ana", "last_name": "Lopez"}, "student_code": "MIN-42"},
+        {
+            "person": _institutional_person("Ana", "Lopez", "1234567890123", "2010-03-15"),
+            "student_code": "MIN-42",
+        },
         content_type="application/json",
     )
 
@@ -82,7 +100,7 @@ def test_teacher_next_code_matches_what_creating_would_assign(auth_client, insti
     created = auth_client.post(
         reverse("teacher-list"),
         {
-            "person": {"first_name": "Luis", "last_name": "Perez"},
+            "person": _institutional_person("Luis", "Perez", "2345678901234", "1985-07-22"),
             "specialty": "Matematica",
             "position": "Docente Titulado",
         },
