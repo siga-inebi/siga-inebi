@@ -5,6 +5,11 @@ import { vi } from "vitest";
 import { DocentesPage } from "@teachers/DocentesPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import { selectOption } from "./helpers/selectOption.jsx";
+import {
+  fillInstitutionalPerson,
+  institutionalPerson,
+  visibleInstitutionalPerson,
+} from "./helpers/institutionalPerson.js";
 
 const teachersServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
@@ -29,6 +34,7 @@ const SAMPLE = [
   {
     id: 1,
     person: {
+      ...visibleInstitutionalPerson,
       id: 21,
       first_name: "Marvin Estuardo",
       last_name: "Lopez Cifuentes",
@@ -213,6 +219,7 @@ describe("DocentesPage", () => {
 
     await user.type(screen.getByLabelText(/^Nombres/), "Nueva");
     await user.type(screen.getByLabelText(/^Apellidos/), "Docente");
+    await fillInstitutionalPerson(user);
     await user.type(screen.getByLabelText(/^Especialidad/), "Fisica");
     await selectOption(user, /^Puesto/, "Docente Interino");
     const codeField = screen.getByLabelText(/^Codigo de empleado/i);
@@ -228,10 +235,9 @@ describe("DocentesPage", () => {
     expect(teachersServiceMock.create).toHaveBeenCalledWith(
       expect.objectContaining({
         person: {
+          ...institutionalPerson,
           first_name: "Nueva",
           last_name: "Docente",
-          email: "",
-          phone_number: "",
         },
         specialty: "Fisica",
         position: "Docente Interino",

@@ -4,6 +4,11 @@ import { vi } from "vitest";
 
 import { AlumnosPage } from "@students/AlumnosPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
+import {
+  fillInstitutionalPerson,
+  institutionalPerson,
+  visibleInstitutionalPerson,
+} from "./helpers/institutionalPerson.js";
 
 const studentsServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
@@ -43,6 +48,7 @@ const SAMPLE = [
   {
     id: 1,
     person: {
+      ...visibleInstitutionalPerson,
       id: 11,
       first_name: "Maria Jose",
       last_name: "Lopez Garcia",
@@ -222,8 +228,8 @@ describe("AlumnosPage", () => {
 
     await user.type(screen.getByLabelText(/^Nombres/), "Nueva");
     await user.type(screen.getByLabelText(/^Apellidos/), "Alumna");
+    await fillInstitutionalPerson(user);
     await user.type(screen.getByLabelText(/^Correo/), "nueva@example.test");
-    await user.type(screen.getByLabelText(/^Telefono/), "555-0199");
     const codeField = screen.getByLabelText(/^Codigo de estudiante/);
     // Llega prellenado con la sugerencia del backend, y se puede sobreescribir:
     // un traslado trae su codigo ya impreso en los papeles.
@@ -238,6 +244,7 @@ describe("AlumnosPage", () => {
     expect(studentsServiceMock.create).toHaveBeenCalledWith(
       expect.objectContaining({
         person: {
+          ...institutionalPerson,
           first_name: "Nueva",
           last_name: "Alumna",
           email: "nueva@example.test",
