@@ -49,7 +49,8 @@ class TeacherSerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
-        validate_institutional_person(attrs.get("person"))
+        if self.instance is None:
+            validate_institutional_person(attrs.get("person"))
         return attrs
 
     def update(self, instance, validated_data):

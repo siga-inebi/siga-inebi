@@ -43,6 +43,13 @@ def test_create_guardian(logged_in_client):
             "last_name": "Garcia",
             "email": "rosa.garcia@example.test",
             "phone_number": "55501234",
+            "cui": "3456789012345",
+            "birth_date": "1980-11-05",
+            "sex": "female",
+            "nationality": "Guatemalteca",
+            "address": "5a Calle 6-78 Zona 4",
+            "department": "Guatemala",
+            "municipality": "Guatemala",
         },
     }
 

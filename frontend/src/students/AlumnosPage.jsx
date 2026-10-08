@@ -31,9 +31,28 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 const STUDENT_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
   { name: "last_name", label: "Apellidos", required: true },
-  { name: "cui", label: "CUI", required: true, help: "13 dígitos, sin guiones." },
-  { name: "birth_date", label: "Fecha de nacimiento", type: "date", required: true },
-  { name: "sex", label: "Sexo", type: "select", required: true, options: [{ value: "female", label: "Femenino" }, { value: "male", label: "Masculino" }] },
+  {
+    name: "cui",
+    label: "CUI",
+    required: true,
+    help: "13 dígitos, sin guiones.",
+  },
+  {
+    name: "birth_date",
+    label: "Fecha de nacimiento",
+    type: "date",
+    required: true,
+  },
+  {
+    name: "sex",
+    label: "Sexo",
+    type: "select",
+    required: true,
+    options: [
+      { value: "female", label: "Femenino" },
+      { value: "male", label: "Masculino" },
+    ],
+  },
   { name: "nationality", label: "Nacionalidad", required: true },
   { name: "phone_number", label: "Teléfono", type: "tel", required: true },
   { name: "email", label: "Correo", type: "email" },
@@ -68,7 +87,9 @@ const STATUS_OPTIONS = Object.entries(STATUS_LABEL).map(([value, label]) => ({
 }));
 
 const STUDENT_EDIT_FIELDS = [
-  ...STUDENT_FIELDS,
+  ...STUDENT_FIELDS.filter(
+    (field) => field.name !== "cui" && field.name !== "birth_date"
+  ),
   {
     name: "status",
     label: "Estado",
@@ -92,7 +113,21 @@ function fullName(student) {
 }
 
 function personPayload(values) {
-  return Object.fromEntries(Object.entries({ first_name: values.first_name, last_name: values.last_name, cui: values.cui, birth_date: values.birth_date, sex: values.sex, nationality: values.nationality, phone_number: values.phone_number, email: values.email, address: values.address, department: values.department, municipality: values.municipality }).filter(([, value]) => value !== "" && value != null));
+  return Object.fromEntries(
+    Object.entries({
+      first_name: values.first_name,
+      last_name: values.last_name,
+      cui: values.cui,
+      birth_date: values.birth_date,
+      sex: values.sex,
+      nationality: values.nationality,
+      phone_number: values.phone_number,
+      email: values.email,
+      address: values.address,
+      department: values.department,
+      municipality: values.municipality,
+    }).filter(([, value]) => value !== "" && value != null)
+  );
 }
 
 export function AlumnosPage() {
@@ -683,8 +718,13 @@ export function AlumnosPage() {
           initialValues={{
             first_name: editing.person.first_name,
             last_name: editing.person.last_name,
+            sex: editing.person.sex ?? "",
+            nationality: editing.person.nationality ?? "",
             email: editing.person.email ?? "",
             phone_number: editing.person.phone_number ?? "",
+            address: editing.person.address ?? "",
+            department: editing.person.department ?? "",
+            municipality: editing.person.municipality ?? "",
             student_code: editing.student_code,
             status: editing.status,
             photo: null,
@@ -738,7 +778,13 @@ const EMPTY_STUDENT = {
   last_name: "",
   email: "",
   phone_number: "",
-  cui: "", birth_date: "", sex: "", nationality: "Guatemalteca", address: "", department: "", municipality: "",
+  cui: "",
+  birth_date: "",
+  sex: "",
+  nationality: "Guatemalteca",
+  address: "",
+  department: "",
+  municipality: "",
   student_code: "",
   photo: null,
 };

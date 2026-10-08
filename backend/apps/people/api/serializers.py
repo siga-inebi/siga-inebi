@@ -7,12 +7,25 @@ from apps.people.models import Person
 def validate_institutional_person(person):
     if person is None:
         return
-    required = ("cui", "birth_date", "phone_number", "sex", "nationality", "address", "department", "municipality")
+    required = (
+        "cui",
+        "birth_date",
+        "phone_number",
+        "sex",
+        "nationality",
+        "address",
+        "department",
+        "municipality",
+    )
     missing = [field for field in required if not person.get(field)]
     if missing:
-        raise serializers.ValidationError({"person": {field: "Este campo es obligatorio." for field in missing}})
+        raise serializers.ValidationError(
+            {"person": dict.fromkeys(missing, "Este campo es obligatorio.")}
+        )
     if not person["cui"].isdigit() or len(person["cui"]) != 13:
-        raise serializers.ValidationError({"person": {"cui": "El CUI debe tener exactamente 13 digitos."}})
+        raise serializers.ValidationError(
+            {"person": {"cui": "El CUI debe tener exactamente 13 digitos."}}
+        )
 
 
 class PersonSerializer(serializers.ModelSerializer):

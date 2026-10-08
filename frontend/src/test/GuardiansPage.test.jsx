@@ -4,6 +4,11 @@ import { vi } from "vitest";
 
 import { GuardiansPage } from "@guardians/GuardiansPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
+import {
+  fillInstitutionalPerson,
+  institutionalPerson,
+  visibleInstitutionalPerson,
+} from "./helpers/institutionalPerson.js";
 
 const guardiansServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
@@ -24,6 +29,7 @@ const SAMPLE = [
   {
     id: 1,
     person: {
+      ...visibleInstitutionalPerson,
       id: 31,
       first_name: "Rosa Elvira",
       last_name: "Garcia Mendez",
@@ -137,6 +143,7 @@ describe("GuardiansPage", () => {
 
     await user.type(screen.getByLabelText(/^Nombres/), "Nuevo");
     await user.type(screen.getByLabelText(/^Apellidos/), "Encargado");
+    await fillInstitutionalPerson(user);
     await user.click(screen.getByRole("button", { name: /Crear encargado/ }));
 
     await waitFor(() =>
@@ -145,10 +152,9 @@ describe("GuardiansPage", () => {
     expect(guardiansServiceMock.create).toHaveBeenCalledWith(
       expect.objectContaining({
         person: {
+          ...institutionalPerson,
           first_name: "Nuevo",
           last_name: "Encargado",
-          email: "",
-          phone_number: "",
         },
       })
     );
