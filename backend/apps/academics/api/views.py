@@ -182,6 +182,7 @@ class CatalogueListCreateView(CatalogueView):
         return self.get_paginated_response(self.list_serializer(page, many=True).data)
 
     def post(self, request, **kwargs):
+        self.require_assignment_scope()
         payload = self.validated(self.create_serializer, request)
         created = self.create(request, payload, **kwargs)
         return Response(self.list_serializer(created).data, status=status.HTTP_201_CREATED)
@@ -211,6 +212,7 @@ class UpdateMixin:
     """``PATCH`` re-reads the object so annotated counts stay in the response."""
 
     def patch(self, request, **kwargs):
+        self.require_assignment_scope()
         payload = self.validated(self.update_serializer, request)
         self.update(request, self.get_object(**kwargs), payload)
         return self.represent(self.get_object(**kwargs))
@@ -218,6 +220,7 @@ class UpdateMixin:
 
 class DeactivateMixin:
     def delete(self, request, **kwargs):
+        self.require_assignment_scope()
         self.deactivate(request, self.get_object(**kwargs))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -281,6 +284,7 @@ class AcademicCycleActivateView(CatalogueView):
         responses={200: AcademicCycleSerializer},
     )
     def post(self, request, public_id):
+        self.require_assignment_scope()
         cycle = queries.academic_cycle_or_404(self.institution, public_id)
         activated = services.activate_academic_cycle(cycle=cycle, actor=request.user)
         return Response(AcademicCycleSerializer(activated).data)
@@ -298,6 +302,7 @@ class AcademicCycleCloseView(CatalogueView):
         responses={200: AcademicCycleSerializer},
     )
     def post(self, request, public_id):
+        self.require_assignment_scope()
         cycle = queries.academic_cycle_or_404(self.institution, public_id)
         closed = services.close_academic_cycle(cycle=cycle, actor=request.user)
         return Response(AcademicCycleSerializer(closed).data)
@@ -335,6 +340,7 @@ class AcademicCycleCloneView(CatalogueView):
         responses={201: AcademicCycleSerializer},
     )
     def post(self, request, public_id):
+        self.require_assignment_scope()
         source = queries.academic_cycle_or_404(self.institution, public_id)
         payload = self.validated(AcademicCycleCloneSerializer, request)
         cloned = services.clone_academic_cycle(
@@ -1095,6 +1101,7 @@ class SectionClassScheduleCloneView(CatalogueView):
         responses={201: ClassSessionSerializer(many=True)},
     )
     def post(self, request, public_id):
+        self.require_assignment_scope()
         payload = self.validated(ClassScheduleCloneSerializer, request)
         target_section = queries.section_or_404(self.institution, public_id)
         source_section = queries.section_or_404(
@@ -1178,11 +1185,13 @@ class ClassSchedulePublicationView(CatalogueView):
         return Response(ClassSchedulePublicationSerializer(publication).data)
 
     def post(self, request, public_id):
+        self.require_assignment_scope()
         cycle = queries.academic_cycle_or_404(self.institution, public_id)
         publication = services.publish_class_schedule(academic_cycle=cycle, actor=request.user)
         return Response(ClassSchedulePublicationSerializer(publication).data)
 
     def delete(self, request, public_id):
+        self.require_assignment_scope()
         cycle = queries.academic_cycle_or_404(self.institution, public_id)
         publication = services.unpublish_class_schedule(academic_cycle=cycle, actor=request.user)
         return Response(ClassSchedulePublicationSerializer(publication).data)

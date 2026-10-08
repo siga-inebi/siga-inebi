@@ -39,21 +39,21 @@ from tests.factories.teachers import TeacherFactory
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
 
-def test_close_cycle_api_contract(auth_client, institution):
+def test_close_cycle_api_contract(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
     EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.CLOSED)
 
-    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+    response = admin_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
 
     assert response.status_code == 200
     assert response.json()["status"] == "closed"
 
 
-def test_close_cycle_api_rejects_open_evaluation_unit(auth_client, institution):
+def test_close_cycle_api_rejects_open_evaluation_unit(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
     unit = EvaluationUnitFactory(academic_cycle=cycle, status=EvaluationUnit.UnitStatus.OPEN)
 
-    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+    response = admin_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
 
     assert response.status_code == 400
     assert unit.name in response.json()["error"]["detail"]
@@ -64,8 +64,16 @@ def test_close_cycle_endpoint_requires_authentication(client, institution):
     assert client.post(reverse("academic-cycle-close", args=[cycle.public_id])).status_code == 403
 
 
-def test_create_academic_cycle_contract(auth_client, institution):
-    response = auth_client.post(
+def test_close_cycle_endpoint_rejects_without_assignment_scope(auth_client, institution):
+    cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
+
+    response = auth_client.post(reverse("academic-cycle-close", args=[cycle.public_id]))
+
+    assert response.status_code == 403
+
+
+def test_create_academic_cycle_contract(admin_client, institution):
+    response = admin_client.post(
         reverse("academic-cycle-list-create"),
         {
             "year": 2027,
@@ -83,8 +91,23 @@ def test_create_academic_cycle_contract(auth_client, institution):
     assert response.json()["description"] == "Plan institucional"
 
 
-def test_cycle_end_date_before_start_is_rejected(auth_client, institution):
+def test_create_academic_cycle_rejects_without_assignment_scope(auth_client, institution):
     response = auth_client.post(
+        reverse("academic-cycle-list-create"),
+        {
+            "year": 2027,
+            "name": "Ciclo 2027",
+            "starts_on": "2027-01-15",
+            "ends_on": "2027-10-31",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_cycle_end_date_before_start_is_rejected(admin_client, institution):
+    response = admin_client.post(
         reverse("academic-cycle-list-create"),
         {
             "year": 2027,
@@ -99,7 +122,7 @@ def test_cycle_end_date_before_start_is_rejected(auth_client, institution):
     assert "no puede ser anterior" in response.json()["error"]["detail"]
 
 
-def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institution):
+def test_activate_cycle_rejects_when_an_active_cycle_exists(admin_client, institution):
     AcademicCycleFactory(
         institution=institution,
         year=2026,
@@ -113,10 +136,23 @@ def test_activate_cycle_rejects_when_an_active_cycle_exists(auth_client, institu
         status=AcademicCycle.CycleStatus.DRAFT,
     )
 
-    response = auth_client.post(reverse("academic-cycle-activate", args=[prepared.public_id]))
+    response = admin_client.post(reverse("academic-cycle-activate", args=[prepared.public_id]))
 
     assert response.status_code == 400
     assert "Hay que cerrar" in response.json()["error"]["detail"]
+
+
+def test_activate_cycle_endpoint_rejects_without_assignment_scope(auth_client, institution):
+    prepared = AcademicCycleFactory(
+        institution=institution,
+        starts_on="2027-01-01",
+        ends_on="2027-12-31",
+        status=AcademicCycle.CycleStatus.DRAFT,
+    )
+
+    response = auth_client.post(reverse("academic-cycle-activate", args=[prepared.public_id]))
+
+    assert response.status_code == 403
 
 
 def _grant_reopen_scope(user, institution):
@@ -177,12 +213,12 @@ def test_reopen_cycle_api_rejects_when_cycle_is_not_closed(auth_client, institut
     assert "ciclo escolar cerrado" in response.json()["error"]["detail"]
 
 
-def test_create_section_api_creates_offering_and_section(auth_client, institution):
+def test_create_section_api_creates_offering_and_section(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-list-create"),
         {
             "academic_cycle_id": str(cycle.public_id),
@@ -201,7 +237,7 @@ def test_create_section_api_creates_offering_and_section(auth_client, institutio
     assert body["academic_cycle_id"] == str(cycle.public_id)
 
 
-def test_create_section_api_rejects_duplicate_name(auth_client, institution):
+def test_create_section_api_rejects_duplicate_name(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
@@ -212,21 +248,21 @@ def test_create_section_api_rejects_duplicate_name(auth_client, institution):
         "name": "A",
     }
     url = reverse("section-list-create")
-    auth_client.post(url, payload, content_type="application/json")
+    admin_client.post(url, payload, content_type="application/json")
 
-    response = auth_client.post(url, payload, content_type="application/json")
+    response = admin_client.post(url, payload, content_type="application/json")
 
     assert response.status_code == 400
     assert "already exists" in response.json()["error"]["detail"]
 
 
-def test_create_section_api_rejects_when_cycle_is_active(auth_client, institution):
+def test_create_section_api_rejects_when_cycle_is_active(admin_client, institution):
     """RF-EST-011: structure only changes while the cycle is still in planning."""
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-list-create"),
         {
             "academic_cycle_id": str(cycle.public_id),
@@ -241,14 +277,14 @@ def test_create_section_api_rejects_when_cycle_is_active(auth_client, institutio
     assert "en preparacion" in response.json()["error"]["detail"]
 
 
-def test_create_section_api_accepts_a_default_classroom(auth_client, institution):
+def test_create_section_api_accepts_a_default_classroom(admin_client, institution):
     """RF-AUL-002 (#100): aula habitual de referencia para la seccion."""
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
     classroom = ClassroomFactory(campus=shift.campus)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-list-create"),
         {
             "academic_cycle_id": str(cycle.public_id),
@@ -265,14 +301,14 @@ def test_create_section_api_accepts_a_default_classroom(auth_client, institution
 
 
 def test_section_api_warns_without_blocking_an_undersized_default_classroom(
-    auth_client, institution
+    admin_client, institution
 ):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
     classroom = ClassroomFactory(campus=shift.campus, capacity=20)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-list-create"),
         {
             "academic_cycle_id": str(cycle.public_id),
@@ -295,13 +331,15 @@ def test_section_api_warns_without_blocking_an_undersized_default_classroom(
     assert response.json()["default_classroom_id"] == str(classroom.public_id)
 
 
-def test_create_section_api_rejects_default_classroom_from_another_campus(auth_client, institution):
+def test_create_section_api_rejects_default_classroom_from_another_campus(
+    admin_client, institution
+):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
     other_campus_classroom = ClassroomFactory(campus=CampusFactory(institution=institution))
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-list-create"),
         {
             "academic_cycle_id": str(cycle.public_id),
@@ -317,13 +355,13 @@ def test_create_section_api_rejects_default_classroom_from_another_campus(auth_c
     assert "misma sede" in response.json()["error"]["detail"]
 
 
-def test_update_section_api_sets_the_default_classroom(auth_client, institution):
+def test_update_section_api_sets_the_default_classroom(admin_client, institution):
     """RF-AUL-002 (#100)."""
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     section = SectionFactory(academic_cycle=cycle)
     classroom = ClassroomFactory(campus=section.offering.shift.campus)
 
-    response = auth_client.patch(
+    response = admin_client.patch(
         reverse("section-detail", args=[section.public_id]),
         {"default_classroom_id": str(classroom.public_id)},
         content_type="application/json",
@@ -335,11 +373,11 @@ def test_update_section_api_sets_the_default_classroom(auth_client, institution)
     assert response.json()["capacity_warning"]["section_capacity"] == section.capacity
 
 
-def test_deactivate_section_api_contract(auth_client, institution):
+def test_deactivate_section_api_contract(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     section = SectionFactory(academic_cycle=cycle)
 
-    response = auth_client.delete(reverse("section-detail", args=[section.public_id]))
+    response = admin_client.delete(reverse("section-detail", args=[section.public_id]))
 
     assert response.status_code == 204
     section.refresh_from_db()
@@ -353,12 +391,12 @@ def test_section_endpoints_require_authentication(client, institution):
     assert client.get(reverse("section-detail", args=[section.public_id])).status_code == 403
 
 
-def test_create_class_session_api_creates_session(auth_client, institution):
+def test_create_class_session_api_creates_session(admin_client, institution):
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
     subject = SubjectFactory(institution=institution)
     block = ClassScheduleBlockFactory(shift=section.offering.shift)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section.public_id]),
         {
             "subject_id": str(subject.public_id),
@@ -377,7 +415,7 @@ def test_create_class_session_api_creates_session(auth_client, institution):
     assert body["starts_on"] == section.academic_cycle.starts_on.isoformat()
 
 
-def test_clone_class_schedule_api_contract(auth_client, institution):
+def test_clone_class_schedule_api_contract(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution)
     shift = ShiftFactory(campus__institution=institution)
     grade = GradeFactory(institution=institution)
@@ -393,7 +431,7 @@ def test_clone_class_schedule_api_contract(auth_client, institution):
         day_of_week=4,
     )
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-schedule-clone", args=[target.public_id]),
         {"source_section_id": str(source.public_id)},
         content_type="application/json",
@@ -421,7 +459,7 @@ def test_clone_class_schedule_api_requires_authentication(client, institution):
     assert target.class_sessions.count() == 0
 
 
-def test_create_class_session_api_accepts_a_mid_cycle_starts_on(auth_client, institution):
+def test_create_class_session_api_accepts_a_mid_cycle_starts_on(admin_client, institution):
     """RF-HOR-008 (#201): fecha de vigencia explicita para una reestructuracion
     a mitad de ciclo."""
     cycle = AcademicCycleFactory(institution=institution)
@@ -429,7 +467,7 @@ def test_create_class_session_api_accepts_a_mid_cycle_starts_on(auth_client, ins
     subject = SubjectFactory(institution=institution)
     block = ClassScheduleBlockFactory(shift=section.offering.shift)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section.public_id]),
         {
             "subject_id": str(subject.public_id),
@@ -444,14 +482,14 @@ def test_create_class_session_api_accepts_a_mid_cycle_starts_on(auth_client, ins
     assert response.json()["starts_on"] == cycle.ends_on.isoformat()
 
 
-def test_create_class_session_api_rejects_starts_on_outside_the_cycle(auth_client, institution):
+def test_create_class_session_api_rejects_starts_on_outside_the_cycle(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution)
     section = SectionFactory(academic_cycle=cycle)
     subject = SubjectFactory(institution=institution)
     block = ClassScheduleBlockFactory(shift=section.offering.shift)
     before_cycle = cycle.starts_on - timedelta(days=1)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section.public_id]),
         {
             "subject_id": str(subject.public_id),
@@ -466,14 +504,14 @@ def test_create_class_session_api_rejects_starts_on_outside_the_cycle(auth_clien
     assert "fecha de vigencia" in response.json()["error"]["detail"]
 
 
-def test_create_class_session_api_does_not_require_a_classroom(auth_client, institution):
+def test_create_class_session_api_does_not_require_a_classroom(admin_client, institution):
     """RF-AUL-003 (#101): periodos especiales (ej. Educacion Fisica) se
     registran sin vincular un aula fisica."""
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
     subject = SubjectFactory(institution=institution)
     block = ClassScheduleBlockFactory(shift=section.offering.shift)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section.public_id]),
         {
             "subject_id": str(subject.public_id),
@@ -487,7 +525,9 @@ def test_create_class_session_api_does_not_require_a_classroom(auth_client, inst
     assert response.json()["classroom_id"] is None
 
 
-def test_class_session_api_warns_without_blocking_an_undersized_classroom(auth_client, institution):
+def test_class_session_api_warns_without_blocking_an_undersized_classroom(
+    admin_client, institution
+):
     section = SectionFactory(
         academic_cycle=AcademicCycleFactory(institution=institution),
         capacity=30,
@@ -496,7 +536,7 @@ def test_class_session_api_warns_without_blocking_an_undersized_classroom(auth_c
     block = ClassScheduleBlockFactory(shift=section.shift)
     classroom = ClassroomFactory(campus=section.campus, capacity=20)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section.public_id]),
         {
             "subject_id": str(subject.public_id),
@@ -513,7 +553,7 @@ def test_class_session_api_warns_without_blocking_an_undersized_classroom(auth_c
     assert response.json()["classroom_id"] == str(classroom.public_id)
 
 
-def test_class_session_api_exposes_the_current_teacher(auth_client, institution):
+def test_class_session_api_exposes_the_current_teacher(admin_client, institution):
     """RF-HOR-004: el docente se deriva de la asignacion vigente, se muestra en la sesion."""
     cycle = AcademicCycleFactory(institution=institution)
     section = SectionFactory(academic_cycle=cycle)
@@ -523,18 +563,18 @@ def test_class_session_api_exposes_the_current_teacher(auth_client, institution)
         academic_cycle=cycle, section=section, subject=session.subject, teacher=teacher.person
     )
 
-    response = auth_client.get(reverse("class-session-detail", args=[session.public_id]))
+    response = admin_client.get(reverse("class-session-detail", args=[session.public_id]))
 
     assert response.json()["teacher_id"] == str(teacher.public_id)
 
 
-def test_create_class_session_api_rejects_block_from_another_shift(auth_client, institution):
+def test_create_class_session_api_rejects_block_from_another_shift(admin_client, institution):
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
     subject = SubjectFactory(institution=institution)
     other_shift = ShiftFactory(campus__institution=institution)
     other_shift_block = ClassScheduleBlockFactory(shift=other_shift)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section.public_id]),
         {
             "subject_id": str(subject.public_id),
@@ -549,7 +589,7 @@ def test_create_class_session_api_rejects_block_from_another_shift(auth_client, 
 
 
 def test_create_class_session_api_rejects_section_double_booked_in_the_same_slot(
-    auth_client, institution
+    admin_client, institution
 ):
     """RF-HOR-005: cruce por seccion en el mismo dia y bloque."""
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
@@ -557,7 +597,7 @@ def test_create_class_session_api_rejects_section_double_booked_in_the_same_slot
     ClassSessionFactory(section=section, schedule_block=block, day_of_week=1)
     other_subject = SubjectFactory(institution=institution)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section.public_id]),
         {
             "subject_id": str(other_subject.public_id),
@@ -572,7 +612,7 @@ def test_create_class_session_api_rejects_section_double_booked_in_the_same_slot
 
 
 def test_create_class_session_api_rejects_classroom_double_booked_in_the_same_slot(
-    auth_client, institution
+    admin_client, institution
 ):
     """RF-HOR-005 (#198): cruce por aula en el mismo dia y bloque."""
     section_a = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
@@ -583,7 +623,7 @@ def test_create_class_session_api_rejects_classroom_double_booked_in_the_same_sl
     )
     other_subject = SubjectFactory(institution=institution)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section_b.public_id]),
         {
             "subject_id": str(other_subject.public_id),
@@ -599,7 +639,7 @@ def test_create_class_session_api_rejects_classroom_double_booked_in_the_same_sl
 
 
 def test_create_class_session_api_rejects_teacher_double_booked_in_the_same_slot(
-    auth_client, institution
+    admin_client, institution
 ):
     """RF-HOR-006 (#199): cruce por docente en el mismo dia y bloque, en dos
     secciones distintas."""
@@ -618,7 +658,7 @@ def test_create_class_session_api_rejects_teacher_double_booked_in_the_same_slot
     )
     existing = ClassSessionFactory(section=section_a, subject=subject_a)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("section-class-session-list-create", args=[section_b.public_id]),
         {
             "subject_id": str(subject_b.public_id),
@@ -632,24 +672,24 @@ def test_create_class_session_api_rejects_teacher_double_booked_in_the_same_slot
     assert "El docente ya tiene otra seccion agendada" in response.json()["error"]["detail"]
 
 
-def test_list_class_sessions_is_scoped_to_the_section(auth_client, institution):
+def test_list_class_sessions_is_scoped_to_the_section(admin_client, institution):
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
     ClassSessionFactory(section=section)
     ClassSessionFactory()  # a session of another section entirely
 
-    response = auth_client.get(
+    response = admin_client.get(
         reverse("section-class-session-list-create", args=[section.public_id])
     )
 
     assert len(response.json()["results"]) == 1
 
 
-def test_class_session_detail_roundtrip(auth_client, institution):
+def test_class_session_detail_roundtrip(admin_client, institution):
     section = SectionFactory(academic_cycle=AcademicCycleFactory(institution=institution))
     session = ClassSessionFactory(section=section)
 
-    read = auth_client.get(reverse("class-session-detail", args=[session.public_id]))
-    removed = auth_client.delete(reverse("class-session-detail", args=[session.public_id]))
+    read = admin_client.get(reverse("class-session-detail", args=[session.public_id]))
+    removed = admin_client.delete(reverse("class-session-detail", args=[session.public_id]))
 
     assert read.status_code == 200
     assert removed.status_code == 204
@@ -752,14 +792,14 @@ def test_weekly_load_endpoint_requires_authentication(client, institution):
     assert response.status_code == 403
 
 
-def test_class_schedule_publication_api_lifecycle(auth_client, institution):
+def test_class_schedule_publication_api_lifecycle(admin_client, institution):
     """RF-HOR-009: consultar, publicar y despublicar el horario del ciclo."""
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
     url = reverse("class-schedule-publication", args=[cycle.public_id])
 
-    initial = auth_client.get(url)
-    published = auth_client.post(url)
-    unpublished = auth_client.delete(url)
+    initial = admin_client.get(url)
+    published = admin_client.post(url)
+    unpublished = admin_client.delete(url)
 
     assert initial.json()["is_published"] is False
     assert published.status_code == 200
@@ -768,10 +808,10 @@ def test_class_schedule_publication_api_lifecycle(auth_client, institution):
     assert unpublished.json()["is_published"] is False
 
 
-def test_class_schedule_publication_api_rejects_closed_cycle(auth_client, institution):
+def test_class_schedule_publication_api_rejects_closed_cycle(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.CLOSED)
 
-    response = auth_client.post(reverse("class-schedule-publication", args=[cycle.public_id]))
+    response = admin_client.post(reverse("class-schedule-publication", args=[cycle.public_id]))
 
     assert response.status_code == 400
     assert "no admite cambios academicos" in response.json()["error"]["detail"]
@@ -785,12 +825,12 @@ def test_class_schedule_publication_endpoint_requires_authentication(client, ins
     assert response.status_code == 403
 
 
-def test_create_curriculum_plan_api_contract(auth_client, institution):
+def test_create_curriculum_plan_api_contract(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     grade = GradeFactory(institution=institution)
     subject = SubjectFactory(institution=institution)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("curriculum-plan-list-create"),
         {
             "academic_cycle_id": str(cycle.public_id),
@@ -809,12 +849,12 @@ def test_create_curriculum_plan_api_contract(auth_client, institution):
     assert body["subject"]["public_id"] == str(subject.public_id)
 
 
-def test_create_curriculum_plan_api_rejects_when_cycle_is_active(auth_client, institution):
+def test_create_curriculum_plan_api_rejects_when_cycle_is_active(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.ACTIVE)
     grade = GradeFactory(institution=institution)
     subject = SubjectFactory(institution=institution)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("curriculum-plan-list-create"),
         {
             "academic_cycle_id": str(cycle.public_id),
@@ -828,7 +868,7 @@ def test_create_curriculum_plan_api_rejects_when_cycle_is_active(auth_client, in
     assert "en preparacion" in response.json()["error"]["detail"]
 
 
-def test_deactivate_curriculum_plan_api_contract(auth_client, institution):
+def test_deactivate_curriculum_plan_api_contract(admin_client, institution):
     cycle = AcademicCycleFactory(institution=institution, status=AcademicCycle.CycleStatus.DRAFT)
     plan = CurriculumPlan.objects.create(
         academic_cycle=cycle,
@@ -836,7 +876,7 @@ def test_deactivate_curriculum_plan_api_contract(auth_client, institution):
         subject=SubjectFactory(institution=institution),
     )
 
-    response = auth_client.delete(reverse("curriculum-plan-detail", args=[plan.public_id]))
+    response = admin_client.delete(reverse("curriculum-plan-detail", args=[plan.public_id]))
 
     assert response.status_code == 204
     plan.refresh_from_db()
@@ -865,7 +905,7 @@ def test_cycle_endpoints_require_authentication(client, institution):
     assert response.status_code == 403
 
 
-def test_clone_cycle_api_copies_structure_and_teachers(auth_client, institution):
+def test_clone_cycle_api_copies_structure_and_teachers(admin_client, institution):
     source = AcademicCycleFactory(
         institution=institution,
         year=2026,
@@ -894,7 +934,7 @@ def test_clone_cycle_api_copies_structure_and_teachers(auth_client, institution)
         starts_on=source.starts_on,
     )
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("academic-cycle-clone", args=[source.public_id]),
         {
             "year": 2027,

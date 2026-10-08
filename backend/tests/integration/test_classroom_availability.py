@@ -45,7 +45,7 @@ def room_context(institution):
 
 @pytest.mark.parametrize("status", ["unavailable", "maintenance"])
 def test_unavailability_preserves_sessions_and_reopening_allows_new_ones(
-    auth_client, room_context, status
+    admin_client, room_context, status
 ):
     classroom, section, payload = room_context
     session = create_class_session(**payload, day_of_week=1)
@@ -53,7 +53,7 @@ def test_unavailability_preserves_sessions_and_reopening_allows_new_ones(
     section.save(update_fields=["default_classroom"])
     url = reverse("classroom-detail", args=[classroom.public_id])
 
-    response = auth_client.patch(url, {"service_status": status}, content_type="application/json")
+    response = admin_client.patch(url, {"service_status": status}, content_type="application/json")
 
     assert response.status_code == 200
     assert response.json()["service_status"] == status
@@ -68,7 +68,7 @@ def test_unavailability_preserves_sessions_and_reopening_allows_new_ones(
     # The service must reject even when its caller holds an older model instance.
     with pytest.raises(DomainError, match="servicio"):
         create_class_session(**payload, day_of_week=2)
-    rejected = auth_client.post(
+    rejected = admin_client.post(
         reverse("section-class-session-list-create", args=[section.public_id]),
         {
             "subject_id": str(payload["subject"].public_id),
@@ -82,7 +82,7 @@ def test_unavailability_preserves_sessions_and_reopening_allows_new_ones(
     assert "servicio" in str(rejected.json())
     assert section.class_sessions.count() == 1
 
-    restored = auth_client.patch(
+    restored = admin_client.patch(
         url, {"service_status": "available"}, content_type="application/json"
     )
     assert restored.status_code == 200
@@ -117,11 +117,11 @@ def test_new_default_assignments_rejected_existing_reference_can_be_kept(room_co
     assert other.default_classroom_id is None
 
 
-def test_invalid_status_rejected_by_service_and_api(auth_client, room_context):
+def test_invalid_status_rejected_by_service_and_api(admin_client, room_context):
     classroom, _, _ = room_context
     with pytest.raises(DomainError):
         update_classroom(classroom=classroom, service_status="invalid")
-    response = auth_client.patch(
+    response = admin_client.patch(
         reverse("classroom-detail", args=[classroom.public_id]),
         {"service_status": "invalid"},
         content_type="application/json",
@@ -144,9 +144,9 @@ def test_unauthenticated_status_change_is_rejected(client, room_context):
     assert not AuditEvent.objects.filter(action="academics.classroom.updated").exists()
 
 
-def test_foreign_classroom_status_cannot_be_changed(auth_client, institution):
+def test_foreign_classroom_status_cannot_be_changed(admin_client, institution):
     classroom = ClassroomFactory(campus=CampusFactory())
-    response = auth_client.patch(
+    response = admin_client.patch(
         reverse("classroom-detail", args=[classroom.public_id]),
         {"service_status": "maintenance"},
         content_type="application/json",
@@ -165,10 +165,10 @@ def test_inactive_classroom_cannot_receive_new_sessions(room_context):
 
 
 def test_legacy_create_defaults_to_available_and_unrelated_patch_keeps_status(
-    auth_client, institution
+    admin_client, institution
 ):
     campus = CampusFactory(institution=institution)
-    created = auth_client.post(
+    created = admin_client.post(
         reverse("classroom-list-create"),
         {"campus_id": str(campus.public_id), "name": "Aula demo", "code": "DEMO"},
         content_type="application/json",
@@ -176,7 +176,7 @@ def test_legacy_create_defaults_to_available_and_unrelated_patch_keeps_status(
     assert created.status_code == 201
     assert created.json()["service_status"] == "available"
     url = reverse("classroom-detail", args=[created.json()["public_id"]])
-    auth_client.patch(url, {"service_status": "maintenance"}, content_type="application/json")
-    response = auth_client.patch(url, {"name": "Aula renombrada"}, content_type="application/json")
+    admin_client.patch(url, {"service_status": "maintenance"}, content_type="application/json")
+    response = admin_client.patch(url, {"name": "Aula renombrada"}, content_type="application/json")
     assert response.status_code == 200
     assert response.json()["service_status"] == "maintenance"
