@@ -245,10 +245,10 @@ describe("DocentesPage", () => {
       })
     );
     expect(await screen.findByText("Nueva Docente")).toBeInTheDocument();
-    // 15s y no los 5 por omision: son mas de treinta pulsaciones a traves de
+    // 30s y no los 5 por omision: son mas de treinta pulsaciones a traves de
     // `userEvent`, y con la instrumentacion de cobertura del CI no caben en el
     // presupuesto normal. Misma convencion que AttendancePage.test.jsx.
-  }, 15000);
+  }, 30000);
 
   test("previews a newly selected photo in the create form", async () => {
     teachersServiceMock.list.mockResolvedValue(SAMPLE);

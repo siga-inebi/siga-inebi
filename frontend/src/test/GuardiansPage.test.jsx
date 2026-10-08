@@ -159,7 +159,10 @@ describe("GuardiansPage", () => {
       })
     );
     expect(await screen.findByText("Nuevo Encargado")).toBeInTheDocument();
-  });
+    // Mas de 5s por omision: varias pulsaciones a traves de `userEvent` y la
+    // instrumentacion de cobertura del CI no caben en el presupuesto normal.
+    // Misma convencion que DocentesPage.test.jsx.
+  }, 30000);
 
   test("edits a guardian via the detail panel", async () => {
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
