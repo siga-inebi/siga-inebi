@@ -66,8 +66,8 @@ def test_document_endpoints_require_authentication(client, url_name):
 # --------------------------------------------------------------------------- #
 
 
-def test_create_document_template_returns_201_with_public_id(auth_client, institution):
-    response = auth_client.post(
+def test_create_document_template_returns_201_with_public_id(admin_client, institution):
+    response = admin_client.post(
         reverse("document-template-list-create"),
         {"name": "Constancia de estudios", "code": "const", "kind": "certificate"},
         content_type="application/json",
@@ -177,8 +177,8 @@ def test_secure_document_download_uses_signed_token_and_serves_the_file(client):
     assert 'attachment; filename="secure-document.pdf"' in response.headers["Content-Disposition"]
 
 
-def test_document_template_header_ignores_submitted_value_on_create(auth_client, institution):
-    response = auth_client.post(
+def test_document_template_header_ignores_submitted_value_on_create(admin_client, institution):
+    response = admin_client.post(
         reverse("document-template-list-create"),
         {
             "name": "Constancia",
@@ -192,10 +192,10 @@ def test_document_template_header_ignores_submitted_value_on_create(auth_client,
     assert response.json()["header"]["institution_name"] == institution.name
 
 
-def test_document_template_header_ignores_submitted_value_on_update(auth_client, institution):
+def test_document_template_header_ignores_submitted_value_on_update(admin_client, institution):
     template = DocumentTemplateFactory(institution=institution)
 
-    response = auth_client.patch(
+    response = admin_client.patch(
         reverse("document-template-detail", args=[template.public_id]),
         {"header": {"institution_name": "Suplantado"}},
         content_type="application/json",
@@ -205,10 +205,10 @@ def test_document_template_header_ignores_submitted_value_on_update(auth_client,
     assert response.json()["header"]["institution_name"] == institution.name
 
 
-def test_create_document_template_rejects_duplicate_code_with_400(auth_client, institution):
+def test_create_document_template_rejects_duplicate_code_with_400(admin_client, institution):
     DocumentTemplateFactory(institution=institution, code="CONST")
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("document-template-list-create"),
         {"name": "Otra", "code": "CONST"},
         content_type="application/json",
@@ -218,8 +218,8 @@ def test_create_document_template_rejects_duplicate_code_with_400(auth_client, i
     assert "already" in str(_detail(response))
 
 
-def test_create_document_template_rejects_missing_code_with_field_error(auth_client, institution):
-    response = auth_client.post(
+def test_create_document_template_rejects_missing_code_with_field_error(admin_client, institution):
+    response = admin_client.post(
         reverse("document-template-list-create"),
         {"name": "Sin codigo"},
         content_type="application/json",
@@ -274,10 +274,10 @@ def test_document_template_detail_returns_404_for_another_institution(auth_clien
     assert response.status_code == 404
 
 
-def test_patch_document_template_updates_name(auth_client, institution):
+def test_patch_document_template_updates_name(admin_client, institution):
     template = DocumentTemplateFactory(institution=institution, name="Old")
 
-    response = auth_client.patch(
+    response = admin_client.patch(
         reverse("document-template-detail", args=[template.public_id]),
         {"name": "New"},
         content_type="application/json",
@@ -287,10 +287,10 @@ def test_patch_document_template_updates_name(auth_client, institution):
     assert response.json()["name"] == "New"
 
 
-def test_patch_document_template_does_not_accept_code(auth_client, institution):
+def test_patch_document_template_does_not_accept_code(admin_client, institution):
     template = DocumentTemplateFactory(institution=institution, code="ORIGINAL")
 
-    response = auth_client.patch(
+    response = admin_client.patch(
         reverse("document-template-detail", args=[template.public_id]),
         {"code": "CHANGED"},
         content_type="application/json",
@@ -301,10 +301,10 @@ def test_patch_document_template_does_not_accept_code(auth_client, institution):
     assert template.code == "ORIGINAL"
 
 
-def test_delete_document_template_deactivates_instead_of_deleting(auth_client, institution):
+def test_delete_document_template_deactivates_instead_of_deleting(admin_client, institution):
     template = DocumentTemplateFactory(institution=institution)
 
-    response = auth_client.delete(reverse("document-template-detail", args=[template.public_id]))
+    response = admin_client.delete(reverse("document-template-detail", args=[template.public_id]))
 
     assert response.status_code == 204
     template.refresh_from_db()
@@ -326,15 +326,15 @@ def test_document_template_versions_endpoint_requires_authentication(client, ins
     assert response.status_code in (401, 403)
 
 
-def test_create_document_template_creates_its_first_version(auth_client, institution):
-    create_response = auth_client.post(
+def test_create_document_template_creates_its_first_version(admin_client, institution):
+    create_response = admin_client.post(
         reverse("document-template-list-create"),
         {"name": "Constancia", "code": "CONST"},
         content_type="application/json",
     )
     public_id = create_response.json()["public_id"]
 
-    response = auth_client.get(reverse("document-template-version-list", args=[public_id]))
+    response = admin_client.get(reverse("document-template-version-list", args=[public_id]))
 
     assert response.status_code == 200
     items = _items(response)
@@ -343,17 +343,19 @@ def test_create_document_template_creates_its_first_version(auth_client, institu
     assert items[0]["name"] == "Constancia"
 
 
-def test_update_document_template_adds_a_new_version_most_recent_first(auth_client, institution):
+def test_update_document_template_adds_a_new_version_most_recent_first(admin_client, institution):
     template = DocumentTemplateFactory(institution=institution, name="Old")
     DocumentTemplateVersionFactory(template=template, sequence=1, name="Old")
 
-    auth_client.patch(
+    admin_client.patch(
         reverse("document-template-detail", args=[template.public_id]),
         {"name": "New"},
         content_type="application/json",
     )
 
-    response = auth_client.get(reverse("document-template-version-list", args=[template.public_id]))
+    response = admin_client.get(
+        reverse("document-template-version-list", args=[template.public_id])
+    )
 
     sequences = [item["sequence"] for item in _items(response)]
     assert sequences == [2, 1]
@@ -441,11 +443,11 @@ def test_list_document_types_returns_the_institution_catalogue(auth_client):
     ]
 
 
-def test_document_type_is_created_updated_and_deactivated_over_the_api(auth_client):
+def test_document_type_is_created_updated_and_deactivated_over_the_api(admin_client):
     """RNF-MAN-001: the whole lifecycle of a document type is an API call."""
     InstitutionFactory()
 
-    created = auth_client.post(
+    created = admin_client.post(
         reverse("document-type-list-create"),
         {"code": "Constancia", "label": "Constancia"},
         content_type="application/json",
@@ -455,7 +457,7 @@ def test_document_type_is_created_updated_and_deactivated_over_the_api(auth_clie
     assert created.json()["code"] == "constancia"
     public_id = created.json()["public_id"]
 
-    updated = auth_client.patch(
+    updated = admin_client.patch(
         reverse("document-type-detail", args=[public_id]),
         {"label": "Constancia de estudios"},
         content_type="application/json",
@@ -464,7 +466,7 @@ def test_document_type_is_created_updated_and_deactivated_over_the_api(auth_clie
     assert updated.status_code == 200
     assert updated.json()["label"] == "Constancia de estudios"
 
-    template = auth_client.post(
+    template = admin_client.post(
         reverse("document-template-list-create"),
         {"name": "Constancia", "code": "CONST", "kind": "constancia"},
         content_type="application/json",
@@ -473,23 +475,23 @@ def test_document_type_is_created_updated_and_deactivated_over_the_api(auth_clie
     assert template.status_code == 201
     assert template.json()["kind"] == "constancia"
 
-    blocked = auth_client.delete(reverse("document-type-detail", args=[public_id]))
+    blocked = admin_client.delete(reverse("document-type-detail", args=[public_id]))
 
     assert blocked.status_code == 400
 
-    auth_client.delete(reverse("document-template-detail", args=[template.json()["public_id"]]))
-    removed = auth_client.delete(reverse("document-type-detail", args=[public_id]))
+    admin_client.delete(reverse("document-template-detail", args=[template.json()["public_id"]]))
+    removed = admin_client.delete(reverse("document-type-detail", args=[public_id]))
 
     assert removed.status_code == 204
     assert "constancia" not in {
-        item["code"] for item in _items(auth_client.get(reverse("document-type-list-create")))
+        item["code"] for item in _items(admin_client.get(reverse("document-type-list-create")))
     }
 
 
-def test_creating_a_template_with_an_unknown_type_is_rejected(auth_client):
+def test_creating_a_template_with_an_unknown_type_is_rejected(admin_client):
     InstitutionFactory()
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("document-template-list-create"),
         {"name": "Constancia", "code": "CONST", "kind": "inexistente"},
         content_type="application/json",
