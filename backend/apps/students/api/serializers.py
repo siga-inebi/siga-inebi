@@ -1,6 +1,5 @@
 from rest_framework import serializers
-
-from apps.people.api.serializers import PersonSerializer
+from apps.people.api.serializers import PersonSerializer, validate_institutional_person
 from apps.students.models import (
     EmergencyContact,
     Guardian,
@@ -68,6 +67,10 @@ class StudentSerializer(serializers.ModelSerializer):
             actor=actor,
         )
 
+    def validate(self, attrs):
+        validate_institutional_person(attrs.get("person"))
+        return attrs
+
     def update(self, instance, validated_data):
         # Nested person edits aren't supported yet — edit via /api/v1/people/<id>/.
         validated_data.pop("person", None)
@@ -93,6 +96,10 @@ class GuardianSerializer(serializers.ModelSerializer):
         person_data = validated_data.pop("person")
         actor = getattr(self.context.get("request"), "user", None)
         return create_guardian(person_data=person_data, actor=actor)
+
+    def validate(self, attrs):
+        validate_institutional_person(attrs.get("person"))
+        return attrs
 
     def update(self, instance, validated_data):
         # Nested person edits aren't supported yet — edit via /api/v1/people/<id>/.
