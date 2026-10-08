@@ -164,7 +164,7 @@ Cada persona debe **preparar sus casos, ejecutarlos, registrar resultados y evid
 - **D2–D3:** dirigir triage diario; asignar responsable, prioridad y fecha a incidencias; verificar evidencias y cobertura por criterio; escalar bloqueos y actualizar el plan.
 - **D4:** consolidar regresión y resultados UAT; comprobar que los fixes tengan revisión y prueba; preparar reporte final y borrador de acta sin anticipar aprobación.
 - **D5:** reconciliar matriz final; emitir recomendación QA; presentar resultados a autoridad institucional; registrar decisión y entregar índice completo del expediente.
-- **Documentación propia:** `alcance-y-decisiones.md`, catálogo consolidado, `matriz-final.csv`, `reporte-final-pruebas.md`, `acta-aceptacion.md` y plan de mantenimiento/soporte con Daniel.
+- **Documentación propia:** expediente en `docs/quality/fase-7/`: `alcance-y-decisiones.md`, catálogo consolidado, `matriz-final.csv`, `reporte-final-pruebas.md`, `acta-aceptacion.md` y plan de mantenimiento/soporte con Daniel.
 - **Revisión cruzada:** revisar expediente técnico de Daniel; Daniel revisa consolidación QA de Pablo.
 
 #### Santiago — Identidad, autorización y seguridad
