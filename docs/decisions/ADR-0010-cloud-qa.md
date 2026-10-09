@@ -25,4 +25,4 @@ QA empieza en `us-central1`, mínimo 0/máximo 1 instancia y concurrencia 8. Bac
 - Cloud Run registra la URL completa de cada solicitud. Una exclusión de logging (`logging.tf`) descarta las entradas del servicio QA cuya URL lleva `token=`; Nginx y Gunicorn ya registran solo rutas. El resto de los logs de solicitud se conserva.
 - Retirar QA requiere preservar evidencia y respaldos, y una decisión explícita para desactivar protecciones. Versionado de archivos y backups SQL no sustituyen las pruebas independientes de recuperación de Fase 7.
 
-Implementación y secuencia: [Terraform QA](../../infra/terraform/qa/README.md). Contratos públicos de la API y reglas de dominio mantienen su definición; esta decisión añade un perfil de instalación.
+Implementación y secuencia: [Terraform QA](../../infra/terraform/qa/README.md). Costos y alternativas: [QA cloud: costos, optimización y alternativas](../planning/qa-cloud-costos-y-alternativas.md). Contratos públicos de la API y reglas de dominio mantienen su definición; esta decisión añade un perfil de instalación.
