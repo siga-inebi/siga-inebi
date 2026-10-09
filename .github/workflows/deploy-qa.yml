@@ -103,10 +103,11 @@ jobs:
           FRONTEND_IMAGE: ${{ steps.digests.outputs.frontend }}
         run: |
           set -euo pipefail
+          # Service-level flags go before --container; later flags apply to that container.
           gcloud run services update "$SERVICE" \
+            --project="$PROJECT_ID" --region="$REGION" --quiet \
             --container=frontend --image="$FRONTEND_IMAGE" \
-            --container=backend --image="$BACKEND_IMAGE" \
-            --project="$PROJECT_ID" --region="$REGION" --quiet
+            --container=backend --image="$BACKEND_IMAGE"
           # A manual rollback pins traffic to one revision; send it back to the new one.
           gcloud run services update-traffic "$SERVICE" --to-latest \
             --project="$PROJECT_ID" --region="$REGION" --quiet
