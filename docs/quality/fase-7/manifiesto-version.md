@@ -31,5 +31,6 @@ Manuales borradores: [técnico](../../manuals/02-technical-manual.md),
 [instalación](../../manuals/03-installation-and-configuration.md) y
 [respaldo](../../manuals/09-final-backup-and-recovery-plan.md); validación final
 en [seguimiento](seguimiento-manuales.md). Las modificaciones posteriores a la
-corrida y la infraestructura cloud en preparación tienen identificación propia
-pendiente. No hay URL QA cloud ni despliegue acreditado por este manifiesto.
+corrida no forman parte de esta instantánea. El despliegue QA cloud se identifica
+por commit y digest de imagen en [RUN-CQ-01](despliegue-cloud-qa.md); este
+manifiesto no lo acredita.

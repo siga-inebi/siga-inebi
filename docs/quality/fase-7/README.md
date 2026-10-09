@@ -5,8 +5,9 @@ Este directorio conserva evidencia de la Fase 7 para una versión identificable 
 RUN-D1-06 aprobó 28 controles locales con 1589 pruebas backend y283 frontend.
 Codex ejecutó en apoyo a Daniel; revisión independiente y aceptación pendientes.
 La instantánea incluye cambios sin commit: consultar SHA y digest en el
-[manifiesto](manifiesto-version.md). QA cloud se está preparando; no hay URL
-ni despliegue acreditado. Las líneas base previas permanecen en los registros.
+[manifiesto](manifiesto-version.md). QA cloud desplegado en RUN-CQ-01 con URL,
+digests y revisiones en [despliegue cloud](despliegue-cloud-qa.md). Las líneas
+base previas permanecen en los registros.
 
 | Evidencia nueva | Propósito |
 | --- | --- |
@@ -15,6 +16,7 @@ ni despliegue acreditado. Las líneas base previas permanecen en los registros.
 | [Rendimiento](informe-rendimiento.md) | Duraciones reales y mediciones de usuario pendientes |
 | [Recuperación](informe-recuperacion.md) | Restauraciones sintéticas y límites de RPO/RTO |
 | [Manifiesto](manifiesto-version.md) | Identidad verificable de la instantánea evaluada |
+| [Despliegue cloud](despliegue-cloud-qa.md) | RUN-CQ-01: URL, imágenes, revisiones y verificaciones en Cloud Run |
 
 ## Estado al inicio
 

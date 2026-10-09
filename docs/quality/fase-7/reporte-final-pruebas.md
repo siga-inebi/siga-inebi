@@ -5,7 +5,7 @@
 **Controles automatizados locales aprobados; entrega institucional pendiente.**
 RUN-D1-06 aprobó 28/28 controles sobre SHA base más árbol modificado estable.
 Ejecutor Codex en apoyo a Daniel; recomendación actual de Pablo y revisiones
-independientes aún pendientes. No se ha desplegado QA cloud ni aprobado UAT.
+independientes aún pendientes. QA cloud desplegado en RUN-CQ-01; UAT pendiente.
 
 | Evidencia actual | Resultado |
 | --- | --- |
@@ -14,15 +14,16 @@ independientes aún pendientes. No se ha desplegado QA cloud ni aprobado UAT.
 | Frontend | 283 pruebas/32 archivos; cobertura73,02 % statements,67,99 % branches,67,73 % functions,73,67 % líneas |
 | Seguridad/build | Bandit,lint,formato,migraciones,build/presupuesto y npm audit aprobados; pip-audit: 1 ignorada conforme política existente |
 | Recuperación | Restauraciones sintéticas y guardias verificadas en suite; simulacro operativo representativo y RPO/RTO institucional pendientes |
+| QA cloud | [RUN-CQ-01](despliegue-cloud-qa.md): HTTPS, login, API, bucket y URL firmada verificados; descarga con token pendiente |
 | Rendimiento/QR | Sin medición de 1 vCPU/2 GB, carga de 500 estudiantes ni teléfono HTTPS |
 | Requisitos aprobados | Matriz por requisito pendiente de consolidación; ninguna aprobación institucional añadida |
-| Incidencias | INC-001/002/003/005/006 en verificación; revisión independiente pendiente; INC-004 histórica permanece abierta |
+| Incidencias | INC-001/002/003/005/006/007 en verificación; revisión independiente pendiente; INC-004 histórica permanece abierta |
 | Manuales/UAT | Borradores y revisión pendientes; autoridad de aceptación pendiente |
 
 Registro [ejecuciones](ejecuciones.csv), [índice de evidencias](indice-evidencias.csv),
 [entorno](entorno-y-datos.md), [rendimiento](informe-rendimiento.md) y
 [recuperación](informe-recuperacion.md). Cloud Run/Terraform/Cloud SQL en proyecto
-precise-blend-428821-e0 están en preparación y requieren una corrida nueva.
+precise-blend-428821-e0 se registran en [RUN-CQ-01](despliegue-cloud-qa.md).
 Las modificaciones posteriores no forman parte de la instantánea RUN-D1-06.
 
 ## Línea base histórica conservada

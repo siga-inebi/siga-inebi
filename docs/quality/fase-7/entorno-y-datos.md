@@ -12,7 +12,7 @@ pendiente. No constituye validación institucional ni despliegue cloud.
 | Frontend | Node 22.23.3; Vitest 4.1.11; máximo dos workers |
 | Base | PostgreSQL 16.15; servicio db-test desechable, datos sintéticos de factories |
 | Aislamiento | Proyecto Compose exclusivo; archivos de test temporales fuera del media vigente; limpieza registrada |
-| HTTPS/teléfono | No medidos: pendiente acceso al teléfono y URL QA HTTPS |
+| HTTPS/teléfono | HTTPS verificado en [RUN-CQ-01](despliegue-cloud-qa.md); teléfono pendiente |
 
 SHA base `3bcca08860b07c7086ac11b914a7262e7a68d282`, árbol modificado, digest
 `ce64ff0cbf5c3db9a05cd41c186653b375b80aa947d09eed966b73cf503f5e5a`.
@@ -35,6 +35,6 @@ El índice [indice-evidencias.csv](indice-evidencias.csv) identifica artefactos
 locales ignorados y sus checksums. Exportación externa/retención pendientes.
 
 QA cloud solicitado: Cloud Run con Terraform y Cloud SQL pequeño, proyecto
-`precise-blend-428821-e0` activo con facturación habilitada. Runtime e
-infraestructura en preparación: no hay URL, despliegue ni presupuesto confirmado
-en esta evidencia. Su ejecución y mediciones tendrán una corrida separada.
+`precise-blend-428821-e0`. Desplegado en la corrida separada
+[RUN-CQ-01](despliegue-cloud-qa.md), con URL, imágenes y revisiones propias.
+Presupuesto con alertas de USD 20 mensuales. Mediciones pendientes.
