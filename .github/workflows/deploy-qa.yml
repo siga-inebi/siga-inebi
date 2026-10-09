@@ -1,4 +1,4 @@
-name: deploy-qa
+name: CI/CD QA
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: deploy-qa
@@ -27,10 +26,21 @@ env:
   DEPLOYER_SA: siga-inebi-qa-deployer@precise-blend-428821-e0.iam.gserviceaccount.com
 
 jobs:
+  # Full CI suite; any failing job blocks the deploy.
+  ci:
+    name: ci
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   deploy:
     name: deploy-qa
+    needs: ci
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
