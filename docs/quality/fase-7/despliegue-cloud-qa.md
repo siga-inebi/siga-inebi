@@ -68,6 +68,41 @@ manifiesto `linux/amd64` que resuelven de ese índice.
 Las verificaciones por API se ejecutaron con un script local no versionado que
 toma la contraseña de Secret Manager sin imprimirla.
 
+## Validación del pipeline CI/CD — RUN-CQ-02
+
+El 8 de octubre de 2026 (2026-10-09 04:44–04:50 UTC) se validó el workflow
+CI/CD QA desde una rama temporal `deploy`, con la condición de Workload Identity
+apuntando a esa rama solo durante la prueba.
+
+| Campo | Valor |
+| --- | --- |
+| Run | [37885251733](https://github.com/siga-inebi/siga-inebi/actions/runs/37885251733) |
+| Commit | `24d0e9a` |
+| CI | 7 jobs aprobados: lint, pruebas, seguridad, build e integración Docker |
+| Migración | `siga-inebi-qa-migrate-s7fmn`, 1 tarea exitosa |
+| Revisión | `siga-inebi-qa-00004-fjj`, 100 % del tráfico |
+| Backend | `sha256:b8ed99e22edfe5f24ac9aeaba5057f228e61f4ff3e1f6eec116f7395be4655c7` |
+| Frontend | `sha256:d3a4e4d93b71b256cb05231d35a75882fe6d787beb7b843b8bd4726f9142c5ee` |
+| Health | `/api/v1/health/database/` 200; `terraform plan` sin cambios después del despliegue |
+
+El primer intento ([37884620008](https://github.com/siga-inebi/siga-inebi/actions/runs/37884620008))
+aprobó el CI y la migración, pero falló al actualizar el servicio por el orden
+de argumentos de `gcloud run services update`; el servicio no cambió. Se
+corrigió antes del run anterior.
+
+## Trazabilidad de commits
+
+Los commits citados se hicieron en ramas que después se reorganizaron en PRs
+apilados y se integran con squash. Para que sigan accesibles, cada uno tiene un
+tag:
+
+| Commit | Tag | Uso |
+| --- | --- | --- |
+| `ea2c8a2` | `evidence/run-cq-01/ea2c8a2` | Imágenes iniciales, jobs y revisión 00001 |
+| `bcc3068` | `evidence/run-cq-01/bcc3068` | Revisión 00002 y backend vigente en 00003 |
+| `47fdcc6` | `evidence/run-cq-01/47fdcc6` | Frontend de la revisión 00003 (INC-007) |
+| `24d0e9a` | `evidence/run-cq-02/24d0e9a` | Validación del pipeline, revisión 00004 |
+
 ## Incidencias
 
 - **INC-007:** en `00002` la edición de alumnos, docentes y encargados enviaba
