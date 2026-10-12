@@ -117,12 +117,11 @@ def test_teacher_next_code_continues_the_existing_series(auth_client, institutio
     assert auth_client.get(reverse("teacher-next-code")).json()["employee_code"] == "DOC-013"
 
 
-def test_level_next_code_matches_what_creating_would_assign(admin_client, institution):
-    auth_client = admin_client
+def test_level_next_code_matches_what_creating_would_assign(auth_client, admin_client, institution):
     CampusFactory(institution=institution)
     suggested = auth_client.get(reverse("level-next-code")).json()["code"]
 
-    created = auth_client.post(
+    created = admin_client.post(
         reverse("level-list-create"),
         {"name": "Preprimaria"},
         content_type="application/json",
@@ -132,15 +131,14 @@ def test_level_next_code_matches_what_creating_would_assign(admin_client, instit
     assert created.json()["code"] == suggested
 
 
-def test_grade_next_code_is_derived_from_its_level(admin_client, institution):
-    auth_client = admin_client
+def test_grade_next_code_is_derived_from_its_level(auth_client, admin_client, institution):
     level = LevelFactory(institution=institution, code="BAS")
 
     suggested = auth_client.get(reverse("level-grade-next-code", args=[level.public_id])).json()[
         "code"
     ]
 
-    created = auth_client.post(
+    created = admin_client.post(
         reverse("level-grade-list-create", args=[level.public_id]),
         {"name": "Primero Basico"},
         content_type="application/json",
@@ -194,8 +192,7 @@ def test_cycle_defaults_rejects_a_year_that_is_not_a_number(auth_client, institu
 
 
 def test_creating_a_cycle_with_only_the_year_derives_the_rest(admin_client, institution):
-    auth_client = admin_client
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("academic-cycle-list-create"),
         {"year": 2029},
         content_type="application/json",
@@ -211,8 +208,7 @@ def test_creating_a_cycle_with_only_the_year_derives_the_rest(admin_client, inst
 
 def test_creating_a_cycle_still_accepts_explicit_dates_and_name(admin_client, institution):
     """Un acuerdo ministerial puede mover el calendario; la API lo permite."""
-    auth_client = admin_client
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("academic-cycle-list-create"),
         {
             "year": 2030,
@@ -235,11 +231,10 @@ def test_creating_a_cycle_still_accepts_explicit_dates_and_name(admin_client, in
 
 
 def test_level_can_be_inserted_after_a_sibling(admin_client, institution):
-    auth_client = admin_client
     primaria = LevelFactory(institution=institution, code="PRI", sequence=1)
     LevelFactory(institution=institution, code="DIV", sequence=2)
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("level-list-create"),
         {"name": "Basico", "insert_after": str(primaria.public_id)},
         content_type="application/json",
@@ -254,11 +249,10 @@ def test_level_can_be_inserted_after_a_sibling(admin_client, institution):
 
 def test_level_can_be_moved_to_the_first_position(admin_client, institution):
     """``insert_after: null`` es la primera posicion, no "sin posicion"."""
-    auth_client = admin_client
     LevelFactory(institution=institution, code="PRI", sequence=1)
     basico = LevelFactory(institution=institution, code="BAS", sequence=2)
 
-    response = auth_client.patch(
+    response = admin_client.patch(
         reverse("level-detail", args=[basico.public_id]),
         {"insert_after": None},
         content_type="application/json",
@@ -272,11 +266,10 @@ def test_level_can_be_moved_to_the_first_position(admin_client, institution):
 
 
 def test_renaming_a_level_leaves_its_position_alone(admin_client, institution):
-    auth_client = admin_client
     LevelFactory(institution=institution, code="PRI", sequence=1)
     basico = LevelFactory(institution=institution, code="BAS", sequence=2)
 
-    response = auth_client.patch(
+    response = admin_client.patch(
         reverse("level-detail", args=[basico.public_id]),
         {"name": "Ciclo Basico"},
         content_type="application/json",
@@ -288,10 +281,9 @@ def test_renaming_a_level_leaves_its_position_alone(admin_client, institution):
 
 
 def test_inserting_after_a_level_of_another_institution_is_rejected(admin_client, institution):
-    auth_client = admin_client
     stranger = LevelFactory(code="OTR")
 
-    response = auth_client.post(
+    response = admin_client.post(
         reverse("level-list-create"),
         {"name": "Basico", "insert_after": str(stranger.public_id)},
         content_type="application/json",
