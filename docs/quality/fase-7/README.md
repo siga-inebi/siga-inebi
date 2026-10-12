@@ -30,6 +30,9 @@ base previas permanecen en los registros.
 Primera ronda de evaluación de Estuardo: [guía, catálogo y evidencias](estuardo/README.md).
 Es un diagnóstico local complementario; no sustituye la aceptación institucional.
 
+Primera ronda de expediente de Diana: [guía, catálogo y evidencias](diana/README.md).
+Incluye dos fallos de frontend conservados (INC-008) y una incidencia funcional menor (INC-009).
+
 | Archivo | Propósito | Responsable |
 | --- | --- | --- |
 | `alcance-y-decisiones.md` | Alcance, dependencias y decisiones que bloquean validación. | Pablo |
