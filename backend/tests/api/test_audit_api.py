@@ -52,7 +52,8 @@ def _grant_sensitive_student_read(user, student):
     ScopeGrantFactory(assignment=assignment, student=student)
 
 
-def test_creating_a_resource_via_the_api_is_audited(auth_client, institution):
+def test_creating_a_resource_via_the_api_is_audited(admin_client, institution):
+    auth_client = admin_client
     response = auth_client.post(
         reverse("document-template-list-create"),
         {"name": "Constancia", "code": "CONST"},
@@ -65,7 +66,8 @@ def test_creating_a_resource_via_the_api_is_audited(auth_client, institution):
     assert event.actor_id == auth_client.user.id
 
 
-def test_updating_a_resource_via_the_api_is_audited(auth_client, institution):
+def test_updating_a_resource_via_the_api_is_audited(admin_client, institution):
+    auth_client = admin_client
     template = DocumentTemplateFactory(institution=institution, name="Old")
 
     response = auth_client.patch(
@@ -81,7 +83,8 @@ def test_updating_a_resource_via_the_api_is_audited(auth_client, institution):
     assert event.context["changes"]["name"] == {"before": "Old", "after": "New"}
 
 
-def test_deactivating_a_resource_via_the_api_is_audited(auth_client, institution):
+def test_deactivating_a_resource_via_the_api_is_audited(admin_client, institution):
+    auth_client = admin_client
     template = DocumentTemplateFactory(institution=institution)
 
     response = auth_client.delete(reverse("document-template-detail", args=[template.public_id]))
@@ -91,7 +94,8 @@ def test_deactivating_a_resource_via_the_api_is_audited(auth_client, institution
     assert event.action == "documents.template.deactivated"
 
 
-def test_listing_audit_events_via_the_api_is_filterable(auth_client, institution):
+def test_listing_audit_events_via_the_api_is_filterable(admin_client, institution):
+    auth_client = admin_client
     """RF-BIT-006: restricted consulta, filterable by tipo de accion (among others)."""
     _grant_audit_permission(auth_client.user)
     auth_client.post(
@@ -112,8 +116,9 @@ def test_listing_audit_events_via_the_api_is_filterable(auth_client, institution
 
 
 def test_exporting_audit_events_via_the_api_generates_a_file_and_is_itself_audited(
-    auth_client, institution
+    admin_client, institution
 ):
+    auth_client = admin_client
     """RF-BIT-006, Escenario 1: exportacion auditada."""
     _grant_audit_permission(auth_client.user)
     auth_client.post(
@@ -243,7 +248,8 @@ def test_a_guardian_without_a_student_association_is_denied_and_audited(client):
     assert event.context["reason"] == "missing_scope"
 
 
-def test_disabling_the_actor_does_not_alter_their_past_audit_events(auth_client, institution):
+def test_disabling_the_actor_does_not_alter_their_past_audit_events(admin_client, institution):
+    auth_client = admin_client
     """
     RF-BIT-007: attribution for a request made through the real API survives
     the actor's account being disabled afterwards.
