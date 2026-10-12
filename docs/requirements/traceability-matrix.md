@@ -263,6 +263,17 @@ esta evidencia parcial exige corrección y regresión antes de aceptar el flujo.
 Los [casos detallados](../quality/fase-7/estuardo/ronda-2/casos-resultados.csv)
 incluyen captura permitida, escala, ámbito ajeno y ventana vencida, sin declarar
 cobertura completa ni aceptación de los requisitos vinculados.
+### Evidencia complementaria de evaluación — Estuardo, ronda 1
+
+El [catálogo inicial de Estuardo](../quality/fase-7/estuardo/catalogo-inicial.csv)
+vincula individualmente RF-EVC-001–007, RF-CAL-001–008 y RF-RES-001–009 con
+referencias candidatas o brechas pendientes. El [informe](../quality/fase-7/estuardo/resultado-primera-corrida.md)
+registra 168 pruebas aprobadas sobre `3bcca08860b07c7086ac11b914a7262e7a68d282`,
+con [resultados por función](../quality/fase-7/estuardo/resultados-pruebas.csv)
+y [referencias revisadas de evidencia](../quality/fase-7/estuardo/evidencia-revisada.md).
+La corrida es histórica y parcial: no cambia los estados de implementación de
+las filas canónicas, no certifica todo criterio ni los commits posteriores,
+y mantiene revisión cruzada, discrepancias documentales y UAT pendientes.
 
 - Actualizar fila por cada requerimiento implementado o afectado.
 - Si requerimiento cambia, agregar nota de impacto.
