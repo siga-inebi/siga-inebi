@@ -6,8 +6,9 @@ Pablo ejecutó la revisión inicial del frontend sobre el SHA
 `0c8f0d396231f46809b95cc088d5f2c557cb919f`. Santiago repitió los controles
 disponibles el 11 de octubre de 2026 sobre el SHA
 `3bcca08860b07c7086ac11b914a7262e7a68d282`, usando Docker, Python 3.11 y
-PostgreSQL 16. La corrida dirigida de identidad, autorización, alcance y
-auditoría aprobó 169 pruebas; Bandit y la auditoría backend también aprobaron.
+PostgreSQL 16. El 12 de octubre Santiago repitió la validación sobre
+`450d0a805c34e779f3d2cd024cff8c2b985e133a`: 158 pruebas backend y 33 pruebas
+frontend dirigidas aprobaron; Bandit y la auditoría backend también aprobaron.
 
 Esta es una línea base local, no la certificación de la versión: siguen
 pendientes la revisión cruzada, la repetición sobre el SHA candidato final y la
@@ -40,9 +41,10 @@ ofrece actualización mayor y requiere revisión, lockfile controlado y regresi�
 | ESLint frontend | Aprobado | EJ-D1-003 |
 | Pruebas frontend | 283 aprobadas; dos advertencias de `src=""` | EJ-D1-003, INC-004 |
 | Build y presupuesto estático | Aprobado | EJ-D1-003 |
-| Identidad, autorización, alcance y auditoría | 169 pruebas aprobadas en PostgreSQL 16 | EJ-D1-005 |
-| Bandit y `pip-audit` backend | Aprobado; una excepción versionada ignorada | EJ-D1-006 |
-| `npm audit --json` | Fallido: 8 vulnerabilidades, reproducido en SHA actual | EJ-D1-007, INC-003 |
+| Identidad, autorización y alcance backend | 158 pruebas aprobadas en PostgreSQL 16 | EJ-D1-008 |
+| Autenticación y sesiones frontend | 33 pruebas aprobadas | EJ-D1-009 |
+| Bandit y `pip-audit` backend | Aprobado; una excepción versionada ignorada | EJ-D1-010 |
+| `npm audit --audit-level=high` | Fallido: 8 vulnerabilidades, reproducido en SHA actual | EJ-D1-011, INC-003 |
 | Configuración de cookies | Revisión estática: sesión `HttpOnly`, `SameSite=Lax` y `Secure` fuera de desarrollo | `backend/config/settings/base.py`; falta entorno de entrega |
 | CSRF y TLS integrados | No ejecutado | Requiere entorno QA HTTPS y SHA candidato confirmado |
 
