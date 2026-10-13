@@ -192,7 +192,10 @@ describe("apiClient", () => {
     });
   });
 
-  test.each(["Failed to fetch", "NetworkError when attempting to fetch resource."])(
+  test.each([
+    "Failed to fetch",
+    "NetworkError when attempting to fetch resource.",
+  ])(
     "explains a network failure in Spanish and permits a retry (%s)",
     async (browserMessage) => {
       globalThis.fetch = vi
@@ -207,7 +210,9 @@ describe("apiClient", () => {
       await expect(apiClient.get("/results/")).rejects.toThrow(
         "No se pudo conectar con el servidor. Verifica tu conexión y vuelve a intentarlo."
       );
-      await expect(apiClient.get("/results/")).resolves.toEqual({ final_grade: null });
+      await expect(apiClient.get("/results/")).resolves.toEqual({
+        final_grade: null,
+      });
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     }
   );
