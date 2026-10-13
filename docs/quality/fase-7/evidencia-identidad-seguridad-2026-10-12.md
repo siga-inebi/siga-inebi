@@ -7,8 +7,9 @@
 - Zona horaria: America/Guatemala.
 - Entorno: Docker Compose local, PostgreSQL 16, datos sintéticos generados por
   factories; no se utilizaron secretos ni datos institucionales reales.
-- Revisión cruzada: pendiente de Diana para funcionalidad y Daniel para
-  dependencias.
+- Revisión cruzada: Diana confirmó `EJ-D1-041` en el PR #586; Daniel revisó
+  las dependencias en el PR #574. Las demás repeticiones sobre candidato final
+  permanecen pendientes.
 
 <a id="ev-ej-d1-037-01"></a>
 

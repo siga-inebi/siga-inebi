@@ -4,8 +4,11 @@
 
 Validación de línea base ejecutada el 12 de octubre de 2026 sobre el SHA
 `450d0a805c34e779f3d2cd024cff8c2b985e133a`. Este reporte no constituye
-aceptación final: el candidato de entrega, la revisión cruzada y varias
-decisiones de alcance siguen pendientes.
+aceptación final: el candidato de entrega y varias decisiones de alcance
+siguen pendientes. D1 está completado documentalmente conforme a
+`cierre-d1-identidad-santiago.md`: incluye inventario, perfiles sintéticos,
+ejecuciones vinculadas y revisión independiente, pero no afirma preparación
+manual en QA, UAT ni aceptación institucional.
 
 ## Alcance evaluado
 
@@ -61,6 +64,9 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
   deben revisarse antes de migrar a Django 6.
 
 ## Pendientes para cierre
+
+Los siguientes puntos corresponden a D2–D5 y al cierre final del dominio; no
+reabren el cierre documental de D1:
 
 1. Corregir INC-IDENT-001 y repetir los rechazos sensibles para demostrar que
    todos quedan registrados en la bitácora.
