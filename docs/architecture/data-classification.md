@@ -15,6 +15,9 @@
 - Fotografia estudiante: `Restricted`.
 - Contactos emergencia: `Restricted`.
 - Notas de salud: `Sensitive Special`.
+- CUI y fecha de nacimiento de menores (`people_person.cui`, `people_person.birth_date`):
+  `Sensitive Special`. Identifican de forma unica a un menor; acordado en la revision del
+  diccionario de datos final (PR #585).
 - Documentos de expediente: `Sensitive Special` o `Restricted` segun tipo.
 - Justificaciones y respaldos: `Sensitive Special`.
 - Bitacora y auditoria: `Restricted` o `Sensitive Special` segun contenido.
