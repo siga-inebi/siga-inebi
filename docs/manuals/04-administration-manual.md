@@ -6,6 +6,10 @@ Este manual describe las operaciones disponibles para personal administrativo
 autorizado en SIGA-INEBI. Aplica a la versión candidata de Fase 7 y no sustituye
 el manual técnico, el plan de respaldo ni una autorización institucional.
 
+Versión validada: `phase7-rc1`, SHA
+`db96ad6372620bb9bd3519af8dd7b1fc8e8733a9`. Revisión cruzada documental:
+PR #590. Estado del procedimiento: ejecutado y validado.
+
 Use únicamente datos institucionales autorizados. En desarrollo y pruebas use
 datos ficticios. Nunca copie contraseñas, códigos temporales, cookies, tokens o
 datos personales en incidencias, capturas o mensajes.

@@ -2,20 +2,19 @@
 
 ## Estado
 
-Validación de línea base ejecutada el 12 de octubre de 2026 sobre el SHA
-`450d0a805c34e779f3d2cd024cff8c2b985e133a`. Este reporte no constituye
-aceptación final: el candidato de entrega y varias decisiones de alcance
-siguen pendientes. D1 está completado documentalmente conforme a
+Validación final del área ejecutada sobre `phase7-rc1`, SHA
+`db96ad6372620bb9bd3519af8dd7b1fc8e8733a9`. Este reporte no sustituye la
+aceptación institucional y conserva explícitas las decisiones de alcance
+pendientes. D1 está completado documentalmente conforme a
 `cierre-d1-identidad-santiago.md`: incluye inventario, perfiles sintéticos,
 ejecuciones vinculadas y revisión independiente, pero no afirma preparación
 manual en QA, UAT ni aceptación institucional.
 
-D2 también está completado para la línea base conforme a
+D2 también está completado conforme a
 `cierre-d2-identidad-seguridad-santiago.md`. D3 está cerrado documentalmente en
-`cierre-d3-identidad-seguridad-santiago.md`. D4 tiene corrección y regresión en
-el PR #589, pero permanece condicionado a revisión, fusión, repetición integrada
-y UAT. D5 está preparado en `preparacion-d5-identidad-seguridad-santiago.md` y
-requiere un candidato final identificado.
+`cierre-d3-identidad-seguridad-santiago.md`. D4 fue ejecutado y validado con la
+corrección del PR #589 integrada en RC1. Los controles propios de D5 también
+fueron ejecutados y validados; faltan la revisión de Roí y las fusiones externas.
 
 ## Alcance evaluado
 
@@ -50,21 +49,18 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 
 ## Incidencias y riesgos
 
-- **INC-003, corregida técnicamente:** los ocho hallazgos pertenecen a las
+- **INC-003, cerrada en RC1:** los ocho hallazgos pertenecen a las
   ejecuciones históricas EJ-D1-036/EJ-D1-040. El PR #537 actualizó a Vitest
-  4.1.11 y EJ-D1-042 confirmó `npm audit` con cero vulnerabilidades. Falta el
-  cierre formal mediante repetición sobre el candidato final.
-- **Riesgo temporal backend:** `pytest 8.4.1` presenta `PYSEC-2026-1845`, pero
-  solo se usa en desarrollo/CI y no entra en producción. Daniel aceptó la
-  excepción temporal; los PR #579/#580 limpian la allowlist, actualizan a
-  `pytest 9.0.3` y retiran la excepción.
+  4.1.11 y la repetición en RC1 confirmó `npm audit` con cero vulnerabilidades.
+- **Riesgo backend resuelto en RC1:** los PR #579/#580 limpian la allowlist,
+  actualizan a `pytest 9.0.3` y permiten ejecutar `pip-audit` sin excepciones.
 - **INC-005, abierta P0:** la suite backend global del PR obtuvo 15 fallos y
   1557 aprobaciones. La suite dirigida de identidad aprobó; coordinación debe
   hacer triage de los fallos en academics, audit y form suggestions.
-- **INC-IDENT-001, corrección en revisión:** la revisión cruzada de EJ-D1-041
+- **INC-IDENT-001, cerrada en RC1:** la revisión cruzada de EJ-D1-041
   confirmó el resultado funcional y detectó tres rechazos HTTP 403 sin evento.
-  El PR #589 agrega la auditoría faltante y registra 53 pruebas dirigidas y 244
-  pruebas ampliadas aprobadas; falta revisión, fusión y repetición integrada.
+  El PR #589 agrega la auditoría faltante y la repetición integrada en RC1
+  aprobó 244 pruebas. La fusión individual del PR a `develop` sigue pendiente.
 - **PD-004/PD-005, abiertas:** el HTTP 200 previo al cierre depende de que el
   rol de encargado tenga `student_view_sensitive`; Pablo debe definir la
   composición institucional del rol. La prueba no fija esa política.
@@ -76,22 +72,20 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 Los siguientes puntos corresponden a D2–D5 y al cierre final del dominio; no
 reabren el cierre documental de D1:
 
-1. Fusionar el PR #589 y repetir en `develop` los rechazos sensibles para
-   demostrar que todos quedan registrados en la bitácora.
+1. Fusionar el PR #589 a `develop`; la regresión en RC1 ya está aprobada.
 2. Pablo debe resolver la composición del rol encargado bajo PD-004/PD-005.
-3. Fusionar los PR #579/#580 y repetir `pip-audit` sin excepciones sobre el
-   candidato final; la revisión de Daniel ya quedó registrada en el PR #574.
+3. Fusionar los PR #579/#580 a `develop`; `pip-audit` sin excepciones ya aprobó
+   en RC1 y la revisión de Daniel está registrada en el PR #574.
 4. Pablo y la contraparte deben resolver DEC-QA-002 y las discrepancias de
    clasificación entre catálogo y matriz canónica.
-5. Daniel debe fijar el SHA y entorno del candidato final conforme DEC-QA-001.
-6. Repetir EJ-D1-037 a EJ-D1-042 sobre el candidato final.
-7. Verificar cookies y TLS en el entorno HTTPS de entrega.
-8. Mantener AUT-005 y CTA-005 sin aceptación hasta contar con alcance y prueba
+5. Incorporar la revisión independiente de Roí al informe de seguridad.
+6. Mantener AUT-005 y CTA-005 sin aceptación hasta contar con alcance y prueba
    verificable.
 
 ## Conclusión
 
-Los controles automatizados de identidad y autorización ejecutados son
-satisfactorios para esta línea base. INC-003 está corregida técnicamente, pero
-el dominio no está listo para aceptación final mientras falten la actualización
-de pytest, DEC-QA-001, DEC-QA-002, la repetición final y la revisión cruzada.
+Los controles de identidad y autorización están ejecutados y validados sobre
+`phase7-rc1`. Las dos incidencias de seguridad del área están cerradas para ese
+candidato y no quedan excepciones de dependencias. Permanecen externas la
+revisión de Roí, las fusiones a `develop`, las decisiones PD-004/PD-005 y la
+aceptación institucional.

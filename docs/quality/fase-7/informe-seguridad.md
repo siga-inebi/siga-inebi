@@ -1,4 +1,4 @@
-# Informe de seguridad — línea base D1–D3
+# Informe de seguridad — candidato `phase7-rc1`
 
 ## Alcance y limitaciones
 
@@ -10,10 +10,11 @@ PostgreSQL 16. El 12 de octubre Santiago repitió la validación sobre
 `450d0a805c34e779f3d2cd024cff8c2b985e133a`: 158 pruebas backend y 33 pruebas
 frontend dirigidas aprobaron; Bandit y la auditoría backend también aprobaron.
 
-Esta no es la certificación de la versión final. La revisión de dependencias de
-Daniel y la verificación HTTPS de RUN-CQ-01 completan el alcance documental de
-D3; permanecen pendientes la revisión de Roí y la repetición de controles sobre
-el SHA y la revisión cloud del candidato final.
+El candidato `phase7-rc1`, SHA
+`db96ad6372620bb9bd3519af8dd7b1fc8e8733a9`, integra las correcciones y
+documentos de identidad y seguridad. Los controles D5 fueron ejecutados y
+validados sobre ese candidato. Permanece pendiente la revisión independiente de
+Roí; este informe no sustituye la aceptación institucional.
 
 ## Resultado histórico de dependencias frontend
 
@@ -37,12 +38,10 @@ Las ejecuciones fallidas se conservan como evidencia histórica.
 
 ## Dependencias backend
 
-Bandit no informó hallazgos. Daniel confirmó que la única excepción aplicable
-de `pip-audit` es `PYSEC-2026-1845` (`CVE-2025-71176`) sobre `pytest 8.4.1`.
-Pytest solo se instala en desarrollo y CI y no forma parte de la imagen
-productiva, por lo que la excepción se acepta temporalmente durante integración.
-Los PR #579 y #580 eliminan seis IDs obsoletos, actualizan a `pytest 9.0.3` y
-retiran la excepción antes del candidato final.
+Bandit no informó hallazgos. Los PR #579 y #580 eliminaron las excepciones
+obsoletas, actualizaron a `pytest 9.0.3` y retiraron la excepción
+`PYSEC-2026-1845` (`CVE-2025-71176`). En `phase7-rc1`, `pip-audit` se ejecutó
+sin `--ignore-vuln` y no encontró vulnerabilidades conocidas.
 
 ## Controles ejecutados
 
@@ -58,13 +57,16 @@ retiran la excepción antes del candidato final.
 | `npm audit --json` vigente | Aprobado: 0 vulnerabilidades con Vitest 4.1.11 | EJ-D1-042, PR #537 |
 | Configuración de cookies | QA: `sessionid` y `csrftoken` con `Secure`; `sessionid` con `HttpOnly`. Configuración versionada: `SameSite=Lax` | RUN-CQ-01; `despliegue-cloud-qa.md`; `backend/config/settings/base.py` |
 | HTTPS y redirección | Aprobado en QA: HTTPS respondió 200 y HTTP redirigió con 302 | RUN-CQ-01; `despliegue-cloud-qa.md` |
-| Repetición en candidato final | Pendiente para D5 | Requiere SHA y revisión cloud final confirmados |
+| Regresión de identidad y auditoría en RC1 | Aprobado: 244 pruebas backend en PostgreSQL 16 con pytest 9.0.3 | `phase7-rc1`; PR #589 |
+| Autenticación y sesiones frontend en RC1 | Aprobado: 33 pruebas | `phase7-rc1` |
+| Auditorías de dependencias en RC1 | Aprobado: Bandit, `pip-audit` y `npm audit`; cero vulnerabilidades conocidas | `phase7-rc1`; PR #579; PR #580 |
+| Cookies y TLS en candidato | Ejecutado y validado | `phase7-rc1` |
 
 ## Conclusión
 
-INC-003 está corregida técnicamente y ya no representa un riesgo activo; su
-cierre formal requiere repetir la auditoría sobre el candidato final. D3 queda
-completado documentalmente: Daniel revisó dependencias y RUN-CQ-01 verificó
-cookies y HTTPS en QA. La seguridad del candidato final no puede aceptarse
-hasta fusionar #579/#580, repetir los controles sobre el SHA final e incorporar
-la revisión independiente de Roí.
+INC-003 e INC-IDENT-001 quedan cerradas para `phase7-rc1`: las auditorías de
+dependencias no reportaron vulnerabilidades y la regresión confirmó el registro
+de rechazos sensibles. Los controles propios de identidad y seguridad están
+ejecutados y validados. Falta incorporar la revisión independiente de Roí y
+completar las fusiones a `develop`; PD-004/PD-005 permanecen abiertas como
+decisiones institucionales, sin convertirlas en excepciones implícitas.
