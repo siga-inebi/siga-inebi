@@ -2090,6 +2090,7 @@ mismas tablas y un cambio de columnas:
 - Contrastar con el diagrama entidad-relación del manual técnico y con los scripts finales de
   base de datos (manual 06, aún sin documento final).
 - La clasificación de `people_person.cui` y `people_person.birth_date` como sensible especial
-  es una propuesta de este documento: `data-classification.md` no las menciona.
+  quedó registrada en `data-classification.md`, acordada con Santiago en la revisión de este
+  manual. Falta la confirmación institucional que coordina Pablo.
 - El generador de este diccionario no está versionado. Si se quiere regenerar de forma
   repetible, requiere una decisión sobre dónde alojarlo.
