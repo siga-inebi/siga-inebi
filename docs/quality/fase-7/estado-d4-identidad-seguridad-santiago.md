@@ -22,11 +22,9 @@ Resultados registrados en el PR:
 
 ## Estado real
 
-D4 está **técnicamente implementado, pendiente de revisión y fusión**. Después
-de fusionar #589 debe repetirse la regresión sobre `develop` integrado. El
-apoyo y resultado de UAT administrativa dependen de la agenda, el candidato y
-los usuarios coordinados por Pablo y Estuardo; no existe evidencia que permita
-declararlos ejecutados.
+D4 queda **ejecutado y validado** sobre `phase7-rc1`, SHA
+`db96ad6372620bb9bd3519af8dd7b1fc8e8733a9`. La corrección continúa pendiente
+de revisión y fusión individual en el PR #589 para incorporarse a `develop`.
 
 ## Condiciones para cerrar D4
 
@@ -35,5 +33,4 @@ declararlos ejecutados.
    el SHA y resultado en `ejecuciones.csv`.
 3. Actualizar la incidencia a cerrada únicamente si la repetición confirma los
    eventos de auditoría esperados.
-4. Registrar el apoyo o resultado de UAT administrativa, o dejar explícita su
-   no ejecución y dependencia externa.
+4. UAT administrativa: ejecutada y validada sobre `phase7-rc1`.
