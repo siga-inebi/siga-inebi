@@ -16,11 +16,13 @@ RF-CRE-006 — contrato del endpoint de resolucion de identificador.
 """
 
 import base64
+import warnings
 from datetime import datetime, time, timedelta
 from urllib.parse import urlencode
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.paginator import UnorderedObjectListWarning
 from django.db import connection
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
@@ -45,6 +47,7 @@ from apps.enrolments.models import Enrolment
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import (
     AcademicCycleFactory,
+    CampusFactory,
     SectionFactory,
     ShiftFactory,
     SubjectFactory,
@@ -1367,6 +1370,44 @@ def test_control_points_list_returns_catalogue(auth_client):
     assert response.status_code == 200
     codes = {item["code"] for item in response.json()["results"]}
     assert control_point.code in codes
+
+
+def _create_control_points(count):
+    campus = CampusFactory()
+    return [ControlPointFactory(campus=campus).code for _ in range(count)]
+
+
+def _create_manual_reasons(count):
+    return [ManualRegistrationReasonFactory().code for _ in range(count)]
+
+
+def _create_justification_reasons(count):
+    return [
+        JustificationReason.objects.create(name=f"Motivo {n}", code=f"JR{n:02d}").code
+        for n in range(count)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("url_name", "create_rows"),
+    [
+        ("attendance-control-point-list", _create_control_points),
+        ("attendance-manual-registration-reason-list", _create_manual_reasons),
+        ("attendance-justification-reason-list", _create_justification_reasons),
+    ],
+)
+def test_catalogue_pagination_is_stable_across_pages(auth_client, url_name, create_rows):
+    """INC-011: dos paginas no repiten ni omiten filas del catalogo."""
+    codes = create_rows(30)  # PAGE_SIZE es 25: obliga a una segunda pagina
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnorderedObjectListWarning)
+        first = auth_client.get(reverse(url_name)).json()
+        second = auth_client.get(reverse(url_name), {"page": 2}).json()
+
+    paged = [item["code"] for item in first["results"] + second["results"]]
+    assert first["count"] == len(codes)
+    assert paged == sorted(codes)
 
 
 # --------------------------------------------------------------------------- #
