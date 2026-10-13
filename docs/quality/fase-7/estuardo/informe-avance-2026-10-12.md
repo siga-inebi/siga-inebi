@@ -28,7 +28,7 @@ una comprobación técnica; no sustituye esas actividades.
 | Punto | Estado | Evidencia disponible | Qué falta |
 | --- | --- | --- | --- |
 | **D1 — Preparación** | Parcial; coordinación bloqueada por disponibilidad | Casos de usabilidad/UAT, guion, plantilla de registro y preflight en el [PR #558](https://github.com/siga-inebi/siga-inebi/pull/558). | No hay participantes/agenda confirmados ni SHA candidato. La regla de pesos sigue sin definición verificable. No se asignan nombres, fechas o SHA supuestos. Hace falta una decisión de alcance para reprogramar o excluir temporalmente las sesiones y documentar el impacto. |
-| **D2 — Evaluación e integración** | Pruebas técnicas documentadas; integración conjunta pendiente | Rondas técnicas y de navegador en los PRs [#556](https://github.com/siga-inebi/siga-inebi/pull/556)–[#563](https://github.com/siga-inebi/siga-inebi/pull/563). La revisión documental del manual de API está en el [PR #584](https://github.com/siga-inebi/siga-inebi/pull/584). | Revisar resultados con Roí y Josué; repetir sobre el SHA candidato final; resolver/triagear incidencias abiertas. QA4-PDF-01 sigue sin corrección validada: el PDF observado requirió reparación y no se encontró acción de descarga en la interfaz. |
+| **D2 — Evaluación e integración** | Ejecución automatizada completada en el SHA registrado; cierre con dependencias pendientes | [Matriz y resultados D2](d2-evaluacion-integracion.md): 196 pruebas de evaluación/reportes, 43 de integración académica/documental y 4 regresiones frontend de INC-008 aprobadas en `e67faeb97729281f2e7e7b9a91125f8612b79ffa`. | Pablo debe confirmar la regla de pesos; Josué y Roí deben hacer revisión conjunta; Roí debe validar QA4-PDF-01; repetir en el SHA candidato final. |
 | **D3 — Usabilidad piloto** | No ejecutado | Casos y preflight técnico preparados en el PR #558. El preflight cubre escritorio, zoom y viewport móvil emulado. | Confirmar participantes, ejecutar tareas observadas en computadora y Android real, anotar tiempos, ayudas, errores y comentarios, obtener autorización para grabar y preparar el video de cada sesión acordada. |
 | **D4 — UAT** | No ejecutado | Escenarios y formato para aprobación/observaciones preparados en el PR #558. | Con candidato y participantes confirmados, cada usuario debe ejecutar los escenarios; registrar resultado por caso y SHA, aprobación/observaciones y cualquier incidencia. El facilitador no ejecuta las tareas en su lugar. |
 | **D5 — Revalidación y cierre** | Pendiente | Existe evidencia de evaluaciones técnicas y de una revisión documental de API iniciada por Estuardo. | Revalidar con usuarios los cambios que correspondan; elaborar `informe-usabilidad.md` y `informe-aceptacion-usuarios.md`; obtener revisión cruzada de Roí; cerrar índice, SHA y revisión del material audiovisual. |
@@ -42,6 +42,10 @@ una comprobación técnica; no sustituye esas actividades.
   acción de descarga disponible. Roí debe analizar y corregir el problema; una
   respuesta HTTP exitosa no demuestra que el documento sea válido para el
   usuario.
+- **INC-008:** la corrección integrada en [PR #555](https://github.com/siga-inebi/siga-inebi/pull/555)
+  ahora renderiza `final_grade`; las cuatro pruebas focalizadas de frontend y
+  las pruebas backend de cálculo pasaron en el SHA indicado en el informe D2.
+  La revisión visual manual todavía no está registrada.
 - **INC-009:** el cambio para manejar el error de red y la regresión de ciclo
   cerrado están en el PR #563. Su descripción deja la incidencia en verificación
   hasta el triage de Pablo y revisión de Emilio.
