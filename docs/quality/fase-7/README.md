@@ -51,6 +51,7 @@ Incluye dos fallos de frontend conservados (INC-013) y una incidencia funcional 
 | `reporte-final-pruebas.md` | Informe de estado y recomendación QA. | Pablo |
 | `acta-aceptacion.md` | Borrador de acta o reporte de aceptación institucional. | Pablo + autoridad institucional |
 | `seguimiento-manuales.md` | Estado de manuales y verificación por versión. | Pablo + responsables |
+| `roi-cierre.md` | Consolidación de entregables, pruebas y pendientes verificables de Roí. | Roí / Estuardo / Daniel |
 | `../manuals/08-maintenance-and-support-plan.md` | Plan operativo de mantenimiento y soporte. | Pablo + Daniel |
 
 ## Actualización reproducible
