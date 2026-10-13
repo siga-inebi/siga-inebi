@@ -10,6 +10,8 @@
 - Revisión cruzada: pendiente de Diana para funcionalidad y Daniel para
   dependencias.
 
+<a id="ev-ej-d1-037-01"></a>
+
 ## EV-EJ-D1-037-01 — Backend dirigido
 
 Comando: `docker compose exec -T backend pytest -q --no-cov` seguido de los 16
@@ -18,6 +20,8 @@ archivos API, permisos, unidad e integración vinculados en
 
 Resultado observado: 158 pruebas aprobadas en 159.26 segundos, código de salida
 0. Pytest informó cuatro `RemovedInDjango60Warning`; no hubo fallo funcional.
+
+<a id="ev-ej-d1-038-01"></a>
 
 ## EV-EJ-D1-038-01 — Frontend dirigido
 
@@ -29,6 +33,8 @@ Resultado observado: tres archivos y 33 pruebas aprobadas en 23.86 segundos,
 código de salida 0. Se comprobaron login, logout, expiración, bloqueo, cambio de
 contraseña y manejo de sesión del cliente HTTP.
 
+<a id="ev-ej-d1-039-01"></a>
+
 ## EV-EJ-D1-039-01 — Seguridad backend
 
 Comandos: `bandit -q -r apps config` y `pip-audit -r requirements/dev.txt` con
@@ -37,6 +43,8 @@ la lista de excepciones versionada en el `Makefile`.
 Resultado observado: Bandit aprobó sin hallazgos; `pip-audit` informó cero
 vulnerabilidades conocidas y una excepción ignorada. Código de salida conjunto
 0. La excepción debe permanecer sujeta a revisión de Daniel.
+
+<a id="ev-ej-d1-040-01"></a>
 
 ## EV-EJ-D1-040-01 — Dependencias frontend
 
