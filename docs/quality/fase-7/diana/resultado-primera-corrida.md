@@ -39,7 +39,7 @@ versionada.
 - 16 casos aprobados. Los dos que habían fallado terminaron en 6,54 s y 5,24 s.
 - El CI de `develop` aprueba `frontend-tests` sobre este mismo commit.
 - Conclusión: las dos pruebas quedan a menos de dos segundos del límite por defecto
-  en un equipo lento. Se registra INC-008; no hay evidencia de defecto funcional.
+  en un equipo lento. Se registra INC-013; no hay evidencia de defecto funcional.
 
 ## Lectura del resultado
 
