@@ -38,10 +38,12 @@ def guardian_relations():
 
 
 def emergency_contacts(student, *, include_inactive=False):
+    # Orden explicito: el listado se pagina, y sin el dos paginas pueden repetir u
+    # omitir contactos (INC-009). `id` desempata nombres iguales.
     return _filter_active(
         EmergencyContact.objects.filter(student=student).select_related("student"),
         include_inactive=include_inactive,
-    )
+    ).order_by("name", "id")
 
 
 def emergency_contact_or_404(public_id):
