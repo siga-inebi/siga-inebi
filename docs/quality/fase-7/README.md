@@ -2,8 +2,9 @@
 
 Este directorio conserva evidencia de la Fase 7 para una versión identificable de SIGA-INEBI. Pablo coordina su consolidación; cada responsable de dominio entrega sus resultados, evidencias y regresiones.
 
-RUN-D1-06 aprobó 28 controles locales con 1589 pruebas backend y283 frontend.
-Codex ejecutó en apoyo a Daniel; revisión independiente y aceptación pendientes.
+RUN-PAB-20261012-02 aprobó 28 controles locales con 1,596 pruebas backend y
+285 frontend. Pablo consolidó la ejecución; revisión independiente y aceptación
+institucional siguen pendientes.
 La instantánea incluye cambios sin commit: consultar SHA y digest en el
 [manifiesto](manifiesto-version.md). QA cloud desplegado en RUN-CQ-01 con URL,
 digests y revisiones en [despliegue cloud](despliegue-cloud-qa.md). Las líneas
@@ -11,12 +12,15 @@ base previas permanecen en los registros.
 
 | Evidencia nueva | Propósito |
 | --- | --- |
+| [Cierre documental D1 de Santiago](cierre-d1-identidad-santiago.md) | Inventario, perfiles sintéticos, ejecuciones vinculadas, revisión y límites del cierre de identidad |
+| [Cierre documental D3 de Santiago](cierre-d3-identidad-seguridad-santiago.md) | Cookies/TLS en QA, revisión de dependencias, documentos entregados y pendientes trasladados a D5 |
 | [Entorno y datos](entorno-y-datos.md) | Versiones, recursos, aislamiento y pendientes cloud/teléfono |
 | [Índice](indice-evidencias.csv) | Checksums de artefactos locales ignorados; exportación pendiente |
 | [Rendimiento](informe-rendimiento.md) | Duraciones reales y mediciones de usuario pendientes |
 | [Recuperación](informe-recuperacion.md) | Restauraciones sintéticas y límites de RPO/RTO |
 | [Manifiesto](manifiesto-version.md) | Identidad verificable de la instantánea evaluada |
 | [Despliegue cloud](despliegue-cloud-qa.md) | RUN-CQ-01: URL, imágenes, revisiones y verificaciones en Cloud Run |
+| [Resultado integrado de Pablo](resultado-ejecucion-pablo-2026-10-12.md) | RUN-PAB-20261012-02: 28/28 controles, métricas y regresión de formato |
 
 ## Estado al inicio
 
@@ -32,6 +36,9 @@ Diagnóstico técnico: seis casos aprobados, uno fallido (INC-008) y uno bloquea
 no constituye UAT ni aceptación institucional.
 Primera ronda de evaluación de Estuardo: [guía, catálogo y evidencias](estuardo/README.md).
 Es un diagnóstico local complementario; no sustituye la aceptación institucional.
+
+Primera ronda de expediente de Diana: [guía, catálogo y evidencias](diana/README.md).
+Incluye dos fallos de frontend conservados (INC-013) y una incidencia funcional menor (INC-009).
 
 | Archivo | Propósito | Responsable |
 | --- | --- | --- |

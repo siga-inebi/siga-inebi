@@ -289,7 +289,7 @@ export function AlumnosPage() {
   const handleUpdate = async (values) => {
     const updated = await studentsService.update(editing.id, {
       person: {
-        id: editing.person.public_id,
+        public_id: editing.person.public_id,
         first_name: values.first_name,
         last_name: values.last_name,
         email: values.email,
@@ -699,7 +699,7 @@ export function AlumnosPage() {
         downloadName={viewingPhoto?.split("/").pop()}
         onClose={() => setViewingPhoto(null)}
         open={Boolean(viewingPhoto)}
-        src={viewingPhoto ?? ""}
+        src={viewingPhoto}
       />
 
       {creating ? (
