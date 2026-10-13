@@ -147,7 +147,7 @@ coverage-backend:
 
 security-backend:
 	cd backend && ./.venv/bin/bandit -q -r apps config
-	cd backend && $(BACKEND_LOCAL_ENV) ./.venv/bin/pip-audit -r requirements/dev.txt --ignore-vuln PYSEC-2026-1845
+	cd backend && $(BACKEND_LOCAL_ENV) ./.venv/bin/pip-audit -r requirements/dev.txt
 
 check-migrations:
 	cd backend && $(BACKEND_LOCAL_ENV) ./.venv/bin/python manage.py makemigrations --check --dry-run
@@ -178,7 +178,7 @@ ci-local:
 	$(TEST_COMPOSE) run --rm frontend npm run lint
 	$(TEST_COMPOSE) run --rm frontend npm run test:coverage
 	$(TEST_COMPOSE) run --rm frontend npm run build
-	$(TEST_COMPOSE) run --rm backend-test sh -lc "ruff check . && ruff format --check . && python manage.py makemigrations --check --dry-run && bandit -q -r apps config && pip-audit -r requirements/dev.txt --ignore-vuln PYSEC-2026-1845"
+	$(TEST_COMPOSE) run --rm backend-test sh -lc "ruff check . && ruff format --check . && python manage.py makemigrations --check --dry-run && bandit -q -r apps config && pip-audit -r requirements/dev.txt"
 	$(TEST_COMPOSE) down -v --remove-orphans
 
 # RNF-RES-001: las dos pilas se respaldan y se restauran por separado. `backup`
