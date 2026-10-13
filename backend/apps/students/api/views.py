@@ -5,7 +5,7 @@ from rest_framework.response import Response
 
 from apps.audit.services import record_sensitive_read
 from apps.common.exceptions import AuthorizationError
-from apps.identity.scopes import authorized_student_queryset
+from apps.identity.scopes import authorized_student_queryset, can_access_student
 from apps.students import queries, services
 from apps.students.api.serializers import (
     EmergencyContactCreateSerializer,
@@ -344,7 +344,7 @@ class StudentHealthNoteListCreateView(StudentRecordListCreateView):
         if write:
             required.append("student_edit_basic")
         if not all(
-            request.user.has_scoped_permission(codename, scope={"student": student})
+            can_access_student(user=request.user, codename=codename, student=student)
             for codename in required
         ):
             raise AuthorizationError("Actor lacks sensitive student permission or scope.")
@@ -400,7 +400,7 @@ class StudentObservationListCreateView(StudentRecordListCreateView):
         if write:
             required.append("student_edit_basic")
         if not all(
-            request.user.has_scoped_permission(codename, scope={"student": student})
+            can_access_student(user=request.user, codename=codename, student=student)
             for codename in required
         ):
             raise AuthorizationError("Actor lacks sensitive student permission or scope.")

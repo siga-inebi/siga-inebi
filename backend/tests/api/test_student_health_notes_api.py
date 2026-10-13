@@ -53,6 +53,11 @@ def test_basic_access_without_sensitive_permission_is_denied(client_user):
     url = reverse("student-health-note-list-create", args=[student.public_id])
 
     assert client.get(url).status_code == 403
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "identity.authorization.denied"
+    assert event.actor_id == user.id
+    assert event.context["reason"] == "missing_permission"
+    assert event.context["permission"] == "student_view_sensitive"
     assert client.post(url, {"content": "No debe guardarse"}).status_code == 403
 
 
@@ -66,6 +71,11 @@ def test_sensitive_permissions_without_student_scope_are_denied(client_user):
     url = reverse("student-health-note-list-create", args=[denied_student.public_id])
 
     assert client.get(url).status_code == 403
+    event = AuditEvent.objects.latest("created_at")
+    assert event.action == "identity.authorization.denied"
+    assert event.actor_id == user.id
+    assert event.context["reason"] == "missing_scope"
+    assert event.context["permission"] == "student_view_sensitive"
     assert client.post(url, {"content": "No debe guardarse"}).status_code == 403
 
 

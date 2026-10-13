@@ -523,6 +523,14 @@ def _setup_uploader_for_student(student):
     return actor
 
 
+def _latest_integrity_run():
+    return (
+        TaskRun.objects.filter(name="check_document_storage_integrity")
+        .order_by("-started_at")
+        .first()
+    )
+
+
 def test_post_restore_document_storage_integrity_verifies_all_files_match(tmp_path, settings):
     """
     CP-INT-REC-001 / RNF-RES-003: Con base y archivos restaurados en sincronía,
@@ -545,11 +553,7 @@ def test_post_restore_document_storage_integrity_verifies_all_files_match(tmp_pa
 
     call_command("check_document_storage_integrity")
 
-    run = (
-        TaskRun.objects.filter(name="check_document_storage_integrity")
-        .order_by("-started_at")
-        .first()
-    )
+    run = _latest_integrity_run()
     assert run is not None
     assert run.status == TaskRun.Status.SUCCEEDED
     assert run.summary["total_checked"] == 1
@@ -586,11 +590,7 @@ def test_post_restore_document_storage_integrity_detects_missing_file_when_stora
     with pytest.raises(SystemExit):
         call_command("check_document_storage_integrity")
 
-    run = (
-        TaskRun.objects.filter(name="check_document_storage_integrity")
-        .order_by("-started_at")
-        .first()
-    )
+    run = _latest_integrity_run()
     assert run is not None
     assert run.status == TaskRun.Status.FAILED
     assert run.summary["missing"] == 1
@@ -624,11 +624,7 @@ def test_post_restore_document_storage_integrity_detects_corrupted_file_with_alt
     with pytest.raises(SystemExit):
         call_command("check_document_storage_integrity")
 
-    run = (
-        TaskRun.objects.filter(name="check_document_storage_integrity")
-        .order_by("-started_at")
-        .first()
-    )
+    run = _latest_integrity_run()
     assert run is not None
     assert run.status == TaskRun.Status.FAILED
     assert run.summary["corrupted"] == 1
@@ -688,11 +684,7 @@ def test_post_restore_document_storage_integrity_scoped_to_institution(tmp_path,
 
     call_command("check_document_storage_integrity", institution_id=str(inst_a.public_id))
 
-    run = (
-        TaskRun.objects.filter(name="check_document_storage_integrity")
-        .order_by("-started_at")
-        .first()
-    )
+    run = _latest_integrity_run()
     assert run is not None
     assert run.status == TaskRun.Status.SUCCEEDED
     assert run.summary["institution_id"] == str(inst_a.public_id)

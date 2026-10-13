@@ -282,6 +282,7 @@ export function AlumnosPage() {
       photo: values.photo,
     });
     list.addItem(created);
+    list.refresh();
     setCreating(null);
   };
 
@@ -299,6 +300,7 @@ export function AlumnosPage() {
       photo: values.photo,
     });
     list.replaceItem(updated, (item) => item.id === updated.id);
+    list.refresh();
     setSelected(updated);
     setEditing(null);
   };

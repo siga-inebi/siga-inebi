@@ -148,13 +148,16 @@ def _audit_student_access_denied(*, user, codename, reason):
 
 def can_access_student(*, user, codename, student, when=None):
     try:
-        return (
+        allowed = (
             authorized_student_queryset(user=user, codename=codename, when=when)
             .filter(pk=student.pk)
             .exists()
         )
     except AuthorizationError:
         return False
+    if not allowed:
+        _audit_student_access_denied(user=user, codename=codename, reason="missing_scope")
+    return allowed
 
 
 def can_read_historical_student(*, user, codename, student, academic_cycle, section):
