@@ -1,4 +1,4 @@
-# Informe de seguridad — línea base D1
+# Informe de seguridad — línea base D1–D3
 
 ## Alcance y limitaciones
 
@@ -10,9 +10,10 @@ PostgreSQL 16. El 12 de octubre Santiago repitió la validación sobre
 `450d0a805c34e779f3d2cd024cff8c2b985e133a`: 158 pruebas backend y 33 pruebas
 frontend dirigidas aprobaron; Bandit y la auditoría backend también aprobaron.
 
-Esta es una línea base local, no la certificación de la versión: siguen
-pendientes la revisión cruzada, la repetición sobre el SHA candidato final y la
-verificación de cookies/TLS en el entorno HTTPS de entrega.
+Esta no es la certificación de la versión final. La revisión de dependencias de
+Daniel y la verificación HTTPS de RUN-CQ-01 completan el alcance documental de
+D3; permanecen pendientes la revisión de Roí y la repetición de controles sobre
+el SHA y la revisión cloud del candidato final.
 
 ## Resultado histórico de dependencias frontend
 
@@ -55,14 +56,15 @@ retiran la excepción antes del candidato final.
 | Bandit y `pip-audit` backend | Aprobado con excepción temporal de pytest revisada por Daniel | EJ-D1-039; PR #579; PR #580 |
 | `npm audit --audit-level=high` histórico | Fallido: 8 vulnerabilidades en el SHA evaluado | EJ-D1-040, INC-003 |
 | `npm audit --json` vigente | Aprobado: 0 vulnerabilidades con Vitest 4.1.11 | EJ-D1-042, PR #537 |
-| Configuración de cookies | Revisión estática: sesión `HttpOnly`, `SameSite=Lax` y `Secure` fuera de desarrollo | `backend/config/settings/base.py`; falta entorno de entrega |
-| CSRF y TLS integrados | No ejecutado | Requiere entorno QA HTTPS y SHA candidato confirmado |
+| Configuración de cookies | QA: `sessionid` y `csrftoken` con `Secure`; `sessionid` con `HttpOnly`. Configuración versionada: `SameSite=Lax` | RUN-CQ-01; `despliegue-cloud-qa.md`; `backend/config/settings/base.py` |
+| HTTPS y redirección | Aprobado en QA: HTTPS respondió 200 y HTTP redirigió con 302 | RUN-CQ-01; `despliegue-cloud-qa.md` |
+| Repetición en candidato final | Pendiente para D5 | Requiere SHA y revisión cloud final confirmados |
 
 ## Conclusión
 
 INC-003 está corregida técnicamente y ya no representa un riesgo activo; su
-cierre formal requiere repetir la auditoría sobre el candidato final. La línea
-base backend aprobó con una excepción temporal explícitamente revisada, pero la
-seguridad del candidato no puede aceptarse hasta fusionar la actualización de
-pytest, repetir los controles, completar la revisión cruzada y verificar el
-entorno final HTTPS.
+cierre formal requiere repetir la auditoría sobre el candidato final. D3 queda
+completado documentalmente: Daniel revisó dependencias y RUN-CQ-01 verificó
+cookies y HTTPS en QA. La seguridad del candidato final no puede aceptarse
+hasta fusionar #579/#580, repetir los controles sobre el SHA final e incorporar
+la revisión independiente de Roí.
