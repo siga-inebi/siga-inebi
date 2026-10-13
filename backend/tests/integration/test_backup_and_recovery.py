@@ -41,7 +41,12 @@ from django.db import connection
 from django.test import override_settings
 from django.utils import timezone
 
-from apps.common.backups import DATABASE_STACK, FILES_STACK, backup_health, latest_manifest
+from apps.common.backups import (
+    DATABASE_STACK,
+    FILES_STACK,
+    backup_health,
+    latest_manifest,
+)
 from apps.common.models import TaskRun
 from apps.documents.services import upload_document_record
 from apps.enrolments.services import create_enrolment
@@ -540,7 +545,9 @@ def test_post_restore_document_storage_integrity_verifies_all_files_match(tmp_pa
         actor=actor,
         student=student,
         upload=SimpleUploadedFile(
-            "expediente.pdf", b"contenido legitimo", content_type="application/pdf"
+            "expediente.pdf",
+            b"contenido legitimo",
+            content_type="application/pdf",
         ),
     )
 
@@ -571,7 +578,9 @@ def test_post_restore_document_storage_integrity_detects_missing_file_when_stora
         actor=actor,
         student=student,
         upload=SimpleUploadedFile(
-            "partida.pdf", b"partida nacimiento", content_type="application/pdf"
+            "partida.pdf",
+            b"partida nacimiento",
+            content_type="application/pdf",
         ),
     )
 
@@ -603,7 +612,9 @@ def test_post_restore_document_storage_integrity_detects_corrupted_file_with_alt
         actor=actor,
         student=student,
         upload=SimpleUploadedFile(
-            "certificado.pdf", b"certificado original", content_type="application/pdf"
+            "certificado.pdf",
+            b"certificado original",
+            content_type="application/pdf",
         ),
     )
 
@@ -632,7 +643,10 @@ def test_post_restore_document_storage_integrity_scoped_to_institution(tmp_path,
     sec_a = SectionFactory(academic_cycle=cycle_a)
     student_a = StudentFactory()
     create_enrolment(
-        student=student_a, academic_cycle=cycle_a, grade=sec_a.offering.grade, section=sec_a
+        student=student_a,
+        academic_cycle=cycle_a,
+        grade=sec_a.offering.grade,
+        section=sec_a,
     )
     actor_a = _setup_uploader_for_student(student_a)
 
@@ -640,7 +654,9 @@ def test_post_restore_document_storage_integrity_scoped_to_institution(tmp_path,
         actor=actor_a,
         student=student_a,
         upload=SimpleUploadedFile(
-            "doc_a.pdf", b"doc institucion a", content_type="application/pdf"
+            "doc_a.pdf",
+            b"doc institucion a",
+            content_type="application/pdf",
         ),
     )
 
@@ -649,7 +665,10 @@ def test_post_restore_document_storage_integrity_scoped_to_institution(tmp_path,
     sec_b = SectionFactory(academic_cycle=cycle_b)
     student_b = StudentFactory()
     create_enrolment(
-        student=student_b, academic_cycle=cycle_b, grade=sec_b.offering.grade, section=sec_b
+        student=student_b,
+        academic_cycle=cycle_b,
+        grade=sec_b.offering.grade,
+        section=sec_b,
     )
     actor_b = _setup_uploader_for_student(student_b)
 
@@ -657,7 +676,9 @@ def test_post_restore_document_storage_integrity_scoped_to_institution(tmp_path,
         actor=actor_b,
         student=student_b,
         upload=SimpleUploadedFile(
-            "doc_b.pdf", b"doc institucion b", content_type="application/pdf"
+            "doc_b.pdf",
+            b"doc institucion b",
+            content_type="application/pdf",
         ),
     )
 

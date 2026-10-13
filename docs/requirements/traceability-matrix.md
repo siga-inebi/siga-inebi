@@ -260,3 +260,16 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 - Actualizar fila por cada requerimiento implementado o afectado.
 - Si requerimiento cambia, agregar nota de impacto.
 - Si PR cubre varios requerimientos, repetir PR en cada fila correspondiente.
+
+## Evidencia de cierre QA de Roi — PR #591
+
+Esta sección vincula la evidencia automatizada consolidada en el cierre de Fase 7.
+No cambia el estado de implementación de los requerimientos ni sustituye la
+revisión independiente, UAT o aceptación institucional.
+
+| Requerimientos | Evidencia de prueba | Evidencia documental | Estado de validación |
+| --- | --- | --- | --- |
+| RF-DOC-001, RF-DOC-004, RF-DOC-005, RF-DOC-006, RF-DOC-007 | `backend/tests/api/test_documents_api.py`; `backend/tests/api/test_audit_api.py` | `docs/quality/fase-7/roi-cierre.md`; `docs/manuals/07-api-integrations-documentation.md` | Automatización ejecutada; revisión cruzada/UAT pendientes |
+| RF-ARC-003, RF-ARC-004 | `backend/tests/api/test_documents_api.py`; `backend/tests/integration/test_backup_and_recovery.py` | `docs/quality/fase-7/informe-recuperacion.md` | Integridad e historial automatizados; validación final pendiente |
+| RNF-RES-003 | `backend/tests/integration/test_backup_and_recovery.py` (`CP-INT-REC-001`) | `docs/manuals/09-final-backup-and-recovery-plan.md`; `docs/quality/fase-7/informe-recuperacion.md` | Evidencia sintética aprobada; simulacro completo de infraestructura pendiente |
+| RNF-SEG-004, RNF-SEG-005, RF-BIT-005, RF-BIT-006 | `backend/tests/api/test_documents_api.py`; `backend/tests/api/test_audit_api.py` | `docs/architecture/audit-strategy.md`; `docs/quality/fase-7/roi-cierre.md` | Controles automatizados ejecutados; revisión independiente pendiente |
