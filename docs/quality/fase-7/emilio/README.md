@@ -12,6 +12,7 @@ Diagnóstico local; no constituye candidato formal, aceptación institucional ni
 - [Inventario de pruebas](inventario-pruebas.csv): 329 casos (302 backend y 27 frontend) con el requisito citado en la prueba, cuando existe, y su línea.
 - [Resultados por prueba](resultados-pruebas.csv): estado y duración de cada caso en las tres corridas, transcritos de JUnit.
 - [Evidencia revisada](evidencia-revisada.md): comandos, versiones y hashes de los logs/JUnit locales. Los artefactos crudos no se publican en Git; su entrega a revisores está pendiente.
+- [Segunda ronda](ronda-2/README.md): RF-JOR-007 (28 aprobadas; el criterio de notificación al encargado no está cubierto, INC-012) y frecuencia de INC-010 (1 fallo en 10 iteraciones).
 - El catálogo general y sus resultados históricos se conservan. Este catálogo complementario no aprueba requisitos ni modifica el alcance institucional.
 
 ## Primeros seis casos
