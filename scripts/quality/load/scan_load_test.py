@@ -95,7 +95,8 @@ def summarize_rounds(rounds: list[dict]) -> dict:
     """Consolida rondas independientes; cada ronda debe cumplir el limite."""
     pooled_requests = sum(r["requests"] for r in rounds)
     pooled_created = sum(r["created"] for r in rounds)
-    smallest = min(r["requests"] for r in rounds)
+    # El plan exige 100 confirmaciones medidas: solo cuentan las que entran al p95.
+    smallest = min(r["created"] for r in rounds)
     return {
         "rounds": rounds,
         "requests": pooled_requests,

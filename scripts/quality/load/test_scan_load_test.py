@@ -94,6 +94,14 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse(result["meets_min_sample"])
         self.assertEqual(result["measured_per_round_min"], 20)
 
+    def test_failed_requests_do_not_count_toward_min_sample(self):
+        mixed = summarize(
+            [sample(0.1)] * 40 + [sample(0.1, 500, "")] * (MIN_MEASURED_PER_ROUND - 40), 10.0, 3
+        )
+        result = summarize_rounds([mixed])
+        self.assertFalse(result["meets_min_sample"])
+        self.assertEqual(result["measured_per_round_min"], 40)
+
     def test_pooled_totals_cover_all_rounds(self):
         a = summarize([sample(0.1)] * 100, 10.0, 3)
         b = summarize([sample(0.2, 500, "")] * 5 + [sample(0.2)] * 95, 10.0, 3)
