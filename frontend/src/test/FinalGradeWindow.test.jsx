@@ -54,4 +54,58 @@ describe("FinalGradeWindow — INC-008", () => {
       );
     }
   );
+
+  it("permite consultar el resultado usando solo el teclado", async () => {
+    evaluationService.getFinalSubjectGrade.mockResolvedValue({
+      average: 59.5,
+      final_grade: 60,
+      graded_units: 2,
+      total_units: 2,
+      pending_units: 0,
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<FinalGradeWindow cycleId="cycle-1" onClose={vi.fn()} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Consultar resultado" });
+    const student = screen.getByRole("combobox", { name: "Estudiante" });
+    const subject = screen.getByRole("combobox", { name: "Subarea" });
+    const query = screen.getByRole("button", {
+      name: "Consultar",
+      exact: true,
+    });
+    expect(dialog).toContainElement(student);
+    expect(query).toBeDisabled();
+
+    for (
+      let step = 0;
+      step < 5 && document.activeElement !== student;
+      step += 1
+    ) {
+      await user.tab();
+    }
+    expect(student).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    await screen.findByRole("listbox");
+    await user.keyboard("{End}{Enter}");
+    expect(student).toHaveTextContent("Estudiante de prueba");
+    await user.tab();
+    expect(subject).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    await screen.findByRole("listbox");
+    await user.keyboard("{End}{Enter}");
+    expect(subject).toHaveTextContent("Matematica");
+    await user.tab();
+    expect(query).toHaveFocus();
+    expect(query).toBeEnabled();
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByRole("heading", { level: 4 })).toHaveTextContent(
+      /^60$/
+    );
+    expect(evaluationService.getFinalSubjectGrade).toHaveBeenCalledWith(
+      "cycle-1",
+      "enrolment-1",
+      "subject-1"
+    );
+  });
 });
