@@ -94,6 +94,11 @@ Compose actual usa Django `runserver`, Vite de desarrollo y HTTP. Pruebas usan
 obligatorio. SQLite continúa disponible exclusivamente para desarrollo rápido.
 Producción requiere `config.settings.production`, PostgreSQL, servidor de
 aplicación y proxy TLS configurados según [despliegue seguro](../development/secure-deployment.md).
+El QA cloud documentado en
+[`despliegue-cloud-qa.md`](../quality/fase-7/despliegue-cloud-qa.md) verificó
+HTTPS, redirección desde HTTP y cookies seguras con datos sintéticos. Use ese
+procedimiento como referencia y repita la comprobación sobre la revisión final;
+no copie cookies, tokens ni credenciales a la evidencia.
 El repositorio no proporciona un perfil Compose de producción ni pipeline de
 despliegue. Su diseño y comprobación quedan pendientes antes de publicar.
 

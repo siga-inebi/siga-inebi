@@ -115,6 +115,11 @@ Producción debe usar HTTPS y configuración de producción; cookies seguras no
 demuestran que haya TLS instalado. `config.settings.production` exige PostgreSQL,
 desactiva debug y fija cookies Secure. El Compose de desarrollo permite HTTP y
 cookies no Secure; no es una receta para publicar la aplicación.
+RUN-CQ-01 verificó en el QA cloud HTTPS, redirección desde HTTP, ambas cookies
+con `Secure` y la cookie de sesión con `HttpOnly`; `SameSite=Lax` proviene de
+la configuración versionada. Consultar
+`docs/quality/fase-7/despliegue-cloud-qa.md`. Esa evidencia demuestra la línea
+base D3, pero debe repetirse sobre la revisión candidata final.
 La guía [despliegue seguro](../development/secure-deployment.md) indica los
 requisitos del proxy. Cámara en teléfono requiere contexto seguro y permiso
 del navegador; probarla por HTTPS antes de aceptar QR.
