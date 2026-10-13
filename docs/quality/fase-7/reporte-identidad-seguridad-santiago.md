@@ -15,6 +15,8 @@ decisiones de alcance siguen pendientes.
 - Alcances institucionales, docentes, de encargados y de ciclo activo.
 - Controles frontend de login, logout, expiración, bloqueo y cambio de clave.
 - Análisis estático y auditoría de dependencias backend/frontend.
+- Pérdida inmediata del alcance de encargado al terminar el vínculo, reemplazo
+  de la relación principal, conservación histórica y auditoría de rechazos.
 
 El catálogo contiene 29 casos `CP-SEG-*`. Se ejecutaron los 17 clasificados
 como incluidos o condicionados. Los 12 casos fuera del candidato conservan
@@ -29,6 +31,7 @@ aceptación.
 | EJ-D1-038 | Frontend de autenticación y sesiones | Aprobado: 33 pruebas en tres archivos |
 | EJ-D1-039 | Bandit y `pip-audit` | Aprobado: sin hallazgos Bandit; cero vulnerabilidades conocidas y una excepción versionada |
 | EJ-D1-040 | `npm audit --audit-level=high` | Fallido: 8 vulnerabilidades, vinculadas a INC-003 |
+| EJ-D1-041 | Pérdida de alcance del encargado y regresión dirigida | Aprobado técnicamente: accesos previos 200, rechazos posteriores 403, historial y auditoría conservados; 124 pruebas aprobadas |
 
 Catorce requisitos incluidos quedaron `Aprobado` en el catálogo. Tres
 requisitos condicionados quedaron `Bloqueado`: sus controles pasan, pero el
@@ -48,7 +51,8 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 
 ## Pendientes para cierre
 
-1. Diana debe realizar la revisión cruzada de casos y resultados.
+1. Diana debe realizar la revisión cruzada de casos y del resultado técnico de
+   pérdida de alcance registrado en EJ-D1-041.
 2. Daniel debe revisar INC-003 y la excepción versionada de `pip-audit`.
 3. Pablo y la contraparte deben resolver DEC-QA-002 y las discrepancias de
    clasificación entre catálogo y matriz canónica.
