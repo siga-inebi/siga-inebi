@@ -19,6 +19,7 @@ base previas permanecen en los registros.
 | [Manifiesto](manifiesto-version.md) | Identidad verificable de la instantánea evaluada |
 | [Despliegue cloud](despliegue-cloud-qa.md) | RUN-CQ-01: URL, imágenes, revisiones y verificaciones en Cloud Run |
 | [Resultado integrado de Pablo](resultado-ejecucion-pablo-2026-10-12.md) | RUN-PAB-20261012-02: 28/28 controles, métricas y regresión de formato |
+| [Avance de Estuardo](estuardo/informe-avance-2026-10-12.md) | Estado D1–D5, evidencia técnica, sesiones aún pendientes y dependencias |
 
 ## Estado al inicio
 
