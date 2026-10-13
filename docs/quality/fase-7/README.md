@@ -2,9 +2,8 @@
 
 Este directorio conserva evidencia de la Fase 7 para una versión identificable de SIGA-INEBI. Pablo coordina su consolidación; cada responsable de dominio entrega sus resultados, evidencias y regresiones.
 
-RUN-PAB-20261012-02 aprobó 28 controles locales con 1,596 pruebas backend y
-285 frontend. Pablo consolidó la ejecución; revisión independiente y aceptación
-institucional siguen pendientes.
+RUN-D1-06 aprobó 28 controles locales con 1589 pruebas backend y283 frontend.
+Codex ejecutó en apoyo a Daniel; revisión independiente y aceptación pendientes.
 La instantánea incluye cambios sin commit: consultar SHA y digest en el
 [manifiesto](manifiesto-version.md). QA cloud desplegado en RUN-CQ-01 con URL,
 digests y revisiones en [despliegue cloud](despliegue-cloud-qa.md). Las líneas
@@ -12,6 +11,8 @@ base previas permanecen en los registros.
 
 | Evidencia nueva | Propósito |
 | --- | --- |
+| [Cierre documental D1 de Santiago](cierre-d1-identidad-santiago.md) | Inventario, perfiles sintéticos, ejecuciones vinculadas, revisión y límites del cierre de identidad |
+| [Cierre documental D3 de Santiago](cierre-d3-identidad-seguridad-santiago.md) | Cookies/TLS en QA, revisión de dependencias, documentos entregados y pendientes trasladados a D5 |
 | [Entorno y datos](entorno-y-datos.md) | Versiones, recursos, aislamiento y pendientes cloud/teléfono |
 | [Índice](indice-evidencias.csv) | Checksums de artefactos locales ignorados; exportación pendiente |
 | [Rendimiento](informe-rendimiento.md) | Duraciones reales y mediciones de usuario pendientes |
@@ -24,6 +25,7 @@ base previas permanecen en los registros.
 | [Revalidación D2 de Estuardo](estuardo/d2-evaluacion-integracion.md) | 243 pruebas aprobadas en `develop` `5ed5fd24`; no es candidato QA final |
 | [UAT documental de Roí](estuardo/uat-roi-documentos-api-auditoria.md) | Estados reportados por escenario y límites de verificación |
 | [Seguimiento de manuales](seguimiento-manuales.md) | Estado, revisión y evidencia por manual |
+| [Preparación de usabilidad y UAT de Estuardo](estuardo/preparacion-usabilidad-uat/README.md) | Tareas y formatos listos; sesiones institucionales aún no ejecutadas |
 
 ## Estado al inicio
 
@@ -41,7 +43,7 @@ Primera ronda de evaluación de Estuardo: [guía, catálogo y evidencias](estuar
 Es un diagnóstico local complementario; no sustituye la aceptación institucional.
 
 Primera ronda de expediente de Diana: [guía, catálogo y evidencias](diana/README.md).
-Incluye dos fallos de frontend conservados (INC-008) y una incidencia funcional menor (INC-009).
+Incluye dos fallos de frontend conservados (INC-013) y una incidencia funcional menor (INC-009).
 
 | Archivo | Propósito | Responsable |
 | --- | --- | --- |
@@ -55,6 +57,7 @@ Incluye dos fallos de frontend conservados (INC-008) y una incidencia funcional 
 | `reporte-final-pruebas.md` | Informe de estado y recomendación QA. | Pablo |
 | `acta-aceptacion.md` | Borrador de acta o reporte de aceptación institucional. | Pablo + autoridad institucional |
 | `seguimiento-manuales.md` | Estado de manuales y verificación por versión. | Pablo + responsables |
+| `roi-cierre.md` | Consolidación de entregables, pruebas y pendientes verificables de Roí. | Roí / Estuardo / Daniel |
 | `../manuals/08-maintenance-and-support-plan.md` | Plan operativo de mantenimiento y soporte. | Pablo + Daniel |
 
 ## Actualización reproducible

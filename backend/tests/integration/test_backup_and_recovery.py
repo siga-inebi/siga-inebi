@@ -41,7 +41,12 @@ from django.db import connection
 from django.test import override_settings
 from django.utils import timezone
 
-from apps.common.backups import DATABASE_STACK, FILES_STACK, backup_health, latest_manifest
+from apps.common.backups import (
+    DATABASE_STACK,
+    FILES_STACK,
+    backup_health,
+    latest_manifest,
+)
 from apps.common.models import TaskRun
 from apps.documents.services import upload_document_record
 from apps.enrolments.services import create_enrolment
@@ -518,6 +523,14 @@ def _setup_uploader_for_student(student):
     return actor
 
 
+def _latest_integrity_run():
+    return (
+        TaskRun.objects.filter(name="check_document_storage_integrity")
+        .order_by("-started_at")
+        .first()
+    )
+
+
 def test_post_restore_document_storage_integrity_verifies_all_files_match(tmp_path, settings):
     """
     CP-INT-REC-001 / RNF-RES-003: Con base y archivos restaurados en sincronía,
@@ -532,17 +545,15 @@ def test_post_restore_document_storage_integrity_verifies_all_files_match(tmp_pa
         actor=actor,
         student=student,
         upload=SimpleUploadedFile(
-            "expediente.pdf", b"contenido legitimo", content_type="application/pdf"
+            "expediente.pdf",
+            b"contenido legitimo",
+            content_type="application/pdf",
         ),
     )
 
     call_command("check_document_storage_integrity")
 
-    run = (
-        TaskRun.objects.filter(name="check_document_storage_integrity")
-        .order_by("-started_at")
-        .first()
-    )
+    run = _latest_integrity_run()
     assert run is not None
     assert run.status == TaskRun.Status.SUCCEEDED
     assert run.summary["total_checked"] == 1
@@ -567,7 +578,9 @@ def test_post_restore_document_storage_integrity_detects_missing_file_when_stora
         actor=actor,
         student=student,
         upload=SimpleUploadedFile(
-            "partida.pdf", b"partida nacimiento", content_type="application/pdf"
+            "partida.pdf",
+            b"partida nacimiento",
+            content_type="application/pdf",
         ),
     )
 
@@ -577,11 +590,7 @@ def test_post_restore_document_storage_integrity_detects_missing_file_when_stora
     with pytest.raises(SystemExit):
         call_command("check_document_storage_integrity")
 
-    run = (
-        TaskRun.objects.filter(name="check_document_storage_integrity")
-        .order_by("-started_at")
-        .first()
-    )
+    run = _latest_integrity_run()
     assert run is not None
     assert run.status == TaskRun.Status.FAILED
     assert run.summary["missing"] == 1
@@ -603,7 +612,9 @@ def test_post_restore_document_storage_integrity_detects_corrupted_file_with_alt
         actor=actor,
         student=student,
         upload=SimpleUploadedFile(
-            "certificado.pdf", b"certificado original", content_type="application/pdf"
+            "certificado.pdf",
+            b"certificado original",
+            content_type="application/pdf",
         ),
     )
 
@@ -613,11 +624,7 @@ def test_post_restore_document_storage_integrity_detects_corrupted_file_with_alt
     with pytest.raises(SystemExit):
         call_command("check_document_storage_integrity")
 
-    run = (
-        TaskRun.objects.filter(name="check_document_storage_integrity")
-        .order_by("-started_at")
-        .first()
-    )
+    run = _latest_integrity_run()
     assert run is not None
     assert run.status == TaskRun.Status.FAILED
     assert run.summary["corrupted"] == 1
@@ -647,7 +654,9 @@ def test_post_restore_document_storage_integrity_scoped_to_institution(tmp_path,
         actor=actor_a,
         student=student_a,
         upload=SimpleUploadedFile(
-            "doc_a.pdf", b"doc institucion a", content_type="application/pdf"
+            "doc_a.pdf",
+            b"doc institucion a",
+            content_type="application/pdf",
         ),
     )
 
@@ -667,17 +676,15 @@ def test_post_restore_document_storage_integrity_scoped_to_institution(tmp_path,
         actor=actor_b,
         student=student_b,
         upload=SimpleUploadedFile(
-            "doc_b.pdf", b"doc institucion b", content_type="application/pdf"
+            "doc_b.pdf",
+            b"doc institucion b",
+            content_type="application/pdf",
         ),
     )
 
     call_command("check_document_storage_integrity", institution_id=str(inst_a.public_id))
 
-    run = (
-        TaskRun.objects.filter(name="check_document_storage_integrity")
-        .order_by("-started_at")
-        .first()
-    )
+    run = _latest_integrity_run()
     assert run is not None
     assert run.status == TaskRun.Status.SUCCEEDED
     assert run.summary["institution_id"] == str(inst_a.public_id)

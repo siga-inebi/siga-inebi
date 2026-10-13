@@ -15,7 +15,7 @@ son de mantenimiento; las segundas se registran como INC-009. Ninguna provocó f
 - Ejecutó: Claude Code para Diana; revisión de Santiago pendiente.
 - Entorno: Windows, Docker Desktop/Linux, Python 3.11.17, Django 5.2.17, pytest 8.4.1 y PostgreSQL 16.14. Proyecto Compose aislado `siga_inebi_diana_qa`.
 - Datos: factories sintéticas, base de pruebas efímera, sin datos institucionales.
-- Alcance: 15 archivos de expediente (7 unitarias, 6 API, 1 integración, 1 permisos) más 16 casos de privacidad (RNF-PRI-001/002/003).
+- Alcance: 15 archivos de expediente (7 unitarias, 6 API, 1 integración, 1 permisos) más 17 casos de privacidad (RNF-PRI-001/002/003).
 - Sin cobertura global (`--no-cov`), navegador ni aceptación institucional.
 
 ## RUN-DIA-20261012-02 — frontend
@@ -39,7 +39,7 @@ versionada.
 - 16 casos aprobados. Los dos que habían fallado terminaron en 6,54 s y 5,24 s.
 - El CI de `develop` aprueba `frontend-tests` sobre este mismo commit.
 - Conclusión: las dos pruebas quedan a menos de dos segundos del límite por defecto
-  en un equipo lento. Se registra INC-008; no hay evidencia de defecto funcional.
+  en un equipo lento. Se registra INC-013; no hay evidencia de defecto funcional.
 
 ## Lectura del resultado
 
