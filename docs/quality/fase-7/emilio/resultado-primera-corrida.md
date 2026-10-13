@@ -27,6 +27,14 @@ La corrida 01 se conserva como fallida. La 03 no la sustituye: clasifica el fall
 - La selección completa aprobó 302 de 302 en 53,10 s, sin cambios de código ni de datos entre corridas.
 - Inicio UTC: 2026-10-13T02:11:59Z; fin UTC: 2026-10-13T02:13:00Z.
 
+## RUN-EMI-20261012-06 — regresión de INC-011
+
+- Código: `0e1eb6c4354ac198ca05f4696cdddf648faeb3e4` (rama de esta ronda con los commits de revisión de Daniel: `ed65bd6` corrige INC-011 y `0e1eb6c` refactoriza `test_backup_and_recovery.py`).
+- Misma selección backend que la corrida 01: **305 aprobadas, 0 fallidas** (302 previas más las 3 parametrizaciones de `test_catalogue_pagination_is_stable_across_pages`). Exit code 0; 53,62 s.
+- Las tres advertencias `UnorderedObjectListWarning` desaparecen; quedan las cuatro `RemovedInDjango60Warning`.
+- Inicio: 2026-10-12T21:22:21-06:00; fin: 2026-10-12T21:23:38-06:00 (America/Guatemala).
+- INC-011 pasa a **En verificación**; su cierre queda pendiente de la revisión de Josué.
+
 ## Rendimiento direccional (incluido en 01 y 03)
 
 | Prueba | Requisito | Duración 01 | Duración 03 | Resultado |

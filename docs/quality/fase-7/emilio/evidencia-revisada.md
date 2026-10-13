@@ -1,4 +1,4 @@
-# Evidencia revisada — RUN-EMI-20261012-01, 02 y 03
+# Evidencia revisada — RUN-EMI-20261012-01, 02, 03 y 06
 
 Esta referencia publica resultados sintéticos revisados. Los artefactos crudos
 permanecen locales en `docs/quality/fase-7/evidence/RUN-EMI-20261012-0N/`,
@@ -41,6 +41,12 @@ RUN-EMI-20261012-03 (diagnóstico backend, misma selección que la 01):
 
 ```text
 docker compose -p siga_inebi_emilio_qa -f compose.yml -f compose.test.yml run --rm -v <absolute-evidence-directory>:/evidence backend-test sh -lc 'python manage.py migrate --noinput && pytest tests/unit/test_qr.py tests/unit/test_attendance_services.py tests/api/test_attendance_api.py tests/permissions/test_attendance_permissions.py tests/integration/test_attendance.py tests/integration/test_attendance_performance.py --no-cov --junitxml=/evidence/junit.xml -q'
+```
+
+RUN-EMI-20261012-06 (regresión de INC-011, misma selección que la 01; comando exacto en `run.sh`):
+
+```text
+docker compose -p siga_inebi_emilio_qa -f compose.yml -f compose.test.yml run --rm -v <absolute-evidence-directory>:/evidence backend-test sh /evidence/run.sh
 ```
 
 ## Integridad de artefactos locales
@@ -90,3 +96,24 @@ docker compose -p siga_inebi_emilio_qa -f compose.yml -f compose.test.yml run --
 | `git-sha.txt` | 41 | `dadfb59296ad12c8cd9b38b47c0da5bc2818d472d7989f88e71f6ee6fc679c6b` |
 | `junit.xml` | 42843 | `39034960a60ba43438709e7dd2f9df7cf3de2fe915338443262632ef7c056d94` |
 | `started-utc.txt` | 21 | `be06d591608379bc6dd31ec8800f64b737f1175fc5701f9a821f6901ff15976c` |
+
+### RUN-EMI-20261012-06
+
+SHA evaluado: `0e1eb6c4354ac198ca05f4696cdddf648faeb3e4`.
+
+| Archivo local | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `build-exit-code.txt` | 2 | `9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa` |
+| `build.log` | 3032 | `bccce65b2ed6c2ae0af146db3cade028dc56fc1ad4455cb39a3b390cde26af89` |
+| `database-exit-code.txt` | 2 | `9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa` |
+| `database-start.log` | 205 | `9173a8eacb7d96280fd632264518a3c4aa0d718a1fdb86d7c5adef793302012b` |
+| `execution.log` | 8409 | `81665149747de6c7edcc39279eba02f31880e9c8391e4a1cdf66cb8f1e1949fa` |
+| `exit-code.txt` | 2 | `9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa` |
+| `finished-utc.txt` | 21 | `90e400de748404283406c29e8d71f3ce9ad69d454f09537791b2573e2c45e3fa` |
+| `git-sha.txt` | 41 | `5d06bc9ce0f3ae8ed00217cfaea45ab3548a69347add3e13fcb9c7b5e8f9cd27` |
+| `git-status.txt` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `junit.xml` | 43401 | `199b39414f59ef3be5b32b1683928d19ca8acc376d3491b58fb6e19d4968226e` |
+| `postgresql-version.txt` | 89 | `683ecaee6342addcdb0697c81ee983b7085b774acade718fe5f7718a81c6178e` |
+| `run.sh` | 496 | `94066a205ad8eeeb2bbe4f5c24352f1422a3c888a1a144ac58b7873604ecb4df` |
+| `runtime-versions.txt` | 35 | `3117e34127323b373135337b0eee9022afdc176028bc41d2a5b6809b27445a8c` |
+| `started-utc.txt` | 21 | `8aa6a4afd97baaa43ff8033acb7cb1587153c142db862953f76c52127b12a074` |

@@ -7,7 +7,7 @@ Diagnóstico local; no constituye candidato formal, aceptación institucional ni
 
 ## Archivos de trabajo
 
-- [Resultado de la primera corrida](resultado-primera-corrida.md): backend **301 aprobadas y 1 fallida** de 302 (RUN-EMI-20261012-01); la corrida de diagnóstico sobre el mismo SHA aprobó **302 de 302** (RUN-EMI-20261012-03). Frontend **27 de 27 aprobadas** (RUN-EMI-20261012-02). El fallo intermitente se registra como INC-010 y las advertencias de paginación sin orden como INC-011.
+- [Resultado de la primera corrida](resultado-primera-corrida.md) (incluye la regresión de INC-011, RUN-EMI-20261012-06): backend **301 aprobadas y 1 fallida** de 302 (RUN-EMI-20261012-01); la corrida de diagnóstico sobre el mismo SHA aprobó **302 de 302** (RUN-EMI-20261012-03). Frontend **27 de 27 aprobadas** (RUN-EMI-20261012-02). El fallo intermitente se registra como INC-010 y las advertencias de paginación sin orden como INC-011.
 - [Catálogo inicial](catalogo-inicial.csv): 45 requisitos (RF-CRE-001 a 006, RF-ASI-001 a 014, RF-JOR-001 a 011, RF-JUS-001 a 009, RNF-CON-001/002, RNF-REN-001/002 y RNF-USA-001), criterio original, estado según `matriz-final.csv` y `traceability-matrix.md`, y referencias candidatas.
 - [Inventario de pruebas](inventario-pruebas.csv): 329 casos (302 backend y 27 frontend) con el requisito citado en la prueba, cuando existe, y su línea.
 - [Resultados por prueba](resultados-pruebas.csv): estado y duración de cada caso en las tres corridas, transcritos de JUnit.
@@ -34,7 +34,7 @@ El inventario enumera los nodos precisos. Las suites completas se ejecutaron, no
 | ID | Hallazgo | Severidad | Estado |
 | --- | --- | --- | --- |
 | INC-010 | `tests/api/test_attendance_api.py::test_close_jornada_creates_alert_for_permanence_without_closure` falló una vez: el cierre de jornada respondió 200 con la alerta correcta, pero `GET attendance/alerts/` respondió **403** en lugar de 200. La misma prueba aprobó sola y la suite completa aprobó 302/302 en la corrida siguiente sobre el mismo SHA. Prueba intermitente dependiente del orden o del estado; causa no determinada. | S3 | Abierta |
-| INC-011 | Los catálogos `attendance/control-points/`, `manual-registration-reasons/` y `justification-reasons/` paginan consultas sin orden (`UnorderedObjectListWarning` en `ControlPoint`, `ManualRegistrationReason` y `JustificationReason`). Dos páginas pueden repetir u omitir filas. Mismo patrón que INC-009 de Diana. | S3 | Abierta |
+| INC-011 | Los catálogos `attendance/control-points/`, `manual-registration-reasons/` y `justification-reasons/` paginan consultas sin orden (`UnorderedObjectListWarning` en `ControlPoint`, `ManualRegistrationReason` y `JustificationReason`). Dos páginas pueden repetir u omitir filas. Mismo patrón que INC-009 de Diana. Corregida por Daniel en `ed65bd6`; regresión aprobada en RUN-EMI-20261012-06. | S3 | En verificación |
 
 ## Brechas y decisiones para Pablo / Josué
 
