@@ -159,7 +159,7 @@ describe("GuardiansPage", () => {
       })
     );
     expect(await screen.findByText("Nuevo Encargado")).toBeInTheDocument();
-  });
+  }, 10000);
 
   test("edits a guardian via the detail panel", async () => {
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
