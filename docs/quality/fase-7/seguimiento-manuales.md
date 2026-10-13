@@ -2,7 +2,7 @@
 
 | Producto | Responsable | Fuente de instrucciones | Versión/SHA validado | Revisor independiente | Estado | Evidencia/observaciones |
 | --- | --- | --- | --- | --- | --- | --- |
-| Manual de usuario en video | Emilio y Estuardo | `docs/manuals/01-user-video-manual-instructions.md` | Pendiente | Pendiente | Pendiente | Pendiente |
+| Manual de usuario en video | Emilio y Estuardo (Segmento Documentos y Auditoría: Roí) | `docs/manuals/01-user-video-manual-instructions.md` | SHA real: `7e2c7e45b96d` (video 06:34 sistema real + audio español sincronizado) | Emilio y Estuardo (pendiente consolidado) | Segmento Roí completado | Segmento Documentos y Auditoría finalizado con sistema real (Django + Vite) y locución en español. Ver [Ficha y Guion](../../manuals/01-user-video-manual-segmento-documentos-auditoria.md) y archivo `docs/manuals/video-manual-documentos-auditoria-sistema-real.mp4`. |
 | Manual técnico | Daniel, con aportes de equipo | `docs/manuals/02-technical-manual-instructions.md` | Pendiente de SHA final | Pendiente | Borrador creado | [Manual](../../manuals/02-technical-manual.md); pendientes ER/diccionario de Diana, scripts de Josué y revisión independiente. |
 | Instalación y configuración | Daniel y Josué | `docs/manuals/03-installation-and-configuration-instructions.md` | Pendiente de SHA final | Josué (pendiente) | Borrador creado | [Manual](../../manuals/03-installation-and-configuration.md); pendiente reproducción desde copia limpia y validación HTTPS/teléfono. |
 | Administración | Santiago | `docs/manuals/04-administration-manual-instructions.md` | Pendiente | Pendiente | Pendiente | Pendiente |

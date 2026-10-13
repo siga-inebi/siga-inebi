@@ -90,3 +90,13 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# Local media binaries & scratch
+*.mp4
+*.webm
+*.mp3
+scratch/
+docs/manuals/video-real-raw/
+docs/manuals/video-playwright/
+docs/manuals/recursos-demostracion/
+frontend/test_*.txt
