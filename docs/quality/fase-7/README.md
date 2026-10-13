@@ -19,6 +19,11 @@ base previas permanecen en los registros.
 | [Manifiesto](manifiesto-version.md) | Identidad verificable de la instantánea evaluada |
 | [Despliegue cloud](despliegue-cloud-qa.md) | RUN-CQ-01: URL, imágenes, revisiones y verificaciones en Cloud Run |
 | [Resultado integrado de Pablo](resultado-ejecucion-pablo-2026-10-12.md) | RUN-PAB-20261012-02: 28/28 controles, métricas y regresión de formato |
+| [Avance de Estuardo](estuardo/informe-avance-2026-10-13.md) | Alcance vigente y pendientes D2/D5 |
+| [Ajuste de alcance de Estuardo](estuardo/ajuste-alcance.md) | Decisión comunicada para retirar D1, D3 y D4 de sus responsabilidades de evaluación |
+| [Revalidación D2 de Estuardo](estuardo/d2-evaluacion-integracion.md) | 243 pruebas aprobadas en `develop` `5ed5fd24`; no es candidato QA final |
+| [UAT documental de Roí](estuardo/uat-roi-documentos-api-auditoria.md) | Estados reportados por escenario y límites de verificación |
+| [Seguimiento de manuales](seguimiento-manuales.md) | Estado, revisión y evidencia por manual |
 
 ## Estado al inicio
 
