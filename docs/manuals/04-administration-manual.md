@@ -21,16 +21,18 @@ datos personales en incidencias, capturas o mensajes.
   sesión.
 - Las bajas, revocaciones, cierres y reasignaciones conservan historia. No se
   eliminan registros auditables para corregir una operación.
-- El frontend ayuda a ocultar opciones no disponibles, pero la autorización
-  definitiva siempre se aplica en el backend.
+- La versión actual no filtra el menú por permisos: que una opción sea visible
+  no significa que la cuenta esté autorizada. La autorización definitiva se
+  aplica en el backend y deniega la operación cuando falta permiso o alcance.
 
 ## 3. Acceso y navegación
 
 1. Abra la URL entregada por el responsable técnico.
 2. Inicie sesión con su cuenta institucional individual.
 3. No comparta la sesión ni use cuentas genéricas en operación institucional.
-4. Use el menú lateral para acceder únicamente a los módulos visibles para su
-   autorización.
+4. Use el menú lateral para navegar. Actualmente muestra los módulos aunque la
+   cuenta no tenga permiso para operarlos; una respuesta de acceso denegado no
+   debe eludirse ni interpretarse como un error de datos.
 5. Al finalizar, abra el menú de usuario y cierre la sesión. Use **Cerrar todas
    las sesiones** cuando sospeche que otra sesión quedó abierta.
 
@@ -49,7 +51,9 @@ las mismas comprobaciones de sesión, permiso y alcance.
 | Declarar alcances | Servicio/API de identidad; sin pantalla administrativa completa |
 | Consultar y exportar bitácora | API de auditoría; sin pantalla administrativa completa |
 | Configurar estructura académica | Pantallas de Ciclo escolar, Sedes, Aulas, Niveles, Cursos y Asignaciones docentes |
+| Cerrar o reabrir un ciclo escolar | API académica; sin acción disponible en la pantalla actual |
 | Gestionar plantillas y tipos documentales | Pantallas de Documentos y control |
+| Emitir tokens temporales de descarga documental | Servicio interno; sin endpoint administrativo para emitirlos |
 
 No improvise cambios directos en la base de datos para suplir una pantalla que
 no existe. Registre la necesidad como incidencia o solicitud de cambio.
@@ -163,8 +167,12 @@ administración de cuentas.
 
 ### 6.3 Declarar alcances
 
-- **Permiso requerido:** `scope.assign`.
-- **Precondición:** rol asignado y objeto institucional identificado.
+- **Permiso requerido:** `role.assign`.
+- **Precondición:** cuenta, rol y objeto institucional identificados.
+- **Procedimiento:** declare el alcance en el campo obligatorio `scope` del
+  mismo `POST /api/v1/identity/accounts/{id}/role-assignments/` usado para
+  asignar el rol. La API de identidad no ofrece una operación independiente
+  protegida por `scope.assign` para agregar alcances a una asignación existente.
 - **Regla:** todo permiso contextual necesita alcance. Puede corresponder a
   institución, ciclo, grado, sección, curso, asignación docente, estudiante o
   módulo, con vigencia cuando aplique.
@@ -175,6 +183,10 @@ administración de cuentas.
 El alcance docente se deriva de asignaciones docentes vigentes y el del
 encargado de relaciones vigentes con estudiantes; no duplique esos alcances sin
 una razón documentada.
+
+El permiso `scope.assign` pertenece a las escrituras del catálogo y la
+estructura académica descritas en la sección 7; no autoriza la asignación de
+roles de identidad.
 
 ## 7. Configuración institucional y académica
 
@@ -202,9 +214,12 @@ correspondientes y nunca mediante SQL manual.
   con oferta, secciones y plan; las asignaciones docentes son opcionales.
 - **Activar:** valide antes grados, secciones, plan de estudios, asignaciones y
   unidades de evaluación. Activar cierra la preparación estructural ordinaria.
-- **Cerrar o reabrir:** use únicamente los contratos autorizados. La reapertura
-  requiere `academic_cycle.reopen`, motivo y auditoría; no descarta resultados
-  congelados.
+- **Cerrar o reabrir:** estas dos operaciones solo están disponibles por API;
+  la pantalla actual no presenta botones para ejecutarlas. El cierre usa
+  `POST /api/v1/academics/cycles/{public_id}/close/`. La reapertura usa
+  `POST /api/v1/academics/cycles/{public_id}/reopen/` y requiere
+  `academic_cycle.reopen`, alcance institucional, motivo y auditoría; no
+  descarta resultados congelados.
 - **Auditoría esperada:** creación, clonación, activación, cierre y reapertura
   registran actor y ciclo afectado.
 
@@ -241,8 +256,10 @@ No active un ciclo incompleto.
 - Use **Plantillas** y **Tipos de documento** solo con autorización funcional.
 - No introduzca código ejecutable en plantillas. Utilice exclusivamente los
   marcadores admitidos por el catálogo cerrado.
-- Las descargas sensibles requieren permiso y alcance; deben usar el mecanismo
-  temporal entregado por el sistema.
+- Las descargas sensibles requieren permiso y alcance. El backend valida tokens
+  temporales de descarga, pero la versión actual no expone un endpoint para
+  emitirlos; por tanto, no existe todavía un procedimiento administrativo
+  completo para obtener uno. No improvise ni construya tokens manualmente.
 - No comparta enlaces de descarga ni documentos fuera del canal institucional.
 - Las lecturas y descargas sensibles deben generar auditoría según su tipo.
 
@@ -253,10 +270,11 @@ La consulta y exportación están disponibles por API:
 - `GET /api/v1/audit/events/`
 - `GET /api/v1/audit/events/export/`
 
-- **Permiso requerido:** `audit.read` con alcance válido.
+- **Permiso requerido:** `audit.read`. El contrato actual no valida alcance
+  para consultar o exportar la bitácora.
 - **Precondición:** propósito autorizado y filtros mínimos necesarios.
-- **Resultado esperado:** eventos dentro del alcance; una exportación genera
-  `audit.export.created`.
+- **Resultado esperado:** eventos que coinciden con los filtros solicitados;
+  una exportación genera `audit.export.created`.
 
 La bitácora es inmutable. Una corrección crea un nuevo asiento o registro de
 ajuste; nunca se modifica ni elimina el evento original. No exporte bitácoras a

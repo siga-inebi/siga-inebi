@@ -45,8 +45,10 @@ formal sobre el candidato final.
 ## Documentos entregados
 
 - `informe-seguridad.md`: contenido D3 reconciliado; revisión de Roí pendiente.
-- `docs/manuals/04-administration-manual.md`: borrador D3 completo; ejecución y
-  revisión independiente de Diana pendientes.
+- `docs/manuals/04-administration-manual.md`: borrador D3 completo; Diana lo
+  revisó contra el código y se incorporaron sus cinco correcciones. Queda
+  pendiente vincular el PR de su evidencia cuando lo abra y repetir la
+  validación sobre el candidato final.
 - `docs/manuals/02-technical-manual.md`: aporte de configuración segura,
   separación desarrollo/producción, cookies y TLS.
 - `docs/manuals/03-installation-and-configuration.md`: aporte de orígenes,
@@ -58,7 +60,8 @@ formal sobre el candidato final.
 2. Repetir auditorías backend/frontend sobre el SHA candidato final.
 3. Repetir cookies y TLS sobre la revisión final del entorno de entrega.
 4. Incorporar la revisión independiente de Roí al informe de seguridad.
-5. Incorporar la revisión independiente de Diana al manual de administración.
+5. Vincular el PR de la revisión independiente de Diana y repetirla sobre el
+   candidato final.
 
 ## Criterio de cierre
 
