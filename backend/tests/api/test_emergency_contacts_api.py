@@ -3,6 +3,7 @@ import uuid
 import pytest
 from django.urls import reverse
 
+from apps.students import queries
 from apps.students.models import EmergencyContact
 from tests.factories.identity import (
     PermissionFactory,
@@ -102,6 +103,33 @@ def test_list_emergency_contacts_is_paginated_and_scoped_to_student(logged_in_cl
     assert "results" in data
     assert "count" in data
     assert data["count"] == 3
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_list_emergency_contacts_has_a_stable_order(logged_in_client):
+    """
+    INC-009: el listado paginaba una consulta sin orden, asi que dos paginas
+    podian repetir u omitir contactos. El orden es por nombre y, a igual
+    nombre, por orden de registro.
+    """
+    student = StudentFactory()
+    grant_contact_access(logged_in_client, student)
+    zoila = EmergencyContactFactory(student=student, name="Zoila Perez")
+    first_ana = EmergencyContactFactory(student=student, name="Ana Lopez")
+    second_ana = EmergencyContactFactory(student=student, name="Ana Lopez")
+
+    response = logged_in_client.get(
+        reverse("student-emergency-contact-list-create", args=[student.public_id])
+    )
+
+    assert response.status_code == 200
+    assert [item["public_id"] for item in response.json()["results"]] == [
+        str(first_ana.public_id),
+        str(second_ana.public_id),
+        str(zoila.public_id),
+    ]
+    assert queries.emergency_contacts(student).ordered
 
 
 @pytest.mark.api

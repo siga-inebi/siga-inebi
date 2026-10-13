@@ -204,22 +204,25 @@ describe("AlumnosPage", () => {
     );
   });
 
-  test("submits the create form against the mock service", async () => {
-    studentsServiceMock.list.mockResolvedValue(SAMPLE);
-    studentsServiceMock.nextCode.mockResolvedValue("EST-2026-0101");
-    studentsServiceMock.create.mockResolvedValue({
+  test("submits the create form against the mock service and reloads the list", async () => {
+    const createdStudent = {
       id: 3,
       person: {
         public_id: "person-13",
         first_name: "Nueva",
         last_name: "Alumna",
-        email: "",
-        phone_number: "",
+        email: "nueva@example.test",
+        phone_number: "555-0199",
       },
       student_code: "EST-2026-099",
       status: "pre_enrolled",
       photo: "",
-    });
+    };
+    studentsServiceMock.list
+      .mockResolvedValueOnce(SAMPLE)
+      .mockResolvedValueOnce([...SAMPLE, createdStudent]);
+    studentsServiceMock.nextCode.mockResolvedValue("EST-2026-0101");
+    studentsServiceMock.create.mockResolvedValue(createdStudent);
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 
@@ -253,6 +256,9 @@ describe("AlumnosPage", () => {
         student_code: "EST-2026-099",
         status: "pre_enrolled",
       })
+    );
+    await waitFor(() =>
+      expect(studentsServiceMock.list).toHaveBeenCalledTimes(2)
     );
     expect(await screen.findByText("Nueva Alumna")).toBeInTheDocument();
     // Ver el presupuesto homonimo en DocentesPage.test.jsx.

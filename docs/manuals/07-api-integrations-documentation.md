@@ -47,7 +47,7 @@ Cualquier cambio futuro que introduzca rupturas contractuales en serializadores,
 
 Para evitar ataques de enumeración y fugas de volumen de datos:
 - Las claves primarias internas (`id` enteros secuenciales) están aisladas en la base de datos PostgreSQL.
-- Las URLs de la API exponen identificadores opacos universales UUID v4 (`public_id`), por ejemplo `b1a2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d`.
+- Las URLs de la API exponen identificadores opacos universales UUID v4 (`public_id`), por ejemplo `b1a2c3d4-e5f6-4a8b-9c0d-1e2f3a4b5c6d`.
 - Los códigos de catálogo administrativo se normalizan en mayúsculas o minúsculas según el dominio (ej. plantillas `CONST`, roles `profesor_titular`).
 
 ### 2.4 Paginación estándar
@@ -64,7 +64,7 @@ Los endpoints de listado de colecciones aplican paginación basada en número de
 ```
 
 - Parámetro `page`: Número de página solicitada (base 1).
-- Parámetro `page_size`: Límite de elementos por página (predeterminado: 20; máximo configurable: 100).
+- Parámetro `page_size`: Límite de elementos por página (predeterminado: 25, según la configuración DRF actual). No se configura un máximo de página personalizado.
 
 ### 2.5 Respuestas HTTP y sobre de errores normalizado
 
@@ -73,14 +73,14 @@ La API utiliza los códigos de estado HTTP estándar:
 | Código | Significado | Condición de aplicación |
 |---|---|---|
 | **200 OK** | Éxito | Consultas y actualizaciones exitosas. |
-| **201 Created** | Creado | Recursos creados satisfactoriamente con encabezado `Location` o `public_id`. |
+| **201 Created** | Creado | Recurso creado satisfactoriamente. La respuesta concreta define sus campos; no se garantiza un encabezado `Location` para todos los endpoints. |
 | **204 No Content** | Sin contenido | Operaciones exitosas que no retornan cuerpo (desactivaciones lógicas o verificaciones). |
 | **400 Bad Request** | Error de dominio o formato | Cuerpos inválidos, tipos no permitidos o violación de invariantes de negocio (`DomainError`). |
 | **401 Unauthorized** | No autenticado | Solicitud anónima a un endpoint protegido por sesión. |
 | **403 Forbidden** | Denegado / Prohibido | Usuario autenticado carece del permiso atómico o del alcance (`ScopeGrant`) necesario. |
 | **404 Not Found** | No encontrado | El recurso con el `public_id` indicado no existe en la institución del usuario. |
 | **409 Conflict** | Conflicto de concurrencia | Conflicto de estado, duplicación de código único o colisión en asignaciones. |
-| **429 Too Many Requests** | Límite de tasa excedido | Exceso de solicitudes en endpoints públicos con control de ráfaga (throttle). |
+| **429 Too Many Requests** | Límite de tasa excedido | La verificación pública de documentos aplica un límite de 20 solicitudes por minuto por IP (`document_verification`). |
 | **500 Internal Error** | Error no controlado | Fallo inesperado en el servidor; nunca revela detalles de depuración al cliente. |
 
 #### Estructura del sobre de error (`api_exception_handler`):
@@ -126,7 +126,7 @@ SIGA-INEBI utiliza **sesiones HTTP respaldadas por cookies criptográficas** ges
 ### 3.2 Protección contra Cross-Site Request Forgery (CSRF)
 
 - Todas las peticiones de modificación (`POST`, `PUT`, `PATCH`, `DELETE`) en el navegador requieren la inclusión del encabezado `X-CSRFToken`.
-- El token CSRF se lee de la cookie `csrftoken` emitida por el backend al cargar la aplicación y se adjunta automáticamente por el cliente HTTP (`axios` / `fetch`).
+- El cliente web actual usa `fetch`: lee la cookie `csrftoken` emitida por el backend y adjunta su valor en `X-CSRFToken` para las solicitudes de modificación.
 
 ### 3.3 Modelo de autorización: Denegación por defecto y alcances obligatorios
 
@@ -166,7 +166,7 @@ El sistema aplica una matriz de seguridad de tres capas:
 
 ```http
 GET /api/v1/auth/me/ HTTP/1.1
-Host: siga.inebi.edu.gt
+Host: api.example.invalid
 Accept: application/json
 ```
 
@@ -176,12 +176,11 @@ Content-Type: application/json
 
 {
   "user": {
-    "username": "secretaria.general",
-    "email": "secretaria@inebi.edu.gt",
+    "username": "usuario.ejemplo",
+    "email": "secretaria@example.invalid",
     "person": {
-      "first_name": "Claudia",
-      "last_name": "Morales",
-      "cui": "2847192830101"
+      "first_name": "Persona",
+      "last_name": "Ejemplo"
     },
     "roles": [
       {
@@ -193,7 +192,7 @@ Content-Type: application/json
     "scopes": [
       {
         "scope_type": "institution",
-        "target_id": "c1f2e3d4-b5a6-7890-abcd-ef1234567890"
+        "target_id": "c1f2e3d4-b5a6-4890-abcd-ef1234567890"
       }
     ]
   }
@@ -226,7 +225,7 @@ Este dominio gestiona plantillas documentales (RF-PLA), expedientes (RF-DOC), ar
 | `POST` | `/api/v1/documents/types/` | Registrar nuevo tipo en el catálogo (RNF-MAN-001) | `scope.assign` |
 | `GET` | `/api/v1/documents/storage-consumption/` | Resumen de consumo de almacenamiento y advertencia | Autenticado |
 | `GET` | `/api/v1/documents/official-issuance/eligibility/` | Evaluar si matrícula puede emitir documentos | `document_issue` |
-| `GET` | `/api/v1/documents/historical-cycle-report/` | Generar boleta en memoria de ciclo cerrado | `document_issue` (Estudiante) |
+| `GET` | `/api/v1/documents/historical-cycle-reports/` | Generar boleta en memoria de ciclo cerrado | `document_issue` (Estudiante) |
 | `POST` | `/api/v1/documents/official-issuance/batches/` | Emisión por lote con idempotencia de reintento | `document_issue` (Grado/Sección) |
 | `POST` | `/api/v1/documents/delivery-receipts/` | Registrar constancia de entrega a encargado | `document_issue` |
 | `GET` | `/api/v1/documents/verify/{code}/` | Verificación pública de autenticidad por código | Público (con Rate Limit) |
@@ -235,7 +234,7 @@ Este dominio gestiona plantillas documentales (RF-PLA), expedientes (RF-DOC), ar
 
 ```http
 POST /api/v1/documents/records/ HTTP/1.1
-Host: siga.inebi.edu.gt
+Host: api.example.invalid
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryXYZ
 
 ------WebKitFormBoundaryXYZ
@@ -243,10 +242,10 @@ Content-Disposition: form-data; name="student_id"
 
 f47ac10b-58cc-4372-a567-0e02b2c3d479
 ------WebKitFormBoundaryXYZ
-Content-Disposition: form-data; name="file"; filename="certificado_nacimiento.pdf"
+Content-Disposition: form-data; name="file"; filename="documento-ejemplo.pdf"
 Content-Type: application/pdf
 
-%PDF-1.4 ... [contenido binario] ...
+[contenido binario omitido en el ejemplo]
 ------WebKitFormBoundaryXYZ--
 ```
 
@@ -257,9 +256,9 @@ Content-Type: application/json
 {
   "public_id": "a89b3f42-c109-4821-b328-9f123456789a",
   "student_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "filename": "certificado_nacimiento.pdf",
+  "filename": "documento-ejemplo.pdf",
   "content_type": "application/pdf",
-  "size_bytes": 245890,
+  "size_bytes": 0,
   "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "status": "active",
   "version_number": 1,
@@ -267,13 +266,15 @@ Content-Type: application/json
 }
 ```
 
+El cuerpo del archivo se omite en este ejemplo; por eso se representa como archivo vacío (`size_bytes: 0`) y su checksum corresponde a cero bytes.
+
 *Efecto de auditoría:* Se genera un evento `documents.document.uploaded` registrando actor, identificador de recurso y versión.
 
 #### Ejemplo sanitizado — Verificación pública (`GET /api/v1/documents/verify/{code}/`):
 
 ```http
 GET /api/v1/documents/verify/vK92mX10_892jklQ761234za/ HTTP/1.1
-Host: siga.inebi.edu.gt
+Host: api.example.invalid
 Accept: application/json
 ```
 
