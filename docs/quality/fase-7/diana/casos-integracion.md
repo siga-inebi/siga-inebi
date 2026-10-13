@@ -14,7 +14,7 @@ No usar superusuario como única cuenta. Cada ejecución se anota en
 | Persona | Caso | Qué prepara | Qué ejecuta | Qué verifica |
 | --- | --- | --- | --- | --- |
 | **Josué** | CP-INT-MAT-001 | Ciclo activo y ciclo cerrado; sede, jornada, grado y dos secciones (una con cupo, una llena). | Pasos 5 a 8: matrícula, cupo, segundo intento y ciclo cerrado. | Vigencia de la matrícula, historial y rechazo por cupo/ciclo. |
-| **Santiago** | CP-INT-ALC-DIA-001 | Rol QA de encargado con `student_view_basic` y **sin** `student_view_sensitive` (los datos demo solo traen administrador y director), cuenta QA de encargado sin `ScopeGrant` propio, cuenta de secretaría con permiso y alcance, y cuenta sin alcance. No hay pantalla de roles: se crean y asignan por API. | Pasos 2, 4 y 6: consultas con la sesión del encargado antes y después del corte. | Respuesta 200/403/404 conforme al contrato y evento `identity.authorization.denied` en la bitácora. |
+| **Santiago** | CP-INT-ALC-DIA-001 | Rol QA de encargado con `auth_login`, `auth_logout` y `student_view_basic`, y **sin** `student_view_sensitive` (los datos demo solo traen administrador y director), cuenta QA de encargado sin `ScopeGrant` propio, cuenta de secretaría con permiso y alcance, y cuenta sin alcance. No hay pantalla de roles: se crean y asignan por API. | Pasos 2, 4 y 6: consultas con la sesión del encargado antes y después del corte. | Respuesta 200/403/404 conforme al contrato y evento `identity.authorization.denied` en la bitácora. |
 | **Emilio** | CP-INT-JUS-001 | Jornada con parámetros vigentes, punto de control y una ausencia registrada del estudiante. | Pasos 3 a 6: resolución de la justificación y consulta del estado del día. | Estado derivado antes y después; el evento original de asistencia no cambia. |
 | **Roí** | CP-INT-DOC-001 | Tipo de documento, archivos sintéticos válido, inválido y alterado. | Pasos 3 a 6: integridad, descarga y auditoría de lectura. | Hash, rechazo de token ajeno o vencido y evento `documents.document.read`. |
 | **Diana** | Los cuatro | Persona, estudiante, encargado con vínculo vigente y otro terminado, contacto, nota de salud y observación. | Los pasos de expediente de cada caso (marcados **D**). | Datos del expediente, vínculos, baja lógica y auditoría de lecturas sensibles. |
@@ -27,7 +27,7 @@ No usar superusuario como única cuenta. Cada ejecución se anota en
 | Persona B + estudiante B | Estudiante ajeno: sin vínculo con el encargado de prueba. |
 | Encargado 1 | Vínculo **vigente** y principal con el estudiante A. |
 | Encargado 2 | Vínculo **terminado** con el estudiante A (creado y luego finalizado con reemplazo). |
-| Encargado 3 (reemplazo) | Vínculo **vigente** y no principal con el estudiante A, creado **antes** de terminar el principal. |
+| Encargado 3 (reemplazo) | Vínculo **vigente** y secundario (no principal) con el estudiante A, creado **antes** de terminar el principal. Permanece vigente y secundario hasta el cambio del paso 5. |
 | Contacto de emergencia | Uno para el estudiante A. |
 | Nota de salud y observación | Una de cada una para el estudiante A, con texto sintético. |
 
@@ -66,9 +66,9 @@ Anotar los identificadores públicos en la ficha de entorno, no nombres reales.
 - **Requisitos:** RF-ALC-006, RF-ALC-008, RF-EXP-004, RF-EXP-008.
 - **Origen:** tarea D3 de Diana; el plan no le asigna identificador, se propone este.
 - **Precondición:** el encargado 1 tiene cuenta QA activa y vínculo vigente y principal con el
-  estudiante A. Su rol QA incluye `student_view_basic` y excluye explícitamente
-  `student_view_sensitive`. El encargado 3 (reemplazo) ya tiene un vínculo vigente con el
-  estudiante A antes de empezar.
+  estudiante A. Su rol QA tiene exactamente `auth_login`, `auth_logout` y `student_view_basic`, y excluye
+  explícitamente `student_view_sensitive`. El encargado 3 (reemplazo) tiene un vínculo vigente
+  y secundario con el estudiante A, que permanece así hasta el cambio del paso 5.
 - **Cuenta no reutilizable:** la cuenta local de encargado usada en EJ-D1-041 llevaba
   `student_view_sensitive`; no sirve para este caso. Ver la
   [revisión cruzada de EJ-D1-041](revision-cruzada-ej-d1-041.md).
@@ -79,7 +79,7 @@ Anotar los identificadores públicos en la ficha de entorno, no nombres reales.
 | 2 | Santiago | Con la sesión del encargado 1, consultar al estudiante A. | Acceso permitido, solo datos básicos. |
 | 3 | **D** | Con esa misma sesión, intentar ver la nota de salud y la observación. | Denegado (403): el rol QA del encargado no incluye `student_view_sensitive`. |
 | 4 | Santiago | Con la sesión del encargado 1, consultar al estudiante B (ajeno). | Denegado, sin revelar si el estudiante existe. |
-| 5 | **D** | Terminar el vínculo del encargado 1 designando como reemplazo al encargado 3, cuyo vínculo ya está vigente. | El vínculo queda con fecha de fin; el encargado 3 pasa a principal y es el único principal vigente. |
+| 5 | **D** | Terminar el vínculo del encargado 1 designando como reemplazo al encargado 3, cuyo vínculo sigue vigente y secundario hasta este paso. | El vínculo queda con fecha de fin; el encargado 3 pasa a principal y es el único principal vigente. |
 | 6 | Santiago | Sin cerrar la sesión del encargado 1, repetir la consulta del paso 2. | Denegado **de inmediato**, en la siguiente petición. |
 | 7 | **D** | Intentar terminar el vínculo principal sin reemplazo (con otro estudiante de prueba). | Rechazo: el principal exige reemplazo vigente. |
 | 8 | **D** | Consultar el historial de vínculos del estudiante A. | El vínculo terminado sigue visible; nada se borró. |
