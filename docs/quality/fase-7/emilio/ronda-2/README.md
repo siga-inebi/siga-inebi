@@ -52,6 +52,35 @@ Patrón común: ambas otorgan alcance sobre el estudiante con `_grant_student_sc
 
 INC-010 se mantiene abierta (S3) y su registro se amplía con la segunda prueba afectada.
 
+## Seguimiento del 13/10: causa de INC-010
+
+Corrida `RUN-EMI-20261013-01`, 13 de octubre de 2026, 06:30–06:34 (America/Guatemala), sobre `df50384313057d596d5415b301b6e1bbef90f053` (árbol limpio), misma selección backend repetida 10 veces. Objetivo: descartar la hipótesis de Daniel (comparación entre fecha local y UTC), ya que las 12 corridas anteriores fueron entre 20:08 y 20:55, cuando la fecha UTC ya era el día siguiente. En esta corrida ambas fechas coinciden.
+
+| Resultado | Detalle |
+| --- | --- |
+| Iteraciones | 7 sin fallos; 3 con fallos (4 casos en total) |
+| Iteración 2 | `test_current_capture_batch_endpoint_recovers_pending_batch_with_original_capture_times` (`KeyError: 0`) |
+| Iteración 3 | `test_scan_confirmation_p95_latency_is_within_two_seconds` (403) y `test_peak_concurrent_operators_scan_without_contention_or_lost_events` (403: *"El actor no tiene el permiso requerido."*) |
+| Iteración 8 | `test_justification_attachment_upload_endpoint_succeeds_for_the_submitter` (403) |
+
+Detalle por iteración en [iteraciones.csv](iteraciones.csv), filas `RUN-EMI-20261013-01`.
+
+**La hipótesis de fecha local/UTC queda descartada:** falla igual con ambas fechas iguales, y la verificación de permiso y alcance compara marcas de tiempo (`starts_at <= timezone.now()`), no fechas.
+
+**Causa: el reloj de pared retrocede en el entorno WSL2.**
+
+- Un complemento de diagnóstico (`inc010_probe.py`, solo en la carpeta de evidencia; no modifica pruebas) registró relojes al fallar. En las iteraciones 2 y 8, el `now()` de PostgreSQL —inicio de la transacción de la prueba— es 0,6 s y 1,1 s **posterior** al `timezone.now()` de Python tomado al final de la misma prueba. Con un reloj estable eso es imposible.
+- `clock_watch.py`, ejecutado 120 s en el mismo contenedor, compara `time.time()` con `time.monotonic()`: el reloj de pared **retrocede cada 30 s** (a los 16,8; 46,8; 76,8 y 106,8 s) entre 0,87 y 1,76 s, y entre correcciones adelanta; deriva final −4,6 s. Es la sincronización de hora de la VM de WSL2 con Windows, que corrige por saltos. Resultado en `clock-watch.json`.
+- Mecanismo: las pruebas crean `RoleAssignment`/`ScopeGrant` con `starts_at = timezone.now()` y en seguida consultan endpoints que exigen `starts_at <= timezone.now()` (`backend/apps/identity/models.py:131-134`, `backend/apps/identity/scopes.py:28-41`). Si un salto atrás cae entre ambos instantes, la asignación queda "en el futuro" y la consulta responde 403. Por eso falla una prueba distinta cada vez y la frecuencia no depende del orden.
+- Los 403 de esta corrida dicen "permiso", no "alcance", y esos caminos no auditan la denegación, por lo que la sonda no registró `AuditEvent`; las marcas de tiempo bastan para la conclusión.
+
+**Clasificación:** defecto del entorno de ejecución local, no del producto. En el CI de GitHub (Linux nativo), el job `backend-tests` —suite completa, que incluye estas pruebas— aprobó en las últimas 30 ejecuciones del flujo `ci.yml` consultadas el 13/10, sin ningún fallo. Opciones, a decidir por el equipo y en un cambio separado:
+
+1. Entorno: reiniciar WSL (`wsl --shutdown`) o ajustar la sincronización de hora del equipo; reduce los saltos pero no garantiza su ausencia.
+2. Pruebas: que las factories de identidad creen `starts_at` unos segundos en el pasado. Hace la suite inmune a saltos pequeños sin tocar lógica de producto.
+
+No se modificó código en esta ronda. INC-010 pasa a **Causa identificada**.
+
 ## Reproducción
 
 Desde la raíz del repositorio, con Docker activo. La carpeta de evidencia necesita permiso de escritura para el usuario del contenedor.
@@ -72,7 +101,7 @@ Los scripts exactos (`run.sh`) de cada corrida están en su carpeta de evidencia
 ## Límites y pendientes
 
 - La decisión sobre RF-JOR-007 (INC-012) corresponde a Pablo y al responsable de alcance.
-- INC-010: falta confirmar la hipótesis del reloj fuera de WSL2.
+- INC-010: causa identificada (saltos atrás del reloj de WSL2, ver seguimiento del 13/10); falta decidir la mitigación.
 - INC-011 (catálogos paginados sin orden) sigue abierta; su corrección es un cambio de código y va en un PR propio.
 - Siguen pendientes de la primera ronda: flujo manual CP-INT-ASI-001 con Josué y CP-INT-JUS-001 con Diana, cámara real, medición visual con Daniel y PD-010.
 - No se declara UAT aprobada ni se cierran requisitos.
