@@ -42,7 +42,11 @@ la lista de excepciones versionada en el `Makefile`.
 
 Resultado observado: Bandit aprobó sin hallazgos; `pip-audit` informó cero
 vulnerabilidades conocidas y una excepción ignorada. Código de salida conjunto
-0. La excepción debe permanecer sujeta a revisión de Daniel.
+0. Daniel revisó el resultado: la excepción aplicable es `PYSEC-2026-1845`
+(`CVE-2025-71176`) sobre `pytest 8.4.1`, dependencia exclusiva de desarrollo y
+CI que no entra en la imagen productiva. La aceptación es temporal; los PR
+#579 y #580 retiran seis entradas obsoletas de la allowlist, actualizan a
+`pytest 9.0.3` y eliminan la excepción restante antes del candidato final.
 
 <a id="ev-ej-d1-040-01"></a>
 
@@ -51,9 +55,10 @@ vulnerabilidades conocidas y una excepción ignorada. Código de salida conjunto
 Comando: `docker compose exec -T frontend npm audit --audit-level=high`.
 
 Resultado observado: código de salida 1; ocho vulnerabilidades: dos críticas,
-cuatro altas y dos moderadas. La corrección total propuesta instala Vitest
-5.0.3 y constituye un cambio mayor. No se ejecutó `npm audit fix` ni se modificó
-el lockfile. Resultado vinculado a INC-003.
+cuatro altas y dos moderadas. Este es un resultado histórico del SHA evaluado;
+no se ejecutó `npm audit fix` ni se modificó el lockfile durante esa corrida.
+La corrección se versionó posteriormente en el PR #537 con Vitest 4.1.11 y se
+verificó en EJ-D1-042. Resultado vinculado a INC-003.
 
 <a id="ev-ej-d1-041-01"></a>
 
@@ -89,6 +94,21 @@ Configuración local observada: cookies de sesión `HttpOnly` y `SameSite=Lax`;
 CSRF activo con rotación de token. Los indicadores `Secure` permanecen
 desactivados en HTTP local, por lo que esta ejecución no sustituye la
 verificación de cookies seguras y TLS en el entorno HTTPS de entrega.
+
+<a id="ev-ej-d1-042-01"></a>
+
+## EV-EJ-D1-042-01 — Reauditoría de dependencias frontend
+
+Ejecución sobre el SHA `bfb502d69c11f47d13f078bc28080ddf23299564`,
+con Node 22, lockfile versionado y Vitest 4.1.11. Comando:
+`docker compose run --rm --no-deps -T frontend npm audit --json`.
+
+Resultado observado: 431 paquetes auditados y 0 vulnerabilidades informativas,
+bajas, moderadas, altas o críticas; código de salida 0. Esta ejecución reemplaza
+EJ-D1-040 para el estado técnico vigente y enlaza la corrección del PR #537.
+La ejecución histórica fallida permanece conservada. INC-003 queda corregida
+técnicamente, pendiente de cierre formal y repetición sobre el SHA candidato
+final.
 
 ## Evidencia complementaria de CI
 

@@ -32,6 +32,7 @@ aceptación.
 | EJ-D1-039 | Bandit y `pip-audit` | Aprobado: sin hallazgos Bandit; cero vulnerabilidades conocidas y una excepción versionada |
 | EJ-D1-040 | `npm audit --audit-level=high` | Fallido: 8 vulnerabilidades, vinculadas a INC-003 |
 | EJ-D1-041 | Pérdida de alcance del encargado y regresión dirigida | Aprobado técnicamente: accesos previos 200, rechazos posteriores 403, historial y auditoría conservados; 124 pruebas aprobadas |
+| EJ-D1-042 | Reauditoría de dependencias frontend | Aprobado: 0 vulnerabilidades con Vitest 4.1.11; reemplaza EJ-D1-040 para el estado vigente |
 
 Catorce requisitos incluidos quedaron `Aprobado` en el catálogo. Tres
 requisitos condicionados quedaron `Bloqueado`: sus controles pasan, pero el
@@ -39,10 +40,14 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 
 ## Incidencias y riesgos
 
-- **INC-003, abierta P0:** dos vulnerabilidades críticas, cuatro altas y dos
-  moderadas en dependencias frontend, principalmente herramientas de prueba.
-  La corrección total propuesta exige Vitest 5.0.3 y regresión completa; no se
-  aplicó `npm audit fix --force`.
+- **INC-003, corregida técnicamente:** los ocho hallazgos pertenecen a las
+  ejecuciones históricas EJ-D1-036/EJ-D1-040. El PR #537 actualizó a Vitest
+  4.1.11 y EJ-D1-042 confirmó `npm audit` con cero vulnerabilidades. Falta el
+  cierre formal mediante repetición sobre el candidato final.
+- **Riesgo temporal backend:** `pytest 8.4.1` presenta `PYSEC-2026-1845`, pero
+  solo se usa en desarrollo/CI y no entra en producción. Daniel aceptó la
+  excepción temporal; los PR #579/#580 limpian la allowlist, actualizan a
+  `pytest 9.0.3` y retiran la excepción.
 - **INC-005, abierta P0:** la suite backend global del PR obtuvo 15 fallos y
   1557 aprobaciones. La suite dirigida de identidad aprobó; coordinación debe
   hacer triage de los fallos en academics, audit y form suggestions.
@@ -53,11 +58,12 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 
 1. Diana debe realizar la revisión cruzada de casos y del resultado técnico de
    pérdida de alcance registrado en EJ-D1-041.
-2. Daniel debe revisar INC-003 y la excepción versionada de `pip-audit`.
+2. Fusionar los PR #579/#580 y repetir `pip-audit` sin excepciones sobre el
+   candidato final; la revisión de Daniel ya quedó registrada en el PR #574.
 3. Pablo y la contraparte deben resolver DEC-QA-002 y las discrepancias de
    clasificación entre catálogo y matriz canónica.
 4. Daniel debe fijar el SHA y entorno del candidato final conforme DEC-QA-001.
-5. Repetir EJ-D1-037 a EJ-D1-040 sobre el candidato final.
+5. Repetir EJ-D1-037 a EJ-D1-042 sobre el candidato final.
 6. Verificar cookies y TLS en el entorno HTTPS de entrega.
 7. Mantener AUT-005 y CTA-005 sin aceptación hasta contar con alcance y prueba
    verificable.
@@ -65,6 +71,6 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 ## Conclusión
 
 Los controles automatizados de identidad y autorización ejecutados son
-satisfactorios para esta línea base, pero el dominio no está listo para
-aceptación final mientras INC-003, DEC-QA-001, DEC-QA-002 y la revisión cruzada
-permanezcan abiertos.
+satisfactorios para esta línea base. INC-003 está corregida técnicamente, pero
+el dominio no está listo para aceptación final mientras falten la actualización
+de pytest, DEC-QA-001, DEC-QA-002, la repetición final y la revisión cruzada.
