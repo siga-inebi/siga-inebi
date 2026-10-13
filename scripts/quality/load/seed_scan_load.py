@@ -35,7 +35,9 @@ PASSWORD = "load-test-pass-123"  # sintetica; solo para el entorno de prueba
 parameters = JornadaParametersFactory()
 control_point = ControlPointFactory(campus=parameters.shift.campus)
 role = RoleFactory(
-    permissions=[PermissionFactory(codename=c) for c in ("attendance_scan", "attendance_record_entry")]
+    permissions=[
+        PermissionFactory(codename=c) for c in ("attendance_scan", "attendance_record_entry")
+    ]
 )
 
 usernames = []

@@ -7,6 +7,9 @@ operadores concurrentes, cada uno con su sesion. Solo biblioteca estandar.
         --base-url http://localhost:8000 --seed /tmp/scan-load-seed.json \
         --operators 3 --requests-per-operator 50 --out /tmp/scan-load-result.json
 
+Protocolo del plan (tests_plan.md 10.6): ``--rounds 3 --warmup N`` y al menos 100
+confirmaciones medidas por ronda (``--operators x --requests-per-operator``).
+
 El resultado es evidencia del entorno donde se corre, NO una certificacion: el
 informe debe declarar host, perfil de recursos y servidor de aplicacion.
 Los datos vienen de ``seed_scan_load.py`` (sinteticos).
@@ -27,6 +30,7 @@ from datetime import datetime, timezone
 from http.cookiejar import CookieJar
 
 P95_LIMIT_SECONDS = 2.0  # RNF-REN-001
+MIN_MEASURED_PER_ROUND = 100  # protocolo de tests_plan.md 10.6
 
 
 def percentile(sorted_values: list[float], pct: float) -> float:
@@ -37,9 +41,13 @@ def percentile(sorted_values: list[float], pct: float) -> float:
     return sorted_values[rank - 1]
 
 
+def is_created(sample: dict) -> bool:
+    return sample["status"] == 200 and sample["outcome"] == "created"
+
+
 def summarize(samples: list[dict], wall_seconds: float, operators: int) -> dict:
     """Resume muestras ``{"seconds", "status", "outcome"}`` en el reporte."""
-    ok = [s for s in samples if s["status"] == 200 and s["outcome"] == "created"]
+    ok = [s for s in samples if is_created(s)]
     durations = sorted(s["seconds"] for s in ok)
     failures: dict[str, int] = {}
     for s in samples:
@@ -51,6 +59,8 @@ def summarize(samples: list[dict], wall_seconds: float, operators: int) -> dict:
         "requests": len(samples),
         "created": len(ok),
         "failures": failures,
+        "success_rate_percent": round(100 * len(ok) / len(samples), 2) if samples else 0.0,
+        "network_errors": sum(1 for s in samples if s["status"] == 0),
         "wall_seconds": round(wall_seconds, 3),
         "throughput_per_second": round(len(samples) / wall_seconds, 2) if wall_seconds else 0,
     }
@@ -67,6 +77,35 @@ def summarize(samples: list[dict], wall_seconds: float, operators: int) -> dict:
         summary["p95_within_limit"] = False
     summary["lost_or_failed_events"] = len(samples) - len(ok)
     return summary
+
+
+def code_offset(
+    round_index: int,
+    operator_index: int,
+    operators: int,
+    per_operator: int,
+    warmup: int,
+) -> int:
+    """Primer codigo de estudiante de un operador en una ronda (sin solapes)."""
+    block = per_operator + warmup
+    return (round_index * operators + operator_index) * block
+
+
+def summarize_rounds(rounds: list[dict]) -> dict:
+    """Consolida rondas independientes; cada ronda debe cumplir el limite."""
+    pooled_requests = sum(r["requests"] for r in rounds)
+    pooled_created = sum(r["created"] for r in rounds)
+    # El plan exige 100 confirmaciones medidas: solo cuentan las que entran al p95.
+    smallest = min(r["created"] for r in rounds)
+    return {
+        "rounds": rounds,
+        "requests": pooled_requests,
+        "created": pooled_created,
+        "lost_or_failed_events": sum(r["lost_or_failed_events"] for r in rounds),
+        "measured_per_round_min": smallest,
+        "meets_min_sample": smallest >= MIN_MEASURED_PER_ROUND,
+        "p95_within_limit": all(r["p95_within_limit"] for r in rounds),
+    }
 
 
 class Operator:
@@ -120,31 +159,37 @@ class Operator:
         return status, outcome
 
 
-def run(base_url: str, seed: dict, operators: int, per_operator: int, think: float) -> dict:
-    needed = operators * per_operator
+def run_round(
+    clients: list[Operator],
+    seed: dict,
+    round_index: int,
+    per_operator: int,
+    warmup: int,
+    think: float,
+) -> dict:
+    operators = len(clients)
     codes = seed["student_codes"]
-    if operators > len(seed["operators"]) or needed > len(codes):
-        raise SystemExit(
-            f"la siembra no alcanza: {len(seed['operators'])} operadores / {len(codes)} "
-            f"estudiantes; se piden {operators} / {needed}"
-        )
-
-    clients = [Operator(base_url, u, seed["password"]) for u in seed["operators"][:operators]]
-    for client in clients:  # el login no entra en la medicion
-        client.login()
-
     samples: list[dict] = []
+    warmup_samples: list[dict] = []
     lock = threading.Lock()
     barrier = threading.Barrier(operators)
+    # Todos terminan el calentamiento antes de medir: la ventana de throughput
+    # empieza con el primer escaneo medido, no con el primero de calentamiento.
+    measured_started: list[float] = []
+    measure_barrier = threading.Barrier(
+        operators, action=lambda: measured_started.append(time.perf_counter())
+    )
 
     def worker(index: int) -> None:
         client = clients[index]
+        base = code_offset(round_index, index, operators, per_operator, warmup)
         barrier.wait()
-        for n in range(per_operator):
-            code = codes[index * per_operator + n]
+        for n in range(warmup + per_operator):
+            if n == warmup:
+                measure_barrier.wait()
             item = {
-                "client_event_id": f"load-{int(time.time() * 1000)}-{index}-{n}",
-                "student_code": code,
+                "client_event_id": f"load-{int(time.time() * 1000)}-{round_index}-{index}-{n}",
+                "student_code": codes[base + n],
                 "shift_id": seed["shift_id"],
                 "control_point_id": seed["control_point_id"],
                 "movement_type": "entry",
@@ -156,25 +201,61 @@ def run(base_url: str, seed: dict, operators: int, per_operator: int, think: flo
             except Exception as exc:  # error de red = evento perdido, no se oculta
                 status, outcome = 0, type(exc).__name__
             elapsed = time.perf_counter() - started
-            with lock:
-                samples.append({"seconds": elapsed, "status": status, "outcome": outcome})
+            sample = {"seconds": elapsed, "status": status, "outcome": outcome}
+            with lock:  # el calentamiento no entra en los percentiles
+                (samples if n >= warmup else warmup_samples).append(sample)
             if think:
                 time.sleep(think)
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(operators)]
-    started = time.perf_counter()
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    wall = time.perf_counter() - started
+    summary = summarize(samples, time.perf_counter() - measured_started[0], operators)
+    return add_warmup_failures(summary, warmup_samples)
 
-    report = summarize(samples, wall, operators)
+
+def add_warmup_failures(summary: dict, warmup_samples: list[dict]) -> dict:
+    """Un evento perdido durante el calentamiento sigue siendo un evento perdido."""
+    lost = sum(1 for s in warmup_samples if not is_created(s))
+    summary["warmup_requests"] = len(warmup_samples)
+    summary["warmup_lost_or_failed"] = lost
+    summary["warmup_network_errors"] = sum(1 for s in warmup_samples if s["status"] == 0)
+    summary["lost_or_failed_events"] += lost
+    return summary
+
+
+def run(
+    base_url: str,
+    seed: dict,
+    operators: int,
+    per_operator: int,
+    think: float,
+    rounds: int = 1,
+    warmup: int = 0,
+) -> dict:
+    needed = rounds * operators * (per_operator + warmup)
+    if operators > len(seed["operators"]) or needed > len(seed["student_codes"]):
+        raise SystemExit(
+            f"la siembra no alcanza: {len(seed['operators'])} operadores / "
+            f"{len(seed['student_codes'])} estudiantes; se piden {operators} / {needed}"
+        )
+
+    clients = [Operator(base_url, u, seed["password"]) for u in seed["operators"][:operators]]
+    for client in clients:  # el login no entra en la medicion
+        client.login()
+
+    results = [run_round(clients, seed, r, per_operator, warmup, think) for r in range(rounds)]
+    report = summarize_rounds(results)
+    report["operators"] = operators
     report["meta"] = {
         "base_url": base_url,
         "host": platform.platform(),
         "python": platform.python_version(),
         "think_seconds": think,
+        "rounds": rounds,
+        "warmup_requests_per_operator": warmup,
         "executed_at": datetime.now(timezone.utc).isoformat(),
         "note": "evidencia del entorno medido; declarar perfil de recursos y servidor de aplicacion",
     }
@@ -187,19 +268,40 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", required=True, help="JSON de seed_scan_load.py")
     parser.add_argument("--operators", type=int, default=3)
     parser.add_argument("--requests-per-operator", type=int, default=50)
+    parser.add_argument("--rounds", type=int, default=1, help="rondas independientes (plan: 3)")
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=0,
+        help="escaneos por operador excluidos de los percentiles",
+    )
     parser.add_argument("--think", type=float, default=0.0, help="pausa entre escaneos (s)")
     parser.add_argument("--out", help="ruta del JSON de resultados")
     args = parser.parse_args(argv)
+    for name in ("operators", "requests_per_operator", "rounds"):
+        if getattr(args, name) < 1:
+            parser.error(f"--{name.replace('_', '-')} debe ser >= 1")
+    if args.warmup < 0 or args.think < 0:
+        parser.error("--warmup y --think no pueden ser negativos")
 
     with open(args.seed, encoding="utf-8") as fh:
         seed = json.load(fh)
-    report = run(args.base_url, seed, args.operators, args.requests_per_operator, args.think)
+    report = run(
+        args.base_url,
+        seed,
+        args.operators,
+        args.requests_per_operator,
+        args.think,
+        args.rounds,
+        args.warmup,
+    )
     text = json.dumps(report, indent=2, ensure_ascii=False)
     print(text)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(text + "\n")
-    # RNF-REN-001/002: p95 <= 2 s y ningun evento perdido o fallido.
+    # RNF-REN-001/002: p95 <= 2 s en cada ronda y ningun evento perdido o fallido.
+    # La muestra minima (meets_min_sample) se reporta, pero no cambia el exit code.
     return 0 if report["p95_within_limit"] and report["lost_or_failed_events"] == 0 else 1
 
 
