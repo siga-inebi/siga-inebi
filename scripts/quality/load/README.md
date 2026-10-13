@@ -7,6 +7,8 @@
    confirmaciones por ronda (p. ej. `--operators 3 --requests-per-operator 34`). El reporte
    trae `rounds[]`, `success_rate_percent`, `network_errors` y `meets_min_sample`. La siembra
    debe tener `LOAD_STUDENTS >= rounds * operators * (requests + warmup)`.
+   El calentamiento no entra en percentiles ni en el throughput, pero sus eventos
+   perdidos o fallidos si cuentan en `lost_or_failed_events` (`warmup_lost_or_failed`).
 3. Pruebas del script: `cd scripts/quality/load && python -m unittest test_scan_load_test`
 
 El exit code es 1 si p95 > 2 s o hay eventos fallidos/perdidos. Los resultados
