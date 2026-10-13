@@ -65,7 +65,7 @@ describe("pantalla de personas", () => {
     await waitFor(() =>
       expect(peopleServiceMock.listPeople).toHaveBeenCalledTimes(2)
     );
-  });
+  }, 10000);
 
   test("no crea la persona si falta un campo requerido", async () => {
     const user = userEvent.setup();

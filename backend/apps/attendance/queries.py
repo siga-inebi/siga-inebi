@@ -31,11 +31,12 @@ def attendance_alerts(*, students):
 
 
 def control_points():
-    return ControlPoint.objects.select_related("campus").all()
+    # INC-011: orden estable para paginar; (campus, code) es unico e indexado.
+    return ControlPoint.objects.select_related("campus").order_by("campus_id", "code")
 
 
 def manual_registration_reasons():
-    return ManualRegistrationReason.objects.all()
+    return ManualRegistrationReason.objects.order_by("code")
 
 
 def _payload_get(queryset, public_id, label):
@@ -74,7 +75,7 @@ def justification_for_payload(public_id):
 
 
 def justification_reasons():
-    return JustificationReason.objects.all()
+    return JustificationReason.objects.order_by("code")
 
 
 def justification_reason_for_payload(public_id):
