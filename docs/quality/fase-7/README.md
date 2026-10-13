@@ -12,6 +12,8 @@ base previas permanecen en los registros.
 
 | Evidencia nueva | Propósito |
 | --- | --- |
+| [Cierre documental D1 de Santiago](cierre-d1-identidad-santiago.md) | Inventario, perfiles sintéticos, ejecuciones vinculadas, revisión y límites del cierre de identidad |
+| [Cierre documental D3 de Santiago](cierre-d3-identidad-seguridad-santiago.md) | Cookies/TLS en QA, revisión de dependencias, documentos entregados y pendientes trasladados a D5 |
 | [Entorno y datos](entorno-y-datos.md) | Versiones, recursos, aislamiento y pendientes cloud/teléfono |
 | [Índice](indice-evidencias.csv) | Checksums de artefactos locales ignorados; exportación pendiente |
 | [Rendimiento](informe-rendimiento.md) | Duraciones reales y mediciones de usuario pendientes |
@@ -36,7 +38,7 @@ Primera ronda de evaluación de Estuardo: [guía, catálogo y evidencias](estuar
 Es un diagnóstico local complementario; no sustituye la aceptación institucional.
 
 Primera ronda de expediente de Diana: [guía, catálogo y evidencias](diana/README.md).
-Incluye dos fallos de frontend conservados (INC-008) y una incidencia funcional menor (INC-009).
+Incluye dos fallos de frontend conservados (INC-013) y una incidencia funcional menor (INC-009).
 
 | Archivo | Propósito | Responsable |
 | --- | --- | --- |
