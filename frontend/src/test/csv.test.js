@@ -46,15 +46,17 @@ describe("triggerCsvDownload", () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 
     const originalCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
-      const element = originalCreateElement(tagName, options);
+    vi.spyOn(document, "createElement").mockImplementation(
+      (tagName, options) => {
+        const element = originalCreateElement(tagName, options);
 
-      if (tagName === "a") {
-        vi.spyOn(element, "click").mockImplementation(() => {});
+        if (tagName === "a") {
+          vi.spyOn(element, "click").mockImplementation(() => {});
+        }
+
+        return element;
       }
-
-      return element;
-    });
+    );
   });
 
   afterEach(() => {

@@ -257,7 +257,9 @@ describe("AlumnosPage", () => {
         status: "pre_enrolled",
       })
     );
-    await waitFor(() => expect(studentsServiceMock.list).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(studentsServiceMock.list).toHaveBeenCalledTimes(2)
+    );
     expect(await screen.findByText("Nueva Alumna")).toBeInTheDocument();
     // Ver el presupuesto homonimo en DocentesPage.test.jsx.
   }, 15000);
