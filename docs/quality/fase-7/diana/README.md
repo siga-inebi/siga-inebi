@@ -7,11 +7,12 @@ Diagnóstico local; no constituye candidato formal, aceptación institucional ni
 
 ## Archivos de trabajo
 
-- [Resultado de la primera corrida](resultado-primera-corrida.md): backend **150 pruebas aprobadas**, cero fallos y cero omitidas; frontend **29 aprobadas y 2 fallidas** por tiempo de espera (INC-008). Revisión humana pendiente.
+- [Resultado de la primera corrida](resultado-primera-corrida.md): backend **150 pruebas aprobadas**, cero fallos y cero omitidas; frontend **29 aprobadas y 2 fallidas** por tiempo de espera (INC-013). Revisión humana pendiente.
 - [Catálogo inicial](catalogo-inicial.csv): 17 requisitos (RF-EXP-001 a 009, RNF-AUD-003, RNF-PRI-001 a 005, RF-ALC-006 y RF-CRE-002), criterios originales y referencias candidatas por función.
 - [Inventario de pruebas](inventario-pruebas.csv): 181 casos (150 backend y 31 frontend) con requisito candidato y línea.
 - [Resultados por prueba](resultados-pruebas.csv): estado y duración de cada caso, transcritos de JUnit, incluida la corrida de diagnóstico.
 - [Evidencia revisada](evidencia-revisada.md): comandos, versiones y hashes de los logs/JUnit locales. Los artefactos crudos no se publican en Git; su entrega a revisores está pendiente.
+- [Casos de integración en pareja](casos-integracion.md): fichas de los cuatro flujos manuales con Josué, Santiago, Emilio y Roí, con reparto de pasos. No ejecutados.
 - El catálogo general y sus resultados históricos se conservan. Este catálogo complementario no aprueba requisitos ni modifica el alcance institucional.
 
 ## Primeros seis casos
@@ -31,9 +32,14 @@ Las clases y archivos agrupan varios casos automatizados; el inventario enumera 
 
 ## Incidencias registradas en esta ronda
 
+Nota: la incidencia de los dos fallos de frontend se registró primero como INC-008. Ese
+número ya correspondía a una incidencia de evaluación (PR #553), y INC-010 a INC-012 están
+en uso en los PR abiertos de asistencia (#575 y #576), así que se renumeró a INC-013. El
+hallazgo y su evidencia no cambian.
+
 | ID | Hallazgo | Severidad | Estado |
 | --- | --- | --- | --- |
-| INC-008 | Dos pruebas de frontend (`GuardiansPage`: crear encargado; `personasPage`: crear persona) fallan por el límite de 5 s en este equipo. Con `--testTimeout=30000` pasan en 6,5 s y 5,2 s, y el CI de `develop` las aprueba en el mismo commit. Margen de tiempo insuficiente, no defecto funcional confirmado. | S4 | Abierta |
+| INC-013 | Dos pruebas de frontend (`GuardiansPage`: crear encargado; `personasPage`: crear persona) fallan por el límite de 5 s en este equipo. Con `--testTimeout=30000` pasan en 6,5 s y 5,2 s, y el CI de `develop` las aprueba en el mismo commit. Margen de tiempo insuficiente, no defecto funcional confirmado. | S4 | Abierta |
 | INC-009 | `GET students/{id}/emergency-contacts/` pagina una consulta sin orden (`UnorderedObjectListWarning`): `EmergencyContact` no declara `ordering` y `emergency_contacts()` no ordena. Dos páginas pueden repetir u omitir filas. | S3 | Abierta |
 
 ## Brechas y decisiones para Pablo / Santiago

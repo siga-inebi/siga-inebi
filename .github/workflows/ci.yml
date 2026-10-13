@@ -184,7 +184,7 @@ jobs:
 
       - name: pip-audit
         working-directory: backend
-        run: pip-audit -r requirements/dev.txt --ignore-vuln PYSEC-2026-1845 --ignore-vuln GHSA-6v7p-g79w-8964 --ignore-vuln PYSEC-2026-1375 --ignore-vuln PYSEC-2026-1374 --ignore-vuln PYSEC-2026-2275 --ignore-vuln PYSEC-2026-142 --ignore-vuln PYSEC-2026-141
+        run: pip-audit -r requirements/dev.txt
 
   frontend-lint:
     name: frontend-lint
