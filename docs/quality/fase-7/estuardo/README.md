@@ -1,4 +1,6 @@
-# Primera ronda de Estuardo — evaluación
+# Primera ronda de evaluación — Estuardo
+
+**Alcance vigente:** D1, D3 y D4 de las responsabilidades de evaluación fueron retirados por autorización de Pablo; véase [ajuste de alcance](ajuste-alcance.md). Esta página conserva resultados técnicos de la ronda indicada.
 
 Fecha: 12 de octubre de 2026, America/Guatemala.
 Código evaluado: `3bcca08860b07c7086ac11b914a7262e7a68d282`.
@@ -41,6 +43,6 @@ Las clases agrupan varios casos automatizados; el inventario enumera sus nodos p
 
 Con Josué: preparar docente asignado, estudiante sintético matriculado y unidad abierta; recorrer captura → consulta del resultado → reporte disponible. Con Roí: verificar contenido y permisos del documento si existe en el alcance. Registrar pasos, esperado/observado, SHA, evidencias e incidencias; no dar por disponible la boleta solo porque pasan las pruebas de cálculo.
 
-Después, Estuardo prepara agenda con Pablo para usuarios institucionales. Las sesiones de usabilidad y UAT permanecen no ejecutadas. Cada resultado se entrega a Pablo y las evidencias técnicas a Daniel; Roí verifica la revisión cruzada.
+El trabajo vigente de Estuardo se describe en el ajuste de alcance y el informe de avance actual; las listas históricas de esta ronda no son tareas vigentes.
 
 Nota de publicación: la rama de este PR parte de `develop` en `3a4a8d2`; esta corrida sigue referida exclusivamente al SHA evaluado `3bcca08`. No certifica los cambios posteriores. El catálogo conserva la instantánea inicial y sus pendientes, no el estado actualizado de toda la entrega.

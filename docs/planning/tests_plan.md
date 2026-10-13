@@ -124,7 +124,7 @@ El equipo está formado por **Pablo, Santiago, Diana, Josué, Emilio, Estuardo, 
 | Diana | Personas y expediente | Estudiantes, encargados, vínculos, salud, contactos y observaciones; revisión de denegaciones. | Diccionario de datos, con aportes de todos los dominios. | Santiago. |
 | Josué | Estructura académica y matrícula | Ciclos, aulas, horarios, asignaciones, matrícula, movimientos y migraciones. | Scripts finales de base de datos y su procedimiento. | Emilio. |
 | Emilio | Asistencia y credencial | QR, ingreso/egreso, idempotencia, recuperación de lotes, jornada y justificaciones. | Manual de usuario en video: coordinación del índice y segmentos de asistencia. | Josué. |
-| Estuardo | Evaluación y experiencia de uso | Configuración, notas, resultados, reportes; coordinación de usabilidad y sesiones UAT. | Manual de usuario en video: evaluación; integra segmentos que aporten Santiago, Diana, Josué, Emilio, Estuardo y Roí. | Roí. |
+| Estuardo | Evaluación | Configuración, notas, resultados y reportes. | Manual de usuario en video: evaluación; integra segmentos que aporten Santiago, Diana, Josué, Emilio, Estuardo y Roí. | Roí. |
 | Roí | Documentos y contratos API | Archivos, plantillas, emisión, descargas, integridad, contrato y bitácora transversal. | Documentación de API e integraciones. | Estuardo. |
 | Daniel | Entorno, automatización y entrega | PostgreSQL, CI, cobertura, build, carga, respaldo/restauración, manifiesto de versión. | Manual técnico, instalación/configuración y plan final de respaldo/recuperación. | Pablo; Josué verifica instalación. |
 
@@ -150,7 +150,7 @@ Propuesta ajustable en D1: 6 horas efectivas por participante y jornada, **240 h
 | Ejecución y evidencias | 72 h | Suites existentes y flujos manuales en paralelo. |
 | Correcciones, revisión y regresión | 56 h | Reserva prioritaria para defectos críticos y altos. |
 | Manuales y validación documental | 48 h | Aproximadamente 1,2 h por persona cada día. |
-| UAT, consolidación y entrega | 32 h | Pablo y Estuardo coordinan, con apoyo de dominios y Daniel. |
+| UAT, consolidación y entrega | 32 h | Pablo coordina según el alcance vigente, con apoyo de dominios y Daniel. |
 
 Si la disponibilidad es menor o las brechas superan la reserva, Pablo presenta impacto y solicita decisión de alcance/plazo. No reducir evidencias, omitir regresión obligatoria ni cambiar umbrales para acomodar el calendario.
 
@@ -160,7 +160,7 @@ Cada persona debe **preparar sus casos, ejecutarlos, registrar resultados y evid
 
 #### Pablo — Coordinación de calidad y cierre
 
-- **D1:** confirmar alcance y fechas; revisar la clasificación de los 230 requerimientos; consolidar catálogo y matriz; registrar decisiones pendientes y confirmar autoridad y agenda de aceptación con Estuardo.
+- **D1:** confirmar alcance y fechas; revisar la clasificación de los 230 requerimientos; consolidar catálogo y matriz; registrar decisiones pendientes y confirmar autoridad y agenda de aceptación con las personas responsables según alcance.
 - **D2–D3:** dirigir triage diario; asignar responsable, prioridad y fecha a incidencias; verificar evidencias y cobertura por criterio; escalar bloqueos y actualizar el plan.
 - **D4:** consolidar regresión y resultados UAT; comprobar que los fixes tengan revisión y prueba; preparar reporte final y borrador de acta sin anticipar aprobación.
 - **D5:** reconciliar matriz final; emitir recomendación QA; presentar resultados a autoridad institucional; registrar decisión y entregar índice completo del expediente.
@@ -205,16 +205,14 @@ Cada persona debe **preparar sus casos, ejecutarlos, registrar resultados y evid
 - **D4:** repetir casos corregidos y regresión de asistencia; apoyar UAT de operador/docente y revisar procedimientos académicos de Josué.
 - **D5:** verificar captura en candidato final, actualizar segmentos alterados y entregar evidencia, mediciones e índice de videos con Estuardo.
 - **Documentación propia:** casos/ejecuciones/evidencias de asistencia, medición visual para `informe-rendimiento.md`, videos de asistencia/credencial e índice con título, módulo, rol y duración.
-- **Revisión cruzada:** Josué revisa sus resultados; Estuardo coordina comprobación de experiencia de uso.
+- **Revisión cruzada:** Josué revisa sus resultados; Daniel apoya la comprobación técnica del flujo visual.
 
-#### Estuardo — Evaluación, usabilidad y aceptación con usuarios
+#### Estuardo — Evaluación
 
-- **D1:** vincular criterios de configuración, calificaciones, resultados y reportes; preparar tareas de usabilidad/UAT por perfil y reservar usuarios con Pablo.
+- **Alcance vigente:** por autorización de Pablo comunicada el 13 de octubre de 2026, D1, D3 y D4 quedan fuera de las responsabilidades de evaluación de Estuardo. Se mantienen D2, D5, la documentación propia y la revisión cruzada especificadas aquí. Véase [ajuste de alcance](../quality/fase-7/estuardo/ajuste-alcance.md).
 - **D2:** ejecutar pesos, fronteras de notas, permisos docentes, estados, cálculos y reportes; probar integración académica con Josué y documental con Roí.
-- **D3:** conducir sesiones piloto de usabilidad; registrar tiempos, ayudas, errores y comentarios; comprobar navegación, teclado y móvil; completar informe y videos de evaluación.
-- **D4:** facilitar UAT sin ejecutar tareas en lugar del usuario; registrar aprobación/observaciones por escenario y candidato; corregir incidencias de evaluación con pruebas.
-- **D5:** gestionar revalidación de cambios por usuarios, entregar informes de usabilidad/UAT y consolidar manual de usuario en video con Emilio.
-- **Documentación propia:** casos/ejecuciones/evidencias de evaluación, `informe-usabilidad.md`, `informe-aceptacion-usuarios.md`, videos de evaluación y consolidación de segmentos aportados por compañeros.
+- **D5:** revalidar cambios de evaluación que entren en el alcance vigente y consolidar el manual de usuario en video con Emilio.
+- **Documentación propia:** casos, ejecuciones y evidencias de evaluación; manual de usuario en video y consolidación de segmentos aportados por compañeros.
 - **Revisión cruzada:** Roí revisa evaluación y sus documentos; Estuardo revisa documentos/API de Roí.
 
 #### Roí — Documentos, API y auditoría
@@ -253,10 +251,10 @@ Para cerrar su trabajo D5, cada participante entrega: lista de criterios/casos p
 
 | Día | Trabajo principal | Distribución y dependencias | Manuales en paralelo | Salida verificable |
 | --- | --- | --- | --- | --- |
-| **D1 — Preparación y línea base** | Confirmar alcance, decisiones, participantes y usuarios UAT; inventariar casos existentes, vincular criterios, preparar datos y entorno; correr smoke y suites completas iniciales. | Pablo dirige clasificación; Santiago, Diana, Josué, Emilio, Estuardo y Roí preparan casos por dominio; Daniel fija SHA, entorno y captura línea base. Reservar dispositivos y usuarios desde este día. | Índices, responsables, fuentes y borradores; cada función documentada se vincula a versión y caso. | Plan revisado, catálogo v1, matriz base, primer reporte automatizado, incidencias iniciales, entorno reproducible y agenda UAT. |
+| **D1 — Preparación y línea base** | Confirmar alcance, decisiones, participantes y usuarios UAT; inventariar casos existentes, vincular criterios, preparar datos y entorno; correr smoke y suites completas iniciales. | Pablo dirige clasificación; Santiago, Diana, Josué, Emilio y Roí preparan casos por dominio; Daniel fija SHA, entorno y captura línea base. Reservar dispositivos y usuarios desde este día. | Índices, responsables, fuentes y borradores; cada función documentada se vincula a versión y caso. | Plan revisado, catálogo v1, matriz base, primer reporte automatizado, incidencias iniciales, entorno reproducible y agenda UAT. |
 | **D2 — Funcional e integración** | Caminos positivos, negativos y fronteras; integraciones entre dominios; seguridad básica y auditoría. Correcciones desde primera incidencia. | Santiago y Diana: alcance y expediente; Josué y Emilio: ciclo, matrícula y asistencia; Estuardo y Roí: notas y documentos; Daniel conserva baseline y apoya diagnóstico. | Procedimientos, ejemplos sintéticos y primer material visual de flujos estables. | Evidencias de flujos críticos; incidencias clasificadas y asignadas; PRs pequeños con pruebas de regresión. |
-| **D3 — Calidad transversal y candidato RC1** | Cerrar primera ronda funcional; usabilidad, compatibilidad/cámara, rendimiento aplicable, recuperación e instalación; repetir pruebas de correcciones. | Estuardo conduce usuarios piloto; Emilio mide flujo visual con Daniel; Roí y Daniel prueban recuperación; Josué verifica instalación desde copia limpia. Congelar RC1 al cierre. | Borradores completos de nueve entregables; contraste contra RC1, revisión cruzada y lista de cambios. | Cobertura completa de casos críticos en primera ronda; mediciones y simulacro; manuales revisables; RC1 identificado. |
-| **D4 — Regresión y aceptación inicial** | Integrar fixes prioritarios, ejecutar suites completas y regresión de flujos; realizar UAT sobre candidato identificado; corregir y repetir observaciones que bloqueen. | Daniel realiza corrida global; revisores verifican correcciones; Pablo y Estuardo registran aceptación por rol; autores apoyan sin conducir respuestas. | Usuario ajeno a autor sigue manual; corregir pasos y regrabar únicamente segmentos afectados. | RC2 si hay cambios; evidencia UAT; reporte de regresión; manuales casi finales; lista exacta de bloqueos. |
+| **D3 — Calidad transversal y candidato RC1** | Cerrar primera ronda funcional; compatibilidad/cámara, rendimiento aplicable, recuperación e instalación; repetir pruebas de correcciones. | Emilio mide flujo visual con Daniel; Roí y Daniel prueban recuperación; Josué verifica instalación desde copia limpia. Congelar RC1 al cierre. | Borradores documentales aplicables; contraste contra RC1, revisión cruzada y lista de cambios. | Cobertura de casos críticos incluidos en alcance; mediciones y simulacro; manuales revisables; RC1 identificado. |
+| **D4 — Regresión y aceptación inicial** | Integrar fixes prioritarios, ejecutar suites completas y regresión de flujos; realizar UAT según el alcance vigente; corregir y repetir observaciones que bloqueen. | Daniel realiza corrida global; revisores verifican correcciones; Pablo coordina aceptación con usuarios y responsables designados; autores apoyan sin conducir respuestas. | Usuario ajeno a autor sigue manual cuando corresponda al alcance; corregir pasos y regrabar segmentos afectados. | RC2 si hay cambios; evidencia UAT aplicable; reporte de regresión; manuales casi finales; lista exacta de bloqueos. |
 | **D5 — Cierre y entrega** | Congelar candidato final al inicio; completar regresión pendiente y aceptación de cambios; reconciliar matriz; verificar paquete, acta y versión. | Daniel comprueba SHA y artefactos; Pablo consolida; Santiago, Diana, Josué, Emilio, Estuardo y Roí revisan sus resultados y manuales. Revisión de aptitud al mediodía, entrega documental al cierre. | Publicar versiones finales verificadas, índice de videos y fecha/SHA de validación. | Reporte final, matriz final, registro de incidencias y correcciones, evidencias, UAT, acta, manuales y manifiesto de versión. |
 
 ### 6.1 Hitos y control del plazo
@@ -400,7 +398,7 @@ Los rangos identifican familias de requerimientos existentes; no certifican cobe
 | Documentos | RF-DOC-001–010; RF-ARC-001–007; RF-PLA-001–007; RF-EMI-001–009; RNF-SEG-004–006; RNF-RES-003 | Validaciones, metadatos/binarios, plantillas cerradas, emisión según alcance, descargas firmadas y hash. | `test_documents_services.py`, `test_documents.py`, `test_documents_api.py`, reportes y pruebas de integridad. | Roí |
 | Auditoría transversal | RF-BIT-001–007; RNF-AUD-001–003; RNF-SEG-003 | Responsable/fecha/estado, lectura sensible, rechazo, ajustes sin sobrescritura, acceso a bitácora. | `test_audit_services.py`, `test_audit.py`, `test_audit_api.py`, `test_audit_permissions.py`. | Roí/Santiago |
 | Plataforma y recuperación | RNF-CAP-001–002; RNF-DIS-001; RNF-LOC-001–002; RNF-MAN-001–002; RNF-OPE-001; RNF-RES-001–003 | Capacidad/almacenamiento, fecha/idioma, catálogos, tareas exitosas/fallidas, restauración y salud. | Pruebas de capacity, localization, scheduled tasks, monitoring, backup/recovery y migraciones. | Daniel |
-| Compatibilidad y privacidad | RNF-COM-001–002; RNF-LEG-001; RNF-PRI-001–005; RNF-SEG-002 | Móvil/escritorio, conectividad, TLS, cámara, minimización, retención y configuración segura. | Cámara/componentes, build budget, clasificación de datos y configuración; completar con pruebas reales. | Estuardo/Santiago/Daniel |
+| Compatibilidad y privacidad | RNF-COM-001–002; RNF-LEG-001; RNF-PRI-001–005; RNF-SEG-002 | Móvil/escritorio, conectividad, TLS, cámara, minimización, retención y configuración segura. | Cámara/componentes, build budget, clasificación de datos y configuración; completar con pruebas reales. | Santiago/Daniel |
 | Procesamiento diferido | RNF-REN-003–004 | Revisar aplicabilidad y decisión vigente; no simular worker ni declarar colas probadas. | ADR-0009 y matriz canónica; implementación diferida según ADR. | Pablo/Daniel |
 
 ### 10.2 Unitarias, API y funcionales
@@ -445,17 +443,9 @@ Pruebas limitadas al entorno QA propio. Los payloads son sintéticos y controlad
 
 La allowlist de `pip-audit` se revisa durante ejecución: justificar paquete/versión, hallazgo, exposición, mitigación, responsable y fecha de revisión. Un exit code 0 con exclusiones no significa «sin vulnerabilidades». Daniel puede ejecutar `npm audit --json` en frontend y registrar exit code/hallazgos; no aplicar `audit fix` automático ni actualizar dependencias sin revisión y regresión.
 
-### 10.5 Usabilidad, accesibilidad práctica y compatibilidad
+### 10.5 Compatibilidad y operación de cámara
 
-Estuardo prepara sesiones por tareas; observar sin guiar durante primer intento. Incluir al menos un representante disponible de cada perfil operativo incluido (administración/secretaría, docente, operador, dirección y encargado cuando tengan flujos en entrega). Un usuario puede representar varias responsabilidades si se documenta la limitación; los ocho participantes técnicos no sustituyen validación institucional.
-
-Tareas: iniciar sesión, ubicar estudiante, crear/consultar registro autorizado, detectar error y corregirlo, escanear, consultar asistencia, registrar/consultar nota, descargar documento y terminar sesión, según perfil.
-
-Registrar por tarea: éxito sin ayuda, éxito con ayuda o fallo; tiempo; número de errores; pasos confusos; mensaje no entendido; valoración 1–5 y comentario. No inventar una meta temporal institucional: acordar límites de tareas en D1 cuando sean necesarios. Objetivo de aceptación: cada tarea crítica debe poder completarse por su perfil sin bloqueo; problemas menores se clasifican y acuerdan.
-
-Comprobar teclado/foco, etiquetas de campos, mensajes comprensibles en español, contraste y zoom al 200 % en pantallas principales. Registrar limitaciones; estas comprobaciones no certifican conformidad completa con un estándar de accesibilidad.
-
-Matriz mínima: escritorio Chrome/Edge disponible, Firefox y Safari vigentes; Android Chrome vigente y versión anterior conforme al contrato. Perfil móvil de referencia: 2 GB RAM, viewport 360 × 640. Registrar versiones efectivamente probadas; disponibilidad de Safari/Android es dependencia que debe confirmarse D1. Emulación complementa, pero no sustituye cámara/dispositivo real.
+Matriz mínima para las áreas responsables: escritorio Chrome/Edge disponible, Firefox y Safari vigentes; Android Chrome vigente y versión anterior conforme al contrato. Perfil móvil de referencia: 2 GB RAM, viewport 360 × 640. Registrar versiones efectivamente probadas; emulación complementa, pero no sustituye cámara/dispositivo real.
 
 Cámara: contexto seguro, permiso concedido/denegado, ausencia de dispositivo, elección trasera cuando disponible, reintento y cierre/unmount que detiene tracks. El permiso debe verificarse antes del primer escaneo según RNF-USA-001. Probar red interrumpida y recuperación del lote sin duplicados; no asumir soporte offline general.
 
@@ -727,10 +717,8 @@ docs/quality/fase-7/
   incidencias.csv
   correcciones-y-regresion.md
   informe-seguridad.md
-  informe-usabilidad.md
   informe-rendimiento.md
   informe-recuperacion.md
-  informe-aceptacion-usuarios.md
   matriz-final.csv
   indice-evidencias.csv
   seguimiento-manuales.md
@@ -752,15 +740,14 @@ docs/quality/fase-7/
 | Plan actualizado | Alcance, cronograma, tipos, roles, riesgos, umbrales y cambios de plan. | Pablo / Daniel | D1 y cada cambio relevante. |
 | Alcance/decisiones | Clasificación de 230 IDs, aprobaciones, PD/ADR, exclusiones y limitaciones. | Pablo / responsables | D1; revisar D5. |
 | Entorno/datos | Ficha reproducible, recursos, configuración no sensible, versiones y fixtures. | Daniel / Josué | D1 y cambio de entorno. |
-| Catálogo de casos | Fichas y vínculos RF/RNF/criterios, reutilización y brechas. | Santiago, Diana, Josué, Emilio, Estuardo y Roí / revisores cruzados | D1–D2; mantener hasta cierre. |
+| Catálogo de casos | Fichas y vínculos RF/RNF/criterios, reutilización y brechas. | Santiago, Diana, Josué, Emilio, Estuardo y Roí / revisores cruzados | D1–D2; Estuardo aporta dentro de D2. |
 | Ejecuciones | Resultado real por caso/nodo, SHA, entorno, ejecutor, evidencia e incidencia. | Todos / revisor correspondiente | En cada corrida, cierre diario. |
 | Incidencias | Clasificación, reproducción, estado, responsable y decisiones. | Reportante + Pablo / revisor | Desde D1, actualizar diariamente. |
 | Correcciones/regresión | Causa, INC, prueba reproducible, PR/SHA, retest y alcance de regresión. | Autor + revisor / Pablo | Cada fix; consolidar D5. |
 | Seguridad | Controles, vectores, hallazgos, dependencias, excepciones y conclusión por RNF. | Santiago/Daniel / Roí | D2–D4. |
-| Usabilidad | Participantes/perfiles, tareas, tiempos, ayudas, errores y recomendaciones. | Estuardo / Emilio | D3–D4. |
 | Rendimiento | Aplicabilidad, recursos, carga, muestras, percentiles, errores y contraste con metas. | Daniel/Emilio / Pablo | D3; repetir si fix afecta rendimiento. |
 | Recuperación | Destino, volumen, pila, checksum, RPO/RTO, integridad posterior y limitaciones. | Daniel/Roí / Josué | D3. |
-| UAT | Agenda, escenarios, perfiles, resultados, observaciones y validación de cambios. | Estuardo/Pablo / usuarios | D4–D5. |
+| UAT | Agenda, escenarios, perfiles, resultados, observaciones y validación de cambios según alcance vigente. | Pablo / usuarios y facilitadores designados | D4–D5. |
 | Matriz final | Cobertura real por criterio y candidato, incidencias y decisiones. | Pablo + dominios / Daniel | Base D1; cierre D5. |
 | Manuales | Estado/versiones, revisiones, evidencia de procedimiento y videos. | Dueños de manual / revisor cruzado | Todos los días; cierre D5. |
 | Reporte final | Resumen de calidad, cobertura, métricas, limitaciones y recomendación apto/no apto. | Pablo / Santiago, Diana, Josué, Emilio, Estuardo, Roí y Daniel | D5. |
@@ -827,13 +814,13 @@ No redactar políticas de retención, campos de credencial o reglas instituciona
 
 ## 17. Pruebas de aceptación con usuarios
 
-### 17.1 Preparación D1–D3
+### 17.1 Preparación
 
-Pablo solicita a la institución una autoridad de aceptación y representantes de perfiles incluidos; Estuardo prepara agenda y tareas. Confirmar disponibilidad D1 para no descubrir ausencia en D4. Registrar participantes mediante identificadores/perfiles; conservar firmas o datos de contacto necesarios en acceso controlado.
+Pablo solicita a la institución una autoridad de aceptación y representantes de perfiles incluidos; la persona facilitadora se define según el alcance vigente. Registrar participantes mediante identificadores/perfiles; conservar firmas o datos de contacto necesarios en acceso controlado.
 
 Cada escenario UAT contiene tarea realista, RF/RNF y criterio, rol/alcance, datos sintéticos, estado inicial, pasos esperados, resultado y evidencia. Usuarios revisan criterios antes de comenzar; no cambiar condiciones al observar un fallo.
 
-### 17.2 Sesiones D4–D5
+### 17.2 Sesiones
 
 1. Presentar objetivo, candidato exacto, alcance y limitaciones.
 2. Usuario ejecuta tareas de su perfil con cuenta QA y manual disponible.
@@ -919,8 +906,8 @@ No afirmar que existe pipeline formal de despliegue si sigue pendiente en `relea
 | ADR-0009 y RNF-REN-003/004 | Worker/colas diferidos; plan anterior los contemplaba. | Pablo concilia ADR vigente y alcance; exige decisión explícita sobre diferimiento en entrega. No incorporar worker dentro de QA. | D1. |
 | Matriz/catálogo desalineados | Falsa cobertura o estados incompatibles. | Pablo y responsables de dominio comparan IDs, rutas, estados y criterios con pruebas/código. | Base D1, cierre D5. |
 | PD-011: guardia CI de rutas | Puede rechazar archivos legítimos de código/documentación. | Daniel verifica comportamiento actual; registrar bloqueo y tramitar cambio separado si corresponde. No eludir control. | D1. |
-| Dispositivos/TLS/perfil objetivo ausentes | Cámara, seguridad o rendimiento quedan sin verificar. | Daniel/Estuardo aseguran disponibilidad o documentan bloqueo y decisión. | D1. |
-| Usuarios UAT no disponibles | Sin aceptación institucional. | Pablo y Estuardo reservan sesiones y suplentes institucionales autorizados. | Agenda D1, ejecución D4–D5. |
+| Dispositivos/TLS/perfil objetivo ausentes | Cámara, seguridad o rendimiento quedan sin verificar. | Daniel y responsables de dominio según alcance aseguran disponibilidad o documentan decisión. | Según plan del dominio. |
+| Usuarios UAT no disponibles | Sin aceptación institucional. | Pablo coordina sesiones y suplentes institucionales autorizados según alcance vigente. | Según plan de UAT vigente. |
 | Muchos defectos/capacidad insuficiente | No alcanza tiempo para fix y regresión. | Pablo prioriza obligatorios, conserva reserva y solicita decisión ante exceso. | Revisión diaria, alerta D2–D3. |
 | Cambios después de congelación | Evidencia/manuales ya no corresponden a candidato. | Daniel emite nuevo SHA/candidato; dominios repiten impacto y Pablo actualiza acta. | Cada cambio. |
 | Skips, allowlist y enlaces temporales | Aprobación aparente o evidencia perdida. | Daniel/Santiago revisan exclusiones; exportar evidencia y acordar conservación. | Cada ronda y cierre D5. |
