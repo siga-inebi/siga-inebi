@@ -12,6 +12,7 @@ Diagnóstico local; no constituye candidato formal, aceptación institucional ni
 - [Inventario de pruebas](inventario-pruebas.csv): 181 casos (150 backend y 31 frontend) con requisito candidato y línea.
 - [Resultados por prueba](resultados-pruebas.csv): estado y duración de cada caso, transcritos de JUnit, incluida la corrida de diagnóstico.
 - [Evidencia revisada](evidencia-revisada.md): comandos, versiones y hashes de los logs/JUnit locales. Los artefactos crudos no se publican en Git; su entrega a revisores está pendiente.
+- [Casos de integración en pareja](casos-integracion.md): fichas de los cuatro flujos manuales con Josué, Santiago, Emilio y Roí, con reparto de pasos. No ejecutados.
 - El catálogo general y sus resultados históricos se conservan. Este catálogo complementario no aprueba requisitos ni modifica el alcance institucional.
 
 ## Primeros seis casos
