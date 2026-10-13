@@ -1,0 +1,182 @@
+test_reference,requirement_candidates,mapping_status,line
+backend/tests/unit/test_people_services.py::test_create_person_persists_supplied_fields,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,14
+backend/tests/unit/test_people_services.py::test_create_person_defaults_optional_fields_to_blank,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,37
+backend/tests/unit/test_people_services.py::test_create_person_records_audit_event,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,47
+backend/tests/unit/test_people_services.py::test_update_person_applies_only_supplied_fields,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,59
+backend/tests/unit/test_people_services.py::test_update_person_can_clear_optional_field_with_empty_string,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,71
+backend/tests/unit/test_people_services.py::test_update_person_records_audit_event_with_changed_fields,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,82
+backend/tests/unit/test_people_services.py::test_update_person_without_changes_is_a_no_op,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,97
+backend/tests/unit/test_people_services.py::test_deactivate_person_sets_is_active_false,RF-EXP-001;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,108
+backend/tests/unit/test_people_services.py::test_deactivate_person_records_audit_event,RF-EXP-001;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,119
+backend/tests/unit/test_people_services.py::test_deactivate_person_is_idempotent,RF-EXP-001;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,132
+backend/tests/unit/test_people_services.py::test_create_person_persists_birth_date,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,143
+backend/tests/unit/test_people_services.py::test_update_person_can_set_birth_date,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,154
+backend/tests/unit/test_students.py::test_student_code_unique,RF-EXP-002,Referencia inicial; verificar cobertura de cada criterio,19
+backend/tests/unit/test_students.py::test_deactivate_student_preserves_record,RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,28
+backend/tests/unit/test_students.py::test_guardian_access_cut_off_after_relation_end,RF-ALC-006;RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,40
+backend/tests/unit/test_students.py::test_student_record_instance_cannot_be_physically_deleted[StudentFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,64
+backend/tests/unit/test_students.py::test_student_record_instance_cannot_be_physically_deleted[GuardianFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,64
+backend/tests/unit/test_students.py::test_student_record_instance_cannot_be_physically_deleted[StudentGuardianRelationFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,64
+backend/tests/unit/test_students.py::test_student_record_instance_cannot_be_physically_deleted[EmergencyContactFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,64
+backend/tests/unit/test_students.py::test_student_record_instance_cannot_be_physically_deleted[StudentHealthNoteFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,64
+backend/tests/unit/test_students.py::test_student_record_instance_cannot_be_physically_deleted[StudentObservationFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,64
+backend/tests/unit/test_students.py::test_student_record_queryset_cannot_be_physically_deleted[StudentFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,86
+backend/tests/unit/test_students.py::test_student_record_queryset_cannot_be_physically_deleted[GuardianFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,86
+backend/tests/unit/test_students.py::test_student_record_queryset_cannot_be_physically_deleted[StudentGuardianRelationFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,86
+backend/tests/unit/test_students.py::test_student_record_queryset_cannot_be_physically_deleted[EmergencyContactFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,86
+backend/tests/unit/test_students.py::test_student_record_queryset_cannot_be_physically_deleted[StudentHealthNoteFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,86
+backend/tests/unit/test_students.py::test_student_record_queryset_cannot_be_physically_deleted[StudentObservationFactory],RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,86
+backend/tests/unit/test_students_services.py::test_update_student_status_uses_domain_service_and_audits_change,RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,23
+backend/tests/unit/test_students_services.py::test_update_student_rejects_invalid_status_without_writing,RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,40
+backend/tests/unit/test_students_services.py::test_update_student_rejects_non_image_photo_without_replacing_current_file,RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,50
+backend/tests/unit/test_students_services.py::test_update_student_normalizes_photo_to_id_dimensions_and_jpeg,RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,62
+backend/tests/unit/test_students_services.py::test_update_student_rejects_photo_larger_than_five_megabytes,RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,75
+backend/tests/unit/test_students_services.py::test_update_student_rejects_invalid_image_content,RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,87
+backend/tests/unit/test_students_services.py::test_only_active_status_allows_ordinary_interaction[pre_enrolled-False],RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,105
+backend/tests/unit/test_students_services.py::test_only_active_status_allows_ordinary_interaction[active-True],RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,105
+backend/tests/unit/test_students_services.py::test_only_active_status_allows_ordinary_interaction[inactive-False],RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,105
+backend/tests/unit/test_students_services.py::test_only_active_status_allows_ordinary_interaction[withdrawn-False],RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,105
+backend/tests/unit/test_students_services.py::test_only_active_status_allows_ordinary_interaction[graduated-False],RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,105
+backend/tests/unit/test_students_services.py::test_soft_deleted_active_student_does_not_allow_interaction,RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,111
+backend/tests/unit/test_student_guardian_relation_services.py::test_first_current_guardian_relationship_is_primary,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,16
+backend/tests/unit/test_student_guardian_relation_services.py::test_database_allows_at_most_one_current_primary_relationship,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,28
+backend/tests/unit/test_student_guardian_relation_services.py::test_ending_primary_relationship_requires_a_current_replacement,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,47
+backend/tests/unit/test_student_guardian_relation_services.py::test_replacing_and_ending_primary_preserves_other_relationships,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,64
+backend/tests/unit/test_student_guardian_relation_services.py::test_change_primary_replaces_the_current_primary,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,97
+backend/tests/unit/test_emergency_contact_services.py::test_create_emergency_contact_persists_supplied_fields,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,12
+backend/tests/unit/test_emergency_contact_services.py::test_create_emergency_contact_records_audit_event,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,34
+backend/tests/unit/test_emergency_contact_services.py::test_create_emergency_contact_rejects_inactive_student,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,54
+backend/tests/unit/test_emergency_contact_services.py::test_create_emergency_contact_rejects_blank_name,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,68
+backend/tests/unit/test_emergency_contact_services.py::test_update_emergency_contact_applies_only_supplied_fields,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,82
+backend/tests/unit/test_emergency_contact_services.py::test_update_emergency_contact_records_audit_event_with_changed_fields,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,94
+backend/tests/unit/test_emergency_contact_services.py::test_update_emergency_contact_without_changes_is_a_no_op,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,111
+backend/tests/unit/test_student_health_note_services.py::test_create_health_note_preserves_author_and_audits_without_content,RF-EXP-009;RNF-AUD-003,Referencia inicial; verificar cobertura de cada criterio,16
+backend/tests/unit/test_student_health_note_services.py::test_create_health_note_rejects_blank_or_future_content,RF-EXP-009,Referencia inicial; verificar cobertura de cada criterio,35
+backend/tests/unit/test_student_health_note_services.py::test_deactivate_health_note_keeps_history,RF-EXP-009;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,52
+backend/tests/unit/test_student_observation_services.py::test_create_observation_preserves_author_date_and_description,RF-EXP-006,Referencia inicial; verificar cobertura de cada criterio,16
+backend/tests/unit/test_student_observation_services.py::test_create_observation_rejects_blank_or_future_description,RF-EXP-006,Referencia inicial; verificar cobertura de cada criterio,36
+backend/tests/unit/test_student_observation_services.py::test_deactivate_observation_keeps_history,RF-EXP-006;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,53
+backend/tests/api/test_people_api.py::test_create_person,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,21
+backend/tests/api/test_people_api.py::test_create_person_requires_first_and_last_name,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,42
+backend/tests/api/test_people_api.py::test_list_people_is_paginated,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,53
+backend/tests/api/test_people_api.py::test_retrieve_person,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,67
+backend/tests/api/test_people_api.py::test_retrieve_missing_person_returns_404,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,78
+backend/tests/api/test_people_api.py::test_update_person,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,86
+backend/tests/api/test_people_api.py::test_deactivate_person_via_delete_is_soft,RF-EXP-001;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,102
+backend/tests/api/test_people_api.py::test_unauthenticated_request_is_rejected,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,115
+backend/tests/api/test_people_api.py::test_create_person_never_exposes_birth_date,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,123
+backend/tests/api/test_people_api.py::test_retrieve_person_never_exposes_birth_date,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,142
+backend/tests/api/test_students_api.py::test_create_student,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,39
+backend/tests/api/test_students_api.py::test_create_student_missing_person_fields_is_rejected,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,81
+backend/tests/api/test_students_api.py::test_list_students_is_paginated,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,106
+backend/tests/api/test_students_api.py::test_list_students_returns_nested_person,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,123
+backend/tests/api/test_students_api.py::test_list_students_search_filters_by_name_or_code,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,139
+backend/tests/api/test_students_api.py::test_list_students_permission_without_scope_is_denied,RF-EXP-001;RF-ALC-001,Referencia inicial; verificar cobertura de cada criterio,168
+backend/tests/api/test_students_api.py::test_list_students_is_restricted_to_section_scope,RF-EXP-001;RF-ALC-001,Referencia inicial; verificar cobertura de cada criterio,183
+backend/tests/api/test_students_api.py::test_upload_student_photo,RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,213
+backend/tests/api/test_students_api.py::test_retrieve_student,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,242
+backend/tests/api/test_students_api.py::test_retrieve_missing_student_returns_404,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,254
+backend/tests/api/test_students_api.py::test_update_student,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,264
+backend/tests/api/test_students_api.py::test_deactivate_student_via_delete_is_soft,RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,285
+backend/tests/api/test_students_api.py::test_retrieve_student_outside_scope_is_denied,RF-EXP-001;RF-ALC-001,Referencia inicial; verificar cobertura de cada criterio,304
+backend/tests/api/test_students_api.py::test_students_module_scope_lists_a_student_without_enrolment,RF-EXP-001;RF-ALC-001,Referencia inicial; verificar cobertura de cada criterio,316
+backend/tests/api/test_students_api.py::test_create_student_duplicate_student_code_is_rejected,RF-EXP-002,Referencia inicial; verificar cobertura de cada criterio,338
+backend/tests/api/test_students_api.py::test_create_student_without_permission_is_denied,RF-EXP-001;RF-ALC-001,Referencia inicial; verificar cobertura de cada criterio,365
+backend/tests/api/test_students_api.py::test_unauthenticated_request_is_rejected,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,395
+backend/tests/api/test_guardians_api.py::test_create_guardian,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,38
+backend/tests/api/test_guardians_api.py::test_list_guardians_is_paginated,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,72
+backend/tests/api/test_guardians_api.py::test_retrieve_guardian,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,86
+backend/tests/api/test_guardians_api.py::test_retrieve_missing_guardian_returns_404,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,97
+backend/tests/api/test_guardians_api.py::test_update_guardian_ignores_nested_person_changes,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,105
+backend/tests/api/test_guardians_api.py::test_deactivate_guardian_via_delete_is_soft,RF-EXP-004;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,122
+backend/tests/api/test_guardians_api.py::test_unauthenticated_request_to_guardian_list_is_rejected,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,135
+backend/tests/api/test_guardians_api.py::test_create_student_guardian_relation,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,143
+backend/tests/api/test_guardians_api.py::test_list_student_guardian_relations_is_paginated,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,171
+backend/tests/api/test_guardians_api.py::test_retrieve_student_guardian_relation,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,193
+backend/tests/api/test_guardians_api.py::test_retrieve_missing_student_guardian_relation_returns_404,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,205
+backend/tests/api/test_guardians_api.py::test_direct_student_guardian_relation_update_is_not_available,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,215
+backend/tests/api/test_guardians_api.py::test_ending_primary_student_guardian_relation_requires_replacement,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,231
+backend/tests/api/test_guardians_api.py::test_end_student_guardian_relation_with_replacement,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,248
+backend/tests/api/test_guardians_api.py::test_make_student_guardian_relation_primary,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,273
+backend/tests/api/test_guardians_api.py::test_create_student_guardian_relation_missing_student_is_rejected,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,295
+backend/tests/api/test_guardians_api.py::test_unauthenticated_request_to_relation_list_is_rejected,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,314
+backend/tests/api/test_guardians_api.py::test_relation_list_and_detail_require_student_view_scope,RF-EXP-004;RF-ALC-001,Referencia inicial; verificar cobertura de cada criterio,322
+backend/tests/api/test_guardians_api.py::test_relation_mutations_require_student_edit_scope,RF-EXP-004;RF-ALC-001,Referencia inicial; verificar cobertura de cada criterio,348
+backend/tests/api/test_emergency_contacts_api.py::test_create_emergency_contact,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,31
+backend/tests/api/test_emergency_contacts_api.py::test_create_emergency_contact_under_unknown_student_returns_404,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,57
+backend/tests/api/test_emergency_contacts_api.py::test_create_emergency_contact_under_inactive_student_is_rejected,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,72
+backend/tests/api/test_emergency_contacts_api.py::test_list_emergency_contacts_is_paginated_and_scoped_to_student,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,90
+backend/tests/api/test_emergency_contacts_api.py::test_list_emergency_contacts_hides_inactive_unless_requested,RF-EXP-005;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,109
+backend/tests/api/test_emergency_contacts_api.py::test_retrieve_emergency_contact,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,125
+backend/tests/api/test_emergency_contacts_api.py::test_retrieve_missing_emergency_contact_returns_404,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,137
+backend/tests/api/test_emergency_contacts_api.py::test_update_emergency_contact,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,145
+backend/tests/api/test_emergency_contacts_api.py::test_deactivate_emergency_contact_via_delete_is_soft,RF-EXP-005;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,162
+backend/tests/api/test_emergency_contacts_api.py::test_unauthenticated_request_to_emergency_contact_list_is_rejected,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,178
+backend/tests/api/test_emergency_contacts_api.py::test_contact_access_requires_sensitive_permission_and_student_scope,RF-EXP-005,Referencia inicial; verificar cobertura de cada criterio,196
+backend/tests/api/test_student_health_notes_api.py::test_authorized_actor_creates_and_reads_audited_health_note,RF-EXP-009;RNF-AUD-003,Referencia inicial; verificar cobertura de cada criterio,30
+backend/tests/api/test_student_health_notes_api.py::test_basic_access_without_sensitive_permission_is_denied,RF-EXP-009,Referencia inicial; verificar cobertura de cada criterio,49
+backend/tests/api/test_student_health_notes_api.py::test_sensitive_permissions_without_student_scope_are_denied,RF-EXP-009,Referencia inicial; verificar cobertura de cada criterio,61
+backend/tests/api/test_student_health_notes_api.py::test_reading_a_health_note_detail_is_audited,RF-EXP-009;RNF-AUD-003,Referencia inicial; verificar cobertura de cada criterio,74
+backend/tests/api/test_student_health_notes_api.py::test_health_note_soft_delete_requires_edit_and_preserves_history,RF-EXP-009;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,91
+backend/tests/api/test_student_observations_api.py::test_authorized_actor_creates_and_reads_audited_observation,RF-EXP-006;RNF-AUD-003,Referencia inicial; verificar cobertura de cada criterio,30
+backend/tests/api/test_student_observations_api.py::test_basic_access_without_sensitive_permission_is_denied,RF-EXP-006,Referencia inicial; verificar cobertura de cada criterio,49
+backend/tests/api/test_student_observations_api.py::test_sensitive_permissions_without_student_scope_are_denied,RF-EXP-006,Referencia inicial; verificar cobertura de cada criterio,61
+backend/tests/api/test_student_observations_api.py::test_reading_an_observation_detail_is_audited,RF-EXP-006;RNF-AUD-003,Referencia inicial; verificar cobertura de cada criterio,74
+backend/tests/api/test_student_observations_api.py::test_observation_soft_delete_requires_edit_and_preserves_history,RF-EXP-006;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,91
+backend/tests/integration/test_student_lifecycle.py::test_student_lifecycle_preserves_profile_and_relations,RF-EXP-003;RF-EXP-008,Referencia inicial; verificar cobertura de cada criterio,11
+backend/tests/permissions/test_guardian_derived_scope.py::test_guardian_scope_contains_only_current_related_students,RF-ALC-006,Referencia inicial; verificar cobertura de cada criterio,17
+backend/tests/permissions/test_guardian_derived_scope.py::test_ended_guardian_relationship_revokes_scope_immediately,RF-ALC-006,Referencia inicial; verificar cobertura de cada criterio,43
+backend/tests/permissions/test_guardian_derived_scope.py::test_withdrawn_ward_loses_scope_without_hiding_other_active_wards,RF-ALC-006;RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,63
+backend/tests/permissions/test_guardian_derived_scope.py::test_withdrawn_student_account_keeps_account_but_loses_permissions,RF-ALC-006;RF-EXP-003,Referencia inicial; verificar cobertura de cada criterio,88
+backend/tests/permissions/test_attendance_permissions.py::test_unauthenticated_rejection_is_not_stored_on_the_operator_device,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,34
+backend/tests/permissions/test_attendance_permissions.py::test_out_of_scope_rejection_is_not_stored_on_the_operator_device,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,41
+backend/tests/permissions/test_attendance_permissions.py::test_authorized_response_is_not_stored_on_the_operator_device,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,48
+backend/tests/api/test_attendance_api.py::test_scan_endpoint_confirmation_never_leaks_health_academic_or_contact_data,RNF-PRI-002,Referencia inicial; verificar cobertura de cada criterio,1133
+backend/tests/api/test_attendance_api.py::test_issue_credential_qr_code_encodes_only_the_opaque_identifier,RNF-PRI-001,Referencia inicial; verificar cobertura de cada criterio,1664
+backend/tests/api/test_attendance_api.py::test_credential_print_content_is_not_stored_on_the_operator_device,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,2858
+backend/tests/api/test_attendance_api.py::test_presence_list_is_not_stored_on_the_operator_device,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,2875
+backend/tests/api/test_attendance_api.py::test_justification_attachment_read_is_not_stored_on_the_operator_device,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,2901
+backend/tests/integration/test_attendance.py::test_gate_scan_of_a_real_enrolment_is_not_stored_while_catalogues_keep_their_cache,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,782
+backend/tests/unit/test_people_services.py::test_is_minor_returns_none_for_unknown_birth_date,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,164
+backend/tests/unit/test_people_services.py::test_is_minor_is_true_below_threshold_age,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,169
+backend/tests/unit/test_people_services.py::test_is_minor_is_false_on_18th_birthday,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,177
+backend/tests/unit/test_people_services.py::test_is_minor_is_false_well_above_threshold_age,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,185
+backend/tests/unit/test_qr.py::test_generate_qr_png_returns_a_valid_png,RNF-PRI-001,Referencia inicial; verificar cobertura de cada criterio,19
+backend/tests/unit/test_qr.py::test_generate_qr_png_is_deterministic_for_the_same_input,RNF-PRI-001,Referencia inicial; verificar cobertura de cada criterio,25
+backend/tests/unit/test_qr.py::test_generate_qr_png_differs_for_different_input,RNF-PRI-001,Referencia inicial; verificar cobertura de cada criterio,32
+backend/tests/unit/test_qr.py::test_generate_qr_png_base64_decodes_to_the_same_png,RNF-PRI-001,Referencia inicial; verificar cobertura de cada criterio,44
+backend/tests/unit/test_no_store_api_middleware.py::test_api_response_without_cache_control_is_marked_no_store,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,21
+backend/tests/unit/test_no_store_api_middleware.py::test_api_response_that_opted_into_caching_keeps_its_own_header,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,27
+backend/tests/unit/test_no_store_api_middleware.py::test_error_responses_are_marked_no_store_too,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,36
+backend/tests/unit/test_no_store_api_middleware.py::test_non_api_paths_are_left_untouched,RNF-PRI-003,Referencia inicial; verificar cobertura de cada criterio,42
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > exports the currently filtered rows as CSV,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,98
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > renders the list once loaded,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,112
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > shows an empty state when the search does not match,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,125
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > shows the service error instead of the table,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,138
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > opens the detail panel for a row,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,149
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > opens and closes the photo lightbox from the detail panel,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,163
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > submits the create form against the mock service,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,207
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > previews a newly selected photo in the create form,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,261
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > edits a student via the detail panel,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,282
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > requires the mandatory fields before submitting,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,332
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > opens sensitive health section and creates a note,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,345
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > links a guardian from the student detail,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,379
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > opens sensitive observations and creates one,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,438
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > lists and creates an emergency contact,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,475
+frontend/src/test/AlumnosPage.test.jsx::AlumnosPage > opens sensitive observations and creates one,RF-EXP-001;RF-EXP-007,Referencia inicial; verificar cobertura de cada criterio,438
+frontend/src/test/GuardiansPage.test.jsx::GuardiansPage > exports the currently filtered rows as CSV,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,60
+frontend/src/test/GuardiansPage.test.jsx::GuardiansPage > renders the list once loaded,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,74
+frontend/src/test/GuardiansPage.test.jsx::GuardiansPage > shows an empty state when the search does not match,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,87
+frontend/src/test/GuardiansPage.test.jsx::GuardiansPage > shows the service error instead of the table,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,100
+frontend/src/test/GuardiansPage.test.jsx::GuardiansPage > opens the detail panel for a row,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,111
+frontend/src/test/GuardiansPage.test.jsx::GuardiansPage > submits the create form against the service,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,126
+frontend/src/test/GuardiansPage.test.jsx::GuardiansPage > edits a guardian via the detail panel,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,164
+frontend/src/test/GuardiansPage.test.jsx::GuardiansPage > requires the mandatory fields before submitting,RF-EXP-004,Referencia inicial; verificar cobertura de cada criterio,209
+frontend/src/test/personasPage.test.jsx::pantalla de personas > lista las personas registradas,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,25
+frontend/src/test/personasPage.test.jsx::pantalla de personas > muestra 'sin registrar' para los campos opcionales vacios,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,34
+frontend/src/test/personasPage.test.jsx::pantalla de personas > crea una persona y recarga el listado,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,42
+frontend/src/test/personasPage.test.jsx::pantalla de personas > no crea la persona si falta un campo requerido,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,70
+"frontend/src/test/personasPage.test.jsx::pantalla de personas > edita una persona con todos sus campos, sin ninguno inmutable",RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,85
+frontend/src/test/personasPage.test.jsx::pantalla de personas > desactiva una persona tras confirmar,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,111
+frontend/src/test/personasPage.test.jsx::pantalla de personas > una persona desactivada no ofrece el boton de desactivar,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,126
+frontend/src/test/personasPage.test.jsx::pantalla de personas > muestra el error del listado,RF-EXP-001,Referencia inicial; verificar cobertura de cada criterio,136
