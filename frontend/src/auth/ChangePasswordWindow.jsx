@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -27,6 +27,16 @@ export function ChangePasswordWindow({ onClose, onSuccess, open }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const closeTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) {
+        window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const resetForm = () => {
     setCurrentPassword("");
@@ -67,7 +77,10 @@ export function ChangePasswordWindow({ onClose, onSuccess, open }) {
       if (onSuccess) {
         onSuccess();
       }
-      setTimeout(() => {
+      if (closeTimerRef.current) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+      closeTimerRef.current = window.setTimeout(() => {
         handleClose();
       }, 1200);
     } catch (err) {
