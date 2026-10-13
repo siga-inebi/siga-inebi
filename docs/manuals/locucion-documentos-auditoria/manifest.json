@@ -1,0 +1,119 @@
+{
+  "master": {
+    "filename": "audio-completo-documentos-auditoria.mp3",
+    "size_bytes": 3156864,
+    "sha256": "c06d98b300361fee4ec0fb89650e3cd50f8693f2cea265488905288938cfd201"
+  },
+  "scenes": [
+    {
+      "scene_num": 1,
+      "id": "escena-01",
+      "title": "Presentación del objetivo y roles autorizados",
+      "filename": "escena-01.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-01.mp3",
+      "size_bytes": 345024,
+      "sha256": "fb305b5ffa3ed7115c1416c0f9cef99e5012b463ac373efee45a6ec2b30d942f",
+      "screen_action": "Carátula institucional de SIGA-INEBI con título del video, roles (Secretaría y Auditoría) y advertencia de datos sintéticos de QA."
+    },
+    {
+      "scene_num": 2,
+      "id": "escena-02",
+      "title": "Inicio de sesión con cuenta QA ficticia",
+      "filename": "escena-02.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-02.mp3",
+      "size_bytes": 283968,
+      "sha256": "0cd9918df3b73bbac020bb2e0e4ffef01e0ea54f88184de3c5ed0426535be6ef",
+      "screen_action": "Pantalla de login en entorno QA. Se ingresa con usuario de secretaría ficticio. Contraseña oculta por asteriscos; no se ven secretos ni cookies."
+    },
+    {
+      "scene_num": 3,
+      "id": "escena-03",
+      "title": "Carga de documento PDF sintético válido",
+      "filename": "escena-03.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-03.mp3",
+      "size_bytes": 307584,
+      "sha256": "860187d103dd7d31a956a558df051d3f29f8bcfafb6d95f05091eaf1e3a0446a",
+      "screen_action": "Búsqueda del estudiante Ana Demo Sintética (QA-DOC-001). Apertura del expediente documental y selección de constancia-demo.pdf."
+    },
+    {
+      "scene_num": 4,
+      "id": "escena-04",
+      "title": "Validación y resultado exitoso",
+      "filename": "escena-04.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-04.mp3",
+      "size_bytes": 297216,
+      "sha256": "35eb5ff3f34770c6044bc1c9eea4f4c99d8170b337565c487e157d3e63a9cfea",
+      "screen_action": "El sistema procesa la carga, muestra barra de progreso y notificación de éxito. El requisito cambia a estado Entregado."
+    },
+    {
+      "scene_num": 5,
+      "id": "escena-05",
+      "title": "Consulta del documento y su historial",
+      "filename": "escena-05.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-05.mp3",
+      "size_bytes": 276288,
+      "sha256": "b112050b288ea84bba6a288567bdd6f6b6ba85fc14055fb7fa47220b837e8a8c",
+      "screen_action": "Tabla de archivos adjuntos mostrando nombre de archivo, versión v1, estado Vigente y fecha de registro."
+    },
+    {
+      "scene_num": 6,
+      "id": "escena-06",
+      "title": "Descarga autorizada sin enseñar tokens ni URLs internas",
+      "filename": "escena-06.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-06.mp3",
+      "size_bytes": 251520,
+      "sha256": "9a3f7481a87745f607f823f60bc34a68de7b10a43ca92bc853f5a25c177937d3",
+      "screen_action": "Clic en icono de descarga del documento. El navegador descarga el archivo de forma transparente sin URL de S3 ni tokens en la barra."
+    },
+    {
+      "scene_num": 7,
+      "id": "escena-07",
+      "title": "Intento de cargar archivo inválido o excedido y rechazo",
+      "filename": "escena-07.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-07.mp3",
+      "size_bytes": 314112,
+      "sha256": "8e02ec0562ae50bb451df45309fd1244869c57a96f6a2c756ce2ca2ea6b139a5",
+      "screen_action": "Intento de adjuntar archivo-invalido.exe y luego archivo-excedido.pdf. Alertas de validación en rojo."
+    },
+    {
+      "scene_num": 8,
+      "id": "escena-08",
+      "title": "Cambio a usuario sin alcance e intento de consulta ajena",
+      "filename": "escena-08.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-08.mp3",
+      "size_bytes": 270528,
+      "sha256": "9024a69408517454613fc1cbebcefab80da000e549da4c421bbc98b3ba325f18",
+      "screen_action": "Cierre de sesión. Login con usuario docente o sin alcance. Intento de acceder al documento del estudiante ajeno."
+    },
+    {
+      "scene_num": 9,
+      "id": "escena-09",
+      "title": "Demostración de que la operación denegada queda auditada",
+      "filename": "escena-09.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-09.mp3",
+      "size_bytes": 256128,
+      "sha256": "5b2bb115851a962e0084a4431446cd116817d19edd1c2ea8a74aeb4b27897914",
+      "screen_action": "Explicación en pantalla de la arquitectura de bitácora transversal y captura de intentos 403/401."
+    },
+    {
+      "scene_num": 10,
+      "id": "escena-10",
+      "title": "Ingreso con rol de auditor autorizado y consulta de bitácora",
+      "filename": "escena-10.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-10.mp3",
+      "size_bytes": 289536,
+      "sha256": "447ebf0df4f724580d7c2bfbb870802a04da96a076fe422a607672f0877bbd71",
+      "screen_action": "Inicio de sesión con cuenta de Auditor institucional. Navegación a Bitácora y Eventos. Filtrado del evento denegado y la carga previa."
+    },
+    {
+      "scene_num": 11,
+      "id": "escena-11",
+      "title": "Cierre explicando resultado y siguientes pasos",
+      "filename": "escena-11.mp3",
+      "path": "c:\\Users\\pc hp\\OneDrive\\Documentos\\proyecto inebi\\siga-inebi\\docs\\manuals\\locucion-documentos-auditoria\\escena-11.mp3",
+      "size_bytes": 264960,
+      "sha256": "bd6e59e08b6593dc5f7f9d3469c7feebdb903e2c69fb9c8943434e611bc877c8",
+      "screen_action": "Resumen visual de los puntos demostrados, créditos institucionales y llamado al siguiente segmento del manual."
+    }
+  ]
+}
