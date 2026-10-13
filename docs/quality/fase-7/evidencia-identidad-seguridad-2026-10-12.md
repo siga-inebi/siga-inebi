@@ -95,6 +95,14 @@ CSRF activo con rotación de token. Los indicadores `Secure` permanecen
 desactivados en HTTP local, por lo que esta ejecución no sustituye la
 verificación de cookies seguras y TLS en el entorno HTTPS de entrega.
 
+Diana completó en el PR #586 la revisión cruzada sobre este SHA y sobre `develop` con datos
+sintéticos propios: sus 28 comprobaciones coincidieron con el resultado. La
+revisión encontró que tres de ocho rechazos HTTP 403 no generaron evento de
+bitácora; el hallazgo queda registrado como INC-IDENT-001. También confirmó
+que el acceso previo HTTP 200 depende de asignar `student_view_sensitive` al
+rol de encargado. Esa asignación no se declara como regla aceptada: continúa
+pendiente de decisión con Pablo bajo PD-004/PD-005.
+
 <a id="ev-ej-d1-042-01"></a>
 
 ## EV-EJ-D1-042-01 — Reauditoría de dependencias frontend

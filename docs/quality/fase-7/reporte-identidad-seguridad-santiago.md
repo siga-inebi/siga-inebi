@@ -31,7 +31,7 @@ aceptación.
 | EJ-D1-038 | Frontend de autenticación y sesiones | Aprobado: 33 pruebas en tres archivos |
 | EJ-D1-039 | Bandit y `pip-audit` | Aprobado: sin hallazgos Bandit; cero vulnerabilidades conocidas y una excepción versionada |
 | EJ-D1-040 | `npm audit --audit-level=high` | Fallido: 8 vulnerabilidades, vinculadas a INC-003 |
-| EJ-D1-041 | Pérdida de alcance del encargado y regresión dirigida | Aprobado técnicamente: accesos previos 200, rechazos posteriores 403, historial y auditoría conservados; 124 pruebas aprobadas |
+| EJ-D1-041 | Pérdida de alcance del encargado y regresión dirigida | Aprobado y revisado por Diana: 28 comprobaciones coincidentes; INC-IDENT-001 registra tres rechazos sin evento de auditoría |
 | EJ-D1-042 | Reauditoría de dependencias frontend | Aprobado: 0 vulnerabilidades con Vitest 4.1.11; reemplaza EJ-D1-040 para el estado vigente |
 
 Catorce requisitos incluidos quedaron `Aprobado` en el catálogo. Tres
@@ -51,21 +51,28 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 - **INC-005, abierta P0:** la suite backend global del PR obtuvo 15 fallos y
   1557 aprobaciones. La suite dirigida de identidad aprobó; coordinación debe
   hacer triage de los fallos en academics, audit y form suggestions.
+- **INC-IDENT-001, abierta:** la revisión cruzada de EJ-D1-041 confirmó el
+  resultado funcional, pero tres de ocho rechazos HTTP 403 no generaron evento
+  de bitácora. Requiere corrección y prueba de regresión en identidad.
+- **PD-004/PD-005, abiertas:** el HTTP 200 previo al cierre depende de que el
+  rol de encargado tenga `student_view_sensitive`; Pablo debe definir la
+  composición institucional del rol. La prueba no fija esa política.
 - Cuatro advertencias `RemovedInDjango60Warning` no provocaron fallos, pero
   deben revisarse antes de migrar a Django 6.
 
 ## Pendientes para cierre
 
-1. Diana debe realizar la revisión cruzada de casos y del resultado técnico de
-   pérdida de alcance registrado en EJ-D1-041.
-2. Fusionar los PR #579/#580 y repetir `pip-audit` sin excepciones sobre el
+1. Corregir INC-IDENT-001 y repetir los rechazos sensibles para demostrar que
+   todos quedan registrados en la bitácora.
+2. Pablo debe resolver la composición del rol encargado bajo PD-004/PD-005.
+3. Fusionar los PR #579/#580 y repetir `pip-audit` sin excepciones sobre el
    candidato final; la revisión de Daniel ya quedó registrada en el PR #574.
-3. Pablo y la contraparte deben resolver DEC-QA-002 y las discrepancias de
+4. Pablo y la contraparte deben resolver DEC-QA-002 y las discrepancias de
    clasificación entre catálogo y matriz canónica.
-4. Daniel debe fijar el SHA y entorno del candidato final conforme DEC-QA-001.
-5. Repetir EJ-D1-037 a EJ-D1-042 sobre el candidato final.
-6. Verificar cookies y TLS en el entorno HTTPS de entrega.
-7. Mantener AUT-005 y CTA-005 sin aceptación hasta contar con alcance y prueba
+5. Daniel debe fijar el SHA y entorno del candidato final conforme DEC-QA-001.
+6. Repetir EJ-D1-037 a EJ-D1-042 sobre el candidato final.
+7. Verificar cookies y TLS en el entorno HTTPS de entrega.
+8. Mantener AUT-005 y CTA-005 sin aceptación hasta contar con alcance y prueba
    verificable.
 
 ## Conclusión
