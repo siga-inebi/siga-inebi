@@ -13,10 +13,24 @@
 
 ## Allowlist temporal actual
 
-- `PYSEC-2026-1845` sobre `pytest==8.4.1`.
-- `GHSA-6v7p-g79w-8964` sobre `msgpack==1.1.2`.
-- `PYSEC-2026-1375` y `PYSEC-2026-1374` sobre `filelock==3.19.1`.
-- `PYSEC-2026-2275` sobre `requests==2.32.5`.
-- `PYSEC-2026-142` y `PYSEC-2026-141` sobre `urllib3==2.6.3`.
+- `PYSEC-2026-1845` (CVE-2025-71176) sobre `pytest==8.4.1`, corregido en `9.0.3`.
+  Exposicion: solo desarrollo y CI; la imagen desplegada instala
+  `requirements/cloud.txt`, que no incluye `pytest`. Responsable: Daniel.
+  Revisar al actualizar `pytest` o, a mas tardar, con el candidato RC1.
 
-Motivo: `pip-audit` reporta versiones de correccion no disponibles en indice utilizable por entorno local actual. Revisar allowlist en siguiente actualizacion de dependencias.
+## Excepciones retiradas
+
+El 2026-10-12, `pip-audit -r requirements/dev.txt` sin excepciones resolvio
+versiones ya corregidas de estas dependencias transitivas, por lo que sus
+excepciones se retiraron. Si una resolucion vuelve a una version vulnerable,
+CI debe fallar en lugar de ocultarlo.
+
+| ID | Paquete y version afectada | Resuelto el 2026-10-12 |
+| --- | --- | --- |
+| `GHSA-6v7p-g79w-8964` | `msgpack==1.1.2` | `msgpack 1.2.3` |
+| `PYSEC-2026-1375`, `PYSEC-2026-1374` | `filelock==3.19.1` | `filelock 4.1.1` |
+| `PYSEC-2026-2275` | `requests==2.32.5` | `requests 2.34.2` |
+| `PYSEC-2026-142`, `PYSEC-2026-141` | `urllib3==2.6.3` | `urllib3 2.8.0` |
+
+Estas dependencias no estan fijadas en `requirements/`; la version efectiva
+depende del indice al instalar.
