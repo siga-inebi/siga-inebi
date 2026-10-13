@@ -10,6 +10,13 @@ siguen pendientes. D1 está completado documentalmente conforme a
 ejecuciones vinculadas y revisión independiente, pero no afirma preparación
 manual en QA, UAT ni aceptación institucional.
 
+D2 también está completado para la línea base conforme a
+`cierre-d2-identidad-seguridad-santiago.md`. D3 está cerrado documentalmente en
+`cierre-d3-identidad-seguridad-santiago.md`. D4 tiene corrección y regresión en
+el PR #589, pero permanece condicionado a revisión, fusión, repetición integrada
+y UAT. D5 está preparado en `preparacion-d5-identidad-seguridad-santiago.md` y
+requiere un candidato final identificado.
+
 ## Alcance evaluado
 
 - Autenticación, bloqueo temporal, cierre y expiración de sesiones.
@@ -54,9 +61,10 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 - **INC-005, abierta P0:** la suite backend global del PR obtuvo 15 fallos y
   1557 aprobaciones. La suite dirigida de identidad aprobó; coordinación debe
   hacer triage de los fallos en academics, audit y form suggestions.
-- **INC-IDENT-001, abierta:** la revisión cruzada de EJ-D1-041 confirmó el
-  resultado funcional, pero tres de ocho rechazos HTTP 403 no generaron evento
-  de bitácora. Requiere corrección y prueba de regresión en identidad.
+- **INC-IDENT-001, corrección en revisión:** la revisión cruzada de EJ-D1-041
+  confirmó el resultado funcional y detectó tres rechazos HTTP 403 sin evento.
+  El PR #589 agrega la auditoría faltante y registra 53 pruebas dirigidas y 244
+  pruebas ampliadas aprobadas; falta revisión, fusión y repetición integrada.
 - **PD-004/PD-005, abiertas:** el HTTP 200 previo al cierre depende de que el
   rol de encargado tenga `student_view_sensitive`; Pablo debe definir la
   composición institucional del rol. La prueba no fija esa política.
@@ -68,8 +76,8 @@ estado de implementación/documentación y DEC-QA-002 impiden aceptarlos.
 Los siguientes puntos corresponden a D2–D5 y al cierre final del dominio; no
 reabren el cierre documental de D1:
 
-1. Corregir INC-IDENT-001 y repetir los rechazos sensibles para demostrar que
-   todos quedan registrados en la bitácora.
+1. Fusionar el PR #589 y repetir en `develop` los rechazos sensibles para
+   demostrar que todos quedan registrados en la bitácora.
 2. Pablo debe resolver la composición del rol encargado bajo PD-004/PD-005.
 3. Fusionar los PR #579/#580 y repetir `pip-audit` sin excepciones sobre el
    candidato final; la revisión de Daniel ya quedó registrada en el PR #574.
