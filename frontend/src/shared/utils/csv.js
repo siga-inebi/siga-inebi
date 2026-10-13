@@ -25,7 +25,10 @@ export function triggerCsvDownload(filename, csv) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 export function downloadCsv(filename, columns, rows) {
