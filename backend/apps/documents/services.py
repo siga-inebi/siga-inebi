@@ -1554,21 +1554,31 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
         stream += _pdf_text(line, limit=140)
         stream += b") Tj ET\n"
 
-    rendered = (
-        b"%PDF-1.4\n"
-        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
-        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
-        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 220] "
-        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
-        b"4 0 obj\n<< /Length "
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 220] "
+        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length "
         + str(len(stream)).encode("ascii")
         + b" >>\nstream\n"
         + stream
-        + b"endstream\nendobj\n"
-        b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
-        b"xref\n0 6\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n"
-        b"0000000125 00000 n\n0000000267 00000 n\n0000000780 00000 n\ntrailer\n"
-        b"<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
+        + b"endstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    rendered = b"%PDF-1.4\n"
+    offsets = [0]
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(rendered))
+        rendered += str(number).encode("ascii") + b" 0 obj\n" + body + b"\nendobj\n"
+    xref_offset = len(rendered)
+    rendered += b"xref\n0 6\n0000000000 65535 f\n"
+    for offset in offsets[1:]:
+        rendered += f"{offset:010d} 00000 n\n".encode("ascii")
+    rendered += (
+        b"trailer\n<< /Root 1 0 R /Size 6 >>\nstartxref\n"
+        + str(xref_offset).encode("ascii")
+        + b"\n%%EOF"
     )
 
     generated = type(

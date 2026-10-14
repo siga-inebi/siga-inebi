@@ -23,6 +23,8 @@ base previas permanecen en los registros.
 | [Avance de Estuardo](estuardo/informe-avance-2026-10-13.md) | Alcance vigente y pendientes D2/D5 |
 | [Ajuste de alcance de Estuardo](estuardo/ajuste-alcance.md) | Decisión comunicada para retirar D1, D3 y D4 de sus responsabilidades de evaluación |
 | [Revalidación D2 de Estuardo](estuardo/d2-evaluacion-integracion.md) | 243 pruebas aprobadas en `develop` `5ed5fd24`; no es candidato QA final |
+| [Cierre técnico de INC-008](estuardo/informe-inc-008-2026-10-13.md) | Regresión de nota final e informe de decisión, con límites de candidato y revisión |
+| [QA4-PDF-01](estuardo/qa4-pdf-01/README.md) | Descarga API, PDF sintético y captura legible tras corregir referencias internas |
 | [UAT documental de Roí](estuardo/uat-roi-documentos-api-auditoria.md) | Estados reportados por escenario y límites de verificación |
 | [Seguimiento de manuales](seguimiento-manuales.md) | Estado, revisión y evidencia por manual |
 | [Preparación de usabilidad y UAT de Estuardo](estuardo/preparacion-usabilidad-uat/README.md) | Tareas y formatos listos; sesiones institucionales aún no ejecutadas |
