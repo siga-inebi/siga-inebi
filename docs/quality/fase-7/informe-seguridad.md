@@ -1,5 +1,22 @@
 # Informe de seguridad — candidato `phase7-rc1`
 
+## Actualizacion sobre candidata final `develop`
+
+El 13 de octubre de 2026 se repitieron los controles sobre el SHA final
+`68fa7753d0578abfa37a153df8a7f68e4b46a2bd`. Aprobaron 234 pruebas backend,
+Bandit, `pip-audit` sin excepciones y `npm audit` con cero vulnerabilidades.
+La corrida frontend conjunta obtuvo 33 aprobaciones y dos limites de tiempo;
+el archivo afectado se repitio aislado y aprobo sus 3 casos. HTTPS respondio
+200, HTTP redirigio con 302 y el endpoint CSRF emitio una cookie `Secure` y
+`SameSite=Lax` en el QA publicado.
+
+La evidencia reproducible, la limitacion de trazabilidad entre el SHA Git y la
+revision desplegada, y la comprobacion de que los cambios de seguridad estan
+incorporados se registran en
+[`evidencia-candidata-final-identidad-seguridad-2026-10-13.md`](evidencia-candidata-final-identidad-seguridad-2026-10-13.md).
+La revision independiente de Roi permanece pendiente y debe registrarse en el
+PR de esta actualizacion antes del cierre institucional.
+
 ## Alcance y limitaciones
 
 Pablo ejecutó la revisión inicial del frontend sobre el SHA
