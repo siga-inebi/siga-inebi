@@ -46,6 +46,13 @@ export const cyclesService = {
   activate: (publicId) => apiClient.post(`${ROOT}/${publicId}/activate/`, {}),
 
   /**
+   * Cierra un ciclo activo y congela sus resultados (RF-CIC-004). El backend
+   * rechaza el cierre mientras haya unidades de evaluacion abiertas o una
+   * ventana de recuperacion vigente, y devuelve el motivo.
+   */
+  close: (publicId) => apiClient.post(`${ROOT}/${publicId}/close/`, {}),
+
+  /**
    * Clona la estructura academica de un ciclo hacia uno nuevo. Las asignaciones
    * docentes se copian solo si se piden: arrastrarlas por defecto reasignaria
    * personal que quizas ya no trabaja en el establecimiento.
