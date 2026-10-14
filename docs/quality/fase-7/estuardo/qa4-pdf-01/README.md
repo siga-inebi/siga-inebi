@@ -1,5 +1,7 @@
 # QA4-PDF-01: regresión de descarga y legibilidad de boleta
 
+**Actualización del 14 de octubre:** la corrección está integrada en `develop` por el PR #595 y desplegada en QA mediante el commit `7f04a945d09bf77c514cf7bfe988888f2e2bfd10`. La [repetición sobre el código candidato, los JUnit, un PDF nuevo y su captura](candidato-2026-10-14/README.md) están disponibles para revisión. La descarga autenticada en el servicio QA y el dictamen independiente siguen pendientes.
+
 **Fecha:** 13 de octubre de 2026 (America/Guatemala).
 **Base de código:** `develop` en `68fa7753d0578abfa37a153df8a7f68e4b46a2bd`, más la corrección local del generador de PDF en esta rama. Esta ejecución **no identifica el SHA desplegado en QA**.
 **Ejecutor:** verificación técnica asistida para Estuardo; revisión independiente de Roí pendiente.
@@ -33,4 +35,4 @@ Los JUnit locales ignorados por Git identifican la repetición de la regresión:
 
 La ejecución backend se hizo con `pytest -q --no-cov` sobre `test_evaluation_services.py`, `test_evaluation_api.py`, `test_evaluation.py`, `test_reporting_services.py`, `test_reporting_api.py`, `test_reporting.py`, `test_documents_services.py`, `test_documents_api.py` y `test_documents.py` en sus directorios `unit`, `api` e `integration`. No se afirma cobertura porcentual. El JUnit de los dos casos focales está en el directorio local ignorado `docs/quality/fase-7/evidence/RUN-EST-QA4-PDF-20261013/`; el PDF y su captura sí se adjuntan aquí para revisión.
 
-**Estado técnico de QA4-PDF-01:** corrección local y regresión aprobadas. La validación sobre el SHA candidato desplegado y la revisión independiente siguen pendientes. Tampoco se acredita descarga desde un control de la interfaz: el caso verificó el endpoint de descarga, no un botón de producto.
+**Estado de esta ejecución histórica:** corrección local y regresión aprobadas el 13 de octubre. Véase la actualización anterior para el estado del commit candidato. Esta ejecución verificó el endpoint de descarga, no un botón de producto.
