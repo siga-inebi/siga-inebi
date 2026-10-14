@@ -106,6 +106,22 @@ La aceptación institucional, la sesión UAT con usuarios y el video manual no
 pueden certificarse mediante pruebas automatizadas de esta rama. Requieren
 participantes y evidencia externa identificable; no se fabrican resultados.
 
+### Intento de simulacro local
+
+El 2026-10-13 se intentó habilitar el simulacro con Docker Desktop. Docker
+Compose está instalado, pero el daemon no llegó a exponer
+`npipe:////./pipe/docker_engine`; además, el servicio `com.docker.service` no
+pudo abrirse con los permisos disponibles. No se creó ni se destruyó ninguna
+base, volumen o archivo de respaldo. El intento queda registrado como bloqueado
+en `ejecuciones.csv`.
+
+Para completar el simulacro, Daniel/Ops debe ejecutarlo en Linux/WSL o en el
+host operativo con `psql`, `pg_dump`, `pg_restore`, `tar` y Docker disponibles,
+usando exclusivamente una base cuyo nombre termine en `_drill` y un
+`DRILL_MEDIA_ROOT` separado del almacenamiento de origen. El resultado debe
+incluir duración, RTO, manifiestos, hashes de ambas pilas y verificación de la
+aplicación restaurada.
+
 ## 6. Pendientes para la entrega
 
 - Estuardo: completar la evidencia de QA del código ya fusionado en #595 y
