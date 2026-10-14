@@ -16,11 +16,13 @@ Aquí se vinculan los endpoints con sus pruebas ejecutables y se separa lo que y
 está verificado en `develop` de lo que depende de una revisión externa o del
 PR #595.
 
-No se marca QA4-PDF-01 como cerrado en esta rama. La corrección de offsets
-`xref`/`startxref` y su prueba estricta pertenecen al [PR #595](https://github.com/siga-inebi/siga-inebi/pull/595),
-que al momento de este reporte continúa en draft. La revisión de Roí fue
-registrada directamente en ese PR con cambios solicitados por falta del SHA
-desplegado en QA y por fallos de `backend-lint`.
+No se marca QA4-PDF-01 como cerrado únicamente por la fusión del código. La
+corrección de offsets `xref`/`startxref` y su prueba estricta pertenecen al
+[PR #595](https://github.com/siga-inebi/siga-inebi/pull/595), fusionado en
+`b4b0d40c49ab29e75dc41fb34a2fbd69eb466757`. La revisión de Roí quedó
+registrada directamente en ese PR con cambios solicitados porque la evidencia
+no fijaba el SHA desplegado en QA y `backend-lint` estaba fallando al momento
+de la fusión.
 
 ## 2. Matriz de contratos verificables
 
@@ -64,19 +66,19 @@ cubiertas cuando se ejecutan en el entorno PostgreSQL/Unix requerido.
 
 ## 4. QA4-PDF-01 y evidencia del documento final
 
-El PR #595 agrega la regresión específica que inspecciona que `startxref`
-apunte al `xref` real y que cada objeto PDF esté en el offset anunciado,
+El PR #595, ya fusionado, agrega la regresión específica que inspecciona que
+`startxref` apunte al `xref` real y que cada objeto PDF esté en el offset anunciado,
 además de comprobar las notas sintéticas 59 y 60, nota final 60, aprobación y
 promoción. Esa prueba no se replica aquí porque el cambio de generación aún no
 forma parte de la base `develop` de esta rama.
 
-Para aceptar la evidencia final deben quedar adjuntos en el PR #595:
+Para aceptar la evidencia final todavía deben quedar registrados en el expediente:
 
 1. SHA exacto de la revisión desplegada en QA.
 2. Resultado del test QA4-PDF-01 sobre ese SHA, con PDF y captura o reporte de
    lector estricto.
 3. Corrección de los errores `E501` e `I001` reportados por `backend-lint`.
-4. Revisión independiente y cierre del estado draft.
+4. Revisión independiente posterior a la resolución de los puntos anteriores.
 
 Hasta cumplir esos cuatro puntos, la matriz debe conservar la distinción entre
 "prueba automatizada preparada" y "evidencia final aceptada".
@@ -96,8 +98,8 @@ participantes y evidencia externa identificable; no se fabrican resultados.
 
 ## 6. Pendientes para la entrega
 
-- Estuardo: completar y promover el PR #595 después de fijar SHA de QA y
-  resolver `backend-lint`.
+- Estuardo: completar la evidencia de QA del código ya fusionado en #595 y
+  resolver o referenciar de forma trazable el `backend-lint` que falló.
 - Revisor independiente: confirmar la revisión del PDF generado y su evidencia.
 - Daniel/Ops: ejecutar el simulacro de recuperación en el entorno con clientes
   PostgreSQL y almacenamiento de archivos disponible.

@@ -292,7 +292,7 @@ detalle de endpoints, respuestas, permisos y pruebas está en
 | RF-DOC-006 / RNF-AUD-003 — lectura y denegación auditables | `backend/tests/unit/test_documents_services.py:850-870,1096-1140`; `backend/tests/api/test_audit_api.py:355-402` | Verificado en `develop` |
 | RF-MAT-006 — emisión condicionada | `backend/tests/unit/test_documents_services.py:230-330`; contratos de elegibilidad y boleta en `backend/tests/api/test_documents_api.py` | Verificado en `develop`; UAT pendiente |
 | RF-RES-008 — boleta de ciclo cerrado | `backend/tests/api/test_documents_api.py:1081-1168`; resultados congelados, notas por unidad, condición y promoción | Verificado técnicamente; aceptación visual pendiente |
-| QA4-PDF-01 — integridad del PDF emitido | PR #595, prueba estricta de `xref`/`startxref`, PDF sintético y evidencia visual | Pendiente: PR draft, SHA de QA, lint y revisión independiente |
+| QA4-PDF-01 — integridad del PDF emitido | PR #595 fusionado (`b4b0d40c49ab29e75dc41fb34a2fbd69eb466757`), prueba estricta de `xref`/`startxref`, PDF sintético y evidencia visual | Corrección fusionada; pendiente SHA de QA, resolución trazable de lint y confirmación independiente |
 | RNF-RES-003 — integridad documental después de restauración | `backend/tests/integration/test_backup_and_recovery.py:521-628`; `docs/quality/fase-7/informe-recuperacion.md` | Parcial local; simulacro con PostgreSQL/archivos pendiente |
 
 Ejecución consolidada de Roí sobre la base `5ed5fd24d02f494053c53dbbbafe50a8412534e5`:
