@@ -11,6 +11,7 @@ base previas permanecen en los registros.
 
 | Evidencia nueva | Propósito |
 | --- | --- |
+| [Candidata final de identidad y seguridad](evidencia-candidata-final-identidad-seguridad-2026-10-13.md) | Repeticion de autenticacion, autorizacion, dependencias y TLS sobre `develop` `68fa7753`; revision de Roi pendiente |
 | [Cierre documental D1 de Santiago](cierre-d1-identidad-santiago.md) | Inventario, perfiles sintéticos, ejecuciones vinculadas, revisión y límites del cierre de identidad |
 | [Cierre documental D3 de Santiago](cierre-d3-identidad-seguridad-santiago.md) | Cookies/TLS en QA, revisión de dependencias, documentos entregados y pendientes trasladados a D5 |
 | [Entorno y datos](entorno-y-datos.md) | Versiones, recursos, aislamiento y pendientes cloud/teléfono |

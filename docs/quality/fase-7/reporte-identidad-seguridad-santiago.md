@@ -1,5 +1,16 @@
 # Reporte de validación de identidad y seguridad — Santiago
 
+## Actualizacion final del 13 de octubre de 2026
+
+La repeticion sobre `develop`, SHA
+`68fa7753d0578abfa37a153df8a7f68e4b46a2bd`, esta documentada en
+[`evidencia-candidata-final-identidad-seguridad-2026-10-13.md`](evidencia-candidata-final-identidad-seguridad-2026-10-13.md).
+Los cambios de seguridad ya estan incorporados en `develop` y los controles
+tecnicos aprobaron. Las referencias posteriores de este documento a fusiones
+pendientes describen el estado historico de `phase7-rc1`; para el cierre actual
+solo permanece pendiente la revision independiente de Roi y la limitacion de
+que el endpoint QA no publica el SHA exacto de su revision desplegada.
+
 ## Estado
 
 Validación final del área ejecutada sobre `phase7-rc1`, SHA

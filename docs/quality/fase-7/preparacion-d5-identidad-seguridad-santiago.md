@@ -1,5 +1,14 @@
 # Preparación D5 — identidad, autorización y seguridad
 
+## Candidata final repetida
+
+Los controles fueron repetidos el 13 de octubre de 2026 sobre `develop`, SHA
+`68fa7753d0578abfa37a153df8a7f68e4b46a2bd`. La evidencia esta en
+[`evidencia-candidata-final-identidad-seguridad-2026-10-13.md`](evidencia-candidata-final-identidad-seguridad-2026-10-13.md).
+Los cambios de los PR #537, #579, #586, #589 y #590 estan incorporados en este
+SHA. Las pruebas y auditorias tecnicas estan completas; la revision
+independiente de Roi continua pendiente.
+
 El candidato evaluado es `phase7-rc1`, SHA
 `db96ad6372620bb9bd3519af8dd7b1fc8e8733a9`. Fue integrado en la rama
 `release/phase7-rc1`. Esta lista distingue los controles ya validados de las
