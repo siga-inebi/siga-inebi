@@ -42,16 +42,16 @@ describe("pantalla de ciclos: cerrar ciclo", () => {
   test("ofrece cerrar solo el ciclo activo", async () => {
     cyclesService.list.mockResolvedValue(
       paginated([
-        cycle({ public_id: "a", name: "Activo", status: "active" }),
+        cycle({ public_id: "a", name: "Ciclo vigente", status: "active" }),
         cycle({
           public_id: "b",
-          name: "Borrador",
+          name: "Ciclo planeado",
           year: 2027,
           status: "draft",
         }),
         cycle({
           public_id: "c",
-          name: "Cerrado",
+          name: "Ciclo historico",
           year: 2025,
           status: "closed",
         }),
@@ -59,7 +59,7 @@ describe("pantalla de ciclos: cerrar ciclo", () => {
     );
     renderWithRouter(<CyclesPage />);
 
-    await screen.findByText("Activo");
+    await screen.findByText("Ciclo vigente");
     expect(
       screen.getAllByRole("button", { name: "Cerrar ciclo" })
     ).toHaveLength(1);
