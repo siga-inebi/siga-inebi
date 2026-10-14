@@ -21,7 +21,6 @@ from apps.academics.services import (
     create_academic_cycle,
     create_class_schedule_block,
     create_class_session,
-    declare_non_computable_day,
     create_curriculum_plan,
     create_section,
     create_teaching_assignment,
@@ -29,14 +28,15 @@ from apps.academics.services import (
     deactivate_class_session,
     deactivate_curriculum_plan,
     deactivate_section,
+    declare_non_computable_day,
     freeze_cycle_results,
     publish_class_schedule,
     reopen_academic_cycle,
     unpublish_class_schedule,
     update_class_schedule_block,
     update_curriculum_plan,
-    update_section,
     update_grade,
+    update_section,
 )
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
