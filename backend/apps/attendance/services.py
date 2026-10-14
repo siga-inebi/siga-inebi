@@ -27,7 +27,7 @@ from django.db import transaction
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
 
-from apps.academics.models import AcademicCycle, TeachingAssignment
+from apps.academics.models import AcademicCycle, NonComputableDay, TeachingAssignment
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
@@ -1742,6 +1742,13 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
             shift=shift, academic_cycle=academic_cycle, is_active=True
         ).order_by("-effective_from")
     )
+    non_computable_days = set(
+        NonComputableDay.objects.filter(
+            academic_cycle=academic_cycle,
+            is_active=True,
+            day__range=(start_date, min(as_of_date, academic_cycle.ends_on)),
+        ).values_list("day", flat=True)
+    )
 
     def school_days_as_of(candidate_date):
         version = next((v for v in versions if v.effective_from <= candidate_date), None)
@@ -1751,7 +1758,11 @@ def compute_attendance_percentage(*, student, shift, as_of_date=None):
     current = start_date
     while current <= as_of_date:
         school_days = school_days_as_of(current)
-        if school_days is not None and current.isoweekday() in school_days:
+        if (
+            current not in non_computable_days
+            and school_days is not None
+            and current.isoweekday() in school_days
+        ):
             qualifying_dates.append(current)
         current += timedelta(days=1)
 

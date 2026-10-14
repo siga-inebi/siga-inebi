@@ -1,215 +1,3 @@
-# Reporte final de instalación, compatibilidad PostgreSQL, recuperación y trazabilidad de módulos
-
-## 1. Objetivo del documento
-
-Este documento consolida la evidencia ejecutada para la validación del proyecto SIGA-INEBI en entorno local con PostgreSQL 16, con foco en:
-
-- instalación limpia desde cero;
-- compatibilidad y ejecución real sobre PostgreSQL;
-- validación de migraciones, semillas y esquema;
-- integración funcional entre matrícula, asistencia y evaluación;
-- recuperación y restauración de la base de datos y almacenamiento documental;
-- trazabilidad de módulos y evidencia técnica por dominio.
-
-El contenido que sigue se basa en la ejecución real del proyecto y no en supuestos ni en planificaciones no verificadas. La intención es dejar un artefacto formal de calidad que pueda utilizarse como referencia de instalación, prueba técnica y cierre del expediente.
-
-## 2. Alcance y criterios de validación
-
-La validación se ejecutó sobre:
-
-- sistema operativo: Linux;
-- orquestación: Docker Compose;
-- base de datos: PostgreSQL 16 en contenedor;
-- backend: Django + Django REST Framework;
-- frontend: React/Vite;
-- fuente de pruebas: suite real del backend con soporte de PostgreSQL y escenarios de integración.
-
-Los criterios evaluados fueron:
-
-1. instalación limpia del sistema;
-2. aplicación correcta de Migraciones;
-3. carga de datos iniciales con seed_demo_data;
-4. ausencia de cambios pendientes de migración;
-5. salud del esquema mediante `manage.py check`;
-6. funcionamiento del stack sobre PostgreSQL real;
-7. validación de integración del núcleo académico y operativo;
-8. comprobación de recuperación y restauración de backups;
-9. trazabilidad de módulos y evidencia técnica asociada.
-
-## 3. Entorno y configuración validada
-
-### 3.1 Componentes del entorno
-
-El proyecto usa la siguiente configuración declarada en [compose.yml](../../compose.yml):
-
-- servicio `db`: `postgres:16-alpine`
-- servicio `backend`: Django con conexión a PostgreSQL
-- servicio `frontend`: Vite/React
-- red interna: `app_net`
-
-### 3.2 Variables y credenciales utilizadas
-
-Durante la validación se usó la configuración estándar del proyecto:
-
-- base de datos: `siga_inebi`
-- usuario: `siga_inebi`
-- contraseña: `siga_inebi_dev_password`
-- host: `127.0.0.1` desde la ejecución local del backend
-- puerto: `5432`
-
-### 3.3 Configuración de pruebas
-
-La configuración de tests exige PostgreSQL explícitamente. La regla está en [backend/config/settings/test.py](../../backend/config/settings/test.py) y la validación de migración se comprueba con el comando de Django. Esto asegura que el proyecto no pueda ejecutarse en SQLite para pruebas en este entorno de calidad.
-
-## 4. Metodología de ejecución
-
-La ejecución se hizo en una secuencia de validación real, respetando el orden de un despliegue limpio:
-
-1. reset del esquema PostgreSQL;
-2. migración completa del sistema;
-3. ejecución del seed demo;
-4. comprobación de `makemigrations --check --dry-run`;
-5. comprobación general de Django `manage.py check`;
-6. ejecución de la suite de integración real del backend;
-7. validación de recuperación y respaldo dentro de la misma suite;
-8. consolidación de resultados y trazabilidad por módulo.
-
-Este enfoque reproduce una instalación nueva y no un entorno previamente sembrado.
-
-## 5. Evidencia real del entorno levantado y operativo
-
-En la validación ejecutada se evitó cualquier acción destructiva sobre la base de datos. La evidencia consolidada corresponde al entorno que ya estaba levantado con Docker Compose y PostgreSQL 16 operativo.
-
-### 5.1 Comandos ejecutados y salida verificada
-
-```bash
-cd /home/josue/proyectos/siga-inebi
-
-git rev-parse HEAD
-git branch --show-current
-git status --short
-git describe --tags --always
-date -Iseconds
-python3 --version
-backend/.venv/bin/python --version
-backend/.venv/bin/python - <<'PY'
-import django
-print('django', django.get_version())
-import rest_framework
-print('djangorestframework', rest_framework.__version__)
-import pytest
-print('pytest', pytest.__version__)
-PY
-node -v
-npm -v
-node -p "require('./frontend/package.json').dependencies.react + ' ' + require('./frontend/package.json').dependencies['react-dom'] + ' ' + require('./frontend/package.json').devDependencies.vite"
-docker --version
-docker compose version
-docker compose exec -T db psql -U siga_inebi -d siga_inebi -c "SELECT version();"
-docker compose ps
-```
-
-Salida verificada:
-
-```text
-=== git metadata ===
-68fa7753d0578abfa37a153df8a7f68e4b46a2bd
-qa/fase-7-quality
- M docs/quality/fase-7/README.md
- M docs/quality/fase-7/reporte-final-pruebas.md
-68fa775
-2026-10-13T15:26:11-06:00
-
-=== python ===
-Python 3.14.4
-
-=== backend venv python ===
-Python 3.14.4
-
-=== django/drf/pytest ===
-django 5.2.17
-djangorestframework 3.17.2
-pytest 8.4.1
-
-=== node/npm ===
-v22.22.1
-9.2.0
-
-=== frontend package versions ===
-^19.1.1 ^19.1.1 ^7.3.6
-
-=== docker ===
-Docker version 29.8.0, build 88096ef
-Docker Compose version v5.5.1
-
-=== db version ===
-                                         version
-
---------------------------------------------------------------------------------
-----------
- PostgreSQL 16.14 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.
-0, 64-bit
-(1 row)
-
-=== compose status ===
-NAME                     IMAGE                 COMMAND                  SERVICE
-siga_inebi-backend-1     siga_inebi-backend    "/app/docker-entrypo…"   backend
-  About an hour ago   Up About an hour (healthy)   0.0.0.0:8000->8000/tcp
-siga_inebi-db-1          postgres:16-alpine    "docker-entrypoint.s…"   db
-  22 hours ago        Up About an hour (healthy)   0.0.0.0:5432->5432/tcp
-siga_inebi-frontend-1    siga_inebi-frontend   "/usr/local/bin/fron…"   frontend
-  About an hour ago   Up About an hour (healthy)   0.0.0.0:5173->5173/tcp
-```
-
-### 5.2 Conclusión
-
-La infraestructura del proyecto quedó validada en ejecución real: Django 5.2.17, DRF 3.17.2, pytest 8.4.1, React 19.1.1, Vite 7.3.6, Docker Compose operativo y PostgreSQL 16.14 respondiendo correctamente.
-
-## 6. Compatibilidad PostgreSQL y rechazo explícito de SQLite en pruebas
-
-La configuración de pruebas obliga a PostgreSQL. La evidencia real está en [backend/config/settings/test.py](../../backend/config/settings/test.py) y la regla funcional es la siguiente:
-
-```python
-if DATABASE_ENGINE != "postgresql":
-    raise ImproperlyConfigured("Test settings require DATABASE_ENGINE=postgresql.")
-```
-
-### 6.1 Evidencia ejecutada con SQLite
-
-```bash
-cd /home/josue/proyectos/siga-inebi/backend
-DATABASE_ENGINE=sqlite ./.venv/bin/python -m pytest tests/migrations/test_settings_and_schema.py -q -rs --no-cov
-```
-
-Salida verificada:
-
-```text
-Traceback (most recent call last):
-...
-  File "/home/josue/proyectos/siga-inebi/backend/config/settings/test.py", line 7, in <module>
-    raise ImproperlyConfigured("Test settings require DATABASE_ENGINE=postgresql.")
-django.core.exceptions.ImproperlyConfigured: Test settings require DATABASE_ENGINE=postgresql.
-```
-
-### 6.2 Conclusión
-
-La compatibilidad con PostgreSQL no es opcional ni asumida: la configuración de pruebas la exige y la rechaza explícitamente si se intenta operar con SQLite. Esto queda validado con evidencia real y reproducible.
-
-## 7. Resultado de la suite backend y pruebas de integración
-
-### 7.1 Comando ejecutado
-
-```bash
-cd /home/josue/proyectos/siga-inebi/backend
-DATABASE_ENGINE=postgresql ./.venv/bin/python -m pytest -q -rs --no-cov
-```
-
-### 7.2 Salida verificada
-
-```text
-EXIT:0
-...
-=========================== short test summary info ============================
 SKIPPED [1] tests/integration/test_backup_and_recovery.py:201: pg_dump/pg_restore no disponibles en este host
 SKIPPED [1] tests/integration/test_backup_and_recovery.py:228: pg_dump no disponible en este host
 SKIPPED [1] tests/integration/test_backup_and_recovery.py:450: clientes PostgreSQL no disponibles en este host
@@ -228,7 +16,6 @@ Salida verificada:
 ```text
 EXIT:0
 ....ss.....................s....                                         [100%]
-=========================== short test summary info ============================
 SKIPPED [1] tests/integration/test_backup_and_recovery.py:201: pg_dump/pg_restore no disponibles en este host
 SKIPPED [1] tests/integration/test_backup_and_recovery.py:228: pg_dump no disponible en este host
 SKIPPED [1] tests/integration/test_backup_and_recovery.py:450: clientes PostgreSQL no disponibles en este host
@@ -350,3 +137,64 @@ La evidencia técnica confirma que el sistema está listo desde el punto de vist
 ## 13. Consideraciones de cierre
 
 Este reporte se ha redactado como evidencia técnica operativa. No reemplaza la aprobación institucional ni el cierre formal por parte del responsable del establecimiento, pero sí documenta de forma completa y verificable la ejecución real del sistema sobre PostgreSQL, su integración y su capacidad de recuperación.
+# Reporte final de pruebas — Fase 7
+
+## Estado actual
+
+**Controles automatizados locales aprobados; entrega institucional pendiente.**
+RUN-PAB-20261012-04 aprobó 28/28 controles sobre SHA base y árbol modificado
+estable. La optimización de entrega dejó la ruta lazy mayor en 13,716/20,000
+bytes gzip. Pablo consolidó la evidencia técnica; revisión independiente, UAT y
+aceptación institucional siguen pendientes.
+
+| Evidencia actual | Resultado |
+| --- | --- |
+| Identificación | [Manifiesto](manifiesto-version.md): SHA 3a4a8d2 más digest completo; sin release final |
+| Backend | 1,596 pruebas aprobadas; 0 fallos; cobertura 94.45 % líneas |
+| Frontend | 285 pruebas/32 archivos; cobertura 73.32 % statements, 68.39 % branches, 68.03 % functions, 73.98 % líneas |
+| Seguridad/build | Bandit,lint,formato,migraciones,build/presupuesto y npm audit aprobados; pip-audit: 1 ignorada conforme política existente |
+| Recuperación | Restauraciones sintéticas y guardias verificadas en suite; simulacro operativo representativo y RPO/RTO institucional pendientes |
+| QA cloud | [RUN-CQ-01](despliegue-cloud-qa.md): HTTPS, login, API, bucket y URL firmada verificados; descarga con token pendiente |
+| Rendimiento/QR | Sin medición de 1 vCPU/2 GB, carga de 500 estudiantes ni teléfono HTTPS |
+| Requisitos aprobados | 230/230 declarados implementados por cierre de issues; RNF-RES-003 tiene, además, ejecución y evidencia aprobadas. La aprobación institucional sigue pendiente. |
+| Incidencias | INC-004 e INC-007 cuentan con regresión técnica; su revisión independiente permanece pendiente. |
+| Manuales/UAT | Borradores y revisión pendientes; autoridad de aceptación pendiente |
+
+Registro [ejecuciones](ejecuciones.csv), [índice de evidencias](indice-evidencias.csv),
+[entorno](entorno-y-datos.md), [rendimiento](informe-rendimiento.md) y
+[recuperación](informe-recuperacion.md). Cloud Run/Terraform/Cloud SQL en proyecto
+precise-blend-428821-e0 se registran en [RUN-CQ-01](despliegue-cloud-qa.md).
+El detalle reproducible y la regresión de formato se registran en
+[resultado integrado de Pablo](resultado-ejecucion-pablo-2026-10-12.md).
+
+## Línea base histórica conservada
+
+Las siguientes tablas y recomendación corresponden al intento inicial macOS;
+se conservan como historial y no describen el estado Linux actual.
+
+## Identificación de entrega
+
+| Campo | Valor |
+| --- | --- |
+| Versión/identificador | Línea base local; no es release candidata |
+| Commit SHA | 0c8f0d396231f46809b95cc088d5f2c557cb919f |
+| Entorno QA | macOS local; Node 24.13.1/npm 11.8.0. Docker no disponible y backend Python 3.9.6 incompatible. |
+| Periodo de pruebas | 8 de octubre de 2026 |
+| Coordinador QA | Pablo |
+| Autoridad de aceptación | Pendiente |
+
+## Resultados
+
+| Indicador | Resultado | Fuente |
+| --- | --- | --- |
+| Requisitos incluidos y aprobados | 230/230 declarados implementados por cierre de issues; RNF-RES-003 aprobado mediante EJ-ROI-20261012-001. La evidencia individual de los demás no consta en el expediente. | matriz-final.csv |
+| Casos/controles ejecutados | 1 aprobado, 1 fallido, 2 bloqueados | ejecuciones.csv |
+| Incidencias S1/S2 abiertas | 3: INC-001, INC-002 e INC-003 | incidencias.csv |
+| Cobertura backend/frontend | Backend: no ejecutada. Frontend: 84.47% statements, 85.98% branches, 69.30% functions, 84.47% lines. | EJ-D1-003 |
+| Regresión de correcciones | No hay correcciones verificadas | correcciones-y-regresion.md |
+| UAT | Pendiente | `informe-aceptacion-usuarios.md` |
+| Manuales aplicables | Pendiente | `seguimiento-manuales.md` |
+
+## Recomendación QA histórica
+
+**Recomendación de Pablo: No apto.** Antes de reconsiderarla se requiere: entorno Docker/PostgreSQL o CI remoto válido; entorno backend compatible; triage/corrección de INC-003; ejecución completa sobre candidato formal; UAT y aceptación institucional. La recomendación QA no sustituye la decisión institucional.

@@ -41,6 +41,7 @@ from apps.academics.models import (
     GradeOffering,
     Level,
     LevelSubject,
+    NonComputableDay,
     Section,
     Shift,
     Subject,
@@ -380,6 +381,32 @@ def _academic_cycle_opening_gaps(cycle):
 
 
 @transaction.atomic
+@transaction.atomic
+def declare_non_computable_day(*, academic_cycle, day, reason, actor=None):
+    """RF-JOR-010: exclude an approved institutional date from attendance."""
+    if not academic_cycle.starts_on <= day <= academic_cycle.ends_on:
+        raise DomainError("El día no computable debe pertenecer al ciclo escolar.")
+    reason = _clean_name(reason, field="el motivo")
+    with unique_violation_as(
+        {
+            "unique_non_computable_day_per_cycle": (
+                "Ese día ya está declarado como no computable para el ciclo."
+            )
+        }
+    ):
+        record = NonComputableDay.objects.create(
+            academic_cycle=academic_cycle, day=day, reason=reason
+        )
+    _audit(
+        actor,
+        "academics.non_computable_day.declared",
+        record,
+        academic_cycle_id=academic_cycle.pk,
+        day=day.isoformat(),
+    )
+    return record
+
+
 def clone_academic_cycle(
     *,
     source_cycle,
@@ -1253,7 +1280,9 @@ def _level_grades(level):
 
 
 @transaction.atomic
-def create_grade(*, level, name, code=None, sequence=None, insert_after=APPEND, actor=None):
+def create_grade(
+    *, level, name, presentation_label="", code=None, sequence=None, insert_after=APPEND, actor=None
+):
     """
     Register a grade inside a level (RF-EST-001).
 
@@ -1279,8 +1308,16 @@ def create_grade(*, level, name, code=None, sequence=None, insert_after=APPEND, 
     if not explicit_sequence:
         sequence = _next_sequence(siblings)
 
+    presentation_label = presentation_label.strip()
+
     def build(value):
-        return Grade.objects.create(level=level, name=name, code=value, sequence=sequence)
+        return Grade.objects.create(
+            level=level,
+            name=name,
+            presentation_label=presentation_label,
+            code=value,
+            sequence=sequence,
+        )
 
     if supplied:
         code = _clean_code(supplied)
@@ -1309,14 +1346,23 @@ def create_grade(*, level, name, code=None, sequence=None, insert_after=APPEND, 
 
 
 @transaction.atomic
-def update_grade(*, grade, name=None, sequence=None, insert_after=APPEND, actor=None):
+def update_grade(*, grade, name=None, presentation_label=None, sequence=None, insert_after=APPEND, actor=None):
     """Rename a grade or reorder it inside its level. The code is immutable."""
     if name is not None:
         name = _clean_name(name)
+    if presentation_label is not None:
+        presentation_label = presentation_label.strip()
     _require_positive_sequence(sequence, "grado")
 
     with unique_violation_as(_grade_conflicts(grade.code, sequence)):
-        _changed(grade, actor, "academics.grade.updated", name=name, sequence=sequence)
+        _changed(
+            grade,
+            actor,
+            "academics.grade.updated",
+            name=name,
+            presentation_label=presentation_label,
+            sequence=sequence,
+        )
 
     if sequence is None:
         _place_in_order(

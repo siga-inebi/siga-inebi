@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.audit.models import AuditEvent
-from apps.identity.models import ActivationChallenge
+from apps.identity.models import ActivationChallenge, PasswordResetChallenge
 from tests.factories.identity import (
     PermissionFactory,
     RoleAssignmentFactory,
@@ -344,3 +344,38 @@ def test_unknown_account_and_invalid_code_share_public_error(client):
 
     assert unknown.status_code == invalid.status_code == 400
     assert unknown.json() == invalid.json()
+
+
+@pytest.mark.api
+@pytest.mark.security
+@pytest.mark.django_db
+def test_rf_cta_005_administrator_issues_and_user_consumes_a_one_use_password_reset(client):
+    """RF-CTA-005: an authorized administrator issues a temporary reset secret."""
+    administrator = UserFactory()
+    grant_permission(administrator, "account_disable")
+    account = UserFactory(password="previous-long-password-427")
+    client.force_login(administrator)
+
+    issue_response = client.post(f"/api/v1/identity/accounts/{account.pk}/password-resets/")
+
+    assert issue_response.status_code == 201
+    assert issue_response["Cache-Control"] == "no-store"
+    token = issue_response.json()["token"]
+    challenge = PasswordResetChallenge.objects.get(account=account)
+    assert challenge.token_digest != token
+    assert challenge.is_usable()
+
+    client.logout()
+    consume_response = client.post(
+        "/api/v1/identity/password-resets/consume/",
+        {"token": token, "password": "replacement-long-password-427"},
+    )
+
+    assert consume_response.status_code == 204
+    account.refresh_from_db()
+    challenge.refresh_from_db()
+    assert account.check_password("replacement-long-password-427")
+    assert challenge.used_at is not None
+    assert challenge.is_usable() is False
+    assert AuditEvent.objects.filter(action="identity.password_reset.issued").exists()
+    assert AuditEvent.objects.filter(action="identity.password_reset.consumed").exists()
