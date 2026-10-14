@@ -35,6 +35,8 @@ options['expiration'] = options['expiration'].total_seconds()
 print(json.dumps({
     'debug': s.DEBUG,
     'session_secure': s.SESSION_COOKIE_SECURE,
+    'session_httponly': s.SESSION_COOKIE_HTTPONLY,
+    'session_samesite': s.SESSION_COOKIE_SAMESITE,
     'csrf_secure': s.CSRF_COOKIE_SECURE,
     'redirect': s.SECURE_SSL_REDIRECT,
     'probe_exemptions': s.SECURE_REDIRECT_EXEMPT,
@@ -63,6 +65,8 @@ def test_cloud_profile_preserves_secure_cookies_private_storage_and_proxy_https(
     profile = json.loads(result.stdout)
     assert profile["debug"] is False
     assert profile["session_secure"] is True
+    assert profile["session_httponly"] is True
+    assert profile["session_samesite"] == "Lax"
     assert profile["csrf_secure"] is True
     assert profile["redirect"] is True
     assert profile["proxy"] == ["HTTP_X_FORWARDED_PROTO", "https"]

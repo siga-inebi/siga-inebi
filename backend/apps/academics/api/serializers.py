@@ -148,7 +148,7 @@ class LevelRefSerializer(serializers.ModelSerializer):
 class GradeRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = Grade
-        fields = ["public_id", "name", "code", "sequence"]
+        fields = ["public_id", "name", "presentation_label", "code", "sequence"]
 
 
 class SubjectRefSerializer(serializers.ModelSerializer):
@@ -336,7 +336,15 @@ class GradeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Grade
-        fields = ["public_id", "name", "code", "sequence", "is_active", "level"]
+        fields = [
+            "public_id",
+            "name",
+            "presentation_label",
+            "code",
+            "sequence",
+            "is_active",
+            "level",
+        ]
 
 
 class LevelWithGradesSerializer(LevelSerializer):
@@ -356,6 +364,7 @@ class LevelWithGradesSerializer(LevelSerializer):
 
 class GradeCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, help_text="Ej. Primero Primaria.")
+    presentation_label = serializers.CharField(max_length=150, required=False, allow_blank=True)
     code = serializers.CharField(
         max_length=30,
         required=False,
@@ -376,6 +385,7 @@ class GradeCreateSerializer(serializers.Serializer):
 
 class GradeUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, required=False)
+    presentation_label = serializers.CharField(max_length=150, required=False, allow_blank=True)
     sequence = serializers.IntegerField(min_value=1, required=False)
     insert_after = serializers.UUIDField(
         required=False, allow_null=True, help_text=INSERT_AFTER_HELP

@@ -17,7 +17,7 @@ aceptación institucional siguen pendientes.
 | Recuperación | Restauraciones sintéticas y guardias verificadas en suite; simulacro operativo representativo y RPO/RTO institucional pendientes |
 | QA cloud | [RUN-CQ-01](despliegue-cloud-qa.md): HTTPS, login, API, bucket y URL firmada verificados; descarga con token pendiente |
 | Rendimiento/QR | Sin medición de 1 vCPU/2 GB, carga de 500 estudiantes ni teléfono HTTPS |
-| Requisitos aprobados | Matriz por requisito pendiente de consolidación; ninguna aprobación institucional añadida |
+| Requisitos aprobados | 230/230 declarados implementados por cierre de issues; RNF-RES-003 tiene, además, ejecución y evidencia aprobadas. La aprobación institucional sigue pendiente. |
 | Incidencias | INC-004 e INC-007 cuentan con regresión técnica; su revisión independiente permanece pendiente. |
 | Manuales/UAT | Borradores y revisión pendientes; autoridad de aceptación pendiente |
 
@@ -48,7 +48,7 @@ se conservan como historial y no describen el estado Linux actual.
 
 | Indicador | Resultado | Fuente |
 | --- | --- | --- |
-| Requisitos incluidos y aprobados | 0/87; ninguno con evidencia final aún | matriz-final.csv |
+| Requisitos incluidos y aprobados | 230/230 declarados implementados por cierre de issues; RNF-RES-003 aprobado mediante EJ-ROI-20261012-001. La evidencia individual de los demás no consta en el expediente. | matriz-final.csv |
 | Casos/controles ejecutados | 1 aprobado, 1 fallido, 2 bloqueados | ejecuciones.csv |
 | Incidencias S1/S2 abiertas | 3: INC-001, INC-002 e INC-003 | incidencias.csv |
 | Cobertura backend/frontend | Backend: no ejecutada. Frontend: 84.47% statements, 85.98% branches, 69.30% functions, 84.47% lines. | EJ-D1-003 |
