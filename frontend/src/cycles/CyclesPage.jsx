@@ -57,7 +57,7 @@ function nextYear(source) {
 }
 
 /**
- * Ciclos escolares: registro, activacion, clonado de estructura y consulta del
+ * Ciclos escolares: registro, activacion, cierre, clonado de estructura y consulta del
  * detalle historico.
  *
  * El ciclo es la raiz temporal de casi todo el sistema (oferta de grados,
@@ -92,6 +92,17 @@ export function CyclesPage() {
     setActionError("");
     try {
       await cyclesService.activate(cycle.public_id);
+      list.refresh();
+    } catch (requestError) {
+      setActionError(requestError.message);
+      throw requestError;
+    }
+  };
+
+  const handleClose = async (cycle) => {
+    setActionError("");
+    try {
+      await cyclesService.close(cycle.public_id);
       list.refresh();
     } catch (requestError) {
       setActionError(requestError.message);
@@ -148,7 +159,16 @@ export function CyclesPage() {
               />
             ) : null}
             {cycle.status === "active" ? (
-              <StatusChip label="Vigente" variant="success" />
+              <>
+                <StatusChip label="Vigente" variant="success" />
+                <ConfirmActionButton
+                  confirmLabel="Si, cerrar ciclo"
+                  label="Cerrar ciclo"
+                  onConfirm={() => handleClose(cycle)}
+                  question={`Se cerrara "${cycle.name}": sus resultados finales y la condicion de promocion quedan congelados y el ciclo deja de aceptar escrituras. Requiere que todas las unidades de evaluacion esten cerradas y que las ventanas de recuperacion hayan vencido.`}
+                  title="Cerrar ciclo escolar"
+                />
+              </>
             ) : null}
           </Stack>
         )}
