@@ -1346,7 +1346,15 @@ def create_grade(
 
 
 @transaction.atomic
-def update_grade(*, grade, name=None, presentation_label=None, sequence=None, insert_after=APPEND, actor=None):
+def update_grade(
+    *,
+    grade,
+    name=None,
+    presentation_label=None,
+    sequence=None,
+    insert_after=APPEND,
+    actor=None,
+):
     """Rename a grade or reorder it inside its level. The code is immutable."""
     if name is not None:
         name = _clean_name(name)
