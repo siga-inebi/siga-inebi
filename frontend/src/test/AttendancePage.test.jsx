@@ -513,7 +513,11 @@ describe("AttendancePage — sin persistencia local de datos de menores (RNF-PRI
     );
 
     await user.click(
-      screen.getByRole("button", { name: "Presencia en tiempo real" })
+      await screen.findByRole(
+        "button",
+        { name: "Presencia en tiempo real" },
+        { timeout: 3000 }
+      )
     );
     const presenceDialog = await screen.findByRole("dialog", {
       name: "Presencia en tiempo real",

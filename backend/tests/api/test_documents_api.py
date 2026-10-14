@@ -1093,10 +1093,26 @@ def test_historical_cycle_report_is_generated_for_a_closed_cycle(auth_client):
 
     assert response.status_code == 200
     assert response["Content-Type"] == "application/pdf"
+    assert "attachment" in response["Content-Disposition"]
     assert b"Boleta" in response.content
 
+    # QA4-PDF-01: a strict reader must find the xref at startxref and each
+    # object at the advertised byte offset, without repairing the file.
+    pdf = response.content
+    xref_offset = int(pdf.rsplit(b"startxref\n", 1)[1].splitlines()[0])
+    assert pdf[xref_offset : xref_offset + 5] == b"xref\n"
+    xref_rows = pdf[xref_offset:].split(b"trailer\n", 1)[0].splitlines()
+    assert xref_rows[1] == b"0 6"
+    for number, row in enumerate(xref_rows[3:], start=1):
+        offset = int(row.split()[0])
+        assert pdf[offset : offset + len(f"{number} 0 obj".encode())] == (
+            f"{number} 0 obj".encode()
+        )
 
-def test_historical_cycle_report_includes_unit_grades_condition_and_promotion(auth_client):
+
+def test_historical_cycle_report_includes_unit_grades_condition_and_promotion(
+    auth_client, tmp_path
+):
     """RF-RES-008: boleta de un ciclo cerrado incluye notas por unidad, nota
     final, condicion por subarea y condicion de promocion."""
     today = date.today()
@@ -1124,19 +1140,38 @@ def test_historical_cycle_report_includes_unit_grades_condition_and_promotion(au
         subject=subject,
         evaluation_unit=unit,
         teacher=PersonFactory(),
-        value=65,
+        value=59,
     )
     close_evaluation_unit(unit)
+    second_unit = create_evaluation_unit(
+        academic_cycle=cycle,
+        number=2,
+        name="Unidad 2",
+        starts_on=cycle.starts_on + timedelta(days=40),
+        ends_on=cycle.starts_on + timedelta(days=70),
+        capture_starts_on=today - timedelta(days=5),
+        capture_ends_on=today + timedelta(days=5),
+    )
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit=second_unit,
+        teacher=PersonFactory(),
+        value=60,
+    )
+    close_evaluation_unit(second_unit)
     close_academic_cycle(cycle=cycle)
     _grant_document_issue(auth_client.user)
 
     response = _historical_cycle_report(auth_client, enrolment.public_id)
 
     assert response.status_code == 200
-    assert b"Unidad 1: 65" in response.content
-    assert b"Nota final: 65" in response.content
+    assert b"Unidad 1: 59" in response.content
+    assert b"Unidad 2: 60" in response.content
+    assert b"Nota final: 60" in response.content
     assert b"Aprobado" in response.content
     assert b"Promovido" in response.content
+    (tmp_path / "boleta.pdf").write_bytes(response.content)
 
 
 def test_historical_cycle_report_rejects_an_open_cycle(auth_client):
