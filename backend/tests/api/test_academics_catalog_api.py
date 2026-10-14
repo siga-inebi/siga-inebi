@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from django.urls import reverse
 
@@ -468,6 +470,41 @@ def test_list_levels_etag_changes_when_data_changes(admin_client, institution):
     second_etag = admin_client.get(reverse("level-list-create")).headers["ETag"]
 
     assert first_etag != second_etag
+
+
+def test_list_cycles_always_revalidates_so_new_cycles_show_up(admin_client, institution):
+    AcademicCycleFactory(
+        institution=institution,
+        year=2026,
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 12, 31),
+    )
+
+    first = admin_client.get(reverse("academic-cycle-list-create"))
+    cache_control = first.headers["Cache-Control"]
+
+    # max-age=0: el navegador no sirve el listado sin revalidar, pero conserva
+    # el ahorro del 304 mientras nada cambie.
+    assert "max-age=0" in cache_control
+    assert "private" in cache_control
+
+    revalidated = admin_client.get(
+        reverse("academic-cycle-list-create"), HTTP_IF_NONE_MATCH=first.headers["ETag"]
+    )
+    assert revalidated.status_code == 304
+
+    AcademicCycleFactory(
+        institution=institution,
+        year=2027,
+        status="draft",
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+    )
+    after_create = admin_client.get(
+        reverse("academic-cycle-list-create"), HTTP_IF_NONE_MATCH=first.headers["ETag"]
+    )
+    assert after_create.status_code == 200
+    assert after_create.json()["count"] == 2
 
 
 def test_teaching_assignment_history_does_not_send_cache_headers(admin_client, institution):
