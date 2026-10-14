@@ -43,14 +43,26 @@ describe("pantalla de ciclos: cerrar ciclo", () => {
     cyclesService.list.mockResolvedValue(
       paginated([
         cycle({ public_id: "a", name: "Activo", status: "active" }),
-        cycle({ public_id: "b", name: "Borrador", year: 2027, status: "draft" }),
-        cycle({ public_id: "c", name: "Cerrado", year: 2025, status: "closed" }),
+        cycle({
+          public_id: "b",
+          name: "Borrador",
+          year: 2027,
+          status: "draft",
+        }),
+        cycle({
+          public_id: "c",
+          name: "Cerrado",
+          year: 2025,
+          status: "closed",
+        }),
       ])
     );
     renderWithRouter(<CyclesPage />);
 
     await screen.findByText("Activo");
-    expect(screen.getAllByRole("button", { name: "Cerrar ciclo" })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: "Cerrar ciclo" })
+    ).toHaveLength(1);
   });
 
   test("cierra el ciclo tras confirmar y recarga el listado", async () => {
@@ -59,7 +71,9 @@ describe("pantalla de ciclos: cerrar ciclo", () => {
     cyclesService.close.mockResolvedValue(cycle({ status: "closed" }));
     renderWithRouter(<CyclesPage />);
 
-    await user.click(await screen.findByRole("button", { name: "Cerrar ciclo" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Cerrar ciclo" })
+    );
     await user.click(screen.getByRole("button", { name: "Si, cerrar ciclo" }));
 
     await waitFor(() => expect(cyclesService.close).toHaveBeenCalledWith("c1"));
@@ -74,7 +88,9 @@ describe("pantalla de ciclos: cerrar ciclo", () => {
     );
     renderWithRouter(<CyclesPage />);
 
-    await user.click(await screen.findByRole("button", { name: "Cerrar ciclo" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Cerrar ciclo" })
+    );
     await user.click(screen.getByRole("button", { name: "Si, cerrar ciclo" }));
 
     expect(await screen.findAllByText(/sigue abierta/)).not.toHaveLength(0);
