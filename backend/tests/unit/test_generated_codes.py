@@ -9,6 +9,7 @@ contiguo en vez de chocar con el constraint de unicidad.
 """
 
 import pytest
+from django.db import IntegrityError
 
 from apps.academics.models import Grade, Level
 from apps.academics.services import (
@@ -22,6 +23,7 @@ from apps.academics.services import (
     update_level,
 )
 from apps.common.models import DomainError
+from apps.students import services as students_services
 from apps.students.models import Student
 from apps.students.services import create_student, next_student_code
 from apps.teachers.models import Teacher
@@ -85,6 +87,39 @@ def test_generated_student_code_survives_a_taken_number():
 
     assert created.student_code != taken
     assert Student.objects.filter(student_code=created.student_code).count() == 1
+
+
+def test_student_code_collision_is_retried_with_a_new_candidate(monkeypatch):
+    """
+    La carrera real, provocada: la sugerencia devuelve un codigo que otra alta
+    acaba de ocupar. El alta reintenta con el siguiente candidato en vez de
+    devolver el error de integridad.
+
+    La prueba anterior no llega al reintento: la serie ya ve el numero ocupado y
+    salta solo. Aca la colision ocurre en el INSERT.
+    """
+    taken = next_student_code()
+    StudentFactory(student_code=taken)
+    candidates = iter([taken, "EST-QA-0001"])
+    monkeypatch.setattr(students_services, "next_student_code", lambda: next(candidates))
+
+    created = create_student(person_data=_person())
+
+    assert created.student_code == "EST-QA-0001"
+    assert Student.objects.filter(student_code=taken).count() == 1
+
+
+def test_student_code_generation_gives_up_after_repeated_collisions(monkeypatch):
+    """Si el candidato choca en todos los intentos, falla en vez de reintentar sin fin."""
+    taken = next_student_code()
+    StudentFactory(student_code=taken)
+    students_before = Student.objects.count()
+    monkeypatch.setattr(students_services, "next_student_code", lambda: taken)
+
+    with pytest.raises(IntegrityError):
+        create_student(person_data=_person())
+
+    assert Student.objects.count() == students_before
 
 
 def test_employee_code_series_is_institutional_and_padded_to_three():
