@@ -70,7 +70,17 @@ El PR #595, ya fusionado, agrega la regresión específica que inspecciona que
 `startxref` apunte al `xref` real y que cada objeto PDF esté en el offset anunciado,
 además de comprobar las notas sintéticas 59 y 60, nota final 60, aprobación y
 promoción. Esa prueba no se replica aquí porque el cambio de generación aún no
-forma parte de la base `develop` de esta rama.
+forma parte de la base sincronizada con `develop` de esta rama.
+
+Verificación local posterior a la fusión:
+
+```text
+pytest tests/api/test_documents_api.py -k "historical_cycle_report" --no-cov -q -rs
+5 passed, 77 deselected, 4 warnings, exit code 0
+```
+
+Esta ejecución confirma la regresión en el árbol local integrado, pero no
+sustituye la ejecución sobre el SHA efectivamente desplegado en QA.
 
 Para aceptar la evidencia final todavía deben quedar registrados en el expediente:
 
