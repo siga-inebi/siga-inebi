@@ -246,7 +246,10 @@ class DeactivateMixin:
 class AcademicCycleListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = AcademicCycleSerializer
     create_serializer = AcademicCycleCreateSerializer
-    cache_seconds = CATALOGUE_CACHE_SECONDS
+    # Siempre revalidar (ETag + 304), nunca servir de cache sin preguntar: crear,
+    # activar o cerrar un ciclo cambia este listado, y con max-age de 5 minutos
+    # el navegador devolvia el listado viejo al recargar tras la mutacion.
+    cache_seconds = 0
 
     def list_queryset(self, request):
         return queries.academic_cycles(self.institution)
