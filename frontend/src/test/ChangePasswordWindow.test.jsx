@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ChangePasswordWindow } from "@auth/ChangePasswordWindow.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
@@ -14,6 +14,10 @@ vi.mock("@auth/authService.js", () => ({
 }));
 
 describe("ChangePasswordWindow", () => {
+  beforeEach(() => {
+    authServiceMock.changePassword.mockReset();
+  });
+
   test("renders modal when open and submits valid password change", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

@@ -21,6 +21,7 @@ from apps.academics.services import (
     create_academic_cycle,
     create_class_schedule_block,
     create_class_session,
+    declare_non_computable_day,
     create_curriculum_plan,
     create_section,
     create_teaching_assignment,
@@ -35,6 +36,7 @@ from apps.academics.services import (
     update_class_schedule_block,
     update_curriculum_plan,
     update_section,
+    update_grade,
 )
 from apps.audit.models import AuditEvent
 from apps.common.models import DomainError
@@ -1612,3 +1614,31 @@ class TestFreezeCycleResults:
         )
         first.refresh_from_db()
         assert first.final_grade == 80
+
+
+@pytest.mark.django_db
+def test_rf_est_004_presentation_label_changes_without_changing_grade_code():
+    grade = GradeFactory(code="PRI-01", name="Primero primaria")
+
+    update_grade(grade=grade, presentation_label="1.º Primaria — Matutina")
+
+    grade.refresh_from_db()
+    assert grade.presentation_label == "1.º Primaria — Matutina"
+    assert grade.code == "PRI-01"
+    assert grade.name == "Primero primaria"
+
+
+@pytest.mark.django_db
+def test_rf_jor_010_declares_a_non_computable_day_only_inside_its_cycle():
+    cycle = AcademicCycleFactory(starts_on=date(2026, 1, 15), ends_on=date(2026, 10, 31))
+
+    record = declare_non_computable_day(
+        academic_cycle=cycle, day=date(2026, 9, 15), reason="Asueto institucional"
+    )
+
+    assert record.academic_cycle == cycle
+    assert record.reason == "Asueto institucional"
+    with pytest.raises(DomainError, match="pertenecer al ciclo"):
+        declare_non_computable_day(
+            academic_cycle=cycle, day=date(2026, 11, 1), reason="Fuera de ciclo"
+        )
