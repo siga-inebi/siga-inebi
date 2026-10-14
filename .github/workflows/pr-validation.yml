@@ -33,6 +33,9 @@ jobs:
       - name: Test forbidden-file policy
         run: node --test scripts/github/check-forbidden-files.test.mjs
 
+      - name: Test PR body policy
+        run: node --test scripts/github/pr-body-policy.test.mjs
+
       - name: Validate title, body and changed files
         uses: actions/github-script@v7
         with:
@@ -50,7 +53,13 @@ jobs:
               return;
             }
 
-            if (!/(Issue|Relacionado|Justificacion)/i.test(body)) {
+            const { pathToFileURL } = require("node:url");
+            const bodyPolicyUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/scripts/github/pr-body-policy.mjs`,
+            ).href;
+            const { hasIssueOrJustification } = await import(bodyPolicyUrl);
+
+            if (!hasIssueOrJustification(body)) {
               core.setFailed("PR description must include related Issue or justification.");
               return;
             }
@@ -63,7 +72,6 @@ jobs:
               per_page: 100,
             });
 
-            const { pathToFileURL } = require("node:url");
             const policyUrl = pathToFileURL(
               `${process.env.GITHUB_WORKSPACE}/scripts/github/check-forbidden-files.mjs`,
             ).href;

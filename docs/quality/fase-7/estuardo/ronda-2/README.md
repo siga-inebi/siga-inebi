@@ -98,7 +98,7 @@ permisos de emisión y ciclo cerrado, además de corregir la discrepancia visibl
 
 - Estuardo: corrección de INC-008 con regresión; Roí revisa; Pablo confirma triage.
 - Josué/Roí: reproducir flujo, preparar ciclo cerrado y validar boleta disponible.
-- Usabilidad con personas, accesibilidad completa, UAT y videos: no ejecutados.
+- Las actividades D1, D3 y D4 de Estuardo se retiraron del alcance vigente; consulta el [ajuste de alcance](../ajuste-alcance.md).
 - PR anterior #551: `pr-validation` aprobó; `frontend-build` falló porque la ruta
   de asistencia pesa 20.025 bytes gzip frente al límite 20.000. Evidencia de CI:
   https://github.com/siga-inebi/siga-inebi/actions/runs/38284516610/job/114929565012.

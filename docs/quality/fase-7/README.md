@@ -2,9 +2,8 @@
 
 Este directorio conserva evidencia de la Fase 7 para una versión identificable de SIGA-INEBI. Pablo coordina su consolidación; cada responsable de dominio entrega sus resultados, evidencias y regresiones.
 
-RUN-PAB-20261012-02 aprobó 28 controles locales con 1,596 pruebas backend y
-285 frontend. Pablo consolidó la ejecución; revisión independiente y aceptación
-institucional siguen pendientes.
+RUN-D1-06 aprobó 28 controles locales con 1589 pruebas backend y283 frontend.
+Codex ejecutó en apoyo a Daniel; revisión independiente y aceptación pendientes.
 La instantánea incluye cambios sin commit: consultar SHA y digest en el
 [manifiesto](manifiesto-version.md). QA cloud desplegado en RUN-CQ-01 con URL,
 digests y revisiones en [despliegue cloud](despliegue-cloud-qa.md). Las líneas
@@ -12,6 +11,9 @@ base previas permanecen en los registros.
 
 | Evidencia nueva | Propósito |
 | --- | --- |
+| [Candidata final de identidad y seguridad](evidencia-candidata-final-identidad-seguridad-2026-10-13.md) | Repeticion de autenticacion, autorizacion, dependencias y TLS sobre `develop` `68fa7753`; revision de Roi pendiente |
+| [Cierre documental D1 de Santiago](cierre-d1-identidad-santiago.md) | Inventario, perfiles sintéticos, ejecuciones vinculadas, revisión y límites del cierre de identidad |
+| [Cierre documental D3 de Santiago](cierre-d3-identidad-seguridad-santiago.md) | Cookies/TLS en QA, revisión de dependencias, documentos entregados y pendientes trasladados a D5 |
 | [Entorno y datos](entorno-y-datos.md) | Versiones, recursos, aislamiento y pendientes cloud/teléfono |
 | [Índice](indice-evidencias.csv) | Checksums de artefactos locales ignorados; exportación pendiente |
 | [Rendimiento](informe-rendimiento.md) | Duraciones reales y mediciones de usuario pendientes |
@@ -19,6 +21,15 @@ base previas permanecen en los registros.
 | [Manifiesto](manifiesto-version.md) | Identidad verificable de la instantánea evaluada |
 | [Despliegue cloud](despliegue-cloud-qa.md) | RUN-CQ-01: URL, imágenes, revisiones y verificaciones en Cloud Run |
 | [Resultado integrado de Pablo](resultado-ejecucion-pablo-2026-10-12.md) | RUN-PAB-20261012-02: 28/28 controles, métricas y regresión de formato |
+| [Instalación limpia y recuperación PostgreSQL](reporte-final-pruebas.md) | Validación real de PostgreSQL 16, migraciones, semillas, esquema, integración y restauración de respaldo |
+| [Avance de Estuardo](estuardo/informe-avance-2026-10-13.md) | Alcance vigente y pendientes D2/D5 |
+| [Ajuste de alcance de Estuardo](estuardo/ajuste-alcance.md) | Decisión comunicada para retirar D1, D3 y D4 de sus responsabilidades de evaluación |
+| [Revalidación D2 de Estuardo](estuardo/d2-evaluacion-integracion.md) | 243 pruebas aprobadas en `develop` `5ed5fd24`; no es candidato QA final |
+| [Cierre técnico de INC-008](estuardo/informe-inc-008-2026-10-13.md) | Regresión de nota final e informe de decisión, con límites de candidato y revisión |
+| [QA4-PDF-01](estuardo/qa4-pdf-01/README.md) | Descarga API, PDF sintético y captura legible tras corregir referencias internas |
+| [UAT documental de Roí](estuardo/uat-roi-documentos-api-auditoria.md) | Estados reportados por escenario y límites de verificación |
+| [Seguimiento de manuales](seguimiento-manuales.md) | Estado, revisión y evidencia por manual |
+| [Preparación de usabilidad y UAT de Estuardo](estuardo/preparacion-usabilidad-uat/README.md) | Tareas y formatos listos; sesiones institucionales aún no ejecutadas |
 
 ## Estado al inicio
 
@@ -36,13 +47,14 @@ Primera ronda de evaluación de Estuardo: [guía, catálogo y evidencias](estuar
 Es un diagnóstico local complementario; no sustituye la aceptación institucional.
 
 Primera ronda de expediente de Diana: [guía, catálogo y evidencias](diana/README.md).
-Incluye dos fallos de frontend conservados (INC-008) y una incidencia funcional menor (INC-009).
+Incluye dos fallos de frontend conservados (INC-013) y una incidencia funcional menor (INC-009).
 
 | Archivo | Propósito | Responsable |
 | --- | --- | --- |
 | `alcance-y-decisiones.md` | Alcance, dependencias y decisiones que bloquean validación. | Pablo |
 | `catalogo-casos.csv` | Universo de requisitos, clasificación inicial y vínculos de caso/ejecución. | Pablo + responsables de dominio |
-| `matriz-final.csv` | Instantánea de validación por requisito sobre candidato final. | Pablo |
+| `matriz-final.csv` | Matriz final de 230 requisitos declarados implementados por cierre de issues; uno cuenta además con evidencia individual aprobada. | Pablo |
+| `matriz-final-historica-pre-reduccion-alcance-2026-10-13.csv` | Universo y estados anteriores; preservado por auditoría, fuera del alcance final. | Pablo |
 | `ejecuciones.csv` | Registro inmutable de cada corrida o caso manual. | Ejecutores; Pablo consolida |
 | `incidencias.csv` | Registro y clasificación de defectos y bloqueos. | Reportante; Pablo hace triage |
 | `correcciones-y-regresion.md` | Correcciones aprobadas y regresión posterior. | Pablo + autor/revisor |
@@ -50,17 +62,18 @@ Incluye dos fallos de frontend conservados (INC-008) y una incidencia funcional 
 | `reporte-final-pruebas.md` | Informe de estado y recomendación QA. | Pablo |
 | `acta-aceptacion.md` | Borrador de acta o reporte de aceptación institucional. | Pablo + autoridad institucional |
 | `seguimiento-manuales.md` | Estado de manuales y verificación por versión. | Pablo + responsables |
+| `roi-cierre.md` | Consolidación de entregables, pruebas y pendientes verificables de Roí. | Roí / Estuardo / Daniel |
 | `../manuals/08-maintenance-and-support-plan.md` | Plan operativo de mantenimiento y soporte. | Pablo + Daniel |
 
 ## Actualización reproducible
 
-Regenerar catálogo y matriz base después de cambios de requerimientos o catálogo:
+Regenerar únicamente el catálogo histórico después de cambios de requerimientos o catálogo:
 
 ```bash
 python3 scripts/quality/generate_phase7_catalog.py
 ```
 
-El generador no marca requisitos como aprobados: crea filas con resultado `No ejecutado` hasta que cada responsable agregue caso, corrida y evidencia reales.
+El generador conserva el universo histórico con resultado inicial `No ejecutado`. No debe sobrescribir `matriz-final.csv`, que es el cierre reducido aprobado el 13 de octubre de 2026.
 
 ## Corridas automatizadas con evidencia
 

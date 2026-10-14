@@ -56,6 +56,9 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 import { AttendancePercentageProbe } from "./AttendancePercentageProbe.jsx";
 import { DayStatusProbe } from "./DayStatusProbe.jsx";
 
+// Keep the optional closure workflow out of the route's initial download.
+// Service callbacks are passed as props so its chunk does not import this route.
+
 // Los dialogos se descargan cuando el operador los abre. Asi, la ruta inicial
 // de asistencia no paga por modulos de acciones que la mayoria de consultas no
 // necesita, sin cambiar el flujo ni los contratos de cada ventana.

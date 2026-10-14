@@ -139,6 +139,27 @@ class AcademicCycle(TimeStampedModel):
         return self.status == self.CycleStatus.DRAFT
 
 
+class NonComputableDay(TimeStampedModel):
+    """An institutional day that is excluded from attendance calculations."""
+
+    academic_cycle = models.ForeignKey(
+        AcademicCycle, on_delete=models.CASCADE, related_name="non_computable_days"
+    )
+    day = models.DateField()
+    reason = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ["day"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["academic_cycle", "day"], name="unique_non_computable_day_per_cycle"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.day}: {self.reason}"
+
+
 class Shift(TimeStampedModel):
     """
     Working shift of a campus ("jornada"): matutina, vespertina, nocturna.
@@ -213,6 +234,7 @@ class Grade(TimeStampedModel):
         Institution, on_delete=models.CASCADE, related_name="grades", editable=False
     )
     name = models.CharField(max_length=100)
+    presentation_label = models.CharField(max_length=150, blank=True, default="")
     code = models.CharField(max_length=30)
     sequence = models.PositiveIntegerField()
 
@@ -228,7 +250,7 @@ class Grade(TimeStampedModel):
         ]
 
     def __str__(self):
-        return self.name
+        return self.presentation_label or self.name
 
     def save(self, *args, **kwargs):
         # Derived on insert, never supplied by callers: the grade belongs

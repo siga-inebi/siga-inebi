@@ -1,3 +1,4 @@
+import os from "node:os";
 import { fileURLToPath, URL } from "node:url";
 
 import react from "@vitejs/plugin-react";
@@ -12,6 +13,7 @@ export default defineConfig(({ mode }) => {
     env.VITE_BACKEND_PROXY_TARGET || "http://localhost:8000";
 
   return {
+    cacheDir: os.tmpdir() + "/siga-vite-cache",
     plugins: [react()],
     resolve: {
       // Alias por dominio. Un import se lee como una direccion del sistema

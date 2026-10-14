@@ -32,5 +32,5 @@ La ejecución original añadió un volumen hacia `/evidence` y `--junitxml=/evid
 - La boleta antes bloqueada en la ronda 2 ahora tiene evidencia automatizada de API e integración. No se reemplaza ni se modifica aquella ejecución histórica.
 - Falta descargar y abrir la boleta desde la interfaz para revisar presentación, legibilidad e impresión. Las aserciones de contenido y `Content-Type` no demuestran por sí solas la validez visual del PDF.
 - INC-008, documentada en el [PR #553](https://github.com/siga-inebi/siga-inebi/pull/553), permanece pendiente: la pantalla muestra el promedio en lugar de la nota final redondeada. Esta ronda no cambia código funcional ni verifica su corrección.
-- Faltan usabilidad con participantes, aceptación institucional, videos de evaluación y revisión de Roí. No se declara UAT aprobada ni se cierran requisitos.
+- Esta ronda contiene resultados automatizados de evaluación. Las actividades D1, D3 y D4 de Estuardo se retiraron del alcance vigente; la revisión cruzada D2 permanece en el [informe actual](../informe-avance-2026-10-13.md).
 - Esta rama parte de `develop`; los PR #551 y #553 aún no integrados no forman parte del SHA probado.
