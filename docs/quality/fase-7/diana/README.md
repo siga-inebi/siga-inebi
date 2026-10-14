@@ -7,6 +7,7 @@ Diagnóstico local; no constituye candidato formal, aceptación institucional ni
 
 ## Archivos de trabajo
 
+- [Ronda 2: integración y regresión](ronda-2/README.md) (13/10): regresión de INC-009 e INC-013 aprobada, cobertura de la sugerencia de código, integración por API de matrícula, justificaciones y documentos (44 de 46), nueva INC-DIA-001 y trazabilidad de INC-008.
 - [Resultado de la primera corrida](resultado-primera-corrida.md): backend **150 pruebas aprobadas**, cero fallos y cero omitidas; frontend **29 aprobadas y 2 fallidas** por tiempo de espera (INC-013). Revisión humana pendiente.
 - [Catálogo inicial](catalogo-inicial.csv): 17 requisitos (RF-EXP-001 a 009, RNF-AUD-003, RNF-PRI-001 a 005, RF-ALC-006 y RF-CRE-002), criterios originales y referencias candidatas por función.
 - [Inventario de pruebas](inventario-pruebas.csv): 181 casos (150 backend y 31 frontend) con requisito candidato y línea.
