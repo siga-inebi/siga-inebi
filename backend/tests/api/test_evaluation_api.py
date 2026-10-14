@@ -1177,9 +1177,7 @@ class TestGradeCorrectionAPI:
         _grant_grade_write(
             auth_client.user, section=enrolment.section, subject=subject, academic_cycle=cycle
         )
-        CurriculumPlan.objects.create(
-            academic_cycle=cycle, grade=enrolment.grade, subject=subject
-        )
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=enrolment.grade, subject=subject)
         url = reverse(
             "evaluation-unit-grades",
             kwargs={"cycle_public_id": cycle.public_id, "unit_public_id": unit.public_id},
