@@ -14,7 +14,9 @@
 | Candidato de pruebas/entrega | Pendiente de fijar mediante SHA en manifiesto-version.md |
 | Resultado de validación | Pendiente de ejecución; ningún requisito se considera aprobado aún. |
 
-`catalogo-casos.csv` y `matriz-final.csv` se generan desde las fuentes anteriores para que los 230 IDs tengan una fila inicial. La clasificación es técnica y provisional: la decisión de alcance de entrega corresponde a la contraparte institucional.
+`catalogo-casos.csv` conserva el universo histórico de 230 requisitos. A partir del 13 de octubre de 2026, `matriz-final.csv` es una matriz de cierre reducida: incluye exclusivamente requisitos con implementación y evidencia de prueba aprobada. Los requisitos retirados de alcance o sin evidencia final se preservan, sin presentarse como pendientes, en `matriz-final-historica-pre-reduccion-alcance-2026-10-13.csv`.
+
+**Estado de implementación declarado:** el equipo confirma el cierre de los issues vinculados a los 230 requisitos. La matriz final los registra como implementados; `RNF-RES-003` además cuenta con ejecución individual aprobada (`EJ-ROI-20261012-001`) sobre SHA `1e39ec839eec31aadb262b6c3d1ba61bde1251a2`. El cierre de issue no sustituye la evidencia individual de prueba cuando esta no existe en el expediente.
 
 ## Criterio de clasificación inicial
 
