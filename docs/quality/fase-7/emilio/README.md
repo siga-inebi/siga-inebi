@@ -13,6 +13,7 @@ Diagnóstico local; no constituye candidato formal, aceptación institucional ni
 - [Resultados por prueba](resultados-pruebas.csv): estado y duración de cada caso en las tres corridas, transcritos de JUnit.
 - [Evidencia revisada](evidencia-revisada.md): comandos, versiones y hashes de los logs/JUnit locales. Los artefactos crudos no se publican en Git; su entrega a revisores está pendiente.
 - [Segunda ronda](ronda-2/README.md): RF-JOR-007 (28 aprobadas; el criterio de notificación al encargado no está cubierto, INC-012) y frecuencia de INC-010 (1 fallo en 10 iteraciones).
+- [Informe de rendimiento](rendimiento/README.md): protocolo completo (3 rondas, calentamiento, 102 confirmaciones por ronda) en escenarios pico y normal con el backend limitado a 1 CPU / 2 GB; 612 de 612 confirmados, p95 entre 170 y 222 ms, CPU, memoria y gráficas. Incluye la segunda medición del desfase del reloj en WSL2 (INC-010).
 - El catálogo general y sus resultados históricos se conservan. Este catálogo complementario no aprueba requisitos ni modifica el alcance institucional.
 
 ## Primeros seis casos
