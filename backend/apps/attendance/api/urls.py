@@ -1,6 +1,7 @@
 from django.urls import path
 
 from apps.attendance.api.views import (
+    AbsenceNotificationListView,
     AttendanceAlertListView,
     AttendanceDayStatusView,
     AttendanceEventListCreateView,
@@ -151,6 +152,11 @@ urlpatterns = [
         "justifications/<uuid:public_id>/resolve/",
         JustificationResolveView.as_view(),
         name="attendance-justification-resolve",
+    ),
+    path(
+        "absence-notifications/",
+        AbsenceNotificationListView.as_view(),
+        name="attendance-absence-notification-list",
     ),
     path(
         "justifications/notifications/",

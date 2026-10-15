@@ -551,6 +551,70 @@ class JustificationNotification(TimeStampedModel):
         return f"Notificacion de {self.justification} para {self.recipient}"
 
 
+class AbsenceNotification(TimeStampedModel):
+    """
+    RF-JOR-007 (HU-14, RN-NOT-001): a record that a student's guardian has
+    been notified of an absence. Same in-system channel as
+    ``JustificationNotification`` -- no email, push or queue exists
+    (ADR-0009) -- so this is a queryable row the guardian fetches via
+    ``services.list_my_absence_notifications``. A future external channel
+    would read from this same table rather than replace it.
+
+    Recipient: the student's primary ``StudentGuardianRelation`` in force on
+    the day (openspec ``autorizacion-alcance`` "Asociacion principal del
+    estudiante": the primary association is the default destination of
+    notifications). ``relation`` keeps which association it was addressed
+    through; ``guardian`` is denormalised from it so the guardian's listing
+    is a plain filter. Visibility is still re-checked on every read against
+    the guardian's *current* relations ("Corte total al terminar la
+    asociacion"), so a stored row never grants historical access.
+
+    One row per (student, date, reason): ``services.notify_absence`` is
+    idempotent, so reprocessing the jornada closure never duplicates it.
+    Rows are never deleted (AGENTS.md #12): when a later-recorded entry shows
+    the student was not absent after all, ``services.recalculate_day`` marks
+    the row superseded (``superseded_at``) instead of removing it, the same
+    idiom as ``AttendanceAlert.is_active``.
+    """
+
+    class Reason(models.TextChoices):
+        ABSENCE = "inasistencia", "Inasistencia"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="absence_notifications"
+    )
+    shift = models.ForeignKey(
+        "academics.Shift", on_delete=models.PROTECT, related_name="absence_notifications"
+    )
+    absence_date = models.DateField()
+    reason = models.CharField(max_length=20, choices=Reason.choices, default=Reason.ABSENCE)
+    guardian = models.ForeignKey(
+        "students.Guardian", on_delete=models.PROTECT, related_name="absence_notifications"
+    )
+    relation = models.ForeignKey(
+        "students.StudentGuardianRelation",
+        on_delete=models.PROTECT,
+        related_name="absence_notifications",
+    )
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    superseded_reason = models.CharField(max_length=40, blank=True, default="")
+
+    class Meta:
+        ordering = ["-absence_date", "-created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "absence_date", "reason"],
+                name="unique_absence_notification_per_student_day_reason",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["guardian", "absence_date"], name="attendance_absnotif_guard_idx")
+        ]
+
+    def __str__(self):
+        return f"Notificacion de inasistencia de {self.student} ({self.absence_date})"
+
+
 class JustificationAttachment(TimeStampedModel):
     """
     RF-JUS-007: a single supporting document for a justification (e.g. a
