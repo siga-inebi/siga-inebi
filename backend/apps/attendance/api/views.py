@@ -1093,9 +1093,10 @@ class JustificationNotificationListView(GenericAPIView):
         description=(
             "RF-JOR-007: notificaciones de inasistencia dirigidas al encargado "
             "vinculado al actor autenticado (asociacion principal del estudiante "
-            "al cierre de la jornada). Requiere "
-            "attendance_absence_notification_view y alcance vigente; solo incluye "
-            "estudiantes con relacion vigente, de modo que una relacion terminada "
+            "al cierre de la jornada). Sin permiso atomico, como "
+            "RF-JUS-006: solo una cuenta de encargado activo con relacion vigente "
+            "accede (denegacion auditada en otro caso); solo incluye estudiantes "
+            "con relacion vigente, de modo que una relacion terminada "
             "corta tambien las notificaciones anteriores. Una notificacion "
             "superada indica que un registro posterior corrigio la inasistencia."
         ),

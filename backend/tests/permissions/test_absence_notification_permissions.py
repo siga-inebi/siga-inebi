@@ -17,28 +17,16 @@ from apps.students.services import (
     end_student_guardian_relation,
 )
 from tests.factories.attendance import JornadaParametersFactory
-from tests.factories.identity import (
-    PermissionFactory,
-    RoleAssignmentFactory,
-    RoleFactory,
-    UserFactory,
-)
+from tests.factories.identity import UserFactory
 from tests.factories.students import GuardianFactory, StudentFactory
 
 pytestmark = [pytest.mark.permissions, pytest.mark.security, pytest.mark.django_db]
 
-VIEW_PERMISSION = "attendance_absence_notification_view"
-
 
 def _guardian_user():
+    """A guardian account without any role: access comes from the relation alone."""
     guardian = GuardianFactory()
-    user = UserFactory(person=guardian.person)
-    RoleAssignmentFactory(
-        user=user,
-        role=RoleFactory(permissions=[PermissionFactory(codename=VIEW_PERMISSION)]),
-        identity_scope=False,
-    )
-    return guardian, user
+    return guardian, UserFactory(person=guardian.person)
 
 
 def test_ended_relationship_cuts_access_to_past_absence_notifications(client):
@@ -81,12 +69,12 @@ def test_ended_relationship_cuts_access_to_past_absence_notifications(client):
 
 
 def test_guardian_with_no_current_relationship_is_denied_and_audited():
-    """RF-JOR-007: sin ninguna relacion vigente no hay alcance; la denegacion se audita."""
+    """RF-JOR-007: sin ninguna relacion vigente no hay acceso; la denegacion se audita."""
     _guardian, user = _guardian_user()
 
     with pytest.raises(AuthorizationError):
         services.list_my_absence_notifications(user=user)
 
     assert AuditEvent.objects.filter(
-        action="identity.authorization.denied", context__permission=VIEW_PERMISSION
+        action="attendance.absence_notification.read_denied", actor=user
     ).exists()

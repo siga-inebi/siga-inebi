@@ -47,12 +47,12 @@ from apps.attendance.models import (
 from apps.audit.services import declare_data_retention, record_event
 from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
-from apps.common.exceptions import DomainError
+from apps.common.exceptions import AuthorizationError, DomainError
 from apps.common.opaque import generate_opaque_identifier
 from apps.documents.services import validate_document_upload
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import active_enrolments
-from apps.identity.scopes import authorized_student_queryset, guardian_student_queryset
+from apps.identity.scopes import guardian_student_queryset
 from apps.students.models import Student, StudentGuardianRelation
 
 ORIGIN_PRECEDENCE = {
@@ -2397,8 +2397,6 @@ def list_my_justification_notifications(*, user):
 # RF-JOR-007 — notificacion de inasistencia al encargado
 # --------------------------------------------------------------------------- #
 
-ABSENCE_NOTIFICATION_VIEW_PERMISSION = "attendance_absence_notification_view"
-
 
 def _primary_guardian_relation_on(*, student, on_date):
     """
@@ -2505,17 +2503,27 @@ def list_my_absence_notifications(*, user):
     relation (openspec "Corte total al terminar la asociacion": an ended
     relation hides even the notifications sent while it was in force).
 
-    Requires ``attendance_absence_notification_view`` plus an effective
-    scope; ``authorized_student_queryset`` denies (and audits the denial)
-    otherwise, raising ``AuthorizationError``.
+    Same "own data" pattern as RF-JUS-006 and RF-HOR-010: no atomic
+    permission gates it -- the composition of the guardian role is still an
+    open institutional decision (PD-004/PD-005) -- only the account's own
+    identity does. Denied by default, and audited, for an account that is
+    not an active guardian with at least one current relation.
     """
-    authorized_student_queryset(user=user, codename=ABSENCE_NOTIFICATION_VIEW_PERMISSION)
     guardian = getattr(getattr(user, "person", None), "guardian_profile", None)
-    if guardian is None:
-        return AbsenceNotification.objects.none()
+    wards = guardian_student_queryset(user=user)
+    if guardian is None or not wards.exists():
+        record_event(
+            actor=user,
+            action="attendance.absence_notification.read_denied",
+            resource="AbsenceNotification",
+            resource_identifier=str(user.pk),
+            context={"result": "denied", "reason": "no_current_guardian_relation"},
+        )
+        raise AuthorizationError(
+            "La cuenta no esta vinculada a un encargado activo con una relacion vigente."
+        )
     return AbsenceNotification.objects.filter(
-        guardian=guardian,
-        student__in=guardian_student_queryset(user=user).values("pk"),
+        guardian=guardian, student__in=wards.values("pk")
     ).select_related("student__person", "shift")
 
 

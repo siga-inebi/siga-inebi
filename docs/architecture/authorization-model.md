@@ -143,8 +143,6 @@ Las pruebas en `backend/tests/permissions/test_identity_permissions.py` y
 - `attendance.record_manual`
 - `attendance.justification.request`
 - `attendance.justification.resolve`
-- `attendance.absence_notification.view` (RF-JOR-007: notificaciones de inasistencia propias del
-  encargado; alcance derivado de `StudentGuardianRelation` vigente)
 - `grade.write`
 - `grade.correct`
 - `document.upload`

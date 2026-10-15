@@ -63,9 +63,8 @@ def test_jornada_closure_notifies_the_primary_guardian_of_an_absence():
     guardian = GuardianFactory()
     create_student_guardian_relation(student=student, guardian=guardian, relationship_label="Madre")
     staff_client = _client_with(UserFactory(), "attendance_jornada_configure")
-    guardian_client = _client_with(
-        UserFactory(person=guardian.person), "attendance_absence_notification_view"
-    )
+    guardian_client = Client()
+    guardian_client.force_login(UserFactory(person=guardian.person))
 
     for _ in range(2):
         closure = staff_client.post(

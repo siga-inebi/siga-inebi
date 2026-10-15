@@ -124,8 +124,8 @@ roles configurados y DEBE poder marcarse como atendida dejando constancia de qui
   vigente
 
 > Nota de implementación (RF-JOR-007, INC-012): el canal es una notificación interna
-> (`AbsenceNotification`, `GET /api/v1/attendance/absence-notifications/`, permiso
-> `attendance.absence_notification.view`), igual que RF-JUS-006; no hay correo ni push
+> (`AbsenceNotification`, `GET /api/v1/attendance/absence-notifications/`), igual que RF-JUS-006:
+> sin permiso atómico, accede solo la cuenta de un encargado activo con asociación vigente; no hay correo ni push
 > (ADR-0009). Solo se notifica a la asociación principal; sin principal vigente no se notifica.
 > Una justificación aprobada después no altera la notificación; un ingreso registrado después
 > la marca como superada sin eliminarla.
