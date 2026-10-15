@@ -447,7 +447,7 @@ class TeachingAssignment(TimeStampedModel):
         unique_together = [("academic_cycle", "section", "subject", "teacher", "starts_on")]
         constraints = [
             models.CheckConstraint(
-                check=Q(ends_on__isnull=True) | Q(starts_on__lte=F("ends_on")),
+                condition=Q(ends_on__isnull=True) | Q(starts_on__lte=F("ends_on")),
                 name="teaching_assignment_valid_dates",
             ),
             ExclusionConstraint(

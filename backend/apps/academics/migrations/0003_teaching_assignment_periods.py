@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="teachingassignment",
             constraint=models.CheckConstraint(
-                check=models.Q(("ends_on__isnull", True), ("starts_on__lte", models.F("ends_on")), _connector="OR"),
+                condition=models.Q(("ends_on__isnull", True), ("starts_on__lte", models.F("ends_on")), _connector="OR"),
                 name="teaching_assignment_valid_dates",
             ),
         ),
