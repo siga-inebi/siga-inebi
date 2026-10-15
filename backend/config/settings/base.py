@@ -96,6 +96,9 @@ ACCOUNT_ACTIVATION_MAX_ATTEMPTS = env_int("ACCOUNT_ACTIVATION_MAX_ATTEMPTS", 3)
 # Al vencer, el lote se cierra de forma perezosa en la siguiente solicitud que
 # lo use (ADR-0009: sin tareas programadas).
 ATTENDANCE_CAPTURE_TURN_MINUTES = env_int("ATTENDANCE_CAPTURE_TURN_MINUTES", 360)
+# RF-JOR-001: minutos despues de closing_time en que todavia se reciben
+# egresos; los ingresos siguen limitados a la ventana [apertura, cierre].
+ATTENDANCE_EXIT_GRACE_MINUTES = env_int("ATTENDANCE_EXIT_GRACE_MINUTES", 60)
 DOCUMENT_MAX_UPLOAD_SIZE_BYTES = env_int("DOCUMENT_MAX_UPLOAD_SIZE_BYTES", 10 * 1024 * 1024)
 # RF-ARC-002: las imagenes adjuntas (JPEG/PNG) se normalizan antes de guardarse:
 # lado mayor acotado y recompresion JPEG con calidad configurable.

@@ -56,7 +56,14 @@ def _parameters():
     )
 
 
-def _post_scan(client, parameters, captured_at, client_event_id, **extra):
+def _post_scan(
+    client,
+    parameters,
+    captured_at,
+    client_event_id,
+    movement_type=AttendanceEvent.MovementType.ENTRY,
+    **extra,
+):
     # A scan by student code requires an active enrolment (RF-CRE-006).
     student = StudentFactory()
     section = SectionFactory(academic_cycle=parameters.academic_cycle)
@@ -71,7 +78,7 @@ def _post_scan(client, parameters, captured_at, client_event_id, **extra):
         "student_code": student.student_code,
         "shift_id": str(parameters.shift.public_id),
         "control_point_id": str(ControlPointFactory(campus=parameters.shift.campus).public_id),
-        "movement_type": AttendanceEvent.MovementType.ENTRY,
+        "movement_type": movement_type,
         "captured_at": captured_at.isoformat(),
     }
     return client.post(
@@ -128,6 +135,39 @@ def test_scan_inside_the_operating_window_is_created(operator_client):
     item = response.json()[0]
     assert item["outcome"] == "created"
     assert item["reason_code"] == ""
+
+
+@pytest.mark.parametrize(
+    "movement_type, hour, minute, outcome",
+    [
+        (AttendanceEvent.MovementType.EXIT, 16, 45, "created"),
+        (AttendanceEvent.MovementType.EXIT, 17, 15, "rejected"),
+        (AttendanceEvent.MovementType.ENTRY, 16, 45, "rejected"),
+    ],
+    ids=["egreso-dentro-del-margen", "egreso-fuera-del-margen", "ingreso-tras-el-cierre"],
+)
+def test_exit_grace_after_closing_applies_only_to_exits(
+    operator_client, movement_type, hour, minute, outcome
+):
+    """
+    RF-JOR-001: exits are received until closing plus the configured grace
+    (60 minutes by default); entries stay limited to [opening, closing].
+    """
+    _grant(operator_client.user, "attendance_record_exit")
+    parameters = _parameters()
+
+    response = _post_scan(
+        operator_client,
+        parameters,
+        _at(WEDNESDAY, hour, minute),
+        f"grace-{movement_type}-{hour}{minute}",
+        movement_type=movement_type,
+    )
+
+    item = response.json()[0]
+    assert item["outcome"] == outcome
+    if outcome == "rejected":
+        assert item["reason_code"] == "outside_operating_window"
 
 
 def test_manual_registration_outside_the_window_is_a_bad_request(auth_client):

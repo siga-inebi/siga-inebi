@@ -24,7 +24,10 @@ captura, y registros manuales únicamente en un día lectivo de la jornada y ent
 apertura y su hora de cierre, ambas inclusive, evaluadas en la zona horaria configurada para
 la institución. La hora de apertura DEBE ser configurable junto con los demás parámetros de
 la jornada y DEBE ser anterior a la hora de cierre; si no se configura, la ventana abre a las
-00:00. Un escaneo fuera de la ventana DEBE rechazarse sin crear movimiento, informando un
+00:00. Los egresos DEBEN recibirse además durante un margen posterior a la hora de cierre,
+configurable por despliegue (`ATTENDANCE_EXIT_GRACE_MINUTES`, 60 minutos por defecto), porque
+los estudiantes salen al toque de cierre; los ingresos NO DEBEN beneficiarse de ese margen. La
+regla de día lectivo aplica igual a ingresos y egresos. Un escaneo fuera de la ventana DEBE rechazarse sin crear movimiento, informando un
 motivo estable (`non_school_day` o `outside_operating_window`) y dejando constancia auditable
 del intento. El cierre declarado por sección, que el sistema genera al cierre de la jornada,
 no se somete a esta regla. La regla vive en un único servicio que comparten el escaneo, el
@@ -41,6 +44,24 @@ lote y el registro manual (RF-JOR-001).
 
 - **GIVEN** una jornada que abre a las 06:00 y cierra a las 16:00
 - **WHEN** un operador escanea una credencial un miércoles a las 05:30
+- **THEN** el sistema rechaza el escaneo con el motivo `outside_operating_window`
+
+#### Scenario: Egreso dentro del margen posterior al cierre
+
+- **GIVEN** una jornada que cierra a las 16:00 y un margen de egreso de 60 minutos
+- **WHEN** un operador escanea el egreso de un estudiante un miércoles a las 16:45
+- **THEN** el sistema registra el egreso
+
+#### Scenario: Egreso fuera del margen posterior al cierre
+
+- **GIVEN** una jornada que cierra a las 16:00 y un margen de egreso de 60 minutos
+- **WHEN** un operador escanea el egreso de un estudiante un miércoles a las 17:15
+- **THEN** el sistema rechaza el escaneo con el motivo `outside_operating_window`
+
+#### Scenario: Ingreso después del cierre dentro del margen de egreso
+
+- **GIVEN** una jornada que cierra a las 16:00 y un margen de egreso de 60 minutos
+- **WHEN** un operador escanea el ingreso de un estudiante un miércoles a las 16:45
 - **THEN** el sistema rechaza el escaneo con el motivo `outside_operating_window`
 
 #### Scenario: Escaneo después del cierre

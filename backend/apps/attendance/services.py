@@ -182,31 +182,38 @@ class OperatingWindowError(DomainError):
         self.code = code
 
 
-def ensure_within_operating_window(*, parameters, captured_at, event_date):
+def ensure_within_operating_window(*, parameters, captured_at, event_date, movement_type):
     """
     RF-JOR-001: the single rule deciding whether a capture may be received.
 
     ``event_date`` must be one of the jornada's ``school_days`` (ISO weekday,
-    1=lunes .. 7=domingo) and ``captured_at``, read in the configured time
-    zone (``settings.TIME_ZONE``), must fall on that same date between
-    ``opening_time`` and ``closing_time``, both inclusive. Scans
-    (``record_scan_movement``, individual or in a capture batch) and manual
-    registrations (``record_attendance_event``) both call this, so the rule
-    lives in exactly one place.
+    1=lunes .. 7=domingo), whatever the movement. ``captured_at``, read in
+    the configured time zone (``settings.TIME_ZONE``), must then fall on that
+    same date, no earlier than ``opening_time`` and no later than the window's
+    end: ``closing_time`` for an entry, and ``closing_time`` plus
+    ``settings.ATTENDANCE_EXIT_GRACE_MINUTES`` for an exit -- students leave
+    at the closing bell, so their exit scans land just after it. Both ends are
+    inclusive. Scans (``record_scan_movement``, individual or in a capture
+    batch) and manual registrations (``record_attendance_event``) both call
+    this, so the rule lives in exactly one place.
     """
     if event_date.isoweekday() not in (parameters.school_days or []):
         raise OperatingWindowError(
             f"El {event_date} no es un dia lectivo de la jornada '{parameters.shift}'.",
             code=OperatingWindowError.NON_SCHOOL_DAY,
         )
-    local_capture = timezone.localtime(captured_at)
-    if local_capture.date() != event_date or not (
-        parameters.opening_time <= local_capture.time() <= parameters.closing_time
-    ):
+    opens_at = timezone.make_aware(datetime.combine(event_date, parameters.opening_time))
+    closes_at = timezone.make_aware(datetime.combine(event_date, parameters.closing_time))
+    if movement_type == AttendanceEvent.MovementType.EXIT:
+        closes_at += timedelta(minutes=settings.ATTENDANCE_EXIT_GRACE_MINUTES)
+    if not opens_at <= captured_at <= closes_at:
+        local_capture = timezone.localtime(captured_at)
+        local_close = timezone.localtime(closes_at)
         raise OperatingWindowError(
-            f"La hora de captura {local_capture:%H:%M} esta fuera de la ventana operativa "
-            f"de la jornada '{parameters.shift}' "
-            f"({parameters.opening_time:%H:%M} a {parameters.closing_time:%H:%M}).",
+            f"La hora de captura {local_capture:%Y-%m-%d %H:%M} esta fuera de la ventana "
+            f"operativa de la jornada '{parameters.shift}' para este movimiento "
+            f"({event_date} {parameters.opening_time:%H:%M} a "
+            f"{local_close:%Y-%m-%d %H:%M}).",
             code=OperatingWindowError.OUTSIDE_OPERATING_WINDOW,
         )
 
@@ -256,6 +263,7 @@ def record_attendance_event(
             ),
             captured_at=captured_at,
             event_date=event_date,
+            movement_type=movement_type,
         )
 
     event = AttendanceEvent.objects.create(
@@ -516,7 +524,10 @@ def record_scan_movement(
     )
     try:
         ensure_within_operating_window(
-            parameters=parameters, captured_at=captured_at, event_date=event_date
+            parameters=parameters,
+            captured_at=captured_at,
+            event_date=event_date,
+            movement_type=movement_type,
         )
     except OperatingWindowError as exc:
         return _reject_scan(

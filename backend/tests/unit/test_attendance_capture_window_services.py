@@ -9,6 +9,7 @@ the outcome never depends on the weekday or hour the suite runs at.
 from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
+from django.test import override_settings
 from django.utils import timezone
 
 from apps.attendance import services
@@ -57,7 +58,7 @@ def _scan(parameters, captured_at, *, client_event_id="scan-1", operator=None, *
         student=kwargs.pop("student", None) or StudentFactory(),
         shift=parameters.shift,
         control_point=ControlPointFactory(campus=parameters.shift.campus),
-        movement_type=AttendanceEvent.MovementType.ENTRY,
+        movement_type=kwargs.pop("movement_type", AttendanceEvent.MovementType.ENTRY),
         captured_at=captured_at,
         client_event_id=client_event_id,
         operator=operator or UserFactory(),
@@ -201,6 +202,99 @@ def test_scan_into_a_capture_batch_outside_the_window_is_rejected():
 
     assert results[0].reason_code == "outside_operating_window"
     assert not batch.events.exists()
+
+
+EXIT = AttendanceEvent.MovementType.EXIT
+
+
+@pytest.mark.parametrize("hour, minute", [(16, 30), (17, 0)])
+def test_exit_within_the_grace_after_closing_is_recorded(hour, minute):
+    """
+    RF-JOR-001: an exit is received until ``closing_time`` plus
+    ``ATTENDANCE_EXIT_GRACE_MINUTES`` (60 by default), the limit included.
+    """
+    parameters = _parameters()
+
+    result = _scan(
+        parameters,
+        _at(WEDNESDAY, hour, minute),
+        client_event_id=f"grace-{hour}",
+        movement_type=EXIT,
+    )
+
+    assert result.outcome == "created"
+    assert result.event.movement_type == EXIT
+
+
+def test_exit_beyond_the_grace_after_closing_is_rejected():
+    """RF-JOR-001: an exit one minute past closing plus the grace is not received."""
+    parameters = _parameters()
+
+    result = _scan(
+        parameters, _at(WEDNESDAY, 17, 1), client_event_id="grace-over", movement_type=EXIT
+    )
+
+    assert result.outcome == "rejected"
+    assert result.reason_code == "outside_operating_window"
+    assert not AttendanceEvent.objects.filter(client_event_id="grace-over").exists()
+
+
+def test_entry_after_closing_is_rejected_even_within_the_exit_grace():
+    """RF-JOR-001: the exit grace never extends the window for entries."""
+    parameters = _parameters()
+
+    result = _scan(parameters, _at(WEDNESDAY, 16, 30), client_event_id="entry-in-grace")
+
+    assert result.reason_code == "outside_operating_window"
+    assert not AttendanceEvent.objects.filter(client_event_id="entry-in-grace").exists()
+
+
+def test_exit_on_a_non_school_day_is_rejected_despite_the_grace():
+    """RF-JOR-001: the school-day rule applies to exits exactly as to entries."""
+    parameters = _parameters()
+
+    result = _scan(
+        parameters, _at(SUNDAY, 16, 30), client_event_id="sunday-exit", movement_type=EXIT
+    )
+
+    assert result.reason_code == "non_school_day"
+
+
+@pytest.mark.parametrize(
+    "grace_minutes, outcome",
+    [(0, "rejected"), (15, "rejected"), (30, "created")],
+)
+def test_exit_grace_is_configurable(grace_minutes, outcome):
+    """RF-JOR-001: ``ATTENDANCE_EXIT_GRACE_MINUTES`` sets the exit grace."""
+    parameters = _parameters()
+
+    with override_settings(ATTENDANCE_EXIT_GRACE_MINUTES=grace_minutes):
+        result = _scan(
+            parameters,
+            _at(WEDNESDAY, 16, 30),
+            client_event_id=f"configured-grace-{grace_minutes}",
+            movement_type=EXIT,
+        )
+
+    assert result.outcome == outcome
+
+
+def test_manual_exit_within_the_grace_is_recorded():
+    """RF-JOR-001: a manual exit gets the same grace as a scanned one."""
+    parameters = _parameters()
+
+    event = services.record_attendance_event(
+        student=StudentFactory(),
+        shift=parameters.shift,
+        event_date=WEDNESDAY,
+        movement_type=EXIT,
+        origin=AttendanceEvent.Origin.MANUAL,
+        captured_at=_at(WEDNESDAY, 16, 45),
+        operator=UserFactory(),
+        manual_reason=ManualRegistrationReasonFactory(),
+    )
+
+    assert event.movement_type == EXIT
 
 
 def test_jornada_parameters_reject_an_opening_time_not_before_closing():
