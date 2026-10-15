@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from apps.academics.models import CurriculumPlan
 from apps.audit.models import AuditEvent
+from apps.enrolments.authorization import ENROLMENTS_MODULE_KEY
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement, StudentMovement
 from apps.enrolments.services import (
     create_enrolment,
@@ -33,9 +34,20 @@ from tests.factories.students import StudentFactory
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
 
 
-def _grant_enrolment_creation(user):
-    permission = PermissionFactory(codename="enrollment_create")
-    return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+def _grant_enrolment(user, codename, scope):
+    # INC-DIA-001: las escrituras de matricula exigen alcance sobre la seccion.
+    # Las pruebas del flujo feliz pasan ``module_key=ENROLMENTS_MODULE_KEY``
+    # (alcance de modulo); antes asumian que el permiso sin alcance bastaba.
+    permission = PermissionFactory(codename=codename)
+    assignment = RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+    if scope:
+        ScopeGrantFactory(assignment=assignment, **scope)
+    return assignment
+
+
+def _grant_enrolment_creation(user, **scope):
+    """Permiso ``enrollment_create``; sin ``scope`` la cuenta no tiene alcance alguno."""
+    return _grant_enrolment(user, "enrollment_create", scope)
 
 
 def test_bulk_next_cycle_enrolment_requires_permission_scope_and_is_idempotent(auth_client):
@@ -167,7 +179,7 @@ def test_section_change_endpoint_requires_permission_and_preserves_history(auth_
     assert auth_client.post(url, payload, content_type="application/json").status_code == 403
     assert StudentMovement.objects.count() == 0
 
-    _grant_enrolment_update(auth_client.user)
+    _grant_enrolment_update(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     response = auth_client.post(url, payload, content_type="application/json")
 
     assert response.status_code == 201
@@ -197,7 +209,7 @@ def test_student_withdrawal_endpoint_requires_permission_and_cause(auth_client):
 
     assert Client().post(url, payload, content_type="application/json").status_code == 403
     assert auth_client.post(url, payload, content_type="application/json").status_code == 403
-    _grant_enrolment_update(auth_client.user)
+    _grant_enrolment_update(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     assert auth_client.post(url, {"reason": ""}, content_type="application/json").status_code == 400
 
     response = auth_client.post(url, payload, content_type="application/json")
@@ -225,7 +237,7 @@ def _reenrolment_payload(section, student):
 def test_create_enrolment_returns_public_references_and_audits(auth_client):
     section = SectionFactory()
     student = StudentFactory()
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
 
     response = auth_client.post(
         reverse("enrolment-list-create"),
@@ -372,7 +384,7 @@ def test_create_enrolment_requires_domain_permission(auth_client):
 
 def test_create_enrolment_rejects_invalid_vigency_dates(auth_client):
     section = SectionFactory()
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     payload = _payload(section, StudentFactory())
     payload["ends_on"] = date(2026, 1, 31).isoformat()
 
@@ -392,7 +404,7 @@ def test_create_enrolment_rejects_full_section(auth_client):
         grade=section.grade,
         section=section,
     )
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
 
     response = auth_client.post(
         reverse("enrolment-list-create"),
@@ -407,7 +419,7 @@ def test_create_enrolment_rejects_full_section(auth_client):
 def test_matriculate_student_returns_academic_assignment_and_activates_student(auth_client):
     section = SectionFactory()
     student = StudentFactory(status="pre_enrolled")
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
 
     response = auth_client.post(
         reverse("matriculation-create"),
@@ -454,7 +466,7 @@ def test_matriculate_student_rejects_a_second_active_enrolment(auth_client):
         grade=section.grade,
         section=section,
     )
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
 
     response = auth_client.post(
         reverse("matriculation-create"),
@@ -475,7 +487,7 @@ def test_matriculate_student_rejects_full_section(auth_client):
         section=section,
     )
     student = StudentFactory(status="pre_enrolled")
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
 
     response = auth_client.post(
         reverse("matriculation-create"),
@@ -492,7 +504,7 @@ def test_matriculate_student_rejects_full_section(auth_client):
 def test_matriculate_student_rejects_shift_not_assigned_to_section(auth_client):
     section = SectionFactory()
     wrong_shift = SectionFactory().shift
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     payload = _matriculation_payload(section, StudentFactory(status="pre_enrolled"))
     payload["shift_id"] = str(wrong_shift.public_id)
 
@@ -521,7 +533,7 @@ def test_reenrolment_reuses_student_record_and_audits_source(auth_client):
         name="B",
     )
     student = StudentFactory()
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     auth_client.post(
         reverse("enrolment-list-create"),
         _payload(previous_section, student),
@@ -564,7 +576,7 @@ def test_document_requirement_registers_and_updates_status(auth_client):
         grade=section.grade,
         section=section,
     )
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
 
     response = auth_client.post(
@@ -610,7 +622,7 @@ def test_document_requirement_requires_domain_permission(auth_client):
 def test_reenrolment_requires_previous_enrolment(auth_client):
     section = SectionFactory(name="A")
     student = StudentFactory(status="pre_enrolled")
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
 
     response = auth_client.post(
         reverse("reenrolment-create"),
@@ -622,9 +634,9 @@ def test_reenrolment_requires_previous_enrolment(auth_client):
     assert "no tiene matricula previa" in response.json()["error"]["detail"]
 
 
-def _grant_enrolment_update(user):
-    permission = PermissionFactory(codename="enrollment_update")
-    return RoleAssignmentFactory(user=user, role=RoleFactory(permissions=[permission]))
+def _grant_enrolment_update(user, **scope):
+    """Permiso ``enrollment_update``; sin ``scope`` la cuenta no tiene alcance alguno."""
+    return _grant_enrolment(user, "enrollment_update", scope)
 
 
 def test_transfer_out_endpoint_requires_permission_and_scope(auth_client):
@@ -686,7 +698,7 @@ def _enrolment_for_documents():
 
 def test_document_requirement_list_uses_shared_pagination_envelope(auth_client):
     enrolment = _enrolment_for_documents()
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
     auth_client.post(
         url, {"code": "id-card", "name": "Identity card"}, content_type="application/json"
@@ -705,7 +717,7 @@ def test_document_requirement_list_uses_shared_pagination_envelope(auth_client):
 
 def test_document_requirement_partial_update_keeps_delivery_state(auth_client):
     enrolment = _enrolment_for_documents()
-    _grant_enrolment_creation(auth_client.user)
+    _grant_enrolment_creation(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
     auth_client.post(
         url,
@@ -724,7 +736,7 @@ def test_document_requirement_partial_update_keeps_delivery_state(auth_client):
 
 def test_document_requirement_accepts_enrolment_update_permission(auth_client):
     enrolment = _enrolment_for_documents()
-    _grant_enrolment_update(auth_client.user)
+    _grant_enrolment_update(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
 
     response = auth_client.post(
@@ -753,7 +765,7 @@ def test_movement_annulment_endpoint_requires_permission_reason_and_returns_evid
     url = reverse("student-movement-annulment", args=[movement.public_id])
 
     assert auth_client.post(url, {"reason": "Correccion"}).status_code == 403
-    _grant_enrolment_update(auth_client.user)
+    _grant_enrolment_update(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     assert auth_client.post(url, {"reason": "   "}).status_code == 400
 
     response = auth_client.post(
@@ -781,7 +793,7 @@ def test_movement_history_exposes_annulment_without_removing_original(auth_clien
         section=section,
     )
     movement = withdraw_student(enrolment=enrolment, reason="Error", actor=auth_client.user)
-    _grant_enrolment_update(auth_client.user)
+    _grant_enrolment_update(auth_client.user, module_key=ENROLMENTS_MODULE_KEY)
     auth_client.post(
         reverse("student-movement-annulment", args=[movement.public_id]),
         {"reason": "Anulacion confirmada"},
@@ -881,3 +893,255 @@ def test_promotion_endpoint_returns_404_for_unknown_enrolment(auth_client):
     )
 
     assert response.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# INC-DIA-001 / RF-ALC-001: el permiso de matricula sin alcance no opera.
+#
+# Cada escritura de matricula exige, ademas del permiso atomico, un ScopeGrant
+# vigente que cubra la seccion afectada. Una cuenta con el permiso y sin alcance
+# (o con alcance sobre otra seccion) recibe 403 y la denegacion queda auditada
+# como el resto de accesos denegados (`identity.authorization.denied`).
+# --------------------------------------------------------------------------- #
+
+
+def _denied_events(user):
+    return AuditEvent.objects.filter(action="identity.authorization.denied", actor=user)
+
+
+def test_matriculation_without_scope_is_denied_and_audited(auth_client):
+    section = SectionFactory()
+    student = StudentFactory(status="pre_enrolled")
+    _grant_enrolment_creation(auth_client.user)
+
+    response = auth_client.post(
+        reverse("matriculation-create"),
+        _matriculation_payload(section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert not Enrolment.objects.filter(student=student).exists()
+    assert not AuditEvent.objects.filter(action="enrolments.student.matriculated").exists()
+    event = _denied_events(auth_client.user).get()
+    assert event.context["reason"] == "missing_scope"
+    assert event.context["permission"] == "enrollment_create"
+    assert event.context["section_ids"] == [section.pk]
+
+
+def test_matriculation_with_scope_on_another_section_is_denied(auth_client):
+    section = SectionFactory()
+    student = StudentFactory(status="pre_enrolled")
+    _grant_enrolment_creation(auth_client.user, section=SectionFactory())
+
+    response = auth_client.post(
+        reverse("matriculation-create"),
+        _matriculation_payload(section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert not Enrolment.objects.filter(student=student).exists()
+
+
+def test_matriculation_with_institution_scope_is_created(auth_client):
+    section = SectionFactory()
+    student = StudentFactory(status="pre_enrolled")
+    _grant_enrolment_creation(auth_client.user, institution=section.academic_cycle.institution)
+
+    response = auth_client.post(
+        reverse("matriculation-create"),
+        _matriculation_payload(section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert not _denied_events(auth_client.user).exists()
+
+
+def test_create_enrolment_without_scope_is_denied(auth_client):
+    section = SectionFactory()
+    student = StudentFactory()
+    _grant_enrolment_creation(auth_client.user)
+
+    response = auth_client.post(
+        reverse("enrolment-list-create"),
+        _payload(section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert not Enrolment.objects.filter(student=student).exists()
+    assert _denied_events(auth_client.user).filter(context__reason="missing_scope").exists()
+
+
+def _student_with_previous_enrolment_and_target_section():
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=previous_section.academic_cycle,
+        grade=previous_section.grade,
+        section=previous_section,
+        effective_on=date(2026, 2, 1),
+    )
+    return student, previous_section, target_section
+
+
+def test_reenrolment_without_scope_on_target_section_is_denied(auth_client):
+    student, previous_section, target_section = (
+        _student_with_previous_enrolment_and_target_section()
+    )
+    # El alcance sobre la seccion de origen no autoriza colocar en otra seccion.
+    _grant_enrolment_creation(auth_client.user, section=previous_section)
+
+    response = auth_client.post(
+        reverse("reenrolment-create"),
+        _reenrolment_payload(target_section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert student.enrolments.count() == 1
+    assert _denied_events(auth_client.user).filter(context__reason="missing_scope").exists()
+
+
+def test_reenrolment_into_draft_cycle_with_institution_scope_is_created(auth_client):
+    student, previous_section, target_section = (
+        _student_with_previous_enrolment_and_target_section()
+    )
+    _grant_enrolment_creation(
+        auth_client.user, institution=previous_section.academic_cycle.institution
+    )
+
+    response = auth_client.post(
+        reverse("reenrolment-create"),
+        _reenrolment_payload(target_section, student),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert student.enrolments.count() == 2
+
+
+def _enrolment_and_sibling_section():
+    source_section = SectionFactory(name="A")
+    target_section = SectionFactory(
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        shift=source_section.shift,
+        name="B",
+    )
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 2, 1),
+    )
+    return enrolment, source_section, target_section
+
+
+def test_section_change_without_scope_is_denied_and_audited(auth_client):
+    enrolment, _, target_section = _enrolment_and_sibling_section()
+    _grant_enrolment_update(auth_client.user)
+
+    response = auth_client.post(
+        reverse("enrolment-section-change", args=[enrolment.public_id]),
+        {"new_section_id": str(target_section.public_id), "effective_on": "2026-04-15"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert StudentMovement.objects.count() == 0
+    enrolment.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+    event = _denied_events(auth_client.user).get()
+    assert event.context["reason"] == "missing_scope"
+    assert event.context["permission"] == "enrollment_update"
+
+
+def test_section_change_requires_scope_on_destination_section(auth_client):
+    enrolment, source_section, target_section = _enrolment_and_sibling_section()
+    _grant_enrolment_update(auth_client.user, section=source_section)
+
+    response = auth_client.post(
+        reverse("enrolment-section-change", args=[enrolment.public_id]),
+        {"new_section_id": str(target_section.public_id), "effective_on": "2026-04-15"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    assert StudentMovement.objects.count() == 0
+
+
+def test_section_change_with_scope_on_both_sections_is_created(auth_client):
+    enrolment, source_section, target_section = _enrolment_and_sibling_section()
+    assignment = _grant_enrolment_update(auth_client.user, section=source_section)
+    ScopeGrantFactory(assignment=assignment, section=target_section)
+
+    response = auth_client.post(
+        reverse("enrolment-section-change", args=[enrolment.public_id]),
+        {"new_section_id": str(target_section.public_id), "effective_on": "2026-04-15"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["section_id"] == str(target_section.public_id)
+
+
+def test_withdrawal_without_scope_is_denied(auth_client):
+    enrolment, _, _ = _enrolment_and_sibling_section()
+    _grant_enrolment_update(auth_client.user)
+
+    response = auth_client.post(
+        reverse("student-withdrawal", args=[enrolment.public_id]),
+        {"reason": "Cambio de residencia", "effective_on": "2026-05-20"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    enrolment.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_movement_annulment_without_scope_is_denied(auth_client):
+    enrolment, _, _ = _enrolment_and_sibling_section()
+    movement = withdraw_student(enrolment=enrolment, reason="Registro equivocado")
+    _grant_enrolment_update(auth_client.user)
+
+    response = auth_client.post(
+        reverse("student-movement-annulment", args=[movement.public_id]),
+        {"reason": "Correccion"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    enrolment.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.WITHDRAWN
+
+
+def test_document_requirement_without_scope_is_denied(auth_client):
+    enrolment = _enrolment_for_documents()
+    _grant_enrolment_update(auth_client.user)
+    url = reverse("enrolment-document-requirement-list-create", args=[enrolment.public_id])
+
+    assert auth_client.get(url).status_code == 403
+    response = auth_client.post(
+        url, {"code": "id-card", "name": "Identity card"}, content_type="application/json"
+    )
+
+    assert response.status_code == 403
+    assert not EnrolmentDocumentRequirement.objects.filter(enrolment=enrolment).exists()

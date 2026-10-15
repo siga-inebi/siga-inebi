@@ -12,6 +12,7 @@ import hashlib
 import os
 import re
 import secrets
+import textwrap
 import uuid
 from datetime import timedelta
 from pathlib import Path
@@ -33,6 +34,7 @@ from apps.documents.models import (
     DocumentBatchRun,
     DocumentDeliveryReceipt,
     DocumentDownloadToken,
+    DocumentIssuance,
     DocumentKind,
     DocumentRecord,
     DocumentTemplate,
@@ -201,16 +203,28 @@ def _ensure_document_upload_access(*, actor, student):
     raise AuthorizationError("El actor no tiene permiso y alcance para adjuntar documentos.")
 
 
-def _storage_key(*, student, normalized_filename, prefix="documents"):
+def _storage_key(*, student=None, teacher=None, normalized_filename, prefix="documents"):
     suffix = Path(normalized_filename).suffix
-    return f"{prefix}/{student.public_id}/{secrets.token_urlsafe(18)}{suffix}"
+    # Student keys keep their historical layout; teacher keys live under their
+    # own folder so two dossiers can never share a path segment (RF-DOC-001).
+    owner_segment = f"teachers/{teacher.public_id}" if teacher is not None else student.public_id
+    return f"{prefix}/{owner_segment}/{secrets.token_urlsafe(18)}{suffix}"
 
 
 def _create_document_record(
-    *, student, enrolment, payload, validated, checksum, supersedes=None, storage_prefix="documents"
+    *,
+    student=None,
+    teacher=None,
+    enrolment=None,
+    payload,
+    validated,
+    checksum,
+    supersedes=None,
+    storage_prefix="documents",
 ):
     storage_key = _storage_key(
         student=student,
+        teacher=teacher,
         normalized_filename=validated["normalized_filename"],
         prefix=storage_prefix,
     )
@@ -218,6 +232,7 @@ def _create_document_record(
     try:
         return DocumentRecord.objects.create(
             student=student,
+            teacher=teacher,
             enrolment=enrolment,
             filename=validated["filename"],
             storage_key=saved_key,
@@ -257,13 +272,17 @@ def upload_document_record(*, actor, student, enrolment=None, upload):
 def replace_document_record(*, actor, record, upload):
     """Create a new immutable attachment version and retain the prior version."""
     record = DocumentRecord.objects.select_for_update().get(pk=record.pk)
-    _ensure_document_upload_access(actor=actor, student=record.student)
+    if record.teacher_id:
+        _ensure_teacher_document_upload_access(actor=actor, teacher=record.teacher)
+    else:
+        _ensure_document_upload_access(actor=actor, student=record.student)
     if not record.is_active:
         raise DomainError("Solo se puede reemplazar la version vigente del documento.")
     validated = validate_document_upload(upload)
     payload = read_document_payload(upload, validated)
     replacement = _create_document_record(
         student=record.student,
+        teacher=record.teacher,
         enrolment=record.enrolment,
         payload=payload,
         validated=validated,
@@ -281,6 +300,162 @@ def replace_document_record(*, actor, record, upload):
         version=replacement.version_number,
     )
     return replacement
+
+
+TEACHERS_MODULE_KEY = "teachers"
+"""Administrative scope over every teacher dossier (RF-DOC-001, RF-DOC-004).
+
+``Teacher`` has no institution, cycle or section of its own, so the only
+administrative dimension that can cover a teacher's dossier is the module
+scope, the same way ``module_key="students"`` covers every student dossier.
+"""
+
+
+def _is_own_teacher_dossier(*, actor, teacher):
+    return bool(getattr(actor, "person_id", None)) and actor.person_id == teacher.person_id
+
+
+def _deny_teacher_document(*, actor, teacher, action, reason, access_type, document=None):
+    record_event(
+        actor=actor,
+        action=action,
+        resource="DocumentRecord" if document is not None else "TeacherDocument",
+        resource_identifier=str(document.pk if document is not None else teacher.pk),
+        context={
+            "result": "denied",
+            "reason": reason,
+            "access_type": access_type,
+            "teacher_id": str(teacher.pk),
+        },
+    )
+
+
+def ensure_teacher_document_access(*, actor, teacher, document=None, access_type="read"):
+    """
+    Guard and audit every read of a teacher's dossier (RF-DOC-001, RF-DOC-004,
+    RF-DOC-006).
+
+    Deny by default. ``document_read`` is always required; on top of it the
+    caller must either be the teacher the dossier belongs to (a teacher sees
+    their own documents) or hold the permission with the ``teachers`` module
+    scope (administrative staff). Holding the permission over students only
+    does not reach teachers.
+    """
+    if not actor or not getattr(actor, "is_authenticated", False):
+        _deny_teacher_document(
+            actor=None,
+            teacher=teacher,
+            document=document,
+            action="documents.document.read_denied",
+            reason="unauthenticated",
+            access_type=access_type,
+        )
+        raise AuthorizationError("Debe estar autenticado para leer documentos.")
+
+    context = {"result": "success", "access_type": access_type, "teacher_id": str(teacher.pk)}
+    if document is not None:
+        context["document_id"] = str(document.pk)
+    resource_identifier = str(document.pk if document is not None else teacher.pk)
+
+    if not actor.is_superuser:
+        if not actor.has_atomic_permission(DOCUMENT_READ_PERMISSION):
+            _deny_teacher_document(
+                actor=actor,
+                teacher=teacher,
+                document=document,
+                action="documents.document.read_denied",
+                reason="missing_permission",
+                access_type=access_type,
+            )
+            raise AuthorizationError("El actor no tiene permiso para leer documentos.")
+        own = _is_own_teacher_dossier(actor=actor, teacher=teacher)
+        if not own and not actor.has_scoped_permission(
+            DOCUMENT_READ_PERMISSION, scope={"module_key": TEACHERS_MODULE_KEY}
+        ):
+            _deny_teacher_document(
+                actor=actor,
+                teacher=teacher,
+                document=document,
+                action="documents.document.read_denied",
+                reason="missing_scope",
+                access_type=access_type,
+            )
+            raise AuthorizationError(
+                "El actor no tiene el alcance requerido para leer documentos del docente."
+            )
+        context["scope"] = "own" if own else "module"
+
+    record_event(
+        actor=actor,
+        action="documents.document.read",
+        resource="DocumentRecord",
+        resource_identifier=resource_identifier,
+        context=context,
+    )
+    return True
+
+
+def _ensure_teacher_document_upload_access(*, actor, teacher):
+    """
+    Only administrative staff with ``document_upload`` over the ``teachers``
+    module may add to a teacher's dossier. A teacher does not upload into their
+    own dossier: RF-DOC-001 names the secretary and the administrator.
+    """
+    if not actor or not getattr(actor, "is_authenticated", False):
+        raise AuthorizationError("Debe estar autenticado para adjuntar documentos.")
+    if actor.is_superuser:
+        return True
+    if actor.has_scoped_permission(
+        DOCUMENT_UPLOAD_PERMISSION, scope={"module_key": TEACHERS_MODULE_KEY}
+    ):
+        return True
+    _deny_teacher_document(
+        actor=actor,
+        teacher=teacher,
+        action="documents.document.upload_denied",
+        reason="missing_permission_or_scope",
+        access_type="upload",
+    )
+    raise AuthorizationError(
+        "El actor no tiene permiso y alcance para adjuntar documentos del docente."
+    )
+
+
+def upload_teacher_document_record(*, actor, teacher, upload):
+    """
+    Store an attachment in a teacher's dossier (RF-DOC-001).
+
+    Same pipeline as the student one: validated type and size, SHA-256
+    checksum, bytes outside the database, immutable metadata and an audit
+    entry. Replacements go through ``replace_document_record`` and keep the
+    whole version history.
+
+    The access check runs before the transaction on purpose: a denied attempt
+    must leave its audit entry, and an exception inside the atomic block would
+    roll that entry back together with everything else.
+    """
+    if teacher is None:
+        raise DomainError("Se requiere un docente para registrar el documento.")
+    _ensure_teacher_document_upload_access(actor=actor, teacher=teacher)
+    validated = validate_document_upload(upload)
+    payload = upload.read()
+    upload.seek(0)
+    with transaction.atomic():
+        record = _create_document_record(
+            teacher=teacher,
+            payload=payload,
+            validated=validated,
+            checksum=hashlib.sha256(payload).hexdigest(),
+        )
+        _audit(
+            actor,
+            "documents.document.uploaded",
+            record,
+            version=record.version_number,
+            owner="teacher",
+            teacher_id=str(teacher.pk),
+        )
+    return record
 
 
 def normalize_document_kind_code(value, *, field="code"):
@@ -446,6 +621,10 @@ def get_active_document_template(*, institution, kind):
 
 def ensure_document_access(*, actor, student=None, document=None, access_type="read"):
     """Guard and audit every document read or download from one boundary."""
+    if student is None and document is not None and document.teacher_id:
+        return ensure_teacher_document_access(
+            actor=actor, teacher=document.teacher, document=document, access_type=access_type
+        )
     target_student = student or getattr(document, "student", None)
     resource_identifier = str(getattr(document, "pk", "") or getattr(target_student, "pk", ""))
     context = {
@@ -1038,6 +1217,80 @@ def _pdf_text(value, *, limit):
     return escaped.encode("utf-8")[:limit]
 
 
+def _text_lines_stream(lines, *, top, step=15, font_size=10, left=30):
+    """One text object per line, top to bottom, for ``_assemble_pdf``."""
+    stream = b""
+    for index, line in enumerate(lines):
+        y_position = top - (index * step)
+        stream += (
+            f"BT /F1 {font_size} Tf {left} {y_position} Td (".encode("ascii")
+            + _pdf_text(line, limit=140)
+            + b") Tj ET\n"
+        )
+    return stream
+
+
+def _assemble_pdf(stream, *, width, height):
+    """
+    Wrap a content stream in a one-page PDF with a correct cross-reference table.
+
+    Every generator in this module goes through here. The xref offsets are
+    computed from the bytes actually written, so a strict reader finds each
+    object where the table says it is and opens the file without repairing it
+    (QA4-PDF-01, PR #595).
+    """
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] ".encode("ascii")
+        + b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length "
+        + str(len(stream)).encode("ascii")
+        + b" >>\nstream\n"
+        + stream
+        + b"endstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    rendered = b"%PDF-1.4\n"
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(rendered))
+        rendered += str(number).encode("ascii") + b" 0 obj\n" + body + b"\nendobj\n"
+    xref_offset = len(rendered)
+    rendered += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f\n".encode("ascii")
+    for offset in offsets:
+        rendered += f"{offset:010d} 00000 n\n".encode("ascii")
+    rendered += (
+        f"trailer\n<< /Root 1 0 R /Size {len(objects) + 1} >>\nstartxref\n".encode("ascii")
+        + str(xref_offset).encode("ascii")
+        + b"\n%%EOF"
+    )
+    return rendered
+
+
+_TEMPLATE_MARKER = re.compile(r"{{\s*([A-Za-z0-9_.-]+)\s*}}")
+
+
+def _render_template_markers(template_content, mapping):
+    """
+    Replace the closed-catalogue markers of a template (RF-PLA-002).
+
+    Raises ``DomainError`` for any marker outside ``FIELD_TAG_CODES``: a
+    template is never evaluated, only filled from the fixed catalogue.
+    """
+    markers = _TEMPLATE_MARKER.findall(template_content)
+    for marker in markers:
+        if marker not in FIELD_TAG_CODES:
+            raise DomainError(
+                f"El marcador '{marker}' no esta permitido dentro del catalogo cerrado de "
+                "etiquetas de plantilla."
+            )
+    rendered = _TEMPLATE_MARKER.sub(
+        lambda match: str(mapping.get(match.group(1), "")), template_content
+    )
+    return rendered, markers
+
+
 def preview_document_template(*, template, payload=None, actor=None):
     """Render a template preview using only the closed field-tag catalogue.
 
@@ -1131,14 +1384,14 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
     unreadable = 0
     missing = 0
 
-    for record in queryset.select_related("student").order_by("-created_at"):
+    for record in queryset.select_related("student", "teacher").order_by("-created_at"):
         storage_key = record.storage_key
         if not default_storage.exists(storage_key):
             missing += 1
             issues.append(
                 {
                     "document_id": str(record.public_id),
-                    "student_id": str(record.student.public_id),
+                    **_owner_reference(record),
                     "storage_key": storage_key,
                     "status": "missing",
                     "message": "El archivo persistido no existe en almacenamiento.",
@@ -1154,7 +1407,7 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
             issues.append(
                 {
                     "document_id": str(record.public_id),
-                    "student_id": str(record.student.public_id),
+                    **_owner_reference(record),
                     "storage_key": storage_key,
                     "status": "unreadable",
                     "message": "El archivo persistido no puede leerse.",
@@ -1168,7 +1421,7 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
             issues.append(
                 {
                     "document_id": str(record.public_id),
-                    "student_id": str(record.student.public_id),
+                    **_owner_reference(record),
                     "storage_key": storage_key,
                     "status": "corrupted",
                     "expected_checksum": record.checksum,
@@ -1208,6 +1461,13 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
         },
     )
     return result
+
+
+def _owner_reference(record):
+    """Public id of the dossier owner, keyed by kind, for integrity reports."""
+    if record.teacher_id:
+        return {"teacher_id": str(record.teacher.public_id)}
+    return {"student_id": str(record.student.public_id)}
 
 
 def document_storage_usage_summary(*, institution=None):
@@ -1314,22 +1574,10 @@ def compile_generated_document(*, template, payload=None, persist=False, actor=N
         + _pdf_text(verification_line, limit=140)
         + b") Tj ET\n"
     )
-    rendered = (
-        b"%PDF-1.4\n"
-        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
-        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
-        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] "
-        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
-        b"4 0 obj\n<< /Length "
-        + str(len(stream)).encode("ascii")
-        + b" >>\nstream\n"
-        + stream
-        + b"endstream\nendobj\n"
-        b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
-        b"xref\n0 6\n0000000000 65535 f\n0000000010 00000 n\n0000000060 00000 n\n"
-        b"0000000125 00000 n\n0000000267 00000 n\n0000000780 00000 n\ntrailer\n"
-        b"<< /Root 1 0 R /Size 6 >>\nstartxref\n870\n%%EOF"
-    )
+    # Same assembler as the boleta: the xref offsets used to be hard-coded
+    # here, so any title or folio of a different length produced a file that
+    # readers had to repair (same defect as QA4-PDF-01).
+    rendered = _assemble_pdf(stream, width=300, height=200)
 
     generated = type(
         "GeneratedDocument",
@@ -1444,6 +1692,62 @@ def _subject_condition_label(condition):
     return _SUBJECT_CONDITION_LABELS.get(condition or None, "Sin calificar")
 
 
+def _closed_cycle_results(enrolment):
+    """
+    Final result of each subarea and the promotion outcome of a closed cycle.
+
+    Shared by the boleta (RF-EMI-005) and the certificado de estudios
+    (RF-EMI-001), so both print exactly the same values. Reads the FROZEN rows
+    (RF-RES-007) whenever any exist and falls back to a live recomputation
+    only for a cycle closed before freezing existed -- see
+    ``compile_historical_cycle_report`` for the full rationale.
+    """
+    from apps.academics import queries as academics_queries
+    from apps.enrolments.services import determine_promotion
+    from apps.evaluation import queries as evaluation_queries
+    from apps.evaluation.services import get_final_subject_grade
+
+    # Version mas reciente de cada subarea congelada, si el ciclo llego a
+    # congelarse (RF-RES-007). Meta.ordering de FrozenSubjectResult ya trae
+    # -created_at, -pk primero, asi que la primera fila vista por subject_id
+    # es siempre la vigente.
+    frozen_by_subject = {}
+    for row in academics_queries.frozen_subject_results_for_enrolment(enrolment=enrolment):
+        frozen_by_subject.setdefault(row.subject_id, row)
+    frozen_rows = sorted(frozen_by_subject.values(), key=lambda row: row.subject.name)
+
+    if frozen_rows:
+        subjects = [row.subject for row in frozen_rows]
+    else:
+        subjects = list(
+            evaluation_queries.curriculum_subjects(enrolment.academic_cycle, enrolment.grade)
+        )
+
+    results = []
+    for subject in subjects:
+        frozen = frozen_by_subject.get(subject.pk)
+        if frozen is not None:
+            final_grade, condition = frozen.final_grade, frozen.condition or None
+        else:
+            summary = get_final_subject_grade(enrolment, subject)
+            final_grade, condition = summary["final_grade"], summary["condition"]
+        results.append({"subject": subject, "final_grade": final_grade, "condition": condition})
+
+    frozen_promotion = academics_queries.latest_frozen_promotion_result(enrolment=enrolment)
+    promoted = (
+        frozen_promotion.promoted
+        if frozen_promotion is not None
+        else determine_promotion(enrolment)["promoted"]
+    )
+    return results, promoted
+
+
+def _final_grade_label(result):
+    final_grade = result["final_grade"]
+    grade_label = final_grade if final_grade is not None else "NC"
+    return f"{grade_label} ({_subject_condition_label(result['condition'])})"
+
+
 def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
     """
     Compile a transient report card for a closed academic cycle (RF-RES-008),
@@ -1487,26 +1791,9 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
     if not getattr(cycle, "is_closed", False):
         raise DomainError("La boleta solo puede generarse para un ciclo cerrado.")
 
-    from apps.academics import queries as academics_queries
-    from apps.enrolments.services import determine_promotion
-    from apps.evaluation import queries as evaluation_queries
-    from apps.evaluation.services import get_final_subject_grade
-
     issued_at = issued_at or timezone.now().isoformat()
-
-    # Version mas reciente de cada subarea congelada, si el ciclo llego a
-    # congelarse (RF-RES-007). Meta.ordering de FrozenSubjectResult ya trae
-    # -created_at, -pk primero, asi que la primera fila vista por subject_id
-    # es siempre la vigente.
-    frozen_by_subject = {}
-    for row in academics_queries.frozen_subject_results_for_enrolment(enrolment=enrolment):
-        frozen_by_subject.setdefault(row.subject_id, row)
-    frozen_rows = sorted(frozen_by_subject.values(), key=lambda row: row.subject.name)
-
-    if frozen_rows:
-        subjects = [row.subject for row in frozen_rows]
-    else:
-        subjects = list(evaluation_queries.curriculum_subjects(cycle, enrolment.grade))
+    results, promoted = _closed_cycle_results(enrolment)
+    subjects = [result["subject"] for result in results]
 
     _audit(
         actor,
@@ -1530,8 +1817,9 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
         f"Estudiante: {enrolment.student}",
         f"Ciclo: {cycle.name} ({cycle.starts_on} - {cycle.ends_on})",
     ]
-    if subjects:
-        for subject in subjects:
+    if results:
+        for result in results:
+            subject = result["subject"]
             lines.append(f"Subarea: {subject.name}")
             unit_grades = (
                 Grade.objects.filter(enrolment=enrolment, subject=subject)
@@ -1540,60 +1828,14 @@ def compile_historical_cycle_report(*, enrolment, issued_at=None, actor=None):
             )
             for grade in unit_grades:
                 lines.append(f"  Unidad {grade.evaluation_unit.number}: {grade.value}")
-
-            frozen = frozen_by_subject.get(subject.pk)
-            if frozen is not None:
-                final_grade, condition = frozen.final_grade, frozen.condition or None
-            else:
-                summary = get_final_subject_grade(enrolment, subject)
-                final_grade, condition = summary["final_grade"], summary["condition"]
-            grade_label = final_grade if final_grade is not None else "NC"
-            lines.append(f"  Nota final: {grade_label} ({_subject_condition_label(condition)})")
+            lines.append(f"  Nota final: {_final_grade_label(result)}")
     else:
         lines.append("- Sin calificaciones registradas.")
 
-    frozen_promotion = academics_queries.latest_frozen_promotion_result(enrolment=enrolment)
-    promoted = (
-        frozen_promotion.promoted
-        if frozen_promotion is not None
-        else determine_promotion(enrolment)["promoted"]
-    )
     lines.append(f"Condicion de promocion: {'Promovido' if promoted else 'No promovido'}")
     lines.append(f"Codigo de verificacion: {verification_code}")
 
-    stream = b""
-    for index, line in enumerate(lines):
-        y_position = 180 - (index * 15)
-        stream += b"BT /F1 10 Tf 30 " + str(y_position).encode("ascii") + b" Td ("
-        stream += _pdf_text(line, limit=140)
-        stream += b") Tj ET\n"
-
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 220] "
-        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-        b"<< /Length "
-        + str(len(stream)).encode("ascii")
-        + b" >>\nstream\n"
-        + stream
-        + b"endstream",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    ]
-    rendered = b"%PDF-1.4\n"
-    offsets = [0]
-    for number, body in enumerate(objects, start=1):
-        offsets.append(len(rendered))
-        rendered += str(number).encode("ascii") + b" 0 obj\n" + body + b"\nendobj\n"
-    xref_offset = len(rendered)
-    rendered += b"xref\n0 6\n0000000000 65535 f\n"
-    for offset in offsets[1:]:
-        rendered += f"{offset:010d} 00000 n\n".encode("ascii")
-    rendered += (
-        b"trailer\n<< /Root 1 0 R /Size 6 >>\nstartxref\n"
-        + str(xref_offset).encode("ascii")
-        + b"\n%%EOF"
-    )
+    rendered = _assemble_pdf(_text_lines_stream(lines, top=180), width=420, height=220)
 
     generated = type(
         "GeneratedDocument",
@@ -1700,4 +1942,270 @@ def ensure_official_document_issuance_allowed(*, enrolment, actor=None):
             f"pendientes: {', '.join(blocking_codes)}."
         )
 
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# Individual issuance of constancias and certificados (RF-EMI-001)
+# --------------------------------------------------------------------------- #
+
+#: Document-type code of the institutional catalogue (RNF-MAN-001) whose active
+#: template, when one exists, supplies the body text of each individual type.
+#: ``certificate`` ships with every institution; ``constancia`` is the code the
+#: catalogue migration already preserved for institutions that had one.
+INDIVIDUAL_TEMPLATE_KIND = {
+    DocumentIssuance.DocumentType.ENROLMENT_CERTIFICATE: "constancia",
+    DocumentIssuance.DocumentType.STUDY_CERTIFICATE: "certificate",
+}
+
+_ISSUANCE_LINE_WIDTH = 90
+
+
+def _ensure_individual_issuance_access(*, actor, student):
+    """
+    ``document_issue`` with scope over the student (RF-EMI-001, RF-DOC-004).
+
+    The boleta endpoint only checks the atomic permission; an individual
+    emission names one student, so it is checked against that student's scope
+    like every other student-scoped operation. Denials are audited.
+    """
+    if not actor or not getattr(actor, "is_authenticated", False):
+        raise AuthorizationError("Debe estar autenticado para emitir documentos oficiales.")
+    if actor.is_superuser:
+        return True
+    reason = None
+    if not actor.has_atomic_permission(OFFICIAL_ISSUANCE_PERMISSION):
+        reason = "missing_permission"
+    elif not actor.has_scoped_permission(OFFICIAL_ISSUANCE_PERMISSION, scope={"student": student}):
+        reason = "missing_scope"
+    if reason is None:
+        return True
+    record_event(
+        actor=actor,
+        action="documents.official_issuance.denied",
+        resource="OfficialDocumentIssuance",
+        resource_identifier=str(student.pk),
+        context={"result": "denied", "reason": reason, "student_id": str(student.pk)},
+    )
+    raise AuthorizationError(
+        "El actor no tiene permiso y alcance para emitir documentos de este estudiante."
+    )
+
+
+def _ensure_individual_issuance_allowed(*, enrolment, document_type, actor):
+    """
+    Business preconditions of each type (RF-EMI-004).
+
+    A constancia de inscripcion certifies a CURRENT enrolment, so it requires
+    the full eligibility check (active enrolment, active student, no pending
+    required documents). A certificado de estudios certifies a finished cycle:
+    the cycle must be closed and required documents delivered, but the
+    enrolment no longer has to be active.
+    """
+    if document_type == DocumentIssuance.DocumentType.ENROLMENT_CERTIFICATE:
+        ensure_official_document_issuance_allowed(enrolment=enrolment, actor=actor)
+        return
+    if not enrolment.academic_cycle.is_closed:
+        raise DomainError("El certificado de estudios solo puede emitirse para un ciclo cerrado.")
+    pending = pending_required_document_codes(enrolment=enrolment)
+    if pending:
+        raise DomainError(
+            "La emision del documento oficial esta bloqueada por documentos obligatorios "
+            f"pendientes: {', '.join(pending)}."
+        )
+
+
+def _active_template_version(*, institution, kind_code):
+    """Latest version of the single active template of a kind, or ``None``."""
+    try:
+        template = get_active_document_template(institution=institution, kind=kind_code)
+    except DomainError:
+        return None
+    return template.versions.order_by("-sequence").first()
+
+
+def _issuance_field_values(*, enrolment, issued_at):
+    """Values of the closed field-tag catalogue for one enrolment (RF-PLA-002)."""
+    student = enrolment.student
+    person = student.person
+    cycle = enrolment.academic_cycle
+    institution = cycle.institution
+    return {
+        "student.full_name": f"{person.first_name} {person.last_name}".strip(),
+        "student.code": student.student_code,
+        "institution.name": institution.name,
+        "institution.short_name": institution.short_name or "",
+        "academic.cycle_name": cycle.name,
+        "academic.section_name": enrolment.section.name,
+        "enrolment.effective_on": enrolment.effective_on.isoformat(),
+        "document.issue_date": timezone.localdate(issued_at).isoformat(),
+    }
+
+
+def _default_issuance_body(*, document_type, values, enrolment):
+    grade_name = enrolment.grade.name
+    if document_type == DocumentIssuance.DocumentType.ENROLMENT_CERTIFICATE:
+        return (
+            f"Por este medio se hace constar que {values['student.full_name']}, codigo "
+            f"{values['student.code']}, se encuentra inscrito(a) en {grade_name}, seccion "
+            f"{values['academic.section_name']}, del ciclo {values['academic.cycle_name']}, "
+            f"con inscripcion vigente desde {values['enrolment.effective_on']}."
+        )
+    return (
+        f"Se certifica que {values['student.full_name']}, codigo {values['student.code']}, "
+        f"curso {grade_name} en el ciclo {values['academic.cycle_name']} con los resultados "
+        "siguientes."
+    )
+
+
+def _wrap(text):
+    lines = []
+    for paragraph in str(text).splitlines() or [""]:
+        lines.extend(textwrap.wrap(paragraph, width=_ISSUANCE_LINE_WIDTH) or [""])
+    return lines
+
+
+def issue_individual_document(*, enrolment, document_type, actor, issued_at=None):
+    """
+    Issue one constancia or certificado for a selected student (RF-EMI-001).
+
+    The PDF is compiled in memory with the shared assembler (correct xref,
+    QA4-PDF-01) and returned once; it is never written to storage (RF-DOC-008).
+    The emission itself is registered: an official correlative folio
+    (RF-EMI-003), a public verification code (RF-EMI-009), the template
+    version used, the SHA-256 and size of the delivered bytes, and the audit
+    entries ``documents.document.issued`` and ``documents.individual_issuance.issued``
+    (RF-EMI-007). The returned ``issuance`` lets anyone holding the file prove
+    later that it is the genuine, unaltered emission.
+    """
+    if enrolment is None:
+        raise DomainError("Se requiere una matricula para emitir el documento.")
+    if document_type not in DocumentIssuance.DocumentType.values:
+        allowed = ", ".join(DocumentIssuance.DocumentType.values)
+        raise DomainError(
+            f"Tipo de emision individual no admitido: '{document_type}'. Tipos: {allowed}."
+        )
+    document_type = DocumentIssuance.DocumentType(document_type)
+    enrolment = Enrolment.objects.select_related(
+        "student__person", "academic_cycle__institution", "grade", "section"
+    ).get(pk=enrolment.pk)
+    student = enrolment.student
+
+    # Authorization and preconditions run outside the transaction so their
+    # audit entries survive the rejection.
+    _ensure_individual_issuance_access(actor=actor, student=student)
+    _ensure_individual_issuance_allowed(
+        enrolment=enrolment, document_type=document_type, actor=actor
+    )
+
+    institution = enrolment.academic_cycle.institution
+    issued_at = issued_at or timezone.now()
+    label = document_type.label
+    values = _issuance_field_values(enrolment=enrolment, issued_at=issued_at)
+    template_version = _active_template_version(
+        institution=institution, kind_code=INDIVIDUAL_TEMPLATE_KIND[document_type]
+    )
+    if template_version is not None and template_version.content.strip():
+        body, _markers = _render_template_markers(template_version.content, values)
+    else:
+        body = _default_issuance_body(
+            document_type=document_type, values=values, enrolment=enrolment
+        )
+
+    with transaction.atomic():
+        folio = issue_official_document_folio(
+            institution=institution, document_type=label, issued_at=issued_at
+        )
+        verification_code = _record_document_issue(
+            actor=actor,
+            student=student,
+            document_type=label,
+            issued_at=issued_at.isoformat(),
+            folio=folio,
+        )
+
+        lines = [institution.name, label.upper(), ""]
+        lines.extend(_wrap(body))
+        if document_type == DocumentIssuance.DocumentType.STUDY_CERTIFICATE:
+            results, promoted = _closed_cycle_results(enrolment)
+            lines.append("")
+            if results:
+                for result in results:
+                    lines.append(f"{result['subject'].name}: {_final_grade_label(result)}")
+            else:
+                lines.append("Sin calificaciones registradas.")
+            lines.append(f"Condicion de promocion: {'Promovido' if promoted else 'No promovido'}")
+        lines.extend(
+            [
+                "",
+                f"Emitido: {timezone.localtime(issued_at).isoformat(timespec='seconds')}",
+                f"Folio: {folio}",
+                f"Codigo de verificacion: {verification_code}",
+            ]
+        )
+        height = 60 + 15 * len(lines)
+        content = _assemble_pdf(
+            _text_lines_stream(lines, top=height - 40), width=612, height=height
+        )
+        checksum = hashlib.sha256(content).hexdigest()
+
+        issuance = DocumentIssuance.objects.create(
+            student=student,
+            enrolment=enrolment,
+            document_type=document_type,
+            folio=folio,
+            verification_code=verification_code,
+            template_version=template_version,
+            checksum=checksum,
+            size_bytes=len(content),
+            issued_at=issued_at,
+            issued_by=actor if getattr(actor, "pk", None) else None,
+        )
+        _audit(
+            actor,
+            "documents.individual_issuance.issued",
+            issuance,
+            document_type=str(document_type),
+            student_id=str(student.pk),
+            enrolment_id=str(enrolment.pk),
+            folio=folio,
+            checksum=checksum,
+            size_bytes=len(content),
+            template_version_id=str(template_version.pk) if template_version else "",
+            persisted=False,
+        )
+
+    return type(
+        "IssuedDocument",
+        (),
+        {
+            "content": content,
+            "content_type": "application/pdf",
+            "filename": f"{document_type.value}-{folio}.pdf",
+            "issuance": issuance,
+        },
+    )()
+
+
+def verify_issued_document(*, actor, issuance, payload):
+    """
+    Prove that a file is the exact, unaltered emission (RF-EMI-001).
+
+    Compares the SHA-256 of the bytes against the one registered at issuance.
+    Reading the register requires ``document_read`` over the student, the same
+    guard as any other document of the dossier.
+    """
+    ensure_document_access(actor=actor, student=issuance.student, access_type="verify")
+    if payload is None:
+        raise DomainError("Se requiere el archivo emitido para validar la integridad.")
+    actual = hashlib.sha256(payload).hexdigest()
+    matches = actual == issuance.checksum
+    _audit(
+        actor,
+        "documents.individual_issuance.integrity_verified",
+        issuance,
+        result="success" if matches else "mismatch",
+    )
+    if not matches:
+        raise DomainError("El archivo no coincide con el documento emitido.")
     return True

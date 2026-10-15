@@ -248,4 +248,39 @@ describe("apiClient", () => {
     expect(options.method).toBe("PATCH");
     expect(options.headers.get("X-CSRFToken")).toBe("test-token");
   });
+
+  test("postForFile returns the binary body with its headers (RF-EMI-001)", async () => {
+    const blob = new Blob(["%PDF-1.4"], { type: "application/pdf" });
+    const headers = new Headers({
+      "content-type": "application/pdf",
+      "X-Document-Folio": "DEMO-2026-0001",
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      headers,
+      blob: async () => blob,
+    });
+
+    const result = await apiClient.postForFile("/documents/x/", { a: 1 });
+
+    expect(result.blob).toBe(blob);
+    expect(result.headers.get("X-Document-Folio")).toBe("DEMO-2026-0001");
+    const [, options] = globalThis.fetch.mock.calls[0];
+    expect(options.method).toBe("POST");
+    expect(options.headers.get("Accept")).toContain("application/pdf");
+  });
+
+  test("postForFile still surfaces JSON errors", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ error: { detail: "Ciclo abierto." } }),
+    });
+
+    await expect(apiClient.postForFile("/documents/x/", {})).rejects.toThrow(
+      "Ciclo abierto."
+    );
+  });
 });

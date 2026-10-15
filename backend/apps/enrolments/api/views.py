@@ -28,6 +28,7 @@ from apps.enrolments.api.serializers import (
     StudentTransferOutCreateSerializer,
     StudentWithdrawalCreateSerializer,
 )
+from apps.enrolments.authorization import require_section_scope
 
 _ENROLMENT_WRITE_PERMISSIONS = ("enrollment_create", "enrollment_update")
 
@@ -54,11 +55,13 @@ class EnrolmentCreateView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
+        section = queries.section_or_404(payload["section_id"])
+        require_section_scope(actor=request.user, codenames="enrollment_create", sections=[section])
         enrolment = services.create_enrolment(
             student=queries.student_or_404(payload["student_id"]),
             academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
             grade=queries.grade_or_404(payload["grade_id"]),
-            section=queries.section_or_404(payload["section_id"]),
+            section=section,
             effective_on=payload["effective_on"],
             ends_on=payload.get("ends_on"),
             actor=request.user,
@@ -195,8 +198,17 @@ class StudentMovementAnnulmentCreateView(GenericAPIView):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        movement = queries.student_movement_or_404(movement_id)
+        require_section_scope(
+            actor=request.user,
+            codenames="enrollment_update",
+            sections=[
+                getattr(movement.source_enrolment, "section", None),
+                getattr(movement.target_enrolment, "section", None),
+            ],
+        )
         annulment = services.annul_student_movement(
-            movement=queries.student_movement_or_404(movement_id),
+            movement=movement,
             actor=request.user,
             **serializer.validated_data,
         )
@@ -227,12 +239,14 @@ class MatriculationCreateView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
+        section = queries.section_or_404(payload["section_id"])
+        require_section_scope(actor=request.user, codenames="enrollment_create", sections=[section])
         enrolment = services.matriculate_student(
             student=queries.student_or_404(payload["student_id"]),
             academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
             grade=queries.grade_or_404(payload["grade_id"]),
             shift=queries.shift_or_404(payload["shift_id"]),
-            section=queries.section_or_404(payload["section_id"]),
+            section=section,
             effective_on=payload["effective_on"],
             actor=request.user,
         )
@@ -260,12 +274,14 @@ class ReenrolmentCreateView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
+        section = queries.section_or_404(payload["section_id"])
+        require_section_scope(actor=request.user, codenames="enrollment_create", sections=[section])
         enrolment = services.reenrol_student(
             student=queries.student_or_404(payload["student_id"]),
             academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
             grade=queries.grade_or_404(payload["grade_id"]),
             shift=queries.shift_or_404(payload["shift_id"]),
-            section=queries.section_or_404(payload["section_id"]),
+            section=section,
             effective_on=payload["effective_on"],
             actor=request.user,
         )
@@ -316,9 +332,16 @@ class SectionChangeCreateView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
+        enrolment = queries.enrolment_or_404(enrolment_id)
+        new_section = queries.section_or_404(payload["new_section_id"])
+        require_section_scope(
+            actor=request.user,
+            codenames="enrollment_update",
+            sections=[enrolment.section, new_section],
+        )
         replacement = services.change_section(
-            enrolment=queries.enrolment_or_404(enrolment_id),
-            new_section=queries.section_or_404(payload["new_section_id"]),
+            enrolment=enrolment,
+            new_section=new_section,
             effective_on=payload["effective_on"],
             actor=request.user,
         )
@@ -345,8 +368,12 @@ class StudentWithdrawalCreateView(GenericAPIView):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        enrolment = queries.enrolment_or_404(enrolment_id)
+        require_section_scope(
+            actor=request.user, codenames="enrollment_update", sections=[enrolment.section]
+        )
         movement = services.withdraw_student(
-            enrolment=queries.enrolment_or_404(enrolment_id),
+            enrolment=enrolment,
             actor=request.user,
             **serializer.validated_data,
         )
@@ -426,6 +453,11 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
     def get(self, request, enrolment_id):
         _ensure_enrolment_permission(request)
         enrolment = queries.enrolment_or_404(enrolment_id)
+        require_section_scope(
+            actor=request.user,
+            codenames=_ENROLMENT_WRITE_PERMISSIONS,
+            sections=[enrolment.section],
+        )
         requirements = enrolment.document_requirements.filter(is_active=True)
         page = self.paginate_queryset(requirements)
         return self.get_paginated_response(
@@ -442,6 +474,11 @@ class EnrolmentDocumentRequirementListCreateView(GenericAPIView):
     def post(self, request, enrolment_id):
         _ensure_enrolment_permission(request)
         enrolment = queries.enrolment_or_404(enrolment_id)
+        require_section_scope(
+            actor=request.user,
+            codenames=_ENROLMENT_WRITE_PERMISSIONS,
+            sections=[enrolment.section],
+        )
         serializer = EnrolmentDocumentRequirementCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         requirement = services.set_document_requirement(

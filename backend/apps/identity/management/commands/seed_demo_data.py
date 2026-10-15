@@ -378,6 +378,9 @@ class Command(BaseCommand):
             # Sin el alcance del modulo de estudiantes el administrador no puede
             # dar de alta a nadie, ni ver a quien todavia no tiene matricula.
             ScopeGrant.objects.get_or_create(assignment=assignment, module_key="students")
+            # RF-DOC-001: el expediente del docente no tiene institucion, ciclo ni
+            # seccion propios; el alcance administrativo que lo cubre es el modulo.
+            ScopeGrant.objects.get_or_create(assignment=assignment, module_key="teachers")
             ScopeGrant.objects.get_or_create(assignment=assignment, institution=institution)
             self.stdout.write(self.style.SUCCESS(f"Demo admin ready: {username}"))
         else:

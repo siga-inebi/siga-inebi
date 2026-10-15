@@ -220,12 +220,17 @@ Este dominio gestiona plantillas documentales (RF-PLA), expedientes (RF-DOC), ar
 | `GET` | `/api/v1/documents/records/{public_id}/download/` | Descarga segura mediante token temporal firmado | `document_read` + Token válido |
 | `POST` | `/api/v1/documents/records/{public_id}/verify/` | Verificar integridad física por checksum SHA-256 | `document_read` (Estudiante) |
 | `GET` | `/api/v1/documents/enrolments/{enrolment_id}/records/` | Listar documentos adjuntos a una matrícula | `document_read` (Estudiante) |
+| `POST` | `/api/v1/documents/records/{public_id}/download-tokens/` | Emitir token de descarga de un solo uso (vigencia 5 min), ligado al usuario (RF-DOC-005) | `document_read` (Estudiante o Docente) |
+| `GET` | `/api/v1/documents/teachers/{teacher_id}/records/` | Listar el expediente documental del docente con todas sus versiones (RF-DOC-001) | `document_read` (propio docente o Módulo `teachers`) |
+| `POST` | `/api/v1/documents/teachers/{teacher_id}/records/` | Adjuntar documento al expediente del docente, multipart `file` (RF-DOC-001) | `document_upload` (Módulo `teachers`) |
 | `GET` | `/api/v1/documents/field-tags/` | Catálogo cerrado de marcadores permitidos | `document_read` |
 | `GET` | `/api/v1/documents/types/` | Catálogo de tipos de documento institucionales | Autenticado |
 | `POST` | `/api/v1/documents/types/` | Registrar nuevo tipo en el catálogo (RNF-MAN-001) | `scope.assign` |
 | `GET` | `/api/v1/documents/storage-consumption/` | Resumen de consumo de almacenamiento y advertencia | Autenticado |
 | `GET` | `/api/v1/documents/official-issuance/eligibility/` | Evaluar si matrícula puede emitir documentos | `document_issue` |
 | `GET` | `/api/v1/documents/historical-cycle-reports/` | Generar boleta en memoria de ciclo cerrado | `document_issue` (Estudiante) |
+| `POST` | `/api/v1/documents/official-issuance/individual/` | Emitir constancia (`enrolment_certificate`) o certificado (`study_certificate`) individual; responde el PDF (RF-EMI-001) | `document_issue` (Estudiante) |
+| `POST` | `/api/v1/documents/issuances/{public_id}/verify/` | Verificar que una copia coincide con el SHA-256 de la emisión (RF-EMI-001) | `document_read` (Estudiante) |
 | `POST` | `/api/v1/documents/official-issuance/batches/` | Emisión por lote con idempotencia de reintento | `document_issue` (Grado/Sección) |
 | `POST` | `/api/v1/documents/delivery-receipts/` | Registrar constancia de entrega a encargado | `document_issue` |
 | `GET` | `/api/v1/documents/verify/{code}/` | Verificación pública de autenticidad por código | Público (con Rate Limit) |
@@ -269,6 +274,61 @@ Content-Type: application/json
 El cuerpo del archivo se omite en este ejemplo; por eso se representa como archivo vacío (`size_bytes: 0`) y su checksum corresponde a cero bytes.
 
 *Efecto de auditoría:* Se genera un evento `documents.document.uploaded` registrando actor, identificador de recurso y versión.
+
+#### Expediente documental del docente (RF-DOC-001)
+
+- `DocumentRecord` pertenece a exactamente un expediente: `student_id` o `teacher_id` (restricción
+  `document_record_has_exactly_one_owner`). Las respuestas de registros agregan ambos campos de solo
+  lectura; uno siempre es `null`.
+- `POST /api/v1/documents/teachers/{teacher_id}/records/` recibe `multipart/form-data` con `file` y
+  responde `201` con el mismo esquema de registro. Aplica el mismo catálogo de tipos, el límite de
+  tamaño, el SHA-256 y el almacenamiento fuera de la base de datos que el expediente del estudiante.
+- La sustitución (`POST .../records/{public_id}/versions/`), la verificación de integridad
+  (`POST .../records/{public_id}/verify/`) y la descarga con token funcionan igual para ambos dueños.
+- Lectura: `document_read` y ser el propio docente (cuenta vinculada a la misma persona) o tener un
+  `ScopeGrant` con `module_key="teachers"`. Carga: `document_upload` con ese mismo alcance de módulo;
+  el docente no carga en su propio expediente. Un alcance de estudiantes o de institución no alcanza a
+  los docentes. Denegaciones: `403` auditado (`documents.document.read_denied` o
+  `documents.document.upload_denied`); docente inexistente: `404`.
+
+#### Token de descarga (`POST /api/v1/documents/records/{public_id}/download-tokens/`)
+
+Responde `201` con `{ "token": "...", "expires_at": "...", "download_url": "/api/v1/documents/records/{public_id}/download/?token=..." }`.
+El token es de un solo uso, vence a los 5 minutos y solo lo acepta el usuario que lo pidió. Emitirlo
+aplica el control de acceso del expediente y deja `documents.document.read` con `access_type=download`.
+
+#### Emisión individual de constancia y certificado (RF-EMI-001)
+
+```http
+POST /api/v1/documents/official-issuance/individual/ HTTP/1.1
+Host: api.example.invalid
+Content-Type: application/json
+
+{ "enrolment_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479", "document_type": "enrolment_certificate" }
+```
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="enrolment_certificate-DEMO-2026-0001.pdf"
+X-Document-Issuance-Id: 0b6d1c1e-2f9a-4c4e-9a52-6f1d2b3c4d5e
+X-Document-Folio: DEMO-2026-0001
+X-Document-Checksum: <sha256 hexadecimal del PDF entregado>
+X-Document-Verification-Code: <codigo publico de RF-EMI-009>
+Cache-Control: no-store
+
+[contenido binario omitido en el ejemplo]
+```
+
+- `enrolment_certificate` exige la elegibilidad de RF-EMI-004 (matrícula y estudiante activos, sin
+  requisitos obligatorios pendientes). `study_certificate` exige ciclo cerrado y requisitos entregados
+  e imprime las notas finales congeladas y la condición de promoción, igual que la boleta.
+- El PDF no se almacena (RF-DOC-008); esta respuesta es la única copia. Se registra un
+  `DocumentIssuance` inmutable (folio, código, versión de plantilla, SHA-256, tamaño, actor).
+- Errores: `403` sin `document.issue` (se valida antes de resolver la matrícula) o fuera de alcance;
+  `404` matrícula inexistente; `400` tipo no admitido, ciclo abierto o emisión bloqueada.
+- `POST /api/v1/documents/issuances/{public_id}/verify/` recibe `multipart/form-data` con `file` y
+  responde `204` si el SHA-256 coincide o `400` si la copia fue alterada.
 
 #### Ejemplo sanitizado — Verificación pública (`GET /api/v1/documents/verify/{code}/`):
 
