@@ -92,6 +92,10 @@ LOGIN_LOCKOUT_MINUTES = env_int("LOGIN_LOCKOUT_MINUTES", 10)
 DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES = env_int("DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES", 30)
 ACCOUNT_ACTIVATION_TTL_MINUTES = env_int("ACCOUNT_ACTIVATION_TTL_MINUTES", 15)
 ACCOUNT_ACTIVATION_MAX_ATTEMPTS = env_int("ACCOUNT_ACTIVATION_MAX_ATTEMPTS", 3)
+# RF-AUT-005: tiempo asignado a un turno o lote de captura desde que se abre.
+# Al vencer, el lote se cierra de forma perezosa en la siguiente solicitud que
+# lo use (ADR-0009: sin tareas programadas).
+ATTENDANCE_CAPTURE_TURN_MINUTES = env_int("ATTENDANCE_CAPTURE_TURN_MINUTES", 360)
 DOCUMENT_MAX_UPLOAD_SIZE_BYTES = env_int("DOCUMENT_MAX_UPLOAD_SIZE_BYTES", 10 * 1024 * 1024)
 # RF-ARC-002: las imagenes adjuntas (JPEG/PNG) se normalizan antes de guardarse:
 # lado mayor acotado y recompresion JPEG con calidad configurable.

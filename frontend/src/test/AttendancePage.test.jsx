@@ -198,8 +198,12 @@ describe("AttendancePage — captura por escaneo", () => {
       "outside_operating_window",
       "El escaneo está fuera del horario de recepción de la jornada (antes de la apertura o después del cierre) y no se registró.",
     ],
+    [
+      "capture_batch_expired",
+      "El turno de captura venció y se cerró. Abra un turno nuevo para seguir registrando.",
+    ],
   ])(
-    "explica en español el rechazo %s (RF-JOR-001)",
+    "explica en español el rechazo %s (RF-JOR-001 / RF-AUT-005)",
     async (reasonCode, message) => {
       attendanceServiceMock.recordScan.mockResolvedValue([
         {

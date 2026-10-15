@@ -607,7 +607,8 @@ class ManualRegistrationReasonListView(GenericAPIView):
             "`capture_batch_id` opcional enlaza cada elemento a un lote de "
             "captura recuperable (RF-ASI-009). Un elemento capturado en dia no "
             "lectivo o fuera de la ventana operativa se rechaza con `reason_code` "
-            "(RF-JOR-001)."
+            "(RF-JOR-001); uno enviado a un lote cuyo tiempo asignado vencio cierra "
+            "ese lote y se rechaza con `capture_batch_expired` (RF-AUT-005)."
         ),
         tags=TAGS,
         request=ScanCaptureRequestSerializer,
@@ -752,7 +753,9 @@ class CaptureBatchOpenView(GenericAPIView):
         description=(
             "RF-ASI-009: el lote abierto del operador autenticado, si existe, "
             "con cada movimiento ya guardado y su hora de captura original -- "
-            "recuperable tras perder la sesion, incluso desde otro dispositivo."
+            "recuperable tras perder la sesion, incluso desde otro dispositivo. "
+            "RF-AUT-005: si el tiempo asignado al lote ya vencio, se cierra y se "
+            "audita en esta misma consulta y no se ofrece para recuperacion."
         ),
         tags=TAGS,
         responses={200: CaptureBatchRecoverySerializer},

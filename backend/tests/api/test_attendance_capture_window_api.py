@@ -1,21 +1,24 @@
 """
-HTTP contract of RF-JOR-001 (ventana operativa diaria): a rejected scan
-reports a stable ``reason_code``.
+HTTP contract of RF-JOR-001 (ventana operativa diaria) and RF-AUT-005
+(vencimiento del turno de captura): a rejected scan reports a stable
+``reason_code``, and an expired capture batch is closed on the request that
+finds it expired.
 
 Captures use fixed dates, so nothing here depends on when the suite runs.
 """
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.attendance.models import AttendanceEvent
+from apps.attendance.models import AttendanceEvent, CaptureBatch
 from apps.audit.models import AuditEvent
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, ShiftFactory
 from tests.factories.attendance import (
+    CaptureBatchFactory,
     ControlPointFactory,
     JornadaParametersFactory,
     ManualRegistrationReasonFactory,
@@ -175,3 +178,83 @@ def test_jornada_parameters_publish_the_opening_time(auth_client):
 
     assert response.status_code == 201
     assert response.json()["opening_time"] == "06:15:00"
+
+
+# --------------------------------------------------------------------------- #
+# RF-AUT-005 — vencimiento del turno de captura
+# --------------------------------------------------------------------------- #
+
+
+def test_scan_into_an_expired_capture_batch_is_rejected_and_the_batch_closed(operator_client):
+    """RF-AUT-005: the expired batch is closed and audited on this very request."""
+    parameters = _parameters()
+    batch = CaptureBatchFactory(
+        operator=operator_client.user, expires_at=timezone.now() - timedelta(minutes=1)
+    )
+
+    response = _post_scan(
+        operator_client,
+        parameters,
+        _at(WEDNESDAY, 7, 0),
+        "expired-api-1",
+        capture_batch_id=str(batch.public_id),
+    )
+
+    item = response.json()[0]
+    assert item["outcome"] == "rejected"
+    assert item["reason_code"] == "capture_batch_expired"
+    assert not AttendanceEvent.objects.filter(client_event_id="expired-api-1").exists()
+    batch.refresh_from_db()
+    assert batch.status == CaptureBatch.Status.EXPIRED
+    assert AuditEvent.objects.filter(
+        action="attendance.capture_batch.expired", resource_identifier=str(batch.public_id)
+    ).exists()
+
+
+def test_scan_into_a_current_capture_batch_is_created(operator_client):
+    """RF-AUT-005: a batch still within its assigned time accepts the scan."""
+    parameters = _parameters()
+    opened = operator_client.post(reverse("attendance-capture-batch-open")).json()
+    assert opened["expires_at"] is not None
+
+    response = _post_scan(
+        operator_client,
+        parameters,
+        _at(WEDNESDAY, 7, 0),
+        "current-api-1",
+        capture_batch_id=opened["public_id"],
+    )
+
+    item = response.json()[0]
+    assert item["outcome"] == "created"
+    assert CaptureBatch.objects.get(public_id=opened["public_id"]).events.count() == 1
+
+
+def test_current_capture_batch_endpoint_closes_an_expired_batch(operator_client):
+    """RF-AUT-005: recovery evaluates the expiry lazily and offers nothing back."""
+    batch = CaptureBatchFactory(
+        operator=operator_client.user, expires_at=timezone.now() - timedelta(minutes=1)
+    )
+
+    response = operator_client.get(reverse("attendance-capture-batch-current"))
+
+    assert response.status_code == 200
+    assert response.json()["capture_batch"] is None
+    batch.refresh_from_db()
+    assert batch.status == CaptureBatch.Status.EXPIRED
+    assert AuditEvent.objects.filter(action="attendance.capture_batch.expired").count() == 1
+
+
+def test_confirming_an_expired_capture_batch_is_a_bad_request(operator_client):
+    """RF-AUT-005: an expired batch can no longer be confirmed; its expiry stays."""
+    batch = CaptureBatchFactory(
+        operator=operator_client.user, expires_at=timezone.now() - timedelta(minutes=1)
+    )
+
+    response = operator_client.post(
+        reverse("attendance-capture-batch-confirm", args=[batch.public_id])
+    )
+
+    assert response.status_code == 400
+    batch.refresh_from_db()
+    assert batch.status == CaptureBatch.Status.EXPIRED

@@ -377,15 +377,18 @@ class RejectedScanItem:
     outcome: str = "rejected"
     reason: str = ""
     # Stable machine-readable cause for the rejections a client must tell
-    # apart (RF-JOR-001 window); blank otherwise.
+    # apart (RF-JOR-001 window, RF-AUT-005 expired turn); blank otherwise.
     reason_code: str = ""
 
+
+CAPTURE_BATCH_EXPIRED = "capture_batch_expired"
 
 # Named after RF-ASI-004's ``attendance.event.rejected_duplicate``: one audit
 # action per rejection family, the precise cause in ``context.reason_code``.
 _SCAN_REJECTION_ACTIONS = {
     OperatingWindowError.NON_SCHOOL_DAY: "attendance.event.rejected_outside_window",
     OperatingWindowError.OUTSIDE_OPERATING_WINDOW: "attendance.event.rejected_outside_window",
+    CAPTURE_BATCH_EXPIRED: "attendance.event.rejected_capture_batch_expired",
 }
 
 
@@ -457,11 +460,14 @@ def record_scan_movement(
     - RF-ASI-009: ``capture_batch``, when given, must be this same
       operator's own open batch -- checked here too, not only by the view,
       same defense-in-depth reason as the operator guard above.
+    - RF-AUT-005: a ``capture_batch`` whose assigned time has elapsed is
+      closed right here, lazily (ADR-0009), and the scan is rejected with
+      ``reason_code="capture_batch_expired"``.
     - RF-JOR-001: ``captured_at`` must fall on a school day and inside the
       jornada's operating window; otherwise the scan is rejected with the
       ``OperatingWindowError`` code and no event is created.
 
-    The rejection is audited and returned as ``RejectedScanItem``.
+    Both rejections are audited and returned as ``RejectedScanItem``.
     """
     if operator is None:
         raise DomainError("Un movimiento por escaneo debe registrarlo un operador autenticado.")
@@ -473,6 +479,16 @@ def record_scan_movement(
     if capture_batch is not None:
         if capture_batch.operator_id != operator.pk:
             raise DomainError("El lote de captura no pertenece a este operador.")
+        if expire_capture_batch_if_due(capture_batch=capture_batch, actor=actor or operator):
+            return _reject_scan(
+                reason_code=CAPTURE_BATCH_EXPIRED,
+                reason="El turno de captura vencio: abra uno nuevo para seguir registrando.",
+                operator=operator,
+                student=student,
+                shift=shift,
+                client_event_id=client_event_id,
+                context={"capture_batch_id": str(capture_batch.public_id)},
+            )
         if capture_batch.status != CaptureBatch.Status.OPEN:
             raise DomainError(f"El lote '{capture_batch}' ya no esta abierto.")
 
@@ -645,22 +661,104 @@ def open_capture_batch(*, operator, session_key=""):
     if existing is not None:
         return existing
     return CaptureBatch.objects.create(
-        operator=operator, status=CaptureBatch.Status.OPEN, session_key=session_key
+        operator=operator,
+        status=CaptureBatch.Status.OPEN,
+        session_key=session_key,
+        expires_at=timezone.now() + _capture_turn_duration(),
     )
 
 
 def recover_open_capture_batch(*, operator):
-    """RF-ASI-009: the operator's pending batch, if any, ready to resume."""
-    return CaptureBatch.objects.filter(operator=operator, status=CaptureBatch.Status.OPEN).first()
+    """
+    RF-ASI-009: the operator's pending batch, if any, ready to resume.
+
+    RF-AUT-005: a pending batch whose assigned time already elapsed is
+    closed on this read instead of being offered back, so an expired turn is
+    never resumed (and ``open_capture_batch`` then starts a fresh one).
+    """
+    capture_batch = CaptureBatch.objects.filter(
+        operator=operator, status=CaptureBatch.Status.OPEN
+    ).first()
+    if capture_batch is not None and expire_capture_batch_if_due(
+        capture_batch=capture_batch, actor=operator
+    ):
+        return None
+    return capture_batch
+
+
+def _capture_turn_duration():
+    return timedelta(minutes=settings.ATTENDANCE_CAPTURE_TURN_MINUTES)
+
+
+def capture_batch_expires_at(capture_batch):
+    """RF-AUT-005: when the time assigned to ``capture_batch`` runs out."""
+    if capture_batch.expires_at is not None:
+        return capture_batch.expires_at
+    return capture_batch.created_at + _capture_turn_duration()
 
 
 @transaction.atomic
+def expire_capture_batch_if_due(*, capture_batch, actor=None, now=None):
+    """
+    RF-AUT-005: invalidate a capture turn once its assigned time elapses.
+
+    There is no scheduled job behind this (ADR-0009): every request that
+    touches a batch -- a scan sent into it, recovering it, confirming it --
+    calls this first. An open batch past ``capture_batch_expires_at`` is
+    closed as ``EXPIRED`` and audited, the same way the manual close is.
+    Returns ``True`` when the batch is (now) expired, ``False`` otherwise.
+    """
+    if capture_batch.status == CaptureBatch.Status.EXPIRED:
+        return True
+    if capture_batch.status != CaptureBatch.Status.OPEN:
+        return False
+    now = now or timezone.now()
+    expires_at = capture_batch_expires_at(capture_batch)
+    if now < expires_at:
+        return False
+
+    # Two requests can find the same batch due at once: the row lock makes
+    # exactly one of them close and audit it.
+    locked = CaptureBatch.objects.select_for_update().get(pk=capture_batch.pk)
+    if locked.status != CaptureBatch.Status.OPEN:
+        capture_batch.status = locked.status
+        capture_batch.closed_at = locked.closed_at
+        return locked.status == CaptureBatch.Status.EXPIRED
+
+    capture_batch.status = CaptureBatch.Status.EXPIRED
+    capture_batch.closed_at = now
+    capture_batch.save(update_fields=["status", "closed_at", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.capture_batch.expired",
+        resource="CaptureBatch",
+        resource_identifier=str(capture_batch.public_id),
+        context={
+            "expires_at": expires_at.isoformat(),
+            "item_count": capture_batch.events.count(),
+            "result": "success",
+        },
+    )
+    return True
+
+
 def confirm_capture_batch(*, capture_batch, actor):
     """
     RF-ASI-009: close the batch in a single operation. Every movement in it
     is already a saved, immutable ``AttendanceEvent`` (RF-ASI-002) -- this
     only stops the batch from being offered back for recovery.
+
+    RF-AUT-005: a batch whose assigned time already elapsed is closed as
+    expired (and audited) before this rejects the confirmation; that
+    closure is committed on its own, so the rejection never undoes it.
     """
+    if expire_capture_batch_if_due(capture_batch=capture_batch, actor=actor):
+        raise DomainError("El turno de captura vencio y ya fue cerrado: no se puede confirmar.")
+    return _confirm_open_capture_batch(capture_batch=capture_batch, actor=actor)
+
+
+@transaction.atomic
+def _confirm_open_capture_batch(*, capture_batch, actor):
     if capture_batch.status != CaptureBatch.Status.OPEN:
         raise DomainError(f"El lote '{capture_batch}' ya no esta abierto.")
 

@@ -377,11 +377,11 @@ class ScanCaptureItemResultSerializer(serializers.Serializer):
     confirmation = ScanConfirmationSerializer(allow_null=True)
     reason = serializers.CharField(allow_blank=True)
     reason_code = serializers.ChoiceField(
-        choices=["", "non_school_day", "outside_operating_window"],
+        choices=["", "non_school_day", "outside_operating_window", "capture_batch_expired"],
         allow_blank=True,
         help_text=(
             "Causa estable de un rechazo: dia no lectivo o fuera de la ventana "
-            "operativa (RF-JOR-001). "
+            "operativa (RF-JOR-001), turno de captura vencido (RF-AUT-005). "
             "Vacio para los demas resultados."
         ),
     )
@@ -390,7 +390,7 @@ class ScanCaptureItemResultSerializer(serializers.Serializer):
 class CaptureBatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaptureBatch
-        fields = ["public_id", "status", "confirmed_at", "created_at"]
+        fields = ["public_id", "status", "confirmed_at", "expires_at", "created_at"]
 
 
 class CaptureBatchRecoverySerializer(serializers.Serializer):

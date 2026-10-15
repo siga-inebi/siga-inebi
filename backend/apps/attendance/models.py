@@ -112,6 +112,7 @@ class CaptureBatch(TimeStampedModel):
     class Status(models.TextChoices):
         OPEN = "open", "Abierto"
         CONFIRMED = "confirmed", "Confirmado"
+        EXPIRED = "expired", "Vencido"
 
     operator = models.ForeignKey(
         "identity.UserAccount", on_delete=models.PROTECT, related_name="capture_batches"
@@ -120,6 +121,10 @@ class CaptureBatch(TimeStampedModel):
     confirmed_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     session_key = models.CharField(max_length=64, blank=True, default="")
+    # RF-AUT-005: the time assigned to this capture turn, fixed when it is
+    # opened. Rows opened before the field existed have no value and fall
+    # back to ``created_at`` plus the configured duration.
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

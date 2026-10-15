@@ -1,17 +1,18 @@
 """
-RF-JOR-001 (ventana operativa diaria) at the service boundary.
+RF-JOR-001 (ventana operativa diaria) and RF-AUT-005 (vencimiento del turno de
+captura) at the service boundary.
 
 Every capture here uses fixed dates and explicit ``captured_at`` values, so
 the outcome never depends on the weekday or hour the suite runs at.
 """
 
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceEvent
+from apps.attendance.models import AttendanceEvent, CaptureBatch
 from apps.audit.models import AuditEvent
 from apps.common.exceptions import DomainError
 from tests.factories.academic import AcademicCycleFactory, ShiftFactory
@@ -218,3 +219,121 @@ def test_jornada_parameters_reject_an_opening_time_not_before_closing():
             school_days=[1, 2, 3, 4, 5],
             effective_from=date(2026, 3, 2),
         )
+
+
+# --------------------------------------------------------------------------- #
+# RF-AUT-005 — vencimiento del turno de captura
+# --------------------------------------------------------------------------- #
+
+
+def test_scan_into_an_expired_capture_batch_is_rejected_and_the_batch_closed_and_audited():
+    """
+    RF-AUT-005: a scan sent after the batch's assigned time closes the batch
+    (lazily, ADR-0009), audits the closure and is itself rejected.
+    """
+    parameters = _parameters()
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator, expires_at=timezone.now() - timedelta(minutes=1))
+
+    result = _scan(
+        parameters,
+        _at(WEDNESDAY, 7, 0),
+        client_event_id="expired-1",
+        operator=operator,
+        capture_batch=batch,
+    )
+
+    assert result.outcome == "rejected"
+    assert result.reason_code == "capture_batch_expired"
+    assert not AttendanceEvent.objects.filter(client_event_id="expired-1").exists()
+    batch.refresh_from_db()
+    assert batch.status == CaptureBatch.Status.EXPIRED
+    assert batch.closed_at is not None
+    assert (
+        AuditEvent.objects.filter(
+            action="attendance.capture_batch.expired", resource_identifier=str(batch.public_id)
+        ).count()
+        == 1
+    )
+    assert AuditEvent.objects.filter(
+        action="attendance.event.rejected_capture_batch_expired",
+        context__reason_code="capture_batch_expired",
+    ).exists()
+
+
+def test_scan_into_a_capture_batch_within_its_assigned_time_is_recorded():
+    """RF-AUT-005: a batch whose assigned time has not elapsed keeps accepting scans."""
+    parameters = _parameters()
+    operator = UserFactory()
+    batch = CaptureBatchFactory(
+        operator=operator, expires_at=timezone.now() + timedelta(minutes=30)
+    )
+
+    result = _scan(
+        parameters,
+        _at(WEDNESDAY, 7, 0),
+        client_event_id="current-1",
+        operator=operator,
+        capture_batch=batch,
+    )
+
+    assert result.outcome == "created"
+    assert result.event.capture_batch_id == batch.pk
+    batch.refresh_from_db()
+    assert batch.status == CaptureBatch.Status.OPEN
+
+
+def test_open_capture_batch_assigns_the_configured_duration(settings):
+    """RF-AUT-005: the assigned time is fixed when the turn opens."""
+    settings.ATTENDANCE_CAPTURE_TURN_MINUTES = 45
+    before = timezone.now()
+
+    batch = services.open_capture_batch(operator=UserFactory())
+
+    assert before + timedelta(minutes=45) <= batch.expires_at
+    assert batch.expires_at <= timezone.now() + timedelta(minutes=45)
+
+
+def test_recovering_an_expired_batch_closes_it_and_a_new_open_starts_a_fresh_one():
+    """
+    RF-AUT-005: recovery (``capture-batches/current``) never resumes an
+    expired turn; it closes it on that read, and the next open starts anew.
+    """
+    operator = UserFactory()
+    expired = CaptureBatchFactory(
+        operator=operator, expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    assert services.recover_open_capture_batch(operator=operator) is None
+    expired.refresh_from_db()
+    assert expired.status == CaptureBatch.Status.EXPIRED
+
+    fresh = services.open_capture_batch(operator=operator)
+    assert fresh.pk != expired.pk
+    assert fresh.status == CaptureBatch.Status.OPEN
+
+
+def test_a_batch_without_assigned_time_falls_back_to_created_at_plus_duration(settings):
+    """RF-AUT-005: batches opened before ``expires_at`` existed still expire."""
+    settings.ATTENDANCE_CAPTURE_TURN_MINUTES = 60
+    batch = CaptureBatchFactory(expires_at=None)
+
+    assert services.capture_batch_expires_at(batch) == batch.created_at + timedelta(minutes=60)
+    assert not services.expire_capture_batch_if_due(capture_batch=batch)
+    assert services.expire_capture_batch_if_due(
+        capture_batch=batch, now=batch.created_at + timedelta(minutes=60)
+    )
+
+
+def test_confirming_an_expired_batch_is_rejected_but_its_expiry_is_kept():
+    """RF-AUT-005: the expiry closure survives the rejected confirmation."""
+    operator = UserFactory()
+    batch = CaptureBatchFactory(operator=operator, expires_at=timezone.now() - timedelta(minutes=5))
+
+    with pytest.raises(DomainError, match="turno de captura vencio"):
+        services.confirm_capture_batch(capture_batch=batch, actor=operator)
+
+    batch.refresh_from_db()
+    assert batch.status == CaptureBatch.Status.EXPIRED
+    assert batch.confirmed_at is None
+    assert AuditEvent.objects.filter(action="attendance.capture_batch.expired").count() == 1

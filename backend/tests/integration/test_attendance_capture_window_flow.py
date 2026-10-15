@@ -1,16 +1,18 @@
 """
-RF-JOR-001 end to end, against Postgres, with a real enrolment: an
-operator's capture turn receives scans only inside the jornada's operating
-window.
+RF-JOR-001 and RF-AUT-005 end to end, against Postgres, with a real
+enrolment: an operator's capture turn receives scans only inside the
+jornada's operating window, and stops receiving them once its assigned time
+elapses -- evaluated lazily on the next request (ADR-0009), never by a job.
 """
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from django.utils import timezone
 
 from apps.attendance import services
-from apps.attendance.models import AttendanceEvent, DayStatus
+from apps.attendance.models import AttendanceEvent, CaptureBatch, DayStatus
+from apps.audit.models import AuditEvent
 from apps.enrolments.services import create_enrolment
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.attendance import ControlPointFactory
@@ -101,3 +103,50 @@ def test_capture_turn_receives_only_in_window_scans(enrolled_jornada):
     assert not AttendanceEvent.objects.filter(
         client_event_id__in=["turn-sunday", "turn-late-exit"]
     ).exists()
+
+
+def test_capture_turn_stops_receiving_scans_once_its_assigned_time_elapses(enrolled_jornada):
+    """
+    RF-AUT-005: once the turn's assigned time elapses, the next scan closes
+    and audits the turn and is rejected; recovery no longer offers it, and
+    the movement captured before the expiry keeps its capture time.
+    """
+    operator = UserFactory()
+    batch = services.open_capture_batch(operator=operator)
+    entry_at = _at(WEDNESDAY, 7, 5)
+    entry = _scan(
+        enrolled_jornada,
+        operator,
+        batch,
+        entry_at,
+        "expiry-entry",
+        AttendanceEvent.MovementType.ENTRY,
+    )
+    assert entry.outcome == "created"
+
+    # The assigned time runs out; no job notices -- the next request does.
+    CaptureBatch.objects.filter(pk=batch.pk).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+    batch.refresh_from_db()
+
+    rejected = _scan(
+        enrolled_jornada,
+        operator,
+        batch,
+        _at(WEDNESDAY, 11, 0),
+        "expiry-exit",
+        AttendanceEvent.MovementType.EXIT,
+    )
+
+    assert rejected.reason_code == "capture_batch_expired"
+    batch.refresh_from_db()
+    assert batch.status == CaptureBatch.Status.EXPIRED
+    assert AuditEvent.objects.filter(
+        action="attendance.capture_batch.expired", resource_identifier=str(batch.public_id)
+    ).exists()
+    assert services.recover_open_capture_batch(operator=operator) is None
+    kept = AttendanceEvent.objects.get(client_event_id="expiry-entry")
+    assert kept.capture_batch_id == batch.pk
+    assert kept.captured_at == entry_at
+    assert not AttendanceEvent.objects.filter(client_event_id="expiry-exit").exists()
