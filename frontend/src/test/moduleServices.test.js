@@ -194,6 +194,29 @@ describe("servicios de los modulos", () => {
       );
     });
 
+    test("emision individual, expediente docente y token de descarga (RF-EMI-001, RF-DOC-001)", async () => {
+      vi.spyOn(apiClient, "postForFile").mockResolvedValue({});
+
+      await documentsService.issueIndividualDocument(
+        ENROLMENT,
+        "enrolment_certificate"
+      );
+      expect(apiClient.postForFile).toHaveBeenCalledWith(
+        "/documents/official-issuance/individual/",
+        { enrolment_id: ENROLMENT, document_type: "enrolment_certificate" }
+      );
+
+      await documentsService.listTeacherRecords(PERSON, { page: 2 });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/documents/teachers/${PERSON}/records/?page=2`
+      );
+
+      await documentsService.issueDownloadToken(TEMPLATE);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/documents/records/${TEMPLATE}/download-tokens/`
+      );
+    });
+
     test("vista previa y adjuntos usan rutas separadas sin emitir documentos", async () => {
       const payload = { "student.full_name": "Estudiante de ejemplo" };
       const upload = new FormData();

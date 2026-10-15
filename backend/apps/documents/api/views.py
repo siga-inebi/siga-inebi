@@ -13,6 +13,7 @@ rather than duplicated.
 
 from django.core.files.storage import default_storage
 from django.http import HttpResponse
+from django.urls import reverse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -40,6 +41,7 @@ from .serializers import (
     DocumentBatchCompileSerializer,
     DocumentDeliveryReceiptCreateSerializer,
     DocumentDeliveryReceiptSerializer,
+    DocumentDownloadTokenSerializer,
     DocumentKindCreateSerializer,
     DocumentKindSerializer,
     DocumentKindUpdateSerializer,
@@ -55,9 +57,12 @@ from .serializers import (
     DocumentVerificationResponseSerializer,
     FieldTagSerializer,
     HistoricalCycleReportQuerySerializer,
+    IndividualIssuanceSerializer,
+    IssuedDocumentVerifySerializer,
     OfficialDocumentEligibilityQuerySerializer,
     OfficialDocumentEligibilityResponseSerializer,
     StorageConsumptionSerializer,
+    TeacherDocumentUploadSerializer,
 )
 
 CATALOGUE = ["documents: catalogue"]
@@ -398,6 +403,85 @@ class DocumentBatchCompileView(GenericAPIView):
         return Response({"count": result["count"], "replayed": result.get("replayed", False)})
 
 
+class IndividualDocumentIssuanceView(GenericAPIView):
+    """RF-EMI-001: individual emission of a constancia or certificado."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = IndividualIssuanceSerializer
+
+    @extend_schema(
+        summary="Emitir constancia o certificado individual",
+        description=(
+            "Compila en memoria la constancia de inscripcion o el certificado de estudios "
+            "de un estudiante (RF-EMI-001) y la devuelve como PDF adjunto. El archivo no se "
+            "almacena (RF-DOC-008); se registra la emision con folio correlativo, codigo de "
+            "verificacion publico, version de plantilla, SHA-256 y tamano. Los cabezales "
+            "`X-Document-Issuance-Id`, `X-Document-Folio`, `X-Document-Checksum` y "
+            "`X-Document-Verification-Code` acompanan al archivo. Requiere `document.issue` "
+            "con alcance sobre el estudiante."
+        ),
+        request=IndividualIssuanceSerializer,
+        responses={201: OpenApiTypes.BINARY},
+        tags=OFFICIAL_ISSUANCE,
+    )
+    def post(self, request):
+        # Atomic permission first: without it the caller must not be able to
+        # tell an existing enrolment (403 later) from a missing one (404).
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        enrolment = queries.enrolment_or_404(serializer.validated_data["enrolment_id"])
+        issued = services.issue_individual_document(
+            enrolment=enrolment,
+            document_type=serializer.validated_data["document_type"],
+            actor=request.user,
+        )
+        issuance = issued.issuance
+        response = HttpResponse(
+            issued.content, content_type=issued.content_type, status=status.HTTP_201_CREATED
+        )
+        response["Content-Disposition"] = f'attachment; filename="{issued.filename}"'
+        response["X-Document-Issuance-Id"] = str(issuance.public_id)
+        response["X-Document-Folio"] = issuance.folio
+        response["X-Document-Checksum"] = issuance.checksum
+        response["X-Document-Verification-Code"] = issuance.verification_code
+        response["Access-Control-Expose-Headers"] = (
+            "Content-Disposition, X-Document-Issuance-Id, X-Document-Folio, "
+            "X-Document-Checksum, X-Document-Verification-Code"
+        )
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class IssuedDocumentIntegrityVerifyView(GenericAPIView):
+    """RF-EMI-001: prove that a file is the exact emission that was registered."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = IssuedDocumentVerifySerializer
+
+    @extend_schema(
+        summary="Verificar integridad de un documento emitido",
+        description=(
+            "Compara el SHA-256 del archivo recibido con el registrado al emitirlo. "
+            "204 si coincide; 400 si fue alterado. Requiere `document.read` con alcance "
+            "sobre el estudiante."
+        ),
+        request=IssuedDocumentVerifySerializer,
+        responses={204: None},
+        tags=OFFICIAL_ISSUANCE,
+    )
+    def post(self, request, public_id):
+        issuance = queries.document_issuance_or_404(public_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        services.verify_issued_document(
+            actor=request.user,
+            issuance=issuance,
+            payload=serializer.validated_data["file"].read(),
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class DocumentDeliveryReceiptCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DocumentDeliveryReceiptCreateSerializer
@@ -577,6 +661,84 @@ class DocumentRecordVersionCreateView(GenericAPIView):
             upload=serializer.validated_data["file"],
         )
         return Response(DocumentRecordSerializer(replacement).data, status=status.HTTP_201_CREATED)
+
+
+class TeacherDocumentRecordListCreateView(GenericAPIView):
+    """RF-DOC-001: documents of a teacher's institutional dossier."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TeacherDocumentUploadSerializer
+
+    @extend_schema(
+        summary="Listar documentos del expediente del docente",
+        description=(
+            "Todas las versiones de los documentos del docente, agrupadas por "
+            "`version_group_id`. Requiere `document.read` y ser el propio docente o "
+            "tener alcance sobre el modulo `teachers`. Cada consulta queda auditada."
+        ),
+        responses={200: DocumentRecordSerializer(many=True)},
+        tags=["documents: records"],
+    )
+    def get(self, request, teacher_id):
+        teacher = queries.teacher_or_404(teacher_id)
+        services.ensure_teacher_document_access(actor=request.user, teacher=teacher)
+        page = self.paginate_queryset(queries.document_records_for_teacher(teacher))
+        return self.get_paginated_response(DocumentRecordSerializer(page, many=True).data)
+
+    @extend_schema(
+        summary="Adjuntar documento al expediente del docente",
+        description=(
+            "Valida tipo y tamano, guarda el archivo fuera de la base de datos con su "
+            "SHA-256 y lo vincula al docente. Requiere `document.upload` con alcance sobre "
+            "el modulo `teachers`; el propio docente no carga en su expediente."
+        ),
+        request=TeacherDocumentUploadSerializer,
+        responses={201: DocumentRecordSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request, teacher_id):
+        teacher = queries.teacher_or_404(teacher_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        record = services.upload_teacher_document_record(
+            actor=request.user,
+            teacher=teacher,
+            upload=serializer.validated_data["file"],
+        )
+        return Response(DocumentRecordSerializer(record).data, status=status.HTTP_201_CREATED)
+
+
+class DocumentRecordDownloadTokenView(GenericAPIView):
+    """RF-DOC-005: issue the short-lived token the download endpoint requires."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentDownloadTokenSerializer
+
+    @extend_schema(
+        summary="Emitir token de descarga de un documento",
+        description=(
+            "Emite un token de un solo uso, ligado al usuario y con vigencia breve, para "
+            "descargar el documento. Aplica el mismo control de acceso y auditoria que la "
+            "lectura del expediente (estudiante o docente)."
+        ),
+        request=None,
+        responses={201: DocumentDownloadTokenSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request, public_id):
+        record = queries.document_record_or_404(public_id)
+        token = services.issue_document_download_token(actor=request.user, document=record)
+        download_url = (
+            reverse("document-record-download", args=[record.public_id]) + f"?token={token.token}"
+        )
+        payload = {
+            "token": token.token,
+            "expires_at": token.expires_at,
+            "download_url": download_url,
+        }
+        return Response(
+            DocumentDownloadTokenSerializer(payload).data, status=status.HTTP_201_CREATED
+        )
 
 
 class DocumentRecordIntegrityVerifyView(GenericAPIView):

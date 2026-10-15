@@ -11,6 +11,7 @@ import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
 import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
 import { teachersService } from "@teachers/teachersService.js";
+import { TeacherDocumentsWindow } from "@teachers/TeacherDocumentsWindow.jsx";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { useLocalList } from "@shared/crud/useLocalList.js";
@@ -139,6 +140,7 @@ export function DocentesPage() {
   // AlumnosPage. El codigo sugerido se pide al abrir.
   const [creating, setCreating] = useState(null);
   const [viewingPhoto, setViewingPhoto] = useState(null);
+  const [documentsFor, setDocumentsFor] = useState(null);
 
   const handleExport = () => {
     downloadCsv(
@@ -317,9 +319,14 @@ export function DocentesPage() {
       <DetailWindow
         actions={
           selected ? (
-            <Button onClick={() => setEditing(selected)} variant="contained">
-              Editar
-            </Button>
+            <>
+              <Button onClick={() => setDocumentsFor(selected)} variant="text">
+                Documentos
+              </Button>
+              <Button onClick={() => setEditing(selected)} variant="contained">
+                Editar
+              </Button>
+            </>
           ) : null
         }
         fields={
@@ -380,6 +387,15 @@ export function DocentesPage() {
         open={Boolean(selected)}
         title={selected ? fullName(selected) : ""}
       />
+
+      {documentsFor ? (
+        <TeacherDocumentsWindow
+          key={documentsFor.public_id}
+          onClose={() => setDocumentsFor(null)}
+          teacher={documentsFor}
+          teacherName={fullName(documentsFor)}
+        />
+      ) : null}
 
       <ImageDialog
         alt={selected ? fullName(selected) : ""}

@@ -248,6 +248,23 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - Requiere sesión autenticada y el permiso atómico `document.issue`, validado antes de
   resolver la matrícula; los intentos permitidos, bloqueados y denegados generan auditoría.
 
+## Emisión individual de constancia y certificado (RF-EMI-001)
+
+- `POST /api/v1/documents/official-issuance/individual/` recibe `enrolment_id` y `document_type`
+  (`enrolment_certificate` o `study_certificate`) y responde `201` con el PDF adjunto. Folio,
+  SHA-256, código de verificación e id de emisión viajan en cabezales `X-Document-*`.
+- El PDF no se almacena (RF-DOC-008); se registra un `DocumentIssuance` inmutable. Requiere
+  `document.issue`, validado antes de resolver la matrícula, y alcance sobre el estudiante.
+- `POST /api/v1/documents/issuances/{public_id}/verify/` compara el SHA-256 de una copia (`204`/`400`).
+
+## Expediente documental del docente (RF-DOC-001)
+
+- `GET` y `POST /api/v1/documents/teachers/{teacher_id}/records/` listan y cargan documentos del
+  docente. Lectura: `document.read` y ser el propio docente o tener alcance `module_key=teachers`;
+  carga: `document.upload` con alcance `module_key=teachers`.
+- Las respuestas de registros documentales agregan `student_id` y `teacher_id` (uno siempre nulo).
+- `POST /api/v1/documents/records/{public_id}/download-tokens/` emite el token breve de descarga.
+
 ## Historial de inscripciones
 
 - `GET /api/v1/enrolments/history/?student_id={public_id}` devuelve todas las inscripciones

@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     DocumentBatchCompileView,
     DocumentDeliveryReceiptCreateView,
+    DocumentRecordDownloadTokenView,
     DocumentRecordDownloadView,
     DocumentRecordIntegrityVerifyView,
     DocumentRecordUploadView,
@@ -17,9 +18,12 @@ from .views import (
     EnrolmentDocumentRecordListView,
     FieldTagListView,
     HistoricalCycleReportView,
+    IndividualDocumentIssuanceView,
+    IssuedDocumentIntegrityVerifyView,
     OfficialDocumentEligibilityView,
     ScannedDocumentUploadView,
     StorageConsumptionView,
+    TeacherDocumentRecordListCreateView,
 )
 
 urlpatterns = [
@@ -68,6 +72,16 @@ urlpatterns = [
         EnrolmentDocumentRecordListView.as_view(),
         name="enrolment-document-record-list",
     ),
+    path(
+        "records/<uuid:public_id>/download-tokens/",
+        DocumentRecordDownloadTokenView.as_view(),
+        name="document-record-download-token",
+    ),
+    path(
+        "teachers/<uuid:teacher_id>/records/",
+        TeacherDocumentRecordListCreateView.as_view(),
+        name="teacher-document-record-list-create",
+    ),
     path("field-tags/", FieldTagListView.as_view(), name="document-field-tag-list"),
     path("types/", DocumentTypeListCreateView.as_view(), name="document-type-list-create"),
     path(
@@ -94,6 +108,16 @@ urlpatterns = [
         "official-issuance/batches/",
         DocumentBatchCompileView.as_view(),
         name="document-batch-compile",
+    ),
+    path(
+        "official-issuance/individual/",
+        IndividualDocumentIssuanceView.as_view(),
+        name="document-individual-issuance",
+    ),
+    path(
+        "issuances/<uuid:public_id>/verify/",
+        IssuedDocumentIntegrityVerifyView.as_view(),
+        name="document-issuance-integrity-verify",
     ),
     path(
         "verify/<str:code>/",

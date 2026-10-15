@@ -21,7 +21,12 @@ function getErrorMessage(detail) {
   return "Solicitud no completada.";
 }
 
-async function parseResponse(response) {
+async function parseResponse(response, { asFile = false } = {}) {
+  if (asFile && response.ok) {
+    // Archivos generados (PDF): el cuerpo es binario y los metadatos de la
+    // emision viajan en los cabezales, asi que se devuelven ambos.
+    return { blob: await response.blob(), headers: response.headers };
+  }
   const contentType = response.headers.get("content-type") || "";
   const isJson = contentType.includes("application/json");
   const data = isJson ? await response.json() : null;
@@ -54,9 +59,12 @@ function getCookie(name) {
   return value ? decodeURIComponent(value) : "";
 }
 
-async function request(path, options = {}) {
+async function request(path, { asFile = false, ...options } = {}) {
   const headers = new Headers(options.headers || {});
-  headers.set("Accept", "application/json");
+  headers.set(
+    "Accept",
+    asFile ? "application/pdf, application/json" : "application/json"
+  );
 
   const isFormData = options.body instanceof FormData;
   if (options.body && !isFormData && !headers.has("Content-Type")) {
@@ -94,7 +102,7 @@ async function request(path, options = {}) {
     throw error;
   }
 
-  return parseResponse(response);
+  return parseResponse(response, { asFile });
 }
 
 export const apiClient = {
@@ -102,4 +110,7 @@ export const apiClient = {
   post: (path, body) => request(path, { method: "POST", body }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   del: (path) => request(path, { method: "DELETE" }),
+  /** POST que responde un archivo: devuelve `{ blob, headers }`. */
+  postForFile: (path, body) =>
+    request(path, { method: "POST", body, asFile: true }),
 };
