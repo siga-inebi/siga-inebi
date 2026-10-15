@@ -48,7 +48,7 @@ from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
 from apps.common.opaque import generate_opaque_identifier
-from apps.documents.services import validate_document_upload
+from apps.documents.services import read_document_payload, validate_document_upload
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import active_enrolments
 from apps.students.models import Student
@@ -2396,6 +2396,10 @@ def attach_justification_document(*, justification, upload, actor):
     rules as every other upload in the system; storage and the record
     itself stay local to this module (see ``JustificationAttachment``'s
     docstring for why).
+
+    RF-ARC-002: images are compressed and normalized by the same
+    ``read_document_payload`` used by the documents module; checksum and size
+    are computed on the normalized bytes that actually reach storage.
     """
     if justification.submitted_by_id != actor.pk:
         raise DomainError("Solo quien presento la justificacion puede adjuntar su respaldo.")
@@ -2403,8 +2407,7 @@ def attach_justification_document(*, justification, upload, actor):
         raise DomainError("La justificacion ya tiene un documento adjunto.")
 
     validated = validate_document_upload(upload)
-    payload = upload.read()
-    upload.seek(0)
+    payload = read_document_payload(upload, validated)
     checksum = hashlib.sha256(payload).hexdigest()
     storage_key = _justification_attachment_storage_key(
         justification=justification, extension=validated["extension"]
@@ -2417,7 +2420,7 @@ def attach_justification_document(*, justification, upload, actor):
             filename=validated["filename"],
             storage_key=saved_key,
             content_type=validated["content_type"],
-            size_bytes=validated["size_bytes"],
+            size_bytes=len(payload),
             checksum=checksum,
         )
     except Exception:
