@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from apps.attendance import services
 from apps.attendance.models import (
+    AbsenceNotification,
     AttendanceAlert,
     AttendanceEvent,
     AttendancePermit,
@@ -135,6 +136,14 @@ class JustificationNotificationAdmin(admin.ModelAdmin):
 
     list_display = ["justification", "recipient", "created_at"]
     date_hierarchy = "created_at"
+
+
+@admin.register(AbsenceNotification)
+class AbsenceNotificationAdmin(admin.ModelAdmin):
+    """RF-JOR-007: created by ``services.notify_absence`` at jornada closure, not here."""
+
+    list_display = ["student", "absence_date", "reason", "guardian", "superseded_at", "created_at"]
+    date_hierarchy = "absence_date"
 
 
 @admin.register(JustificationAttachment)

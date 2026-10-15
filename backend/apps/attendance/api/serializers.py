@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.attendance.models import (
+    AbsenceNotification,
     AttendanceAlert,
     AttendanceEvent,
     AttendancePermit,
@@ -675,3 +676,33 @@ class AttendancePermitResolutionRequestSerializer(serializers.Serializer):
         default="",
         help_text="Obligatorio al rechazar; opcional al aprobar.",
     )
+
+
+class AbsenceNotificationSerializer(serializers.ModelSerializer):
+    """RF-JOR-007: an absence notification as the guardian sees it."""
+
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    student_name = serializers.SerializerMethodField()
+    shift_id = serializers.UUIDField(source="shift.public_id", read_only=True)
+    is_superseded = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AbsenceNotification
+        fields = [
+            "public_id",
+            "student_id",
+            "student_name",
+            "shift_id",
+            "absence_date",
+            "reason",
+            "is_superseded",
+            "superseded_at",
+            "created_at",
+        ]
+
+    def get_student_name(self, obj) -> str:
+        person = obj.student.person
+        return f"{person.first_name} {person.last_name}".strip()
+
+    def get_is_superseded(self, obj) -> bool:
+        return obj.superseded_at is not None
