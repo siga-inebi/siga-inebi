@@ -61,3 +61,28 @@ percentiles, errores, CPU y memoria. Declarar dispositivo, navegador, red y
 volumen; registrar falla de cámara/permisos como resultado, no aprobación.
 La preparación Cloud Run/Cloud SQL tendrá costos y recursos declarados antes
 de medir. Este informe no concede conformidad a requisitos de rendimiento.
+
+## Perfil objetivo local y protocolo completo (RUN-EMI-20261015-01 y 02)
+
+Medición del 15 de octubre de 2026 con el protocolo de `tests_plan.md`: tres
+rondas independientes, calentamiento de 10 escaneos por operador y 102
+confirmaciones medidas por ronda, en dos escenarios (pico sin pausa y normal con
+pausa de 2 s). Backend con la imagen `Dockerfile.cloud` (gunicorn 1×4) limitado
+a 1 CPU / 2 GB en Docker local; PostgreSQL 16 sin límite. Ejecutor: Claude Code
+en apoyo a Emilio; revisión de Daniel y Pablo pendiente. Informe completo con
+gráficas: [emilio/rendimiento](emilio/rendimiento/README.md).
+
+| Campo | Pico (sin pausa) | Normal (pausa 2 s) |
+| --- | --- | --- |
+| Confirmados / errores | 306 de 306; 0 errores, 0 perdidos | 306 de 306; 0 errores, 0 perdidos |
+| p95 por ronda | 213 / 212 / 217 ms | 222 / 183 / 170 ms |
+| Throughput | 15,8 a 16,6 escaneos/s | 1,39 a 1,42 escaneos/s |
+| CPU backend media / máx | 99,6 % / 100,5 % | 7,5 % / 20,2 % |
+| Memoria backend máx | 92,7 MiB de 2048 | 91,6 MiB de 2048 |
+
+El p95 queda unas diez veces por debajo de la meta de 2 s en las seis rondas;
+en el pico el backend satura su CPU. Mide la API, no la confirmación visual en un
+teléfono con TLS; 3 operadores sigue siendo la referencia provisional (PD-010).
+El hallazgo del seed de demostración sin `attendance_record_entry` ni
+`attendance_record_exit` tiene corrección en la rama
+`fix/seed-attendance-permissions`.
