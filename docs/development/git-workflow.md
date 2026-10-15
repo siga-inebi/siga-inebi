@@ -21,3 +21,5 @@
 - No hacer push de secretos.
 - No mezclar cambios no relacionados.
 - No marcar RF como completado sin pruebas.
+
+<!-- Verificación de CI dinámica (#627): esta línea no se fusiona. -->
