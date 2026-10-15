@@ -62,6 +62,20 @@ export const documentsService = {
     apiClient.post(`${ROOT}/records/${publicId}/versions/`, payload),
   verifyRecord: (publicId) =>
     apiClient.post(`${ROOT}/records/${publicId}/verify/`),
+  /**
+   * Token breve y de un solo uso para descargar un adjunto (RF-DOC-005).
+   * Responde `{ token, expires_at, download_url }`.
+   */
+  issueDownloadToken: (publicId) =>
+    apiClient.post(`${ROOT}/records/${publicId}/download-tokens/`),
+
+  /** Expediente documental del docente (RF-DOC-001). */
+  listTeacherRecords: (teacherPublicId, params) =>
+    apiClient.get(
+      withQuery(`${ROOT}/teachers/${teacherPublicId}/records/`, params)
+    ),
+  uploadTeacherRecord: (teacherPublicId, payload) =>
+    apiClient.post(`${ROOT}/teachers/${teacherPublicId}/records/`, payload),
   storageConsumption: () => apiClient.get(`${ROOT}/storage-consumption/`),
 
   /**

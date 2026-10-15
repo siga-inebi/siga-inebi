@@ -251,11 +251,16 @@ class DocumentRecordSerializer(serializers.ModelSerializer):
     supersedes_id = serializers.UUIDField(
         source="supersedes.public_id", allow_null=True, read_only=True
     )
+    # RF-DOC-001: exactly one of the two is set; additive, read-only fields.
+    student_id = serializers.UUIDField(source="student.public_id", allow_null=True, read_only=True)
+    teacher_id = serializers.UUIDField(source="teacher.public_id", allow_null=True, read_only=True)
 
     class Meta:
         model = DocumentRecord
         fields = [
             "public_id",
+            "student_id",
+            "teacher_id",
             "enrolment_id",
             "filename",
             "content_type",
@@ -293,3 +298,15 @@ class DocumentUploadSerializer(serializers.Serializer):
 
 class DocumentReplaceSerializer(serializers.Serializer):
     file = serializers.FileField()
+
+
+class TeacherDocumentUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="PDF, JPG o PNG del expediente del docente.")
+
+
+class DocumentDownloadTokenSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="Token de un solo uso; se muestra una unica vez.")
+    expires_at = serializers.DateTimeField()
+    download_url = serializers.CharField(
+        help_text="Ruta relativa de descarga con el token ya incluido."
+    )

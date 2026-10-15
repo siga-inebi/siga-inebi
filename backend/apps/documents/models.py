@@ -38,7 +38,13 @@ class DocumentRecord(TimeStampedModel):
     """Persisted metadata for stored documents without allowing hard deletes.
 
     The storage byte content stays outside the database, while the metadata and
-    lineage remain auditable and linked to the student's dossier history.
+    lineage remain auditable and linked to the owner's dossier history.
+
+    RF-DOC-001: a record belongs to exactly one institutional dossier, the
+    student's or the teacher's. The owner is an explicit pair of nullable
+    foreign keys guarded by ``document_record_has_exactly_one_owner`` instead
+    of a generic relation, so the database keeps referential integrity
+    (``PROTECT``) and the existing student queries keep working unchanged.
     """
 
     objects = DocumentRecordQuerySet.as_manager()
@@ -52,6 +58,15 @@ class DocumentRecord(TimeStampedModel):
         "students.Student",
         on_delete=models.PROTECT,
         related_name="document_records",
+        null=True,
+        blank=True,
+    )
+    teacher = models.ForeignKey(
+        "teachers.Teacher",
+        on_delete=models.PROTECT,
+        related_name="document_records",
+        null=True,
+        blank=True,
     )
     enrolment = models.ForeignKey(
         "enrolments.Enrolment",
@@ -87,10 +102,26 @@ class DocumentRecord(TimeStampedModel):
                 fields=["version_group_id", "version_number"],
                 name="unique_document_record_version_in_group",
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(student__isnull=False, teacher__isnull=True)
+                    | models.Q(student__isnull=True, teacher__isnull=False)
+                ),
+                name="document_record_has_exactly_one_owner",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(enrolment__isnull=True) | models.Q(student__isnull=False),
+                name="document_record_enrolment_requires_student",
+            ),
         ]
 
     def __str__(self):
         return self.filename
+
+    @property
+    def owner(self):
+        """The dossier owner: the student or the teacher (RF-DOC-001)."""
+        return self.student if self.student_id else self.teacher
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -98,6 +129,7 @@ class DocumentRecord(TimeStampedModel):
                 DocumentRecord.objects.filter(pk=self.pk)
                 .values(
                     "student_id",
+                    "teacher_id",
                     "enrolment_id",
                     "filename",
                     "storage_key",
@@ -113,6 +145,7 @@ class DocumentRecord(TimeStampedModel):
             if original is not None:
                 immutable_fields = {
                     "student_id": self.student_id,
+                    "teacher_id": self.teacher_id,
                     "enrolment_id": self.enrolment_id,
                     "filename": self.filename,
                     "storage_key": self.storage_key,

@@ -185,16 +185,28 @@ def _ensure_document_upload_access(*, actor, student):
     raise AuthorizationError("El actor no tiene permiso y alcance para adjuntar documentos.")
 
 
-def _storage_key(*, student, normalized_filename, prefix="documents"):
+def _storage_key(*, student=None, teacher=None, normalized_filename, prefix="documents"):
     suffix = Path(normalized_filename).suffix
-    return f"{prefix}/{student.public_id}/{secrets.token_urlsafe(18)}{suffix}"
+    # Student keys keep their historical layout; teacher keys live under their
+    # own folder so two dossiers can never share a path segment (RF-DOC-001).
+    owner_segment = f"teachers/{teacher.public_id}" if teacher is not None else student.public_id
+    return f"{prefix}/{owner_segment}/{secrets.token_urlsafe(18)}{suffix}"
 
 
 def _create_document_record(
-    *, student, enrolment, payload, validated, checksum, supersedes=None, storage_prefix="documents"
+    *,
+    student=None,
+    teacher=None,
+    enrolment=None,
+    payload,
+    validated,
+    checksum,
+    supersedes=None,
+    storage_prefix="documents",
 ):
     storage_key = _storage_key(
         student=student,
+        teacher=teacher,
         normalized_filename=validated["normalized_filename"],
         prefix=storage_prefix,
     )
@@ -202,6 +214,7 @@ def _create_document_record(
     try:
         return DocumentRecord.objects.create(
             student=student,
+            teacher=teacher,
             enrolment=enrolment,
             filename=validated["filename"],
             storage_key=saved_key,
@@ -242,7 +255,10 @@ def upload_document_record(*, actor, student, enrolment=None, upload):
 def replace_document_record(*, actor, record, upload):
     """Create a new immutable attachment version and retain the prior version."""
     record = DocumentRecord.objects.select_for_update().get(pk=record.pk)
-    _ensure_document_upload_access(actor=actor, student=record.student)
+    if record.teacher_id:
+        _ensure_teacher_document_upload_access(actor=actor, teacher=record.teacher)
+    else:
+        _ensure_document_upload_access(actor=actor, student=record.student)
     if not record.is_active:
         raise DomainError("Solo se puede reemplazar la version vigente del documento.")
     validated = validate_document_upload(upload)
@@ -250,6 +266,7 @@ def replace_document_record(*, actor, record, upload):
     upload.seek(0)
     replacement = _create_document_record(
         student=record.student,
+        teacher=record.teacher,
         enrolment=record.enrolment,
         payload=payload,
         validated=validated,
@@ -267,6 +284,162 @@ def replace_document_record(*, actor, record, upload):
         version=replacement.version_number,
     )
     return replacement
+
+
+TEACHERS_MODULE_KEY = "teachers"
+"""Administrative scope over every teacher dossier (RF-DOC-001, RF-DOC-004).
+
+``Teacher`` has no institution, cycle or section of its own, so the only
+administrative dimension that can cover a teacher's dossier is the module
+scope, the same way ``module_key="students"`` covers every student dossier.
+"""
+
+
+def _is_own_teacher_dossier(*, actor, teacher):
+    return bool(getattr(actor, "person_id", None)) and actor.person_id == teacher.person_id
+
+
+def _deny_teacher_document(*, actor, teacher, action, reason, access_type, document=None):
+    record_event(
+        actor=actor,
+        action=action,
+        resource="DocumentRecord" if document is not None else "TeacherDocument",
+        resource_identifier=str(document.pk if document is not None else teacher.pk),
+        context={
+            "result": "denied",
+            "reason": reason,
+            "access_type": access_type,
+            "teacher_id": str(teacher.pk),
+        },
+    )
+
+
+def ensure_teacher_document_access(*, actor, teacher, document=None, access_type="read"):
+    """
+    Guard and audit every read of a teacher's dossier (RF-DOC-001, RF-DOC-004,
+    RF-DOC-006).
+
+    Deny by default. ``document_read`` is always required; on top of it the
+    caller must either be the teacher the dossier belongs to (a teacher sees
+    their own documents) or hold the permission with the ``teachers`` module
+    scope (administrative staff). Holding the permission over students only
+    does not reach teachers.
+    """
+    if not actor or not getattr(actor, "is_authenticated", False):
+        _deny_teacher_document(
+            actor=None,
+            teacher=teacher,
+            document=document,
+            action="documents.document.read_denied",
+            reason="unauthenticated",
+            access_type=access_type,
+        )
+        raise AuthorizationError("Debe estar autenticado para leer documentos.")
+
+    context = {"result": "success", "access_type": access_type, "teacher_id": str(teacher.pk)}
+    if document is not None:
+        context["document_id"] = str(document.pk)
+    resource_identifier = str(document.pk if document is not None else teacher.pk)
+
+    if not actor.is_superuser:
+        if not actor.has_atomic_permission(DOCUMENT_READ_PERMISSION):
+            _deny_teacher_document(
+                actor=actor,
+                teacher=teacher,
+                document=document,
+                action="documents.document.read_denied",
+                reason="missing_permission",
+                access_type=access_type,
+            )
+            raise AuthorizationError("El actor no tiene permiso para leer documentos.")
+        own = _is_own_teacher_dossier(actor=actor, teacher=teacher)
+        if not own and not actor.has_scoped_permission(
+            DOCUMENT_READ_PERMISSION, scope={"module_key": TEACHERS_MODULE_KEY}
+        ):
+            _deny_teacher_document(
+                actor=actor,
+                teacher=teacher,
+                document=document,
+                action="documents.document.read_denied",
+                reason="missing_scope",
+                access_type=access_type,
+            )
+            raise AuthorizationError(
+                "El actor no tiene el alcance requerido para leer documentos del docente."
+            )
+        context["scope"] = "own" if own else "module"
+
+    record_event(
+        actor=actor,
+        action="documents.document.read",
+        resource="DocumentRecord",
+        resource_identifier=resource_identifier,
+        context=context,
+    )
+    return True
+
+
+def _ensure_teacher_document_upload_access(*, actor, teacher):
+    """
+    Only administrative staff with ``document_upload`` over the ``teachers``
+    module may add to a teacher's dossier. A teacher does not upload into their
+    own dossier: RF-DOC-001 names the secretary and the administrator.
+    """
+    if not actor or not getattr(actor, "is_authenticated", False):
+        raise AuthorizationError("Debe estar autenticado para adjuntar documentos.")
+    if actor.is_superuser:
+        return True
+    if actor.has_scoped_permission(
+        DOCUMENT_UPLOAD_PERMISSION, scope={"module_key": TEACHERS_MODULE_KEY}
+    ):
+        return True
+    _deny_teacher_document(
+        actor=actor,
+        teacher=teacher,
+        action="documents.document.upload_denied",
+        reason="missing_permission_or_scope",
+        access_type="upload",
+    )
+    raise AuthorizationError(
+        "El actor no tiene permiso y alcance para adjuntar documentos del docente."
+    )
+
+
+def upload_teacher_document_record(*, actor, teacher, upload):
+    """
+    Store an attachment in a teacher's dossier (RF-DOC-001).
+
+    Same pipeline as the student one: validated type and size, SHA-256
+    checksum, bytes outside the database, immutable metadata and an audit
+    entry. Replacements go through ``replace_document_record`` and keep the
+    whole version history.
+
+    The access check runs before the transaction on purpose: a denied attempt
+    must leave its audit entry, and an exception inside the atomic block would
+    roll that entry back together with everything else.
+    """
+    if teacher is None:
+        raise DomainError("Se requiere un docente para registrar el documento.")
+    _ensure_teacher_document_upload_access(actor=actor, teacher=teacher)
+    validated = validate_document_upload(upload)
+    payload = upload.read()
+    upload.seek(0)
+    with transaction.atomic():
+        record = _create_document_record(
+            teacher=teacher,
+            payload=payload,
+            validated=validated,
+            checksum=hashlib.sha256(payload).hexdigest(),
+        )
+        _audit(
+            actor,
+            "documents.document.uploaded",
+            record,
+            version=record.version_number,
+            owner="teacher",
+            teacher_id=str(teacher.pk),
+        )
+    return record
 
 
 def normalize_document_kind_code(value, *, field="code"):
@@ -432,6 +605,10 @@ def get_active_document_template(*, institution, kind):
 
 def ensure_document_access(*, actor, student=None, document=None, access_type="read"):
     """Guard and audit every document read or download from one boundary."""
+    if student is None and document is not None and document.teacher_id:
+        return ensure_teacher_document_access(
+            actor=actor, teacher=document.teacher, document=document, access_type=access_type
+        )
     target_student = student or getattr(document, "student", None)
     resource_identifier = str(getattr(document, "pk", "") or getattr(target_student, "pk", ""))
     context = {
@@ -1117,14 +1294,14 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
     unreadable = 0
     missing = 0
 
-    for record in queryset.select_related("student").order_by("-created_at"):
+    for record in queryset.select_related("student", "teacher").order_by("-created_at"):
         storage_key = record.storage_key
         if not default_storage.exists(storage_key):
             missing += 1
             issues.append(
                 {
                     "document_id": str(record.public_id),
-                    "student_id": str(record.student.public_id),
+                    **_owner_reference(record),
                     "storage_key": storage_key,
                     "status": "missing",
                     "message": "El archivo persistido no existe en almacenamiento.",
@@ -1140,7 +1317,7 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
             issues.append(
                 {
                     "document_id": str(record.public_id),
-                    "student_id": str(record.student.public_id),
+                    **_owner_reference(record),
                     "storage_key": storage_key,
                     "status": "unreadable",
                     "message": "El archivo persistido no puede leerse.",
@@ -1154,7 +1331,7 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
             issues.append(
                 {
                     "document_id": str(record.public_id),
-                    "student_id": str(record.student.public_id),
+                    **_owner_reference(record),
                     "storage_key": storage_key,
                     "status": "corrupted",
                     "expected_checksum": record.checksum,
@@ -1194,6 +1371,13 @@ def verify_document_storage_integrity(*, actor=None, institution=None):
         },
     )
     return result
+
+
+def _owner_reference(record):
+    """Public id of the dossier owner, keyed by kind, for integrity reports."""
+    if record.teacher_id:
+        return {"teacher_id": str(record.teacher.public_id)}
+    return {"student_id": str(record.student.public_id)}
 
 
 def document_storage_usage_summary(*, institution=None):
