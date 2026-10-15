@@ -591,22 +591,27 @@ class Command(BaseCommand):
 
     def seed_jornada_parameters(self, *, cycle, shifts):
         schedules = {
-            "MOR": (time(7, 30), time(12, 30)),
-            "VES": (time(13, 0), time(18, 0)),
+            "MOR": (time(6, 0), time(7, 30), time(12, 30)),
+            "VES": (time(12, 0), time(13, 0), time(18, 0)),
         }
 
         for shift in shifts:
-            entry_limit, closing = schedules.get(shift.code, (time(7, 30), time(12, 30)))
+            opening, entry_limit, closing = schedules.get(
+                shift.code, (time(6, 0), time(7, 30), time(12, 30))
+            )
             JornadaParameters.objects.get_or_create(
                 shift=shift,
                 academic_cycle=cycle,
                 effective_from=cycle.starts_on,
                 defaults={
+                    "opening_time": opening,
                     "entry_limit_time": entry_limit,
                     "tolerance_minutes": 10,
                     "closing_time": closing,
                     "duplicate_suppression_minutes": 5,
-                    "school_days": ["mon", "tue", "wed", "thu", "fri"],
+                    # ISO weekday (1=lunes .. 7=domingo), the format every
+                    # reader of ``school_days`` expects (RF-JOR-001).
+                    "school_days": [1, 2, 3, 4, 5],
                 },
             )
 

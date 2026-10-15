@@ -74,7 +74,12 @@ from tests.factories.students import (
     StudentObservationFactory,
 )
 
-pytestmark = [pytest.mark.api, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.api,
+    pytest.mark.django_db,
+    # RF-JOR-001: captures stamped with "now" must land inside the window.
+    pytest.mark.usefixtures("operating_window_clock"),
+]
 
 CONFIGURE_PERMISSION = "attendance_jornada_configure"
 STUDENT_VIEW_PERMISSION = "student_view_basic"
@@ -192,7 +197,8 @@ def test_create_attendance_event_with_permission(auth_client):
     _grant(auth_client.user, "attendance_scan")
     _grant(auth_client.user, "attendance_record_exit")
     student = StudentFactory()
-    shift = ShiftFactory()
+    # RF-JOR-001: the event is only received inside a configured operating window.
+    shift = JornadaParametersFactory().shift
 
     response = auth_client.post(
         reverse("attendance-event-list"),
@@ -1629,7 +1635,8 @@ def test_create_manual_attendance_event_stores_reason_and_operator(auth_client):
     _grant(auth_client.user, "attendance_record_manual")
     _grant(auth_client.user, "attendance_record_entry")
     student = StudentFactory()
-    shift = ShiftFactory()
+    # RF-JOR-001: the event is only received inside a configured operating window.
+    shift = JornadaParametersFactory().shift
     reason = ManualRegistrationReasonFactory(name="Olvido su credencial")
 
     response = auth_client.post(

@@ -18,7 +18,7 @@ attendance-capture domain rather than to a module of its own.
 import hashlib
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -78,6 +78,7 @@ def set_jornada_parameters(
     duplicate_suppression_minutes,
     school_days,
     effective_from,
+    opening_time=None,
     actor=None,
 ):
     """
@@ -85,12 +86,19 @@ def set_jornada_parameters(
 
     Existing versions are never mutated: a later ``effective_from`` simply
     supersedes them for dates on or after it (RF-JOR-001, and RF-JOR-006
-    later).
+    later). ``opening_time`` and ``closing_time`` bound the daily operating
+    window (RF-JOR-001); when omitted the window opens at midnight.
     """
     _require_active(shift, "la jornada")
     _require_active(academic_cycle, "el ciclo escolar")
     if academic_cycle.institution_id != shift.institution.pk:
         raise DomainError("La jornada y el ciclo escolar deben pertenecer a la misma institucion.")
+    if opening_time is None:
+        opening_time = time(0, 0)
+    if opening_time >= closing_time:
+        raise DomainError(
+            "La hora de apertura debe ser anterior a la hora de cierre de la jornada."
+        )
 
     with unique_violation_as(
         {
@@ -102,6 +110,7 @@ def set_jornada_parameters(
         parameters = JornadaParameters.objects.create(
             shift=shift,
             academic_cycle=academic_cycle,
+            opening_time=opening_time,
             entry_limit_time=entry_limit_time,
             tolerance_minutes=tolerance_minutes,
             closing_time=closing_time,
@@ -158,6 +167,57 @@ def resolve_academic_cycle_for(*, shift, event_date):
     return academic_cycle
 
 
+class OperatingWindowError(DomainError):
+    """
+    RF-JOR-001: a capture falls outside the daily operating window. ``code``
+    tells the caller which half of the rule failed, so a scan result can
+    carry it as a stable ``reason_code`` instead of only free text.
+    """
+
+    NON_SCHOOL_DAY = "non_school_day"
+    OUTSIDE_OPERATING_WINDOW = "outside_operating_window"
+
+    def __init__(self, message, *, code):
+        super().__init__(message)
+        self.code = code
+
+
+def ensure_within_operating_window(*, parameters, captured_at, event_date, movement_type):
+    """
+    RF-JOR-001: the single rule deciding whether a capture may be received.
+
+    ``event_date`` must be one of the jornada's ``school_days`` (ISO weekday,
+    1=lunes .. 7=domingo), whatever the movement. ``captured_at``, read in
+    the configured time zone (``settings.TIME_ZONE``), must then fall on that
+    same date, no earlier than ``opening_time`` and no later than the window's
+    end: ``closing_time`` for an entry, and ``closing_time`` plus
+    ``settings.ATTENDANCE_EXIT_GRACE_MINUTES`` for an exit -- students leave
+    at the closing bell, so their exit scans land just after it. Both ends are
+    inclusive. Scans (``record_scan_movement``, individual or in a capture
+    batch) and manual registrations (``record_attendance_event``) both call
+    this, so the rule lives in exactly one place.
+    """
+    if event_date.isoweekday() not in (parameters.school_days or []):
+        raise OperatingWindowError(
+            f"El {event_date} no es un dia lectivo de la jornada '{parameters.shift}'.",
+            code=OperatingWindowError.NON_SCHOOL_DAY,
+        )
+    opens_at = timezone.make_aware(datetime.combine(event_date, parameters.opening_time))
+    closes_at = timezone.make_aware(datetime.combine(event_date, parameters.closing_time))
+    if movement_type == AttendanceEvent.MovementType.EXIT:
+        closes_at += timedelta(minutes=settings.ATTENDANCE_EXIT_GRACE_MINUTES)
+    if not opens_at <= captured_at <= closes_at:
+        local_capture = timezone.localtime(captured_at)
+        local_close = timezone.localtime(closes_at)
+        raise OperatingWindowError(
+            f"La hora de captura {local_capture:%Y-%m-%d %H:%M} esta fuera de la ventana "
+            f"operativa de la jornada '{parameters.shift}' para este movimiento "
+            f"({event_date} {parameters.opening_time:%H:%M} a "
+            f"{local_close:%Y-%m-%d %H:%M}).",
+            code=OperatingWindowError.OUTSIDE_OPERATING_WINDOW,
+        )
+
+
 @transaction.atomic
 def record_attendance_event(
     *,
@@ -192,6 +252,19 @@ def record_attendance_event(
         if manual_reason is None:
             raise DomainError("Un registro manual debe indicar un motivo de la lista configurable.")
         _require_active(manual_reason, "el motivo")
+    if origin in (AttendanceEvent.Origin.SCAN, AttendanceEvent.Origin.MANUAL):
+        # RF-JOR-001: same operating window as ``record_scan_movement``. A
+        # declared closure is exempt: the system generates it at the jornada's
+        # own closing, it is not received from a capture point.
+        academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+        ensure_within_operating_window(
+            parameters=get_effective_parameters(
+                shift=shift, academic_cycle=academic_cycle, on_date=event_date
+            ),
+            captured_at=captured_at,
+            event_date=event_date,
+            movement_type=movement_type,
+        )
 
     event = AttendanceEvent.objects.create(
         student=student,
@@ -311,6 +384,43 @@ class RejectedScanItem:
     client_event_id: str
     outcome: str = "rejected"
     reason: str = ""
+    # Stable machine-readable cause for the rejections a client must tell
+    # apart (RF-JOR-001 window, RF-AUT-005 expired turn); blank otherwise.
+    reason_code: str = ""
+
+
+CAPTURE_BATCH_EXPIRED = "capture_batch_expired"
+
+# Named after RF-ASI-004's ``attendance.event.rejected_duplicate``: one audit
+# action per rejection family, the precise cause in ``context.reason_code``.
+_SCAN_REJECTION_ACTIONS = {
+    OperatingWindowError.NON_SCHOOL_DAY: "attendance.event.rejected_outside_window",
+    OperatingWindowError.OUTSIDE_OPERATING_WINDOW: "attendance.event.rejected_outside_window",
+    CAPTURE_BATCH_EXPIRED: "attendance.event.rejected_capture_batch_expired",
+}
+
+
+def _reject_scan(*, reason_code, reason, operator, student, shift, client_event_id, context):
+    """
+    Record an auditable scan rejection and return it as a ``RejectedScanItem``
+    -- returned, not raised, for the same reason a suppressed duplicate is
+    (RF-ASI-004): raising inside ``record_scan_movement``'s transaction would
+    roll the audit row back together with everything else.
+    """
+    record_event(
+        actor=operator,
+        action=_SCAN_REJECTION_ACTIONS[reason_code],
+        resource="AttendanceEvent",
+        context={
+            "result": "denied",
+            "reason_code": reason_code,
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "client_event_id": client_event_id,
+            **context,
+        },
+    )
+    return RejectedScanItem(client_event_id=client_event_id, reason=reason, reason_code=reason_code)
 
 
 def resolve_scan_confirmation(*, student, shift, event_date):
@@ -358,6 +468,14 @@ def record_scan_movement(
     - RF-ASI-009: ``capture_batch``, when given, must be this same
       operator's own open batch -- checked here too, not only by the view,
       same defense-in-depth reason as the operator guard above.
+    - RF-AUT-005: a ``capture_batch`` whose assigned time has elapsed is
+      closed right here, lazily (ADR-0009), and the scan is rejected with
+      ``reason_code="capture_batch_expired"``.
+    - RF-JOR-001: ``captured_at`` must fall on a school day and inside the
+      jornada's operating window; otherwise the scan is rejected with the
+      ``OperatingWindowError`` code and no event is created.
+
+    Both rejections are audited and returned as ``RejectedScanItem``.
     """
     if operator is None:
         raise DomainError("Un movimiento por escaneo debe registrarlo un operador autenticado.")
@@ -369,6 +487,16 @@ def record_scan_movement(
     if capture_batch is not None:
         if capture_batch.operator_id != operator.pk:
             raise DomainError("El lote de captura no pertenece a este operador.")
+        if expire_capture_batch_if_due(capture_batch=capture_batch, actor=actor or operator):
+            return _reject_scan(
+                reason_code=CAPTURE_BATCH_EXPIRED,
+                reason="El turno de captura vencio: abra uno nuevo para seguir registrando.",
+                operator=operator,
+                student=student,
+                shift=shift,
+                client_event_id=client_event_id,
+                context={"capture_batch_id": str(capture_batch.public_id)},
+            )
         if capture_batch.status != CaptureBatch.Status.OPEN:
             raise DomainError(f"El lote '{capture_batch}' ya no esta abierto.")
 
@@ -394,6 +522,23 @@ def record_scan_movement(
     parameters = get_effective_parameters(
         shift=shift, academic_cycle=academic_cycle, on_date=event_date
     )
+    try:
+        ensure_within_operating_window(
+            parameters=parameters,
+            captured_at=captured_at,
+            event_date=event_date,
+            movement_type=movement_type,
+        )
+    except OperatingWindowError as exc:
+        return _reject_scan(
+            reason_code=exc.code,
+            reason=str(exc),
+            operator=operator,
+            student=student,
+            shift=shift,
+            client_event_id=client_event_id,
+            context={"event_date": str(event_date), "captured_at": captured_at.isoformat()},
+        )
     suppression_window = timedelta(minutes=parameters.duplicate_suppression_minutes)
 
     duplicate = (
@@ -527,22 +672,104 @@ def open_capture_batch(*, operator, session_key=""):
     if existing is not None:
         return existing
     return CaptureBatch.objects.create(
-        operator=operator, status=CaptureBatch.Status.OPEN, session_key=session_key
+        operator=operator,
+        status=CaptureBatch.Status.OPEN,
+        session_key=session_key,
+        expires_at=timezone.now() + _capture_turn_duration(),
     )
 
 
 def recover_open_capture_batch(*, operator):
-    """RF-ASI-009: the operator's pending batch, if any, ready to resume."""
-    return CaptureBatch.objects.filter(operator=operator, status=CaptureBatch.Status.OPEN).first()
+    """
+    RF-ASI-009: the operator's pending batch, if any, ready to resume.
+
+    RF-AUT-005: a pending batch whose assigned time already elapsed is
+    closed on this read instead of being offered back, so an expired turn is
+    never resumed (and ``open_capture_batch`` then starts a fresh one).
+    """
+    capture_batch = CaptureBatch.objects.filter(
+        operator=operator, status=CaptureBatch.Status.OPEN
+    ).first()
+    if capture_batch is not None and expire_capture_batch_if_due(
+        capture_batch=capture_batch, actor=operator
+    ):
+        return None
+    return capture_batch
+
+
+def _capture_turn_duration():
+    return timedelta(minutes=settings.ATTENDANCE_CAPTURE_TURN_MINUTES)
+
+
+def capture_batch_expires_at(capture_batch):
+    """RF-AUT-005: when the time assigned to ``capture_batch`` runs out."""
+    if capture_batch.expires_at is not None:
+        return capture_batch.expires_at
+    return capture_batch.created_at + _capture_turn_duration()
 
 
 @transaction.atomic
+def expire_capture_batch_if_due(*, capture_batch, actor=None, now=None):
+    """
+    RF-AUT-005: invalidate a capture turn once its assigned time elapses.
+
+    There is no scheduled job behind this (ADR-0009): every request that
+    touches a batch -- a scan sent into it, recovering it, confirming it --
+    calls this first. An open batch past ``capture_batch_expires_at`` is
+    closed as ``EXPIRED`` and audited, the same way the manual close is.
+    Returns ``True`` when the batch is (now) expired, ``False`` otherwise.
+    """
+    if capture_batch.status == CaptureBatch.Status.EXPIRED:
+        return True
+    if capture_batch.status != CaptureBatch.Status.OPEN:
+        return False
+    now = now or timezone.now()
+    expires_at = capture_batch_expires_at(capture_batch)
+    if now < expires_at:
+        return False
+
+    # Two requests can find the same batch due at once: the row lock makes
+    # exactly one of them close and audit it.
+    locked = CaptureBatch.objects.select_for_update().get(pk=capture_batch.pk)
+    if locked.status != CaptureBatch.Status.OPEN:
+        capture_batch.status = locked.status
+        capture_batch.closed_at = locked.closed_at
+        return locked.status == CaptureBatch.Status.EXPIRED
+
+    capture_batch.status = CaptureBatch.Status.EXPIRED
+    capture_batch.closed_at = now
+    capture_batch.save(update_fields=["status", "closed_at", "updated_at"])
+    record_event(
+        actor=actor,
+        action="attendance.capture_batch.expired",
+        resource="CaptureBatch",
+        resource_identifier=str(capture_batch.public_id),
+        context={
+            "expires_at": expires_at.isoformat(),
+            "item_count": capture_batch.events.count(),
+            "result": "success",
+        },
+    )
+    return True
+
+
 def confirm_capture_batch(*, capture_batch, actor):
     """
     RF-ASI-009: close the batch in a single operation. Every movement in it
     is already a saved, immutable ``AttendanceEvent`` (RF-ASI-002) -- this
     only stops the batch from being offered back for recovery.
+
+    RF-AUT-005: a batch whose assigned time already elapsed is closed as
+    expired (and audited) before this rejects the confirmation; that
+    closure is committed on its own, so the rejection never undoes it.
     """
+    if expire_capture_batch_if_due(capture_batch=capture_batch, actor=actor):
+        raise DomainError("El turno de captura vencio y ya fue cerrado: no se puede confirmar.")
+    return _confirm_open_capture_batch(capture_batch=capture_batch, actor=actor)
+
+
+@transaction.atomic
+def _confirm_open_capture_batch(*, capture_batch, actor):
     if capture_batch.status != CaptureBatch.Status.OPEN:
         raise DomainError(f"El lote '{capture_batch}' ya no esta abierto.")
 

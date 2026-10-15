@@ -29,6 +29,7 @@ class JornadaParametersSerializer(serializers.ModelSerializer):
             "public_id",
             "shift_id",
             "academic_cycle_id",
+            "opening_time",
             "entry_limit_time",
             "tolerance_minutes",
             "closing_time",
@@ -43,6 +44,13 @@ class JornadaParametersSerializer(serializers.ModelSerializer):
 class JornadaParametersCreateSerializer(serializers.Serializer):
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
     academic_cycle_id = serializers.UUIDField(help_text="Public ID del ciclo escolar.")
+    opening_time = serializers.TimeField(
+        required=False,
+        help_text=(
+            "Hora de apertura de la ventana operativa diaria (RF-JOR-001). "
+            "Si se omite, la ventana abre a las 00:00."
+        ),
+    )
     entry_limit_time = serializers.TimeField(help_text="Hora limite de ingreso.")
     tolerance_minutes = serializers.IntegerField(
         min_value=0, help_text="Minutos de tolerancia de llegada tardia."
@@ -368,12 +376,21 @@ class ScanCaptureItemResultSerializer(serializers.Serializer):
     duplicate_of = AttendanceEventSerializer(allow_null=True)
     confirmation = ScanConfirmationSerializer(allow_null=True)
     reason = serializers.CharField(allow_blank=True)
+    reason_code = serializers.ChoiceField(
+        choices=["", "non_school_day", "outside_operating_window", "capture_batch_expired"],
+        allow_blank=True,
+        help_text=(
+            "Causa estable de un rechazo: dia no lectivo o fuera de la ventana "
+            "operativa (RF-JOR-001), turno de captura vencido (RF-AUT-005). "
+            "Vacio para los demas resultados."
+        ),
+    )
 
 
 class CaptureBatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaptureBatch
-        fields = ["public_id", "status", "confirmed_at", "created_at"]
+        fields = ["public_id", "status", "confirmed_at", "expires_at", "created_at"]
 
 
 class CaptureBatchRecoverySerializer(serializers.Serializer):

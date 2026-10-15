@@ -54,7 +54,13 @@ from tests.factories.identity import (
 )
 from tests.factories.students import StudentFactory
 
-pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.postgres,
+    pytest.mark.django_db,
+    # RF-JOR-001: captures stamped with "now" must land inside the window.
+    pytest.mark.usefixtures("operating_window_clock"),
+]
 
 
 def _enrolled_student_with_jornada_parameters(*, entry_limit_time=time(7, 0)):
@@ -321,6 +327,8 @@ def test_scan_prevails_over_declared_for_an_actively_enrolled_student():
     create_enrolment(
         student=student, academic_cycle=cycle, grade=section.offering.grade, section=section
     )
+    # RF-JOR-001: a scan is only received inside a configured operating window.
+    JornadaParametersFactory(shift=shift, academic_cycle=cycle)
     scan_event = services.record_attendance_event(
         student=student,
         shift=shift,
@@ -502,7 +510,9 @@ def test_parameter_change_recalculation_respects_vigencia_across_enrolment_and_a
         school_days=[1, 2, 3, 4, 5],
         effective_from=cycle.starts_on,
     )
-    day_before = today - timedelta(days=10)
+    # Two whole weeks back: same weekday as today, so a school day under
+    # RF-JOR-001 whenever today is one (see ``operating_window_clock``).
+    day_before = today - timedelta(days=14)
     day_on_or_after = today
     for event_date in (day_before, day_on_or_after):
         services.record_attendance_event(

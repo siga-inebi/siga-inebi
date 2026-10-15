@@ -1,4 +1,7 @@
+from datetime import datetime, time, timedelta
+
 import pytest
+from django.utils import timezone
 
 from apps.identity.atomic_permissions import permission_codename
 from tests.factories.academic import InstitutionFactory
@@ -41,3 +44,37 @@ def admin_client(auth_client, institution):
     )
     ScopeGrantFactory(assignment=assignment, institution=institution)
     return auth_client
+
+
+# RF-JOR-001: hour of the day ``operating_window_clock`` moves the clock to --
+# inside the factory's default window (00:00 to 16:00), after its entry limit.
+OPERATING_WINDOW_CLOCK_HOUR = 10
+
+
+@pytest.fixture
+def operating_window_clock(monkeypatch):
+    """
+    RF-JOR-001: scans and manual registrations are only accepted on a school
+    day inside the jornada's operating window. Tests that capture "now" must
+    not depend on the weekday or hour the suite happens to run at, so this
+    moves Django's clock forward to the next Tuesday to Friday at
+    ``OPERATING_WINDOW_CLOCK_HOUR`` in the configured time zone -- never a
+    Monday, so the "yesterday" that late-event tests use is a school day too.
+
+    Only an offset is applied, so the clock keeps ticking; and it only ever
+    moves forward, so rows stamped with the real time before the shift (role
+    assignments, for instance) are still in the past for the shifted clock.
+    """
+    real_now = timezone.now
+    local = timezone.localtime(real_now())
+    target_date = local.date()
+    while True:
+        target = timezone.make_aware(
+            datetime.combine(target_date, time(OPERATING_WINDOW_CLOCK_HOUR, 0))
+        )
+        if target > local and 2 <= target.isoweekday() <= 5:
+            break
+        target_date += timedelta(days=1)
+    offset = target - local
+    monkeypatch.setattr(timezone, "now", lambda: real_now() + offset)
+    return target

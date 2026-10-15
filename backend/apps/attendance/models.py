@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.db import models
 from django.db.models import Q
 
@@ -12,6 +14,12 @@ class JornadaParameters(TimeStampedModel):
     A change never mutates an existing row: it creates a new one effective
     from a given date, so days already elapsed keep evaluating against the
     parameters that were in force when they happened (AGENTS.md #12).
+
+    The daily operating window in which scans and manual registrations are
+    accepted runs from ``opening_time`` to ``closing_time`` (both inclusive),
+    only on the ISO weekdays listed in ``school_days`` (1=lunes .. 7=domingo).
+    ``opening_time`` defaults to midnight so versions created before the
+    window existed keep accepting captures from the start of the day.
     """
 
     shift = models.ForeignKey(
@@ -20,6 +28,7 @@ class JornadaParameters(TimeStampedModel):
     academic_cycle = models.ForeignKey(
         "academics.AcademicCycle", on_delete=models.PROTECT, related_name="jornada_parameters"
     )
+    opening_time = models.TimeField(default=time(0, 0))
     entry_limit_time = models.TimeField()
     tolerance_minutes = models.PositiveIntegerField()
     closing_time = models.TimeField()
@@ -103,6 +112,7 @@ class CaptureBatch(TimeStampedModel):
     class Status(models.TextChoices):
         OPEN = "open", "Abierto"
         CONFIRMED = "confirmed", "Confirmado"
+        EXPIRED = "expired", "Vencido"
 
     operator = models.ForeignKey(
         "identity.UserAccount", on_delete=models.PROTECT, related_name="capture_batches"
@@ -111,6 +121,10 @@ class CaptureBatch(TimeStampedModel):
     confirmed_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     session_key = models.CharField(max_length=64, blank=True, default="")
+    # RF-AUT-005: the time assigned to this capture turn, fixed when it is
+    # opened. Rows opened before the field existed have no value and fall
+    # back to ``created_at`` plus the configured duration.
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
