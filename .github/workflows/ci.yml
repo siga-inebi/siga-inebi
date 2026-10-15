@@ -183,6 +183,8 @@ jobs:
           DJANGO_SECRET_KEY: test-secret-key
           DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
           TIME_ZONE: America/Guatemala
+          # Python 3.12 sys.monitoring tracer: same line coverage, less overhead.
+          COVERAGE_CORE: sysmon
         # pytest-django creates one database per xdist worker (test_<db>_gwN)
         # and runs every migration there, so a separate `migrate` step is not
         # needed. pytest-cov merges the workers' coverage before --cov-fail-under.
