@@ -1,4 +1,5 @@
 import hashlib
+import time
 from datetime import date, timedelta
 
 import pytest
@@ -1326,3 +1327,37 @@ def test_include_sensitive_field_tags_with_permission_returns_200(auth_client):
     assert response.status_code == 200
     codes = {item["code"] for item in _items(response)}
     assert codes == set(FIELD_TAG_CODES)
+
+
+# Gunicorn ``--timeout`` del perfil desplegado (Dockerfile.cloud) y
+# ``proxy_read_timeout`` de infra/runtime/nginx.conf.
+SERVER_REQUEST_TIMEOUT_SECONDS = 120
+# Por encima de la capacidad de seccion que siembra seed_demo_data (35).
+LARGEST_SECTION_SIZE = 45
+
+
+@pytest.mark.slow
+def test_document_batch_for_largest_section_completes_within_request_timeout(auth_client):
+    """
+    RNF-REN-003 (direccional): mientras no exista cola de trabajos (ADR-0009),
+    el lote sincrono de boletas de la seccion mas grande responde completo y
+    muy por debajo del timeout del servidor web. No mide carga concurrente.
+    """
+    section = SectionFactory(capacity=LARGEST_SECTION_SIZE)
+    for _ in range(LARGEST_SECTION_SIZE):
+        create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            section=section,
+        )
+    close_academic_cycle(cycle=section.academic_cycle)
+    _grant_document_issue(auth_client.user)
+
+    started = time.perf_counter()
+    response = _compile_batch(auth_client, section_id=str(section.public_id))
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    assert response.json()["count"] == LARGEST_SECTION_SIZE
+    assert elapsed < SERVER_REQUEST_TIMEOUT_SECONDS / 4, elapsed

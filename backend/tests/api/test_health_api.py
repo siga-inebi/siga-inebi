@@ -28,6 +28,9 @@ def test_database_health_endpoint(client):
 @pytest.mark.django_db
 def test_database_health_surfaces_postgresql_failure(client):
     """
+    RNF-DIS-001: con la base de datos caida (conexion simulada), la sonda de
+    disponibilidad responde degradado (503) para que el monitoreo lo detecte.
+
     The probe reports the outage as 503 with a readable body. It used to let the
     driver error escape, which produced an unhandled 500 and an HTML debug page
     that no monitoring system can parse.
