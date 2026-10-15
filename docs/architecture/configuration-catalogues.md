@@ -40,7 +40,8 @@ agregar una implica escribir el comportamiento que le corresponde.
 | Permisos atomicos y roles | `identity.{Role,RoleAssignment,ScopeGrant}` | API de identidad |
 
 Los parametros operativos (tiempos de sesion, intentos de ingreso, tamano maximo
-de adjunto, crecimiento estimado de almacenamiento, `CONN_MAX_AGE`) se leen de
+de adjunto, lado maximo y calidad JPEG de imagenes adjuntas, crecimiento
+estimado de almacenamiento, `CONN_MAX_AGE`) se leen de
 variables de entorno en `backend/config/settings/base.py`: se ajustan por
 infraestructura sin recompilar nada.
 
