@@ -35,6 +35,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Requerida desde Django 6.0 para usar ExclusionConstraint (postgres.E005).
+    "django.contrib.postgres",
     "corsheaders",
     "rest_framework",
     "drf_spectacular",

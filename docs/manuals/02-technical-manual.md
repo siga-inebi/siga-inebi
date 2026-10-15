@@ -70,7 +70,7 @@ GitHub Actions valida y construye; no constituye un pipeline de despliegue.
 | Capas | Transporte, consultas y servicios independientes; [ADR-0008](../decisions/ADR-0008-application-layer-boundaries.md). |
 | Procesamiento diferido | Sin worker ni cola; operaciones actuales síncronas y acotadas, RNF-REN-003 diferido; [ADR-0009](../decisions/ADR-0009-deferred-background-processing.md). |
 
-Las imágenes y CI usan Python 3.11, Node 22 y PostgreSQL 16. Dependencias exactas
+Las imágenes y CI usan Python 3.12, Node 22 y PostgreSQL 16. Dependencias exactas
 en `backend/requirements/` y `frontend/package-lock.json`. Docker y GitHub Actions
 repiten controles sobre esas versiones; sus resultados deben asociarse a una
 corrida y un SHA, no inferirse de la mera presencia de configuración.
