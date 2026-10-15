@@ -114,6 +114,22 @@ roles configurados y DEBE poder marcarse como atendida dejando constancia de qui
 - **WHEN** el sistema evalúa las alertas del día
 - **THEN** genera una alerta de ausencia dirigida al coordinador de aula correspondiente
 
+#### Scenario: Notificación de inasistencia al encargado
+
+- **GIVEN** un estudiante sin ingreso registrado cuyo día queda como ausente pendiente de
+  justificar al cerrar la jornada
+- **WHEN** se ejecuta el cierre de la jornada, una o más veces
+- **THEN** el sistema registra una única notificación de inasistencia dirigida a la asociación
+  principal vigente del estudiante, consultable por ese encargado mientras su asociación siga
+  vigente
+
+> Nota de implementación (RF-JOR-007, INC-012): el canal es una notificación interna
+> (`AbsenceNotification`, `GET /api/v1/attendance/absence-notifications/`, permiso
+> `attendance.absence_notification.view`), igual que RF-JUS-006; no hay correo ni push
+> (ADR-0009). Solo se notifica a la asociación principal; sin principal vigente no se notifica.
+> Una justificación aprobada después no altera la notificación; un ingreso registrado después
+> la marca como superada sin eliminarla.
+
 ### Requirement: Consulta de presencia en tiempo real
 
 El sistema DEBE permitir a los usuarios autorizados consultar, en cualquier momento de la
