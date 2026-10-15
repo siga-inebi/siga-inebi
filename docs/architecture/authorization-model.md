@@ -105,6 +105,16 @@ RoleAssignment -> ScopeGrant
   filtran por los estudiantes autorizados con `student_view_basic`; crear, marcar principal y
   terminar requieren `student_edit_basic` sobre el estudiante afectado. Las asignaciones docentes
   requieren `scope_assign` y un `ScopeGrant` institucional que coincida con la institucion operada.
+- Las escrituras de matricula (`enrollment_create` / `enrollment_update`: inscribir, matricular,
+  reinscribir, cambiar de seccion, retirar, anular un movimiento y registrar requisitos
+  documentales) usan `apps.enrolments.authorization.require_section_scope(...)`: cada seccion
+  afectada (destino; origen y destino en un cambio; la de la matricula en las demas) debe quedar
+  cubierta por un `ScopeGrant` vigente (institucion, ciclo, grado, seccion o
+  `module_key=enrolments`).
+  Sin alcance la API responde 403 y registra `identity.authorization.denied` (INC-DIA-001). Se
+  evalua con los grants y no con `scope_matches`, porque la reinscripcion opera sobre el ciclo
+  siguiente en preparacion; el ciclo cerrado lo sigue rechazando el dominio. Una asignacion
+  docente no concede alcance para matricular.
 
 Las pruebas en `backend/tests/permissions/test_identity_permissions.py` y
 `backend/tests/api/test_students_api.py` cubren permiso sin alcance, herencia institucion a

@@ -21,6 +21,7 @@ from datetime import datetime, time, timedelta
 from urllib.parse import urlencode
 
 import pytest
+from django.contrib.sessions.models import Session
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.paginator import UnorderedObjectListWarning
 from django.db import connection
@@ -2953,3 +2954,139 @@ def test_justification_attachment_read_is_not_stored_on_the_operator_device(auth
 
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
+
+
+def _capture_operator_client():
+    """An operator with its own persisted session, separate from the closer."""
+    operator = UserFactory()
+    _grant(operator, "attendance_scan")
+    _grant(operator, "attendance_record_entry")
+    operator_client = Client()
+    operator_client.force_login(operator)
+    operator_client.user = operator
+    return operator_client
+
+
+def _scan_into_batch(client, capture_batch_id, item):
+    return client.post(
+        reverse("attendance-scan"),
+        {"capture_batch_id": capture_batch_id, "items": [item]},
+        content_type="application/json",
+    )
+
+
+def test_capture_turn_rejects_further_scans_after_manual_close():
+    """
+    RF-AUT-005: GIVEN un turno de captura abierto con un movimiento, WHEN el
+    operador lo cierra manualmente, THEN un envio posterior que cita el mismo
+    lote se rechaza sin crear el movimiento, AND el cierre queda auditado.
+    """
+    parameters = JornadaParametersFactory()
+    operator_client = _capture_operator_client()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    first, late = StudentFactory(), StudentFactory()
+    _enrol(first, parameters.academic_cycle)
+    _enrol(late, parameters.academic_cycle)
+    captured_at = timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0)))
+
+    opened = operator_client.post(reverse("attendance-capture-batch-open"))
+    capture_batch_id = opened.json()["public_id"]
+    accepted = _scan_into_batch(
+        operator_client,
+        capture_batch_id,
+        _scan_item(first, parameters.shift, control_point, "turn-manual-1", captured_at),
+    )
+    assert accepted.json()[0]["outcome"] == "created"
+
+    closed = operator_client.post(
+        reverse("attendance-capture-batch-confirm", args=[capture_batch_id])
+    )
+    assert closed.status_code == 200
+
+    rejected = _scan_into_batch(
+        operator_client,
+        capture_batch_id,
+        _scan_item(
+            late,
+            parameters.shift,
+            control_point,
+            "turn-manual-2",
+            captured_at + timedelta(minutes=1),
+        ),
+    )
+
+    assert rejected.status_code == 200
+    assert rejected.json()[0]["outcome"] == "rejected"
+    assert "ya no esta abierto" in rejected.json()[0]["reason"]
+    assert not AttendanceEvent.objects.filter(client_event_id="turn-manual-2").exists()
+    assert AuditEvent.objects.filter(
+        action="attendance.capture_batch.confirmed", resource_identifier=capture_batch_id
+    ).exists()
+
+
+def test_jornada_closure_at_closing_time_revokes_capture_turn_and_its_session(auth_client):
+    """
+    RF-AUT-005: GIVEN un turno de captura abierto en la jornada, WHEN se
+    ejecuta el cierre de la jornada (evaluado a la hora de cierre configurada),
+    THEN el lote queda cerrado con su hora de cierre, AND la sesion con la que
+    se abrio deja de ser valida, AND reusar el lote se rechaza, AND el cierre
+    del turno y de la sesion quedan auditados.
+
+    El cierre se dispara con el endpoint de cierre de jornada: hoy no existe
+    un disparador automatico al vencer la hora de cierre.
+    """
+    _grant(auth_client.user, CONFIGURE_PERMISSION)
+    parameters = JornadaParametersFactory(closing_time=time(13, 0))
+    operator_client = _capture_operator_client()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    student = StudentFactory()
+    _enrol(student, parameters.academic_cycle)
+    captured_at = timezone.make_aware(datetime.combine(parameters.effective_from, time(7, 0)))
+
+    opened = operator_client.post(reverse("attendance-capture-batch-open"))
+    capture_batch_id = opened.json()["public_id"]
+    _scan_into_batch(
+        operator_client,
+        capture_batch_id,
+        _scan_item(student, parameters.shift, control_point, "turn-timeout-1", captured_at),
+    )
+    batch = CaptureBatch.objects.get(public_id=capture_batch_id)
+    assert batch.session_key
+
+    closure = auth_client.post(
+        reverse("attendance-jornada-closures"),
+        {"shift_id": str(parameters.shift.public_id), "event_date": str(parameters.effective_from)},
+        content_type="application/json",
+    )
+
+    assert closure.status_code == 200
+    batch.refresh_from_db()
+    assert batch.status == CaptureBatch.Status.CONFIRMED
+    assert batch.closed_at is not None
+    assert not Session.objects.filter(session_key=batch.session_key).exists()
+    assert operator_client.get(reverse("attendance-capture-batch-current")).status_code in {
+        401,
+        403,
+    }
+    assert AuditEvent.objects.filter(
+        action="attendance.capture_turn.closed", resource_identifier=capture_batch_id
+    ).exists()
+    assert AuditEvent.objects.filter(
+        action="identity.session.closed", context__reason="jornada_closed"
+    ).exists()
+
+    operator_client.force_login(operator_client.user)
+    reused = _scan_into_batch(
+        operator_client,
+        capture_batch_id,
+        _scan_item(
+            student,
+            parameters.shift,
+            control_point,
+            "turn-timeout-2",
+            captured_at + timedelta(hours=7),
+            movement_type=AttendanceEvent.MovementType.EXIT,
+        ),
+    )
+    assert reused.json()[0]["outcome"] == "rejected"
+    assert not AttendanceEvent.objects.filter(client_event_id="turn-timeout-2").exists()

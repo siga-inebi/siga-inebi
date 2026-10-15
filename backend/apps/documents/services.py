@@ -27,6 +27,7 @@ from django.utils import timezone
 from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import AuthorizationError, DomainError
+from apps.common.images import normalize_image_payload
 from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
 from apps.documents.kind_catalog import DEFAULT_DOCUMENT_KIND_CODE, DEFAULT_DOCUMENT_KINDS
 from apps.documents.models import (
@@ -120,6 +121,22 @@ def validate_document_upload(upload):
     }
 
 
+def read_document_payload(upload, validated):
+    """Return the exact bytes to store for an upload already validated.
+
+    RF-ARC-002: JPEG/PNG attachments are normalized (EXIF orientation applied,
+    EXIF/GPS metadata removed, longest side capped, re-encoded) through the
+    shared ``apps.common.images`` pipeline; PDF passes through unchanged. The
+    size limit of ``validate_document_upload`` applies to the original upload,
+    while checksum and stored size must be computed on the returned bytes so the
+    integrity verification (RF-ARC-003) matches what is actually persisted.
+    """
+    upload.seek(0)
+    payload = normalize_image_payload(upload.read(), content_type=validated["content_type"])
+    upload.seek(0)
+    return payload
+
+
 @transaction.atomic
 def register_scanned_document(
     *,
@@ -144,9 +161,8 @@ def register_scanned_document(
         _ensure_document_upload_access(actor=actor, student=student)
 
     validated = validate_document_upload(upload)
-    payload = upload.read()
+    payload = read_document_payload(upload, validated)
     checksum = hashlib.sha256(payload).hexdigest()
-    upload.seek(0)
 
     record = _create_document_record(
         student=student,
@@ -163,7 +179,7 @@ def register_scanned_document(
         record,
         source=source,
         content_type=validated["content_type"],
-        size_bytes=validated["size_bytes"],
+        size_bytes=record.size_bytes,
         storage_key=record.storage_key,
     )
     return record
@@ -221,7 +237,7 @@ def _create_document_record(
             filename=validated["filename"],
             storage_key=saved_key,
             content_type=validated["content_type"],
-            size_bytes=validated["size_bytes"],
+            size_bytes=len(payload),
             checksum=checksum,
             status=DocumentRecord.StorageStatus.ACTIVE,
             version_group_id=supersedes.version_group_id if supersedes else uuid.uuid4(),
@@ -240,8 +256,7 @@ def upload_document_record(*, actor, student, enrolment=None, upload):
     if enrolment is not None and enrolment.student_id != student.pk:
         raise DomainError("La matricula indicada no pertenece al estudiante del documento.")
     validated = validate_document_upload(upload)
-    payload = upload.read()
-    upload.seek(0)
+    payload = read_document_payload(upload, validated)
     record = _create_document_record(
         student=student,
         enrolment=enrolment,
@@ -264,8 +279,7 @@ def replace_document_record(*, actor, record, upload):
     if not record.is_active:
         raise DomainError("Solo se puede reemplazar la version vigente del documento.")
     validated = validate_document_upload(upload)
-    payload = upload.read()
-    upload.seek(0)
+    payload = read_document_payload(upload, validated)
     replacement = _create_document_record(
         student=record.student,
         teacher=record.teacher,
