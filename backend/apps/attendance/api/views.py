@@ -25,6 +25,7 @@ from apps.identity import services as identity_services
 from apps.identity.scopes import authorized_student_queryset, can_access_student
 
 from .serializers import (
+    AbsenceNotificationSerializer,
     AttendanceAlertSerializer,
     AttendanceEventCreateSerializer,
     AttendanceEventResolutionQuerySerializer,
@@ -1084,6 +1085,36 @@ class JustificationNotificationListView(GenericAPIView):
         return self.get_paginated_response(
             JustificationNotificationSerializer(page, many=True).data
         )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar mis notificaciones de inasistencia",
+        description=(
+            "RF-JOR-007: notificaciones de inasistencia dirigidas al encargado "
+            "vinculado al actor autenticado (asociacion principal del estudiante "
+            "al cierre de la jornada). Requiere "
+            "attendance_absence_notification_view y alcance vigente; solo incluye "
+            "estudiantes con relacion vigente, de modo que una relacion terminada "
+            "corta tambien las notificaciones anteriores. Una notificacion "
+            "superada indica que un registro posterior corrigio la inasistencia."
+        ),
+        tags=TAGS,
+        responses={200: AbsenceNotificationSerializer(many=True)},
+    ),
+)
+class AbsenceNotificationListView(GenericAPIView):
+    """RF-JOR-007 contract: a guardian's own absence notifications."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AbsenceNotificationSerializer
+
+    def get_queryset(self):
+        return services.list_my_absence_notifications(user=self.request.user)
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(AbsenceNotificationSerializer(page, many=True).data)
 
 
 @extend_schema_view(
