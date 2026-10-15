@@ -52,3 +52,45 @@ sobre estudiantes, instituciones o secciones NO DEBE alcanzar expedientes de doc
 - **WHEN** intenta consultar el expediente de otro docente
 - **THEN** el sistema responde 403 y registra `documents.document.read_denied` con motivo
   `missing_scope`
+
+### Requirement: Emisión individual de constancia y certificado (RF-EMI-001)
+
+El sistema DEBE permitir a un usuario con `document.issue` y alcance sobre el estudiante generar de
+forma individual una constancia de inscripción (`enrolment_certificate`) o un certificado de
+estudios (`study_certificate`). La boleta individual sigue en
+`GET /api/v1/documents/historical-cycle-reports/` (RF-EMI-005).
+
+El PDF DEBE compilarse en memoria con el generador común, con tabla de referencias cruzada
+correcta para abrir sin reparación (QA4-PDF-01), y NO DEBE almacenarse (RF-DOC-008). Cada emisión
+DEBE quedar registrada de forma inmutable con folio correlativo institucional (RF-EMI-003), código
+de verificación público (RF-EMI-009), versión de plantilla usada, SHA-256 y tamaño de los bytes
+entregados, actor y fecha, y DEBE auditarse (RF-EMI-007).
+
+Si existe una plantilla activa del tipo institucional `constancia` (constancia) o `certificate`
+(certificado), su contenido con marcadores del catálogo cerrado DEBE usarse como cuerpo; si no,
+se usa un texto base.
+
+#### Scenario: Constancia de una matrícula vigente
+
+- **GIVEN** una matrícula activa sin requisitos obligatorios pendientes
+- **WHEN** la secretaría emite la constancia
+- **THEN** recibe un PDF válido con folio y código de verificación impresos
+- **AND** queda un registro de emisión con el SHA-256 del PDF y sin archivo almacenado
+
+#### Scenario: Certificado de un ciclo abierto
+
+- **GIVEN** una matrícula cuyo ciclo sigue activo
+- **WHEN** se solicita el certificado de estudios
+- **THEN** el sistema responde 400 y no registra emisión ni consume folio
+
+#### Scenario: Verificación de integridad de la copia
+
+- **GIVEN** un documento emitido y descargado
+- **WHEN** un usuario con `document.read` sobre el estudiante envía la copia a verificar
+- **THEN** el sistema responde 204 si el SHA-256 coincide y 400 si la copia fue alterada
+
+#### Scenario: Emisión fuera de alcance
+
+- **GIVEN** un usuario con `document.issue` sobre otro estudiante
+- **WHEN** intenta emitir para este estudiante
+- **THEN** el sistema responde 403 y audita `documents.official_issuance.denied`

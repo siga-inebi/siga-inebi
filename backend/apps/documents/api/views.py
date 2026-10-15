@@ -57,6 +57,8 @@ from .serializers import (
     DocumentVerificationResponseSerializer,
     FieldTagSerializer,
     HistoricalCycleReportQuerySerializer,
+    IndividualIssuanceSerializer,
+    IssuedDocumentVerifySerializer,
     OfficialDocumentEligibilityQuerySerializer,
     OfficialDocumentEligibilityResponseSerializer,
     StorageConsumptionSerializer,
@@ -399,6 +401,85 @@ class DocumentBatchCompileView(GenericAPIView):
             actor=request.user,
         )
         return Response({"count": result["count"], "replayed": result.get("replayed", False)})
+
+
+class IndividualDocumentIssuanceView(GenericAPIView):
+    """RF-EMI-001: individual emission of a constancia or certificado."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = IndividualIssuanceSerializer
+
+    @extend_schema(
+        summary="Emitir constancia o certificado individual",
+        description=(
+            "Compila en memoria la constancia de inscripcion o el certificado de estudios "
+            "de un estudiante (RF-EMI-001) y la devuelve como PDF adjunto. El archivo no se "
+            "almacena (RF-DOC-008); se registra la emision con folio correlativo, codigo de "
+            "verificacion publico, version de plantilla, SHA-256 y tamano. Los cabezales "
+            "`X-Document-Issuance-Id`, `X-Document-Folio`, `X-Document-Checksum` y "
+            "`X-Document-Verification-Code` acompanan al archivo. Requiere `document.issue` "
+            "con alcance sobre el estudiante."
+        ),
+        request=IndividualIssuanceSerializer,
+        responses={201: OpenApiTypes.BINARY},
+        tags=OFFICIAL_ISSUANCE,
+    )
+    def post(self, request):
+        # Atomic permission first: without it the caller must not be able to
+        # tell an existing enrolment (403 later) from a missing one (404).
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        enrolment = queries.enrolment_or_404(serializer.validated_data["enrolment_id"])
+        issued = services.issue_individual_document(
+            enrolment=enrolment,
+            document_type=serializer.validated_data["document_type"],
+            actor=request.user,
+        )
+        issuance = issued.issuance
+        response = HttpResponse(
+            issued.content, content_type=issued.content_type, status=status.HTTP_201_CREATED
+        )
+        response["Content-Disposition"] = f'attachment; filename="{issued.filename}"'
+        response["X-Document-Issuance-Id"] = str(issuance.public_id)
+        response["X-Document-Folio"] = issuance.folio
+        response["X-Document-Checksum"] = issuance.checksum
+        response["X-Document-Verification-Code"] = issuance.verification_code
+        response["Access-Control-Expose-Headers"] = (
+            "Content-Disposition, X-Document-Issuance-Id, X-Document-Folio, "
+            "X-Document-Checksum, X-Document-Verification-Code"
+        )
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class IssuedDocumentIntegrityVerifyView(GenericAPIView):
+    """RF-EMI-001: prove that a file is the exact emission that was registered."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = IssuedDocumentVerifySerializer
+
+    @extend_schema(
+        summary="Verificar integridad de un documento emitido",
+        description=(
+            "Compara el SHA-256 del archivo recibido con el registrado al emitirlo. "
+            "204 si coincide; 400 si fue alterado. Requiere `document.read` con alcance "
+            "sobre el estudiante."
+        ),
+        request=IssuedDocumentVerifySerializer,
+        responses={204: None},
+        tags=OFFICIAL_ISSUANCE,
+    )
+    def post(self, request, public_id):
+        issuance = queries.document_issuance_or_404(public_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        services.verify_issued_document(
+            actor=request.user,
+            issuance=issuance,
+            payload=serializer.validated_data["file"].read(),
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class DocumentDeliveryReceiptCreateView(GenericAPIView):

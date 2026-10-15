@@ -1,7 +1,12 @@
 """Read-side queries for the documents domain."""
 
 from apps.common.exceptions import ResourceNotFoundError
-from apps.documents.models import DocumentKind, DocumentRecord, DocumentTemplate
+from apps.documents.models import (
+    DocumentIssuance,
+    DocumentKind,
+    DocumentRecord,
+    DocumentTemplate,
+)
 from apps.enrolments.models import Enrolment
 from apps.students.models import Student
 from apps.teachers.models import Teacher
@@ -86,6 +91,15 @@ def document_records_for_enrolment(enrolment):
     return DocumentRecord.objects.filter(enrolment=enrolment).order_by(
         "version_group_id", "-version_number"
     )
+
+
+def document_issuance_or_404(public_id):
+    try:
+        return DocumentIssuance.objects.select_related("student").get(public_id=public_id)
+    except DocumentIssuance.DoesNotExist as exc:
+        raise ResourceNotFoundError("DocumentIssuance not found.") from exc
+    except (ValueError, TypeError) as exc:
+        raise ResourceNotFoundError("DocumentIssuance not found.") from exc
 
 
 def teacher_or_404(public_id):

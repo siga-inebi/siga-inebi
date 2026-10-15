@@ -4,6 +4,7 @@ from apps.academics.models import Grade, Section
 from apps.documents.kind_catalog import DEFAULT_DOCUMENT_KIND_CODE
 from apps.documents.models import (
     DocumentDeliveryReceipt,
+    DocumentIssuance,
     DocumentKind,
     DocumentRecord,
     DocumentTemplate,
@@ -298,6 +299,21 @@ class DocumentUploadSerializer(serializers.Serializer):
 
 class DocumentReplaceSerializer(serializers.Serializer):
     file = serializers.FileField()
+
+
+class IndividualIssuanceSerializer(serializers.Serializer):
+    enrolment_id = serializers.UUIDField(help_text="Public ID de la matricula del estudiante.")
+    document_type = serializers.ChoiceField(
+        choices=DocumentIssuance.DocumentType.choices,
+        help_text=(
+            "`enrolment_certificate` (constancia de inscripcion vigente) o "
+            "`study_certificate` (certificado de estudios de un ciclo cerrado)."
+        ),
+    )
+
+
+class IssuedDocumentVerifySerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="PDF recibido al emitir el documento.")
 
 
 class TeacherDocumentUploadSerializer(serializers.Serializer):

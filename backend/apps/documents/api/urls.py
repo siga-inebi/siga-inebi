@@ -18,6 +18,8 @@ from .views import (
     EnrolmentDocumentRecordListView,
     FieldTagListView,
     HistoricalCycleReportView,
+    IndividualDocumentIssuanceView,
+    IssuedDocumentIntegrityVerifyView,
     OfficialDocumentEligibilityView,
     ScannedDocumentUploadView,
     StorageConsumptionView,
@@ -106,6 +108,16 @@ urlpatterns = [
         "official-issuance/batches/",
         DocumentBatchCompileView.as_view(),
         name="document-batch-compile",
+    ),
+    path(
+        "official-issuance/individual/",
+        IndividualDocumentIssuanceView.as_view(),
+        name="document-individual-issuance",
+    ),
+    path(
+        "issuances/<uuid:public_id>/verify/",
+        IssuedDocumentIntegrityVerifyView.as_view(),
+        name="document-issuance-integrity-verify",
     ),
     path(
         "verify/<str:code>/",

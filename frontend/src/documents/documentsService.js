@@ -93,6 +93,19 @@ export const documentsService = {
    * Responde 200 con `{ eligible, blocking_document_codes }` incluso cuando esta
    * bloqueada: no es un error de la peticion, es el resultado de la consulta.
    */
+  /**
+   * Emision individual de constancia o certificado (RF-EMI-001).
+   *
+   * `documentType` es `enrolment_certificate` o `study_certificate`. Devuelve
+   * `{ blob, headers }`: el PDF no se guarda en el servidor, asi que esta es la
+   * unica copia; folio, codigo de verificacion y SHA-256 llegan en cabezales.
+   */
+  issueIndividualDocument: (enrolmentId, documentType) =>
+    apiClient.postForFile(`${ROOT}/official-issuance/individual/`, {
+      enrolment_id: enrolmentId,
+      document_type: documentType,
+    }),
+
   issuanceEligibility: (enrolmentId) =>
     apiClient.get(
       withQuery(`${ROOT}/official-issuance/eligibility/`, {
