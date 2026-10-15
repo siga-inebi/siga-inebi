@@ -26,7 +26,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-JOR-004 | Cierre de jornada | Debe | attendance-governance | Not implemented | #208 | TBD | Operacion sensible |
 | RF-JOR-005 | Deteccion de inconsistencias entre fuentes | Deberia | attendance-governance | Not implemented | #209 | TBD | Requiere fuentes multiples |
 | RF-JOR-006 | Recalculo ante cambios | Deberia | attendance-governance | Not implemented | #210 | TBD | Importante para correcciones |
-| RF-JOR-007 | Alertas de asistencia | Debe | reporting-notifications | Not implemented | #211 | TBD | MVP basico |
+| RF-JOR-007 | Alertas de asistencia | Debe | reporting-notifications | Implemented | #211 | backend/tests/{unit/test_absence_notifications.py,api/test_absence_notifications_api.py,permissions/test_absence_notification_permissions.py,integration/test_absence_notification_flow.py,unit/test_reporting_services.py} | Notificacion interna al encargado principal al cerrar la jornada (INC-012); sin correo/push (ADR-0009) |
 | RF-JOR-009 | Porcentaje de asistencia del ciclo | Debe | attendance-governance | Not implemented | #213 | TBD | Indicador con advertencia reglamentaria |
 | RF-JOR-010 | Dias no computables | Deberia | attendance-governance | Not implemented | #214 | TBD | Parametro institucional |
 | RF-JOR-011 | Advertencia sobre el uso reglamentario del indicador | Deberia | attendance-governance | Not implemented | #215 | TBD | Regla de presentacion |

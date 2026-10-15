@@ -29,6 +29,7 @@ from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, NonComputableDay, TeachingAssignment
 from apps.attendance.models import (
+    AbsenceNotification,
     AttendanceAlert,
     AttendanceEvent,
     AttendancePermit,
@@ -46,12 +47,13 @@ from apps.attendance.models import (
 from apps.audit.services import declare_data_retention, record_event
 from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
-from apps.common.exceptions import DomainError
+from apps.common.exceptions import AuthorizationError, DomainError
 from apps.common.opaque import generate_opaque_identifier
 from apps.documents.services import validate_document_upload
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import active_enrolments
-from apps.students.models import Student
+from apps.identity.scopes import guardian_student_queryset
+from apps.students.models import Student, StudentGuardianRelation
 
 ORIGIN_PRECEDENCE = {
     AttendanceEvent.Origin.SCAN: 0,
@@ -1014,6 +1016,7 @@ class JornadaClosureResult:
     alerts: list
 
 
+@transaction.atomic
 def close_jornada(*, shift, event_date, as_of=None, actor=None):
     """
     RF-JOR-004: consolidate the daily status of every actively enrolled
@@ -1021,6 +1024,14 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
     an entry and who entered without a matching exit ("permanencia sin
     cierre"). The latter raises an alert for the control point staff and the
     section's coordinator. Never mutates or removes the events it reads.
+
+    RF-JOR-007: closure is the moment the system determines an absence (no
+    entry once the closing time has passed: ``ausente_pendiente_justificar``),
+    so each such student's primary guardian is notified here via
+    ``notify_absence``, inside the same transaction as the closure. A day
+    already ``ausencia_justificada`` (approved before closure) is not
+    notified: the guardian already reported it. Rerunning the closure never
+    duplicates a notification.
     """
     _require_active(shift, "la jornada")
     academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
@@ -1051,6 +1062,8 @@ def close_jornada(*, shift, event_date, as_of=None, actor=None):
         permanence_without_closure = (
             result is not None and result.entry_event is not None and exit_event is None
         )
+        if result is not None and result.status == DayStatus.ABSENT_PENDING_JUSTIFICATION:
+            notify_absence(student=student, shift=shift, absence_date=event_date, actor=actor)
         if permanence_without_closure:
             alert = _raise_alert(
                 alert_type=AttendanceAlert.AlertType.PERMANENCIA_SIN_CIERRE,
@@ -1485,6 +1498,11 @@ def recalculate_day(*, student, shift, event_date, reason, as_of=None, actor=Non
         for alert in active_inconsistencia_alerts:
             _supersede_alert(alert=alert, reason=reason, actor=actor)
             superseded_alerts.append(alert)
+        # RF-JOR-007: a prevailing entry means the day was not an absence
+        # after all; the guardian's notification is kept but marked superseded.
+        _supersede_absence_notifications(
+            student=student, absence_date=event_date, reason=reason, actor=actor
+        )
 
     record_event(
         actor=actor,
@@ -2373,6 +2391,140 @@ def list_my_justification_notifications(*, user):
     return JustificationNotification.objects.filter(recipient=user).select_related(
         "justification", "justification__student"
     )
+
+
+# --------------------------------------------------------------------------- #
+# RF-JOR-007 — notificacion de inasistencia al encargado
+# --------------------------------------------------------------------------- #
+
+
+def _primary_guardian_relation_on(*, student, on_date):
+    """
+    The student's primary ``StudentGuardianRelation`` in force on ``on_date``
+    (openspec ``autorizacion-alcance``: the primary association is the
+    default recipient of notifications), or ``None``. Only the primary one:
+    the openspec names it as *the* default destination and asks nothing of
+    the other current guardians, so they are not notified.
+    """
+    return (
+        StudentGuardianRelation.objects.filter(
+            student=student,
+            is_primary=True,
+            is_active=True,
+            starts_at__lte=on_date,
+            ends_at__isnull=True,
+            guardian__is_active=True,
+        )
+        .select_related("guardian")
+        .first()
+    )
+
+
+@transaction.atomic
+def notify_absence(*, student, shift, absence_date, actor=None):
+    """
+    RF-JOR-007: record that the student's primary guardian is notified of
+    an absence on ``absence_date``. Called by ``close_jornada`` once the day
+    is determined ``ausente_pendiente_justificar``.
+
+    Idempotent: at most one row per (student, date, reason), whatever the
+    number of closures reprocessed -- the existing row is returned as is.
+    A student with no current primary guardian is skipped without failing
+    the closure (returns ``None``); there is nobody to address it to.
+
+    A later approved justification does not touch the notification: the
+    absence did happen, the day only becomes ``ausencia_justificada``, and
+    RF-JUS-006 already notifies the resolution. A later-recorded entry that
+    turns the day into present/late supersedes it instead (see
+    ``recalculate_day``).
+    """
+    existing = AbsenceNotification.objects.filter(
+        student=student, absence_date=absence_date, reason=AbsenceNotification.Reason.ABSENCE
+    ).first()
+    if existing is not None:
+        return existing
+    relation = _primary_guardian_relation_on(student=student, on_date=absence_date)
+    if relation is None:
+        return None
+    notification, created = AbsenceNotification.objects.get_or_create(
+        student=student,
+        absence_date=absence_date,
+        reason=AbsenceNotification.Reason.ABSENCE,
+        defaults={"shift": shift, "guardian": relation.guardian, "relation": relation},
+    )
+    if created:
+        record_event(
+            actor=actor,
+            action="attendance.absence_notification.created",
+            resource="AbsenceNotification",
+            resource_identifier=str(notification.public_id),
+            context={
+                "student_id": str(student.public_id),
+                "shift_id": str(shift.public_id),
+                "absence_date": str(absence_date),
+                "guardian_id": str(relation.guardian.public_id),
+            },
+        )
+    return notification
+
+
+def _supersede_absence_notifications(*, student, absence_date, reason, actor=None):
+    """
+    RF-JOR-007 + RF-JOR-006: a day that turns out not to be an absence keeps
+    its notification (never deleted, AGENTS.md #12) but marks it superseded,
+    so the guardian sees it was corrected. Since events are never removed,
+    an entry cannot disappear later, so a superseded row never needs to be
+    reactivated.
+    """
+    notifications = AbsenceNotification.objects.filter(
+        student=student, absence_date=absence_date, superseded_at__isnull=True
+    )
+    for notification in notifications:
+        notification.superseded_at = timezone.now()
+        notification.superseded_reason = reason
+        notification.save(update_fields=["superseded_at", "superseded_reason", "updated_at"])
+        record_event(
+            actor=actor,
+            action="attendance.absence_notification.superseded",
+            resource="AbsenceNotification",
+            resource_identifier=str(notification.public_id),
+            context={
+                "student_id": str(student.public_id),
+                "absence_date": str(absence_date),
+                "reason": reason,
+            },
+        )
+
+
+def list_my_absence_notifications(*, user):
+    """
+    RF-JOR-007: the absence notifications addressed to the guardian linked
+    to ``user``, limited to students with whom that guardian has a *current*
+    relation (openspec "Corte total al terminar la asociacion": an ended
+    relation hides even the notifications sent while it was in force).
+
+    Same "own data" pattern as RF-JUS-006 and RF-HOR-010: no atomic
+    permission gates it -- the composition of the guardian role is still an
+    open institutional decision (PD-004/PD-005) -- only the account's own
+    identity does. Denied by default, and audited, for an account that is
+    not an active guardian with at least one current relation.
+    """
+    guardian = getattr(getattr(user, "person", None), "guardian_profile", None)
+    wards = guardian_student_queryset(user=user)
+    if guardian is None or not wards.exists():
+        record_event(
+            actor=user,
+            action="attendance.absence_notification.read_denied",
+            resource="AbsenceNotification",
+            resource_identifier=str(user.pk),
+            context={"result": "denied", "reason": "no_current_guardian_relation"},
+        )
+        raise AuthorizationError(
+            "La cuenta no esta vinculada a un encargado activo con una relacion vigente."
+        )
+    return AbsenceNotification.objects.filter(
+        guardian=guardian, student__in=wards.values("pk")
+    ).select_related("student__person", "shift")
 
 
 # --------------------------------------------------------------------------- #
