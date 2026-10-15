@@ -25,9 +25,9 @@ base previas permanecen en los registros.
 | [Avance de Estuardo](estuardo/informe-avance-2026-10-13.md) | Alcance vigente y pendientes D2/D5 |
 | [Ajuste de alcance de Estuardo](estuardo/ajuste-alcance.md) | Decisión comunicada para retirar D1, D3 y D4 de sus responsabilidades de evaluación |
 | [Revalidación D2 de Estuardo](estuardo/d2-evaluacion-integracion.md) | 243 pruebas aprobadas en `develop` `5ed5fd24`; no es candidato QA final |
-| [Cierre de INC-008](estuardo/informe-inc-008-2026-10-13.md) | Corrección y regresión técnica aprobadas por Roí; cierre formal autorizado por Pablo según comunicación de Estuardo, con límites de QA conservados |
+| [Cierre de INC-008](estuardo/informe-inc-008-2026-10-13.md) | Corrección y regresión técnica aprobadas por Roí; Pablo autorizó el cierre formal y comunicó aprobación de los controles adicionales de QA por medio de Estuardo, sin artefactos de esa ejecución |
 | [QA4-PDF-01](estuardo/qa4-pdf-01/README.md) | Descarga API, PDF sintético y captura legible tras corregir referencias internas |
-| [Regresión de Estuardo sobre candidato QA](estuardo/qa4-pdf-01/candidato-2026-10-14/README.md) | Commit `7f04a945` desplegado, 378 backend y 5 frontend aprobadas, PDF nuevo y JUnit; Roí aprobó con observaciones el cierre técnico en PR #602; aceptación QA pendiente |
+| [Regresión de Estuardo sobre candidato QA](estuardo/qa4-pdf-01/candidato-2026-10-14/README.md) | Commit `7f04a945` desplegado, 378 backend y 5 frontend aprobadas, PDF nuevo y JUnit; Roí aprobó con observaciones el cierre técnico en PR #602; controles adicionales aprobados según Pablo, sin artefactos adjuntos |
 | [UAT documental de Roí](estuardo/uat-roi-documentos-api-auditoria.md) | Estados reportados por escenario y límites de verificación |
 | [Seguimiento de manuales](seguimiento-manuales.md) | Estado, revisión y evidencia por manual |
 | [Preparación de usabilidad y UAT de Estuardo](estuardo/preparacion-usabilidad-uat/README.md) | Tareas y formatos listos; sesiones institucionales aún no ejecutadas |

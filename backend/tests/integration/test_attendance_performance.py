@@ -50,6 +50,8 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.postgres,
     pytest.mark.django_db(transaction=True),
+    # RF-JOR-001: captures stamped with "now" must land inside the window.
+    pytest.mark.usefixtures("operating_window_clock"),
 ]
 
 SCAN_PERMISSIONS = ["attendance_scan", "attendance_record_entry"]

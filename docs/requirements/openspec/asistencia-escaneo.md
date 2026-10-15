@@ -131,6 +131,37 @@ captura intactos, desde cualquier dispositivo.
 - **THEN** el sistema le presenta el lote pendiente con sus doce elementos
 - **AND** cada elemento conserva su hora de captura original
 
+### Requirement: Vencimiento del lote o turno de captura
+
+Al abrirse, cada lote o turno de captura DEBE recibir un tiempo asignado, configurable por
+la institución (`ATTENDANCE_CAPTURE_TURN_MINUTES`). Al vencer ese tiempo el lote DEBE dejar
+de aceptar movimientos. Sin tareas programadas (ADR-0009), el vencimiento DEBE evaluarse al
+recibir cada escaneo enviado al lote, al recuperar el lote pendiente y al confirmarlo: un lote
+vencido DEBE cerrarse en ese momento con estado vencido y dejar constancia auditable, igual
+que el cierre manual, y el envío DEBE rechazarse con el motivo `capture_batch_expired`. Los
+movimientos registrados antes del vencimiento DEBEN conservarse con su hora de captura
+original. Este vencimiento se suma al cierre manual y al cierre de jornada (RF-AUT-005).
+
+#### Scenario: Escaneo enviado a un lote vencido
+
+- **GIVEN** un operador con un lote abierto cuyo tiempo asignado ya venció
+- **WHEN** envía un escaneo dentro de ese lote
+- **THEN** el sistema cierra el lote como vencido y deja constancia en la bitácora
+- **AND** rechaza el escaneo con el motivo `capture_batch_expired` sin crear movimiento
+
+#### Scenario: Escaneo enviado a un lote vigente
+
+- **GIVEN** un operador con un lote abierto cuyo tiempo asignado no ha vencido
+- **WHEN** envía un escaneo dentro de la ventana operativa
+- **THEN** el sistema registra el movimiento asociado al lote
+
+#### Scenario: Recuperación de un lote vencido
+
+- **GIVEN** un operador cuyo lote pendiente venció mientras estaba sin sesión
+- **WHEN** consulta su lote pendiente
+- **THEN** el sistema cierra el lote como vencido y no lo ofrece para recuperación
+- **AND** al abrir un lote nuevo recibe uno distinto con un tiempo asignado nuevo
+
 ### Requirement: Idempotencia de lotes y elementos
 
 Cada lote y cada elemento DEBEN portar un identificador único generado por el cliente. El

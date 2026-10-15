@@ -16,7 +16,13 @@ from apps.reporting.models import Alert
 from tests.factories.academic import AcademicCycleFactory, SectionFactory
 from tests.factories.students import StudentFactory
 
-pytestmark = [pytest.mark.integration, pytest.mark.postgres, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.postgres,
+    pytest.mark.django_db,
+    # RF-JOR-001: captures stamped with "now" must land inside the window.
+    pytest.mark.usefixtures("operating_window_clock"),
+]
 
 
 def _enrolled_student(cycle):

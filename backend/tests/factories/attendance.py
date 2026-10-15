@@ -43,7 +43,9 @@ class AttendanceEventFactory(factory.django.DjangoModelFactory):
     movement_type = AttendanceEvent.MovementType.EXIT
     origin = AttendanceEvent.Origin.SCAN
     transmission = AttendanceEvent.Transmission.INDIVIDUAL
-    captured_at = factory.LazyFunction(timezone.now)
+    # Looked up on every call (not bound at import) so ``event_date`` and
+    # ``captured_at`` follow the same clock under ``operating_window_clock``.
+    captured_at = factory.LazyFunction(lambda: timezone.now())
 
 
 class ControlPointFactory(factory.django.DjangoModelFactory):

@@ -94,7 +94,18 @@ LOGIN_LOCKOUT_MINUTES = env_int("LOGIN_LOCKOUT_MINUTES", 10)
 DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES = env_int("DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES", 30)
 ACCOUNT_ACTIVATION_TTL_MINUTES = env_int("ACCOUNT_ACTIVATION_TTL_MINUTES", 15)
 ACCOUNT_ACTIVATION_MAX_ATTEMPTS = env_int("ACCOUNT_ACTIVATION_MAX_ATTEMPTS", 3)
+# RF-AUT-005: tiempo asignado a un turno o lote de captura desde que se abre.
+# Al vencer, el lote se cierra de forma perezosa en la siguiente solicitud que
+# lo use (ADR-0009: sin tareas programadas).
+ATTENDANCE_CAPTURE_TURN_MINUTES = env_int("ATTENDANCE_CAPTURE_TURN_MINUTES", 360)
+# RF-JOR-001: minutos despues de closing_time en que todavia se reciben
+# egresos; los ingresos siguen limitados a la ventana [apertura, cierre].
+ATTENDANCE_EXIT_GRACE_MINUTES = env_int("ATTENDANCE_EXIT_GRACE_MINUTES", 60)
 DOCUMENT_MAX_UPLOAD_SIZE_BYTES = env_int("DOCUMENT_MAX_UPLOAD_SIZE_BYTES", 10 * 1024 * 1024)
+# RF-ARC-002: las imagenes adjuntas (JPEG/PNG) se normalizan antes de guardarse:
+# lado mayor acotado y recompresion JPEG con calidad configurable.
+IMAGE_UPLOAD_MAX_DIMENSION_PX = env_int("IMAGE_UPLOAD_MAX_DIMENSION_PX", 2048)
+IMAGE_UPLOAD_JPEG_QUALITY = env_int("IMAGE_UPLOAD_JPEG_QUALITY", 85)
 # RNF-CAP-002: crecimiento estimado de almacenamiento por ciclo, con umbral
 # configurable de advertencia. El valor por defecto sigue la estimacion del
 # requerimiento (2 GiB por ciclo) y puede ajustarse por infraestructura real.

@@ -65,7 +65,12 @@ from tests.factories.identity import UserFactory
 from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
-pytestmark = [pytest.mark.unit, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.django_db,
+    # RF-JOR-001: captures stamped with "now" must land inside the window.
+    pytest.mark.usefixtures("operating_window_clock"),
+]
 
 
 def test_two_jornadas_with_different_schedules_evaluate_independently():
@@ -1543,7 +1548,9 @@ def test_derive_day_statuses_agrees_with_deriving_each_pair_on_its_own():
         tolerance_minutes=10,
         closing_time=time(16, 0),
         duplicate_suppression_minutes=5,
-        school_days=[],
+        # RF-JOR-001: every day is a school day, so captures on both sample
+        # days are received whatever weekday the suite runs on.
+        school_days=[1, 2, 3, 4, 5, 6, 7],
         effective_from=cycle.starts_on,
     )
     present, late, absent = (StudentFactory() for _ in range(3))

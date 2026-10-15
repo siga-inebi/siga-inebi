@@ -62,6 +62,20 @@ export const documentsService = {
     apiClient.post(`${ROOT}/records/${publicId}/versions/`, payload),
   verifyRecord: (publicId) =>
     apiClient.post(`${ROOT}/records/${publicId}/verify/`),
+  /**
+   * Token breve y de un solo uso para descargar un adjunto (RF-DOC-005).
+   * Responde `{ token, expires_at, download_url }`.
+   */
+  issueDownloadToken: (publicId) =>
+    apiClient.post(`${ROOT}/records/${publicId}/download-tokens/`),
+
+  /** Expediente documental del docente (RF-DOC-001). */
+  listTeacherRecords: (teacherPublicId, params) =>
+    apiClient.get(
+      withQuery(`${ROOT}/teachers/${teacherPublicId}/records/`, params)
+    ),
+  uploadTeacherRecord: (teacherPublicId, payload) =>
+    apiClient.post(`${ROOT}/teachers/${teacherPublicId}/records/`, payload),
   storageConsumption: () => apiClient.get(`${ROOT}/storage-consumption/`),
 
   /**
@@ -79,6 +93,19 @@ export const documentsService = {
    * Responde 200 con `{ eligible, blocking_document_codes }` incluso cuando esta
    * bloqueada: no es un error de la peticion, es el resultado de la consulta.
    */
+  /**
+   * Emision individual de constancia o certificado (RF-EMI-001).
+   *
+   * `documentType` es `enrolment_certificate` o `study_certificate`. Devuelve
+   * `{ blob, headers }`: el PDF no se guarda en el servidor, asi que esta es la
+   * unica copia; folio, codigo de verificacion y SHA-256 llegan en cabezales.
+   */
+  issueIndividualDocument: (enrolmentId, documentType) =>
+    apiClient.postForFile(`${ROOT}/official-issuance/individual/`, {
+      enrolment_id: enrolmentId,
+      document_type: documentType,
+    }),
+
   issuanceEligibility: (enrolmentId) =>
     apiClient.get(
       withQuery(`${ROOT}/official-issuance/eligibility/`, {

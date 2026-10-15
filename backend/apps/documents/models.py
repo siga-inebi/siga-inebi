@@ -38,7 +38,13 @@ class DocumentRecord(TimeStampedModel):
     """Persisted metadata for stored documents without allowing hard deletes.
 
     The storage byte content stays outside the database, while the metadata and
-    lineage remain auditable and linked to the student's dossier history.
+    lineage remain auditable and linked to the owner's dossier history.
+
+    RF-DOC-001: a record belongs to exactly one institutional dossier, the
+    student's or the teacher's. The owner is an explicit pair of nullable
+    foreign keys guarded by ``document_record_has_exactly_one_owner`` instead
+    of a generic relation, so the database keeps referential integrity
+    (``PROTECT``) and the existing student queries keep working unchanged.
     """
 
     objects = DocumentRecordQuerySet.as_manager()
@@ -52,6 +58,15 @@ class DocumentRecord(TimeStampedModel):
         "students.Student",
         on_delete=models.PROTECT,
         related_name="document_records",
+        null=True,
+        blank=True,
+    )
+    teacher = models.ForeignKey(
+        "teachers.Teacher",
+        on_delete=models.PROTECT,
+        related_name="document_records",
+        null=True,
+        blank=True,
     )
     enrolment = models.ForeignKey(
         "enrolments.Enrolment",
@@ -87,10 +102,26 @@ class DocumentRecord(TimeStampedModel):
                 fields=["version_group_id", "version_number"],
                 name="unique_document_record_version_in_group",
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(student__isnull=False, teacher__isnull=True)
+                    | models.Q(student__isnull=True, teacher__isnull=False)
+                ),
+                name="document_record_has_exactly_one_owner",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(enrolment__isnull=True) | models.Q(student__isnull=False),
+                name="document_record_enrolment_requires_student",
+            ),
         ]
 
     def __str__(self):
         return self.filename
+
+    @property
+    def owner(self):
+        """The dossier owner: the student or the teacher (RF-DOC-001)."""
+        return self.student if self.student_id else self.teacher
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -98,6 +129,7 @@ class DocumentRecord(TimeStampedModel):
                 DocumentRecord.objects.filter(pk=self.pk)
                 .values(
                     "student_id",
+                    "teacher_id",
                     "enrolment_id",
                     "filename",
                     "storage_key",
@@ -113,6 +145,7 @@ class DocumentRecord(TimeStampedModel):
             if original is not None:
                 immutable_fields = {
                     "student_id": self.student_id,
+                    "teacher_id": self.teacher_id,
                     "enrolment_id": self.enrolment_id,
                     "filename": self.filename,
                     "storage_key": self.storage_key,
@@ -437,3 +470,73 @@ class DocumentVerificationCode(TimeStampedModel):
 
     def delete(self, *args, **kwargs):
         raise RuntimeError("Document verification codes cannot be deleted.")
+
+
+class DocumentIssuanceQuerySet(models.QuerySet):
+    """The emission register is append-only, also for bulk operations."""
+
+    def delete(self):
+        raise RuntimeError("Document issuances cannot be deleted.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Document issuances cannot be modified.")
+
+
+class DocumentIssuance(TimeStampedModel):
+    """
+    Immutable register of an individually issued constancia or certificado
+    (RF-EMI-001, RF-EMI-003, RF-EMI-007).
+
+    It stores the evidence of the emission, never the PDF: RF-DOC-008 keeps
+    generated documents ephemeral, so the bytes are compiled on demand and
+    handed to the caller once. What stays is enough to prove a copy genuine
+    later -- the SHA-256 and size of the exact bytes delivered, the official
+    folio, the public verification code and the template version used.
+    """
+
+    objects = DocumentIssuanceQuerySet.as_manager()
+
+    class DocumentType(models.TextChoices):
+        ENROLMENT_CERTIFICATE = "enrolment_certificate", "Constancia de inscripcion"
+        STUDY_CERTIFICATE = "study_certificate", "Certificado de estudios"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="document_issuances"
+    )
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment", on_delete=models.PROTECT, related_name="document_issuances"
+    )
+    document_type = models.CharField(max_length=40, choices=DocumentType.choices)
+    folio = models.CharField(max_length=100)
+    verification_code = models.CharField(max_length=64, unique=True)
+    template_version = models.ForeignKey(
+        DocumentTemplateVersion,
+        on_delete=models.PROTECT,
+        related_name="issuances",
+        null=True,
+        blank=True,
+    )
+    checksum = models.CharField(max_length=64)
+    size_bytes = models.PositiveIntegerField()
+    issued_at = models.DateTimeField()
+    issued_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="document_issuances",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-issued_at", "-pk"]
+
+    def __str__(self):
+        return f"{self.get_document_type_display()} {self.folio}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Document issuances cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document issuances cannot be deleted.")

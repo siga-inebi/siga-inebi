@@ -1,6 +1,6 @@
 # QA4-PDF-01: regresión de descarga y legibilidad de boleta
 
-**Actualización del 14 de octubre:** la corrección está integrada en `develop` por el PR #595 y desplegada en QA mediante el commit `7f04a945d09bf77c514cf7bfe988888f2e2bfd10`. La [repetición sobre el código candidato, los JUnit, un PDF nuevo y su captura](candidato-2026-10-14/README.md) están disponibles para revisión. La descarga autenticada en el servicio QA y el dictamen independiente siguen pendientes.
+**Actualización del 14 de octubre:** la corrección está integrada en `develop` por el PR #595 y desplegada en QA mediante el commit `7f04a945d09bf77c514cf7bfe988888f2e2bfd10`. La [repetición sobre el código candidato, los JUnit, un PDF nuevo y su captura](candidato-2026-10-14/README.md) están disponibles. [Roí aprobó con observaciones el cierre técnico de QA4-PDF-01](https://github.com/siga-inebi/siga-inebi/pull/602#pullrequestreview-5521977443). Estuardo comunicó la autorización de Pablo para el cierre formal y que Pablo aprobó por su lado la descarga legible en QA. Se registra **aprobado según Pablo**; esa ejecución adicional no tiene PDF ni registro adjunto. Véase el [informe de INC-008](../informe-inc-008-2026-10-13.md).
 
 **Fecha:** 13 de octubre de 2026 (America/Guatemala).
 **Base de código:** `develop` en `68fa7753d0578abfa37a153df8a7f68e4b46a2bd`, más la corrección local del generador de PDF en esta rama. Esta ejecución **no identifica el SHA desplegado en QA**.

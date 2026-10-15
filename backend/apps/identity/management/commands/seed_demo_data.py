@@ -28,41 +28,18 @@ from apps.attendance.models import JornadaParameters
 from apps.documents.services import ensure_default_document_kinds
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
+from apps.identity.atomic_permissions import ATOMIC_PERMISSIONS, permission_codename
 from apps.identity.models import Role, RoleAssignment, ScopeGrant
 from apps.people.models import Person
 from apps.students.models import Guardian, Student, StudentGuardianRelation
 from apps.teachers.models import Teacher
 
-# Un permiso por cada operacion que alguna vista exige. La lista se quedaba
-# corta en asistencia, alertas y documentos, y el resultado era un demo donde
-# modulos enteros respondian 403 sin que nada explicara por que: el
-# administrador no puede ser el rol que no alcanza a administrar.
-PERMISSIONS = [
-    ("auth_login", "Can log in"),
-    ("auth_logout", "Can log out"),
-    ("account_create", "Can create accounts"),
-    ("account_activate", "Can issue account activation challenges"),
-    ("account_disable", "Can disable accounts"),
-    ("role_assign", "Can assign roles"),
-    ("scope_assign", "Can assign scopes"),
-    ("student_view_basic", "Can view student basic data"),
-    ("student_edit_basic", "Can edit student basic data"),
-    ("student_view_sensitive", "Can view sensitive student data"),
-    ("enrollment_create", "Can create enrollments"),
-    ("enrollment_update", "Can update enrollments"),
-    ("attendance_jornada_configure", "Can configure jornada parameters"),
-    ("attendance_record_manual", "Can record attendance manually"),
-    ("attendance_scan", "Can record attendance by scan"),
-    ("attendance_declared_close", "Can close a jornada with declared attendance"),
-    ("grade_write", "Can register grades"),
-    ("reporting_alert_view", "Can view attendance alerts"),
-    ("reporting_alert_acknowledge", "Can acknowledge attendance alerts"),
-    ("reporting_alert_evaluate", "Can re-evaluate attendance alerts"),
-    ("reporting_absence_threshold_configure", "Can configure absence thresholds"),
-    ("document_read", "Can read documents"),
-    ("document_issue", "Can issue official documents"),
-    ("audit_read", "Can read audit events"),
-]
+# Un permiso por cada operacion que alguna vista exige. La lista se escribia a
+# mano y se quedaba corta cada vez que un modulo agregaba permisos (asistencia,
+# alertas, documentos, y despues credenciales, registro de ingreso/egreso,
+# justificaciones y permisos): el demo respondia 403 sin que nada explicara por
+# que. Se deriva del catalogo atomico para que no vuelva a divergir.
+PERMISSIONS = [(permission_codename(code), name) for code, name in ATOMIC_PERMISSIONS]
 
 # El administrador del sistema recibe TODO lo publicado; el director, lo que
 # necesita para consultar y atender, sin configurar ni emitir.
@@ -401,6 +378,9 @@ class Command(BaseCommand):
             # Sin el alcance del modulo de estudiantes el administrador no puede
             # dar de alta a nadie, ni ver a quien todavia no tiene matricula.
             ScopeGrant.objects.get_or_create(assignment=assignment, module_key="students")
+            # RF-DOC-001: el expediente del docente no tiene institucion, ciclo ni
+            # seccion propios; el alcance administrativo que lo cubre es el modulo.
+            ScopeGrant.objects.get_or_create(assignment=assignment, module_key="teachers")
             ScopeGrant.objects.get_or_create(assignment=assignment, institution=institution)
             self.stdout.write(self.style.SUCCESS(f"Demo admin ready: {username}"))
         else:
@@ -611,22 +591,27 @@ class Command(BaseCommand):
 
     def seed_jornada_parameters(self, *, cycle, shifts):
         schedules = {
-            "MOR": (time(7, 30), time(12, 30)),
-            "VES": (time(13, 0), time(18, 0)),
+            "MOR": (time(6, 0), time(7, 30), time(12, 30)),
+            "VES": (time(12, 0), time(13, 0), time(18, 0)),
         }
 
         for shift in shifts:
-            entry_limit, closing = schedules.get(shift.code, (time(7, 30), time(12, 30)))
+            opening, entry_limit, closing = schedules.get(
+                shift.code, (time(6, 0), time(7, 30), time(12, 30))
+            )
             JornadaParameters.objects.get_or_create(
                 shift=shift,
                 academic_cycle=cycle,
                 effective_from=cycle.starts_on,
                 defaults={
+                    "opening_time": opening,
                     "entry_limit_time": entry_limit,
                     "tolerance_minutes": 10,
                     "closing_time": closing,
                     "duplicate_suppression_minutes": 5,
-                    "school_days": ["mon", "tue", "wed", "thu", "fri"],
+                    # ISO weekday (1=lunes .. 7=domingo), the format every
+                    # reader of ``school_days`` expects (RF-JOR-001).
+                    "school_days": [1, 2, 3, 4, 5],
                 },
             )
 

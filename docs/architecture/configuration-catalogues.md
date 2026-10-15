@@ -40,9 +40,20 @@ agregar una implica escribir el comportamiento que le corresponde.
 | Permisos atomicos y roles | `identity.{Role,RoleAssignment,ScopeGrant}` | API de identidad |
 
 Los parametros operativos (tiempos de sesion, intentos de ingreso, tamano maximo
-de adjunto, crecimiento estimado de almacenamiento, `CONN_MAX_AGE`) se leen de
+de adjunto, lado maximo y calidad JPEG de imagenes adjuntas, crecimiento
+estimado de almacenamiento, `CONN_MAX_AGE`) se leen de
 variables de entorno en `backend/config/settings/base.py`: se ajustan por
 infraestructura sin recompilar nada.
+
+Dos de ellos acotan la captura de asistencia:
+
+| Variable | Por defecto | Efecto |
+| --- | --- | --- |
+| `ATTENDANCE_EXIT_GRACE_MINUTES` | 60 | RF-JOR-001: minutos despues de `closing_time` en que todavia se reciben egresos (escaneo, lote o registro manual). Los ingresos siguen limitados a `opening_time`..`closing_time` y la regla de dia lectivo no cambia |
+| `ATTENDANCE_CAPTURE_TURN_MINUTES` | 360 | RF-AUT-005: tiempo asignado a un turno o lote de captura desde que se abre; al vencer se cierra de forma perezosa en la siguiente solicitud (ADR-0009) |
+
+`opening_time`, `closing_time` y `school_days` no son variables de entorno:
+son parametros de jornada administrables (`attendance.JornadaParameters`).
 
 ## Constantes fijadas a proposito
 
