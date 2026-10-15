@@ -1060,7 +1060,9 @@ def change_password(*, user, current_password, new_password, request=None):
 
 
 def _reset_token_digest(token):
-    return salted_hmac("identity.password_reset", token).hexdigest()
+    # El algoritmo queda explicito: los resumenes ya emitidos usan SHA-1 y el
+    # valor por defecto de salted_hmac cambia a SHA-256 en Django 2028.
+    return salted_hmac("identity.password_reset", token, algorithm="sha1").hexdigest()
 
 
 @transaction.atomic

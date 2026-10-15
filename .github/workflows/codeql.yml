@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-python@v5
         if: ${{ !github.event.repository.private && matrix.language == 'python' }}
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: |
             backend/requirements/base.txt

@@ -64,7 +64,7 @@ class Enrolment(TimeStampedModel):
                 name="unique_enrolment_per_student_section",
             ),
             models.CheckConstraint(
-                check=Q(ends_on__isnull=True) | Q(effective_on__lte=models.F("ends_on")),
+                condition=Q(ends_on__isnull=True) | Q(effective_on__lte=models.F("ends_on")),
                 name="enrolment_valid_effective_dates",
             ),
         ]

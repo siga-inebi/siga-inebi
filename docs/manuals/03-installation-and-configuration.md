@@ -7,7 +7,7 @@ Este manual permite levantar desarrollo y QA con datos sintéticos.
 ## 1. Requisitos
 
 Git, Make, Docker Engine accesible al usuario y Docker Compose v2. Las imágenes
-del repositorio proporcionan Python 3.11, Node 22 y PostgreSQL 16; en ejecución
+del repositorio proporcionan Python 3.12, Node 22 y PostgreSQL 16; en ejecución
 local se requieren esas versiones y cliente PostgreSQL 16 para respaldos.
 No se ha fijado una versión mínima verificada de Git/Docker/Compose: registrar
 las versiones usadas en [entorno QA](../quality/fase-7/entorno-y-datos.md).
@@ -123,7 +123,7 @@ fallos. No confundir salida exitosa de un subconjunto con aceptación de Fase 7.
 
 La alternativa soportada para backend local con PostgreSQL y frontend local
 está en [local setup](../development/local-setup.md). Crear `.venv` con Python
-3.11, instalar `backend/requirements/dev.txt` y ejecutar `npm ci` con Node 22.
+3.12, instalar `backend/requirements/dev.txt` y ejecutar `npm ci` con Node 22.
 Declarar variables `DATABASE_*` y orígenes locales coherentes; sus comandos de
 ejemplo usan API 8001 y UI 4173, diferentes de Compose. Las pruebas finales
 siempre emplean PostgreSQL. Ver [estrategia de pruebas](../development/testing-strategy.md).
