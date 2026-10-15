@@ -2067,6 +2067,45 @@ def test_record_scan_movement_rejects_inactive_control_point():
         )
 
 
+def test_scan_outside_institutional_calendar_or_without_jornada_parameters_is_rejected():
+    """
+    RF-JOR-001 (parcial): la recepcion de escaneos se limita a las fechas que
+    cubre un ciclo escolar del calendario institucional y que tienen parametros
+    de jornada vigentes; fuera de eso se rechaza sin crear el movimiento.
+
+    No cubre la ventana horaria diaria ni los dias no lectivos (``school_days``):
+    hoy ``record_scan_movement`` no los evalua y queda documentado como brecha
+    de implementacion.
+    """
+    parameters = JornadaParametersFactory()
+    control_point = ControlPointFactory(campus=parameters.shift.campus)
+    operator = UserFactory()
+    cycle = parameters.academic_cycle
+
+    def scan(captured_at, client_event_id, shift=parameters.shift):
+        return services.record_scan_movement(
+            student=StudentFactory(),
+            shift=shift,
+            control_point=control_point,
+            movement_type=AttendanceEvent.MovementType.ENTRY,
+            captured_at=captured_at,
+            client_event_id=client_event_id,
+            operator=operator,
+        )
+
+    with pytest.raises(DomainError, match="Ningun ciclo escolar cubre"):
+        scan(_at(cycle.ends_on + timedelta(days=30), 7, 0), "scan-outside-cycle")
+
+    unconfigured_shift = ShiftFactory(campus=parameters.shift.campus)
+    with pytest.raises(DomainError, match="no tiene parametros configurados"):
+        scan(_at(cycle.starts_on, 7, 0), "scan-without-parameters", shift=unconfigured_shift)
+
+    assert not AttendanceEvent.objects.filter(
+        client_event_id__in=["scan-outside-cycle", "scan-without-parameters"]
+    ).exists()
+    assert scan(_at(cycle.starts_on, 7, 0), "scan-inside-calendar").outcome == "created"
+
+
 def test_record_scan_movement_rejects_a_movement_type_the_control_point_does_not_allow():
     """
     Escenario 1 (RF-ASI-005): GIVEN un punto de control configurado solo
