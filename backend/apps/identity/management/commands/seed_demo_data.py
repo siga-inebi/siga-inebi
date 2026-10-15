@@ -28,42 +28,18 @@ from apps.attendance.models import JornadaParameters
 from apps.documents.services import ensure_default_document_kinds
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import EvaluationUnit
+from apps.identity.atomic_permissions import ATOMIC_PERMISSIONS, permission_codename
 from apps.identity.models import Role, RoleAssignment, ScopeGrant
 from apps.people.models import Person
 from apps.students.models import Guardian, Student, StudentGuardianRelation
 from apps.teachers.models import Teacher
 
-# Un permiso por cada operacion que alguna vista exige. La lista se quedaba
-# corta en asistencia, alertas y documentos, y el resultado era un demo donde
-# modulos enteros respondian 403 sin que nada explicara por que: el
-# administrador no puede ser el rol que no alcanza a administrar.
-PERMISSIONS = [
-    ("auth_login", "Can log in"),
-    ("auth_logout", "Can log out"),
-    ("account_create", "Can create accounts"),
-    ("account_activate", "Can issue account activation challenges"),
-    ("account_disable", "Can disable accounts"),
-    ("role_assign", "Can assign roles"),
-    ("scope_assign", "Can assign scopes"),
-    ("student_view_basic", "Can view student basic data"),
-    ("student_edit_basic", "Can edit student basic data"),
-    ("student_view_sensitive", "Can view sensitive student data"),
-    ("enrollment_create", "Can create enrollments"),
-    ("enrollment_update", "Can update enrollments"),
-    ("attendance_jornada_configure", "Can configure jornada parameters"),
-    ("attendance_record_manual", "Can record attendance manually"),
-    ("attendance_scan", "Can record attendance by scan"),
-    ("attendance_declared_close", "Can close a jornada with declared attendance"),
-    ("grade_write", "Can register grades"),
-    ("reporting_alert_view", "Can view attendance alerts"),
-    ("reporting_alert_acknowledge", "Can acknowledge attendance alerts"),
-    ("reporting_alert_evaluate", "Can re-evaluate attendance alerts"),
-    ("reporting_absence_threshold_configure", "Can configure absence thresholds"),
-    ("document_read", "Can read documents"),
-    ("document_upload", "Can upload documents"),
-    ("document_issue", "Can issue official documents"),
-    ("audit_read", "Can read audit events"),
-]
+# Un permiso por cada operacion que alguna vista exige. La lista se escribia a
+# mano y se quedaba corta cada vez que un modulo agregaba permisos (asistencia,
+# alertas, documentos, y despues credenciales, registro de ingreso/egreso,
+# justificaciones y permisos): el demo respondia 403 sin que nada explicara por
+# que. Se deriva del catalogo atomico para que no vuelva a divergir.
+PERMISSIONS = [(permission_codename(code), name) for code, name in ATOMIC_PERMISSIONS]
 
 # El administrador del sistema recibe TODO lo publicado; el director, lo que
 # necesita para consultar y atender, sin configurar ni emitir.
