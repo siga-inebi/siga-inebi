@@ -21,8 +21,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Same detection as ci.yml (scripts/ci/detect-changes.mjs). The matrix stays
+  # static so the check names never change: a language whose area did not
+  # change finishes in seconds with its steps skipped. The weekly schedule
+  # always analyses everything.
+  changes:
+    name: codeql-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed areas
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        run: node scripts/ci/detect-changes.mjs ci
+
   analyze:
     name: codeql-analyze
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -31,21 +61,31 @@ jobs:
         language:
           - python
           - javascript
+    env:
+      # Fail safe: if detection failed, analyse every language.
+      RUN_ANALYSIS: >-
+        ${{ needs.changes.result != 'success'
+        || (matrix.language == 'python' && needs.changes.outputs.backend == 'true')
+        || (matrix.language == 'javascript' && needs.changes.outputs.frontend == 'true') }}
     steps:
+      - name: Report skipped language
+        if: ${{ env.RUN_ANALYSIS != 'true' }}
+        run: echo "Sin cambios en el área de ${{ matrix.language }}; el análisis se omite." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Skip on private repos without guaranteed GHAS support
         if: ${{ github.event.repository.private }}
         run: echo "CodeQL left as informational on private repositories unless GitHub Advanced Security is enabled."
 
       - uses: actions/checkout@v4
-        if: ${{ !github.event.repository.private }}
+        if: ${{ !github.event.repository.private && env.RUN_ANALYSIS == 'true' }}
 
       - uses: github/codeql-action/init@v3
-        if: ${{ !github.event.repository.private }}
+        if: ${{ !github.event.repository.private && env.RUN_ANALYSIS == 'true' }}
         with:
           languages: ${{ matrix.language }}
 
       - uses: actions/setup-python@v5
-        if: ${{ !github.event.repository.private && matrix.language == 'python' }}
+        if: ${{ !github.event.repository.private && env.RUN_ANALYSIS == 'true' && matrix.language == 'python' }}
         with:
           python-version: "3.12"
           cache: pip
@@ -54,26 +94,26 @@ jobs:
             backend/requirements/dev.txt
 
       - name: Install backend dependencies
-        if: ${{ !github.event.repository.private && matrix.language == 'python' }}
+        if: ${{ !github.event.repository.private && env.RUN_ANALYSIS == 'true' && matrix.language == 'python' }}
         working-directory: backend
         run: pip install -r requirements/dev.txt
 
       - uses: actions/setup-node@v4
-        if: ${{ !github.event.repository.private && matrix.language == 'javascript' }}
+        if: ${{ !github.event.repository.private && env.RUN_ANALYSIS == 'true' && matrix.language == 'javascript' }}
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
-        if: ${{ !github.event.repository.private && matrix.language == 'javascript' }}
+        if: ${{ !github.event.repository.private && env.RUN_ANALYSIS == 'true' && matrix.language == 'javascript' }}
         working-directory: frontend
         run: npm ci
 
       - uses: github/codeql-action/autobuild@v3
-        if: ${{ !github.event.repository.private }}
+        if: ${{ !github.event.repository.private && env.RUN_ANALYSIS == 'true' }}
 
       - uses: github/codeql-action/analyze@v3
-        if: ${{ !github.event.repository.private }}
+        if: ${{ !github.event.repository.private && env.RUN_ANALYSIS == 'true' }}
         with:
           category: "/language:${{ matrix.language }}"
