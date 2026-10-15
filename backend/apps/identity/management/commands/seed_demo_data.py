@@ -60,6 +60,7 @@ PERMISSIONS = [
     ("reporting_alert_evaluate", "Can re-evaluate attendance alerts"),
     ("reporting_absence_threshold_configure", "Can configure absence thresholds"),
     ("document_read", "Can read documents"),
+    ("document_upload", "Can upload documents"),
     ("document_issue", "Can issue official documents"),
     ("audit_read", "Can read audit events"),
 ]
@@ -401,6 +402,9 @@ class Command(BaseCommand):
             # Sin el alcance del modulo de estudiantes el administrador no puede
             # dar de alta a nadie, ni ver a quien todavia no tiene matricula.
             ScopeGrant.objects.get_or_create(assignment=assignment, module_key="students")
+            # RF-DOC-001: el expediente del docente no tiene institucion, ciclo ni
+            # seccion propios; el alcance administrativo que lo cubre es el modulo.
+            ScopeGrant.objects.get_or_create(assignment=assignment, module_key="teachers")
             ScopeGrant.objects.get_or_create(assignment=assignment, institution=institution)
             self.stdout.write(self.style.SUCCESS(f"Demo admin ready: {username}"))
         else:

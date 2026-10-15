@@ -21,6 +21,16 @@ import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { BooleanCell, CodeCell } from "@ui/table/cells.jsx";
 import { formatDateTime } from "@shared/utils/format.js";
+import {
+  downloadBlob,
+  filenameFromDisposition,
+} from "@shared/utils/download.js";
+
+/** Emision individual disponible desde el expediente (RF-EMI-001). */
+const INDIVIDUAL_DOCUMENTS = [
+  { type: "enrolment_certificate", label: "Emitir constancia" },
+  { type: "study_certificate", label: "Emitir certificado" },
+];
 
 const DOCUMENT_FIELDS = [
   {
@@ -127,6 +137,38 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
     pageSize: PAGE_SIZE,
   });
   const [uploading, setUploading] = useState(false);
+  const [issuing, setIssuing] = useState("");
+  const [issued, setIssued] = useState(null);
+  const [issueError, setIssueError] = useState("");
+
+  // El PDF no se guarda en el servidor (RF-DOC-008): esta descarga es la copia
+  // que se imprime. Folio y codigo se muestran para poder anotarlos o verificar.
+  const handleIssue = async (documentType) => {
+    setIssuing(documentType);
+    setIssueError("");
+    setIssued(null);
+    try {
+      const { blob, headers } = await documentsService.issueIndividualDocument(
+        enrolment.public_id,
+        documentType
+      );
+      downloadBlob(
+        filenameFromDisposition(
+          headers.get("Content-Disposition"),
+          `${documentType}.pdf`
+        ),
+        blob
+      );
+      setIssued({
+        folio: headers.get("X-Document-Folio"),
+        code: headers.get("X-Document-Verification-Code"),
+      });
+    } catch (requestError) {
+      setIssueError(requestError.message);
+    } finally {
+      setIssuing("");
+    }
+  };
 
   // La elegibilidad se recalcula cada vez que cambia la lista de requisitos:
   // entregar el ultimo documento pendiente es justo lo que desbloquea la emision.
@@ -187,6 +229,16 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
             >
               Adjuntar respaldo
             </Button>
+            {INDIVIDUAL_DOCUMENTS.map((option) => (
+              <Button
+                disabled={Boolean(issuing)}
+                key={option.type}
+                onClick={() => handleIssue(option.type)}
+                variant="outlined"
+              >
+                {option.label}
+              </Button>
+            ))}
           </>
         }
         onClose={onClose}
@@ -210,6 +262,14 @@ export function EnrolmentDocumentsWindow({ enrolment, onClose }) {
                   </Typography>
                 </>
               )}
+            </Alert>
+          ) : null}
+
+          {issueError ? <Alert severity="error">{issueError}</Alert> : null}
+          {issued ? (
+            <Alert severity="success">
+              Documento emitido. Folio {issued.folio}; codigo de verificacion{" "}
+              {issued.code}.
             </Alert>
           ) : null}
 

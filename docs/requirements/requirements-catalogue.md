@@ -26,7 +26,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-JOR-004 | Cierre de jornada | Debe | attendance-governance | Not implemented | #208 | TBD | Operacion sensible |
 | RF-JOR-005 | Deteccion de inconsistencias entre fuentes | Deberia | attendance-governance | Not implemented | #209 | TBD | Requiere fuentes multiples |
 | RF-JOR-006 | Recalculo ante cambios | Deberia | attendance-governance | Not implemented | #210 | TBD | Importante para correcciones |
-| RF-JOR-007 | Alertas de asistencia | Debe | reporting-notifications | Not implemented | #211 | TBD | MVP basico |
+| RF-JOR-007 | Alertas de asistencia | Debe | reporting-notifications | Implemented | #211 | backend/tests/{unit/test_absence_notifications.py,api/test_absence_notifications_api.py,permissions/test_absence_notification_permissions.py,integration/test_absence_notification_flow.py,unit/test_reporting_services.py} | Notificacion interna al encargado principal al cerrar la jornada (INC-012); sin correo/push (ADR-0009) |
 | RF-JOR-009 | Porcentaje de asistencia del ciclo | Debe | attendance-governance | Not implemented | #213 | TBD | Indicador con advertencia reglamentaria |
 | RF-JOR-010 | Dias no computables | Deberia | attendance-governance | Not implemented | #214 | TBD | Parametro institucional |
 | RF-JOR-011 | Advertencia sobre el uso reglamentario del indicador | Deberia | attendance-governance | Not implemented | #215 | TBD | Regla de presentacion |
@@ -53,7 +53,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-ARC-005 | Consumo de almacenamiento consultable | Deberia | file-storage | Not implemented | #82 | TBD | Para monitoreo |
 | RF-ARC-006 | Retencion de adjuntos de justificacion | Deberia | document-management | Implemented | #83 | backend/tests/unit/test_attendance_services.py; backend/apps/attendance/services.py | Declaracion de retencion por adjunto con plazo configurable, sin purga automatica ni borrado fisico |
 | RF-ARC-007 | Los documentos no se eliminan | Debe | document-management | Implemented | #84 | backend/apps/documents/models.py; backend/apps/enrolments/models.py; backend/tests/unit/test_documents_services.py | Preferir estados |
-| RF-DOC-001 | Vinculacion del documento | Debe | document-management | Implemented | #146 | backend/apps/documents/models.py; backend/apps/documents/services.py | Expediente y procesos |
+| RF-DOC-001 | Vinculacion del documento | Debe | document-management | Implemented | #146 | backend/apps/documents/models.py; backend/apps/documents/services.py; backend/tests/api/test_teacher_documents_api.py | Expediente del estudiante y del docente |
 | RF-DOC-002 | Catalogo de tipos de documento | Debe | document-management | Implemented | #147 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Configurable |
 | RF-DOC-003 | Los requisitos documentales se declaran en la matricula | Debe | enrollment-lifecycle | Implemented | #148 | backend/apps/enrolments/models.py; backend/apps/enrolments/services.py; backend/tests/unit/test_enrolments_services.py | Cruza matricula y documentos |
 | RF-DOC-004 | Acceso segun el alcance | Debe | identity-access | Implemented | #149 | backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Lectura restringida |
@@ -111,7 +111,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-RES-007 | Congelamiento al cierre del ciclo | Debe | school-cycle | Not implemented | #261 | TBD | Cruza cierre y resultados |
 | RF-RES-008 | Boleta de calificaciones | Debe | document-generation | Not implemented | #262 | TBD | Nucleo documental |
 | RF-RES-009 | Trazabilidad del resultado | Deberia | audit-compliance | Not implemented | #263 | TBD | Posterior pero importante |
-| RF-EMI-001 | Emision individual | Debe | document-generation | Implemented | #156 | backend/tests/unit/test_documents_services.py | Nucleo emision |
+| RF-EMI-001 | Emision individual | Debe | document-generation | Implemented | #156 | backend/tests/unit/test_documents_individual_issuance.py; backend/tests/api/test_individual_issuance_api.py; backend/tests/integration/test_individual_issuance_flow.py | Nucleo emision: constancia y certificado individuales por API |
 | RF-EMI-002 | Fecha y hora de generacion en el documento | Debe | document-generation | Implemented | #157 | backend/tests/unit/test_documents_services.py | Metadato obligatorio |
 | RF-EMI-003 | Folio correlativo de documentos oficiales | Debe | document-generation | Implemented | #158 | backend/tests/unit/test_documents_services.py; backend/apps/documents/migrations/0005_officialfolio.py | Control institucional |
 | RF-EMI-004 | Restricciones de emision | Deberia | document-generation | Not implemented | #159 | TBD | Regla posterior detallada |

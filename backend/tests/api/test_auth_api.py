@@ -1,3 +1,7 @@
+import json
+import os
+import subprocess
+import sys
 from datetime import timedelta
 
 import pytest
@@ -168,3 +172,75 @@ def test_expired_lock_allows_login_and_resets_counter(client):
     user.refresh_from_db()
     assert user.failed_login_attempts == 0
     assert user.locked_until is None
+
+
+_COOKIE_SETTINGS = (
+    "SESSION_COOKIE_HTTPONLY",
+    "SESSION_COOKIE_SECURE",
+    "SESSION_COOKIE_SAMESITE",
+    "CSRF_COOKIE_SECURE",
+    "CSRF_COOKIE_SAMESITE",
+)
+
+
+def _cookie_settings_of(module, environment):
+    """Import a settings profile in a clean interpreter, as the server would."""
+    env = {
+        **os.environ,
+        "DJANGO_SECRET_KEY": "cookie-profile-test-only",
+        "DJANGO_ALLOWED_HOSTS": "localhost",
+        "DJANGO_ENVIRONMENT": environment,
+        "DATABASE_ENGINE": "postgresql",
+    }
+    script = (
+        "import json\n"
+        "from django.conf import global_settings as g\n"
+        f"from config.settings import {module} as s\n"
+        f"names = {list(_COOKIE_SETTINGS)!r}\n"
+        "print(json.dumps({n: getattr(s, n, getattr(g, n)) for n in names}))\n"
+    )
+    result = subprocess.run(  # noqa: S603 - fixed Python snippet with synthetic settings
+        [sys.executable, "-c", script], capture_output=True, text=True, env=env, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@pytest.mark.api
+@pytest.mark.security
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("module", "environment"),
+    [("base", "staging"), ("base", "production"), ("production", "production")],
+)
+def test_login_sets_session_cookie_with_httponly_secure_and_samesite(client, module, environment):
+    """
+    RNF-SEG-001: con el perfil base (fuera de desarrollo) y con el perfil de
+    produccion -- no solo el de Cloud Run -- el login real emite la cookie de
+    sesion con HttpOnly, Secure y SameSite=Lax/Strict, y la cookie CSRF con
+    Secure y SameSite. Se leen los valores del perfil importado en limpio y se
+    verifican sobre las cabeceras Set-Cookie de la respuesta.
+    """
+    profile = _cookie_settings_of(module, environment)
+    user = UserFactory(password="demo-pass-123")
+
+    with override_settings(**profile):
+        csrf_response = client.get(reverse("auth-login"))
+        login_response = client.post(
+            reverse("auth-login"),
+            {"username": user.username, "password": "demo-pass-123"},
+        )
+
+    assert login_response.status_code == 200
+    session_cookie = login_response.cookies["sessionid"]
+    assert session_cookie["httponly"] is True
+    assert session_cookie["secure"] is True
+    assert session_cookie["samesite"] in {"Lax", "Strict"}
+    set_cookie = session_cookie.output()
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+    assert "SameSite=" in set_cookie
+
+    csrf_cookie = csrf_response.cookies["csrftoken"]
+    assert csrf_cookie["secure"] is True
+    assert csrf_cookie["samesite"] in {"Lax", "Strict"}
