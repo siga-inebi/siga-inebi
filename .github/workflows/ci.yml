@@ -5,19 +5,31 @@ on:
     branches:
       - develop
       - main
-  # develop runs this suite through deploy-qa.yml, which only deploys when it passes.
+  # Pushes to develop do not trigger this file: deploy-qa.yml checks this
+  # workflow's PR run (gate job) and only reruns it in full as a fallback.
   push:
     branches:
       - main
   workflow_call:
+    inputs:
+      full_run:
+        description: "Corre todos los jobs sin mirar el diff (deploy-qa.yml lo usa como respaldo)."
+        type: boolean
+        default: true
   workflow_dispatch:
+    inputs:
+      diff_base:
+        description: "Opcional: commit o rama contra la que calcular el diff. Vacío = suite completa."
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
+# A new push to a PR cancels its previous run; other events never cancel.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHON_VERSION: "3.12"
@@ -29,8 +41,44 @@ env:
   POSTGRES_PORT: "5432"
 
 jobs:
+  # Decides which areas changed (scripts/ci/detect-changes.mjs). Heavy jobs
+  # keep their names and are skipped by `if:`, which a required check accepts.
+  # Path filters at workflow level are not used: they would leave a required
+  # check pending forever. If this job fails, every job runs (fail safe).
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      docker: ${{ steps.detect.outputs.docker }}
+      workflows: ${{ steps.detect.outputs.workflows }}
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test change detection
+        run: node --test scripts/ci/detect-changes.test.mjs scripts/ci/ci-gate.test.mjs
+
+      - name: Detect changed areas
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+          FULL_RUN: ${{ inputs.full_run }}
+          DIFF_BASE: ${{ inputs.diff_base }}
+        run: node scripts/ci/detect-changes.mjs ci
+
   backend-lint:
     name: backend-lint
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -89,6 +137,8 @@ jobs:
 
   backend-tests:
     name: backend-tests
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -120,22 +170,6 @@ jobs:
         working-directory: backend
         run: pip install -r requirements/dev.txt
 
-      - name: Migrate test database
-        working-directory: backend
-        env:
-          DJANGO_SETTINGS_MODULE: config.settings.test
-          DATABASE_ENGINE: postgresql
-          DATABASE_NAME: ${{ env.POSTGRES_DB }}
-          DATABASE_USER: ${{ env.POSTGRES_USER }}
-          DATABASE_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
-          DATABASE_HOST: ${{ env.POSTGRES_HOST }}
-          DATABASE_PORT: ${{ env.POSTGRES_PORT }}
-          DJANGO_SECRET_KEY: test-secret-key
-          DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
-          TIME_ZONE: America/Guatemala
-        run: |
-          python manage.py migrate --noinput
-
       - name: Pytest with coverage
         working-directory: backend
         env:
@@ -149,8 +183,15 @@ jobs:
           DJANGO_SECRET_KEY: test-secret-key
           DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
           TIME_ZONE: America/Guatemala
+          # Python 3.12 sys.monitoring tracer: same line coverage, less overhead.
+          COVERAGE_CORE: sysmon
+        # pytest-django creates one database per xdist worker (test_<db>_gwN)
+        # and runs every migration there, so a separate `migrate` step is not
+        # needed. pytest-cov merges the workers' coverage before --cov-fail-under.
+        # worksteal rebalances the slow tests collected last (migrations,
+        # backup drills) instead of queueing them behind one worker.
         run: |
-          pytest
+          pytest -n auto --dist worksteal --durations=15
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -161,6 +202,8 @@ jobs:
 
   backend-security:
     name: backend-security
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -188,6 +231,8 @@ jobs:
 
   frontend-lint:
     name: frontend-lint
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -213,6 +258,8 @@ jobs:
 
   frontend-tests:
     name: frontend-tests
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -241,6 +288,8 @@ jobs:
 
   frontend-build:
     name: frontend-build
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.frontend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -262,6 +311,8 @@ jobs:
 
   docker-integration:
     name: docker-integration
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docker == 'true' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

@@ -5,6 +5,15 @@ on:
     branches:
       - develop
   workflow_dispatch:
+    inputs:
+      full_ci:
+        description: "Ignora el gate y vuelve a correr ci.yml completo antes de desplegar."
+        type: boolean
+        default: false
+      force_migrations:
+        description: "Ejecuta el job de migraciones aunque no haya cambiado ninguna."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -25,18 +34,243 @@ env:
   WIF_PROVIDER: projects/997189930810/locations/global/workloadIdentityPools/siga-inebi-qa-github/providers/github-actions
   DEPLOYER_SA: siga-inebi-qa-deployer@precise-blend-428821-e0.iam.gserviceaccount.com
 
+# Flujo (issue #627):
+#   plan ──┬── gate ── ci (respaldo, solo si gate no verifica) ──┐
+#          ├── build-backend  (solo si cambió su imagen) ─────────┼── deploy-qa
+#          └── build-frontend (solo si cambió su imagen) ─────────┘
+# deploy-qa nunca corre sin evidencia de CI en verde: o el gate verificó la
+# corrida de ci.yml del PR fusionado, o el respaldo terminó en success.
 jobs:
-  # Full CI suite; any failing job blocks the deploy.
+  # Compares this commit with the one QA is running (read from the tags of the
+  # backend and frontend images in Cloud Run). Unknown -> everything changed.
+  plan:
+    name: plan
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 10
+    outputs:
+      deployed_sha: ${{ steps.deployed.outputs.sha }}
+      deployed_reason: ${{ steps.deployed.outputs.reason }}
+      backend_current: ${{ steps.deployed.outputs.backend_current }}
+      frontend_current: ${{ steps.deployed.outputs.frontend_current }}
+      backend_build: ${{ steps.plan.outputs.backend_build }}
+      frontend_build: ${{ steps.plan.outputs.frontend_build }}
+      run_migrations: ${{ steps.plan.outputs.run_migrations }}
+      plan_reason: ${{ steps.plan.outputs.plan_reason }}
+      required_ci_jobs: ${{ steps.plan.outputs.required_ci_jobs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Resolve deployed commit
+        id: deployed
+        run: |
+          set -uo pipefail
+          repository="${REGISTRY##*/}"
+          # Digest the service template runs for one container ("" if unknown).
+          service_json="$(gcloud run services describe "$SERVICE" \
+            --project="$PROJECT_ID" --region="$REGION" --format=json 2>/dev/null || echo '{}')"
+          current_digest() {
+            local ref
+            ref="$(jq -r --arg n "$1" \
+              '.spec.template.spec.containers[]? | select(.name == $n) | .image' <<<"$service_json")"
+            case "$ref" in
+              *@sha256:*) echo "${ref##*@}" ;;
+              "") echo "" ;;
+              *) gcloud artifacts docker images describe "$ref" --project="$PROJECT_ID" \
+                   --format='value(image_summary.digest)' 2>/dev/null || echo "" ;;
+            esac
+          }
+          # Tags (commit SHAs) attached to a digest.
+          tags_for() {
+            {
+              gcloud artifacts tags list --project="$PROJECT_ID" --location="$REGION" \
+                --repository="$repository" --package="$1" --format=json 2>/dev/null \
+                | jq -r --arg d "$2" '.[]? | select((.version // "") | endswith("/versions/" + $d))
+                    | .name | split("/") | last'
+              gcloud artifacts docker images list "$REGISTRY/$1" --include-tags \
+                --project="$PROJECT_ID" --format=json 2>/dev/null \
+                | jq -r --arg d "$2" '.[]? | select((.version // "") == $d) | .tags
+                    | if type == "array" then .[] else (. // "" | split(",")[]) end
+                    | gsub(" "; "") | split("/") | last'
+            } | grep -E '^[0-9a-f]{40}$' | sort -u
+          }
+          backend_digest="$(current_digest backend)"
+          frontend_digest="$(current_digest frontend)"
+          sha=""
+          reason=""
+          if [ -z "$backend_digest" ] || [ -z "$frontend_digest" ]; then
+            reason="no se pudo leer la imagen actual del servicio"
+          else
+            echo "backend_current=$REGISTRY/backend@$backend_digest" >> "$GITHUB_OUTPUT"
+            echo "frontend_current=$REGISTRY/frontend@$frontend_digest" >> "$GITHUB_OUTPUT"
+            # A commit both running images were built (or re-tagged) for.
+            best_ts=0
+            for candidate in $(comm -12 <(tags_for backend "$backend_digest") \
+                                        <(tags_for frontend "$frontend_digest")); do
+              git cat-file -e "${candidate}^{commit}" 2>/dev/null || continue
+              ts="$(git show -s --format=%ct "$candidate")"
+              if [ "$ts" -gt "$best_ts" ]; then sha="$candidate"; best_ts="$ts"; fi
+            done
+            [ -n "$sha" ] || reason="las imágenes desplegadas no tienen una etiqueta de commit conocida"
+          fi
+          [ -n "$sha" ] && reason="SHA leído de las etiquetas de las imágenes en Cloud Run"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "Desplegado: ${sha:-desconocido} ($reason)"
+
+      - name: Plan builds and migrations
+        id: plan
+        env:
+          DEPLOYED_SHA: ${{ steps.deployed.outputs.sha }}
+          HEAD_SHA: ${{ github.sha }}
+          FORCE_MIGRATIONS: ${{ inputs.force_migrations }}
+        run: node scripts/ci/detect-changes.mjs deploy
+
+  # Seconds instead of a full CI rerun: accepts the ci.yml run of the merged PR
+  # when its head tree is exactly the pushed tree (scripts/ci/ci-gate.mjs).
+  gate:
+    name: gate
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+      statuses: read
+    timeout-minutes: 5
+    outputs:
+      verified: ${{ steps.gate.outputs.verified }}
+      reason: ${{ steps.gate.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/ci
+
+      - name: Verify CI of the merged PR
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_FULL_CI: ${{ inputs.full_ci }}
+          REQUIRED_CI_JOBS: ${{ needs.plan.outputs.required_ci_jobs }}
+        run: node scripts/ci/ci-gate.mjs
+
+  # Fallback: the full suite, exactly as before, whenever the gate cannot
+  # verify (direct push, admin merge, stale branch, API error, full_ci=true).
   ci:
     name: ci
+    needs: [plan, gate]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.gate.outputs.verified != 'true' }}
     uses: ./.github/workflows/ci.yml
+    with:
+      full_run: true
     permissions:
       contents: read
 
+  build-backend:
+    name: build-backend
+    needs: plan
+    if: needs.plan.outputs.backend_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.cloud
+          target: backend
+          push: true
+          tags: ${{ env.REGISTRY }}/backend:${{ github.sha }}
+          # Plain image manifest, as `docker build` + `docker push` produced.
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=qa-backend
+          cache-to: type=gha,mode=max,scope=qa-backend
+
+  build-frontend:
+    name: build-frontend
+    needs: plan
+    if: needs.plan.outputs.frontend_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.cloud
+          target: frontend
+          push: true
+          tags: ${{ env.REGISTRY }}/frontend:${{ github.sha }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=qa-frontend
+          cache-to: type=gha,mode=max,scope=qa-frontend
+
   deploy:
     name: deploy-qa
-    needs: ci
-    if: github.ref == 'refs/heads/develop'
+    needs: [plan, gate, ci, build-backend, build-frontend]
+    # Never without CI evidence: the gate verified the PR run, or the fallback
+    # passed. A build job may only be skipped when the plan said "reuse".
+    if: >-
+      ${{ !cancelled()
+      && github.ref == 'refs/heads/develop'
+      && needs.plan.result == 'success'
+      && (needs.gate.outputs.verified == 'true' || needs.ci.result == 'success')
+      && (needs.build-backend.result == 'success'
+          || (needs.build-backend.result == 'skipped' && needs.plan.outputs.backend_build != 'true'))
+      && (needs.build-frontend.result == 'success'
+          || (needs.build-frontend.result == 'skipped' && needs.plan.outputs.frontend_build != 'true')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -56,17 +290,25 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
-      - name: Build and push backend image
+      # An image whose inputs did not change since the deployed commit is not
+      # rebuilt: its running digest gets this commit's tag, so the steps below
+      # (and the next deploy's plan) treat it like a fresh build.
+      - name: Reuse unchanged images
+        env:
+          BACKEND_BUILD: ${{ needs.plan.outputs.backend_build }}
+          FRONTEND_BUILD: ${{ needs.plan.outputs.frontend_build }}
+          BACKEND_CURRENT: ${{ needs.plan.outputs.backend_current }}
+          FRONTEND_CURRENT: ${{ needs.plan.outputs.frontend_current }}
         run: |
           set -euo pipefail
-          docker build --file Dockerfile.cloud --target backend --tag "$REGISTRY/backend:$GITHUB_SHA" .
-          docker push "$REGISTRY/backend:$GITHUB_SHA"
-
-      - name: Build and push frontend image
-        run: |
-          set -euo pipefail
-          docker build --file Dockerfile.cloud --target frontend --tag "$REGISTRY/frontend:$GITHUB_SHA" .
-          docker push "$REGISTRY/frontend:$GITHUB_SHA"
+          if [ "$BACKEND_BUILD" != "true" ]; then
+            test -n "$BACKEND_CURRENT"
+            gcloud artifacts docker tags add "$BACKEND_CURRENT" "$REGISTRY/backend:$GITHUB_SHA" --quiet
+          fi
+          if [ "$FRONTEND_BUILD" != "true" ]; then
+            test -n "$FRONTEND_CURRENT"
+            gcloud artifacts docker tags add "$FRONTEND_CURRENT" "$REGISTRY/frontend:$GITHUB_SHA" --quiet
+          fi
 
       - name: Resolve image digests
         id: digests
@@ -92,6 +334,7 @@ jobs:
           done
 
       - name: Run migrations
+        if: needs.plan.outputs.run_migrations == 'true'
         run: |
           set -euo pipefail
           gcloud run jobs execute "$MIGRATE_JOB" --wait \
@@ -124,17 +367,47 @@ jobs:
         env:
           BACKEND_IMAGE: ${{ steps.digests.outputs.backend }}
           FRONTEND_IMAGE: ${{ steps.digests.outputs.frontend }}
+          DEPLOYED_SHA: ${{ needs.plan.outputs.deployed_sha }}
+          DEPLOYED_REASON: ${{ needs.plan.outputs.deployed_reason }}
+          PLAN_REASON: ${{ needs.plan.outputs.plan_reason }}
+          BACKEND_BUILD: ${{ needs.plan.outputs.backend_build }}
+          FRONTEND_BUILD: ${{ needs.plan.outputs.frontend_build }}
+          RUN_MIGRATIONS: ${{ needs.plan.outputs.run_migrations }}
+          FORCE_MIGRATIONS: ${{ inputs.force_migrations }}
+          GATE_VERIFIED: ${{ needs.gate.outputs.verified }}
+          GATE_REASON: ${{ needs.gate.outputs.reason }}
+          CI_RESULT: ${{ needs.ci.result }}
         run: |
           set -euo pipefail
           revision="$(gcloud run services describe "$SERVICE" \
             --project="$PROJECT_ID" --region="$REGION" \
             --format='value(status.latestReadyRevisionName)' || echo 'no disponible')"
+          image_action() {
+            if [ "$1" = "true" ]; then echo "reconstruida"; return; fi
+            echo "reutilizada (sin cambios desde \`${DEPLOYED_SHA:0:12}\`)"
+          }
+          if [ "$RUN_MIGRATIONS" = "true" ]; then
+            if [ "$FORCE_MIGRATIONS" = "true" ]; then migrations="ejecutadas (force_migrations)";
+            else migrations="ejecutadas (${PLAN_REASON})"; fi
+          else
+            migrations="omitidas: ninguna migración cambió desde \`${DEPLOYED_SHA:0:12}\`"
+          fi
+          if [ "$GATE_VERIFIED" = "true" ]; then
+            ci="gate: ${GATE_REASON}; ci.yml no se repitió"
+          else
+            ci="respaldo ci.yml completo (${CI_RESULT}); gate: ${GATE_REASON:-sin resultado}"
+          fi
           {
             echo "## Despliegue QA"
             echo ""
             echo "| Campo | Valor |"
             echo "| --- | --- |"
             echo "| Commit | \`$GITHUB_SHA\` |"
+            echo "| SHA desplegado antes | \`${DEPLOYED_SHA:-desconocido}\` (${DEPLOYED_REASON}) |"
+            echo "| Evidencia de CI | ${ci} |"
+            echo "| Imagen backend | $(image_action "$BACKEND_BUILD") |"
+            echo "| Imagen frontend | $(image_action "$FRONTEND_BUILD") |"
+            echo "| Migraciones | ${migrations} |"
             echo "| Backend | \`${BACKEND_IMAGE:-no publicado}\` |"
             echo "| Frontend | \`${FRONTEND_IMAGE:-no publicado}\` |"
             echo "| Revisión lista | \`${revision}\` |"
