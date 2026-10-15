@@ -93,6 +93,10 @@ DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES = env_int("DEFAULT_SESSION_IDLE_TIMEOUT_MIN
 ACCOUNT_ACTIVATION_TTL_MINUTES = env_int("ACCOUNT_ACTIVATION_TTL_MINUTES", 15)
 ACCOUNT_ACTIVATION_MAX_ATTEMPTS = env_int("ACCOUNT_ACTIVATION_MAX_ATTEMPTS", 3)
 DOCUMENT_MAX_UPLOAD_SIZE_BYTES = env_int("DOCUMENT_MAX_UPLOAD_SIZE_BYTES", 10 * 1024 * 1024)
+# RF-ARC-002: las imagenes adjuntas (JPEG/PNG) se normalizan antes de guardarse:
+# lado mayor acotado y recompresion JPEG con calidad configurable.
+IMAGE_UPLOAD_MAX_DIMENSION_PX = env_int("IMAGE_UPLOAD_MAX_DIMENSION_PX", 2048)
+IMAGE_UPLOAD_JPEG_QUALITY = env_int("IMAGE_UPLOAD_JPEG_QUALITY", 85)
 # RNF-CAP-002: crecimiento estimado de almacenamiento por ciclo, con umbral
 # configurable de advertencia. El valor por defecto sigue la estimacion del
 # requerimiento (2 GiB por ciclo) y puede ajustarse por infraestructura real.
