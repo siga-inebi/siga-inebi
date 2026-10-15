@@ -10,6 +10,7 @@ import {
   MOVEMENT_LABEL,
   SCAN_OUTCOME_LABEL,
   SCAN_OUTCOME_VARIANT,
+  SCAN_REJECTION_MESSAGE,
 } from "@attendance/attendanceService.js";
 import { useShiftCatalog } from "@shared/catalogs/academicCatalogs.js";
 import { formatDateTime } from "@shared/utils/format.js";
@@ -219,6 +220,10 @@ function ScanResult({ result }) {
             ya registrado a las{" "}
             {formatDateTime(result.duplicate_of.captured_at)}.
           </span>
+        ) : null}
+        {result.outcome === "rejected" &&
+        SCAN_REJECTION_MESSAGE[result.reason_code] ? (
+          <strong>{SCAN_REJECTION_MESSAGE[result.reason_code]}</strong>
         ) : null}
         {result.outcome === "rejected" && result.reason ? (
           <span>{result.reason}</span>

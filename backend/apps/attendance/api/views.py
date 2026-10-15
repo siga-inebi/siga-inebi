@@ -605,7 +605,9 @@ class ManualRegistrationReasonListView(GenericAPIView):
             "la ventana de supresion configurada se rechaza sin crear movimiento "
             "(RF-ASI-004). Un elemento invalido no aborta el resto del lote. "
             "`capture_batch_id` opcional enlaza cada elemento a un lote de "
-            "captura recuperable (RF-ASI-009)."
+            "captura recuperable (RF-ASI-009). Un elemento capturado en dia no "
+            "lectivo o fuera de la ventana operativa se rechaza con `reason_code` "
+            "(RF-JOR-001)."
         ),
         tags=TAGS,
         request=ScanCaptureRequestSerializer,
@@ -710,6 +712,7 @@ class AttendanceScanView(GenericAPIView):
                 "duplicate_of": getattr(result, "duplicate_of", None),
                 "confirmation": getattr(result, "confirmation", None),
                 "reason": getattr(result, "reason", ""),
+                "reason_code": getattr(result, "reason_code", ""),
             }
             for result in (results_by_index[i] for i in range(len(raw_items)))
         ]

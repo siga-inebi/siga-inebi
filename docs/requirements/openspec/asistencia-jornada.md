@@ -17,6 +17,51 @@ intervención de desarrollo para modificarse.
 - **THEN** el estado diario de cada estudiante se evalúa contra los parámetros de su propia
   jornada
 
+### Requirement: Ventana operativa diaria
+
+El sistema DEBE recibir movimientos de escaneo, individuales o enviados dentro de un lote de
+captura, y registros manuales únicamente en un día lectivo de la jornada y entre su hora de
+apertura y su hora de cierre, ambas inclusive, evaluadas en la zona horaria configurada para
+la institución. La hora de apertura DEBE ser configurable junto con los demás parámetros de
+la jornada y DEBE ser anterior a la hora de cierre; si no se configura, la ventana abre a las
+00:00. Un escaneo fuera de la ventana DEBE rechazarse sin crear movimiento, informando un
+motivo estable (`non_school_day` o `outside_operating_window`) y dejando constancia auditable
+del intento. El cierre declarado por sección, que el sistema genera al cierre de la jornada,
+no se somete a esta regla. La regla vive en un único servicio que comparten el escaneo, el
+lote y el registro manual (RF-JOR-001).
+
+#### Scenario: Escaneo en un día no lectivo
+
+- **GIVEN** una jornada cuyos días lectivos son de lunes a viernes
+- **WHEN** un operador escanea una credencial un domingo
+- **THEN** el sistema rechaza el escaneo con el motivo `non_school_day`
+- **AND** no crea ningún movimiento y deja constancia del intento en la bitácora
+
+#### Scenario: Escaneo antes de la apertura
+
+- **GIVEN** una jornada que abre a las 06:00 y cierra a las 16:00
+- **WHEN** un operador escanea una credencial un miércoles a las 05:30
+- **THEN** el sistema rechaza el escaneo con el motivo `outside_operating_window`
+
+#### Scenario: Escaneo después del cierre
+
+- **GIVEN** una jornada que cierra a las 16:00
+- **WHEN** un operador escanea una credencial un miércoles a las 23:00
+- **THEN** el sistema rechaza el escaneo con el motivo `outside_operating_window`
+- **AND** no crea ningún movimiento y deja constancia del intento en la bitácora
+
+#### Scenario: Escaneo dentro de la ventana
+
+- **GIVEN** una jornada que abre a las 06:00 y cierra a las 16:00 de lunes a viernes
+- **WHEN** un operador escanea una credencial un miércoles a las 07:00
+- **THEN** el sistema registra el movimiento
+
+#### Scenario: Registro manual fuera de la ventana
+
+- **GIVEN** un usuario con permiso de registro manual
+- **WHEN** registra un movimiento con hora de captura posterior al cierre de la jornada
+- **THEN** el sistema rechaza la operación sin crear el movimiento
+
 ### Requirement: Derivación del estado diario
 
 El sistema DEBE determinar el estado de asistencia de cada estudiante con inscripción activa,

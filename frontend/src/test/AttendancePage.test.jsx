@@ -189,6 +189,51 @@ describe("AttendancePage — captura por escaneo", () => {
     expect(within(dialog).getByText(/ya registrado a las/)).toBeInTheDocument();
   }, 10000);
 
+  test.each([
+    [
+      "non_school_day",
+      "El escaneo cae en un día no lectivo de la jornada y no se registró.",
+    ],
+    [
+      "outside_operating_window",
+      "El escaneo está fuera del horario de recepción de la jornada (antes de la apertura o después del cierre) y no se registró.",
+    ],
+  ])(
+    "explica en español el rechazo %s (RF-JOR-001)",
+    async (reasonCode, message) => {
+      attendanceServiceMock.recordScan.mockResolvedValue([
+        {
+          client_event_id: "any",
+          outcome: "rejected",
+          event: null,
+          duplicate_of: null,
+          reason: "Detalle del servidor.",
+          reason_code: reasonCode,
+        },
+      ]);
+      const user = userEvent.setup();
+      renderWithRouter(<AttendancePage />);
+      const dialog = await openScanWindow(user);
+
+      await user.type(
+        within(dialog).getByLabelText(/^Codigo de estudiante/),
+        "EST-003"
+      );
+      await selectOption(user, /^Punto de control/, /Porton principal/, dialog);
+      await selectOption(user, /^Jornada/, /Matutina/, dialog);
+      await user.click(
+        within(dialog).getByRole("button", { name: "Registrar" })
+      );
+
+      expect(await within(dialog).findByText("Rechazado")).toBeInTheDocument();
+      expect(within(dialog).getByText(message)).toBeInTheDocument();
+      expect(
+        within(dialog).getByText("Detalle del servidor.")
+      ).toBeInTheDocument();
+    },
+    10000
+  );
+
   test("reintenta con el mismo client_event_id tras un fallo de red", async () => {
     attendanceServiceMock.recordScan
       .mockRejectedValueOnce(new Error("La red fallo."))

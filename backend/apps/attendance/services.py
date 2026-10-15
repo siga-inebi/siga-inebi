@@ -18,7 +18,7 @@ attendance-capture domain rather than to a module of its own.
 import hashlib
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -78,6 +78,7 @@ def set_jornada_parameters(
     duplicate_suppression_minutes,
     school_days,
     effective_from,
+    opening_time=None,
     actor=None,
 ):
     """
@@ -85,12 +86,19 @@ def set_jornada_parameters(
 
     Existing versions are never mutated: a later ``effective_from`` simply
     supersedes them for dates on or after it (RF-JOR-001, and RF-JOR-006
-    later).
+    later). ``opening_time`` and ``closing_time`` bound the daily operating
+    window (RF-JOR-001); when omitted the window opens at midnight.
     """
     _require_active(shift, "la jornada")
     _require_active(academic_cycle, "el ciclo escolar")
     if academic_cycle.institution_id != shift.institution.pk:
         raise DomainError("La jornada y el ciclo escolar deben pertenecer a la misma institucion.")
+    if opening_time is None:
+        opening_time = time(0, 0)
+    if opening_time >= closing_time:
+        raise DomainError(
+            "La hora de apertura debe ser anterior a la hora de cierre de la jornada."
+        )
 
     with unique_violation_as(
         {
@@ -102,6 +110,7 @@ def set_jornada_parameters(
         parameters = JornadaParameters.objects.create(
             shift=shift,
             academic_cycle=academic_cycle,
+            opening_time=opening_time,
             entry_limit_time=entry_limit_time,
             tolerance_minutes=tolerance_minutes,
             closing_time=closing_time,
@@ -158,6 +167,50 @@ def resolve_academic_cycle_for(*, shift, event_date):
     return academic_cycle
 
 
+class OperatingWindowError(DomainError):
+    """
+    RF-JOR-001: a capture falls outside the daily operating window. ``code``
+    tells the caller which half of the rule failed, so a scan result can
+    carry it as a stable ``reason_code`` instead of only free text.
+    """
+
+    NON_SCHOOL_DAY = "non_school_day"
+    OUTSIDE_OPERATING_WINDOW = "outside_operating_window"
+
+    def __init__(self, message, *, code):
+        super().__init__(message)
+        self.code = code
+
+
+def ensure_within_operating_window(*, parameters, captured_at, event_date):
+    """
+    RF-JOR-001: the single rule deciding whether a capture may be received.
+
+    ``event_date`` must be one of the jornada's ``school_days`` (ISO weekday,
+    1=lunes .. 7=domingo) and ``captured_at``, read in the configured time
+    zone (``settings.TIME_ZONE``), must fall on that same date between
+    ``opening_time`` and ``closing_time``, both inclusive. Scans
+    (``record_scan_movement``, individual or in a capture batch) and manual
+    registrations (``record_attendance_event``) both call this, so the rule
+    lives in exactly one place.
+    """
+    if event_date.isoweekday() not in (parameters.school_days or []):
+        raise OperatingWindowError(
+            f"El {event_date} no es un dia lectivo de la jornada '{parameters.shift}'.",
+            code=OperatingWindowError.NON_SCHOOL_DAY,
+        )
+    local_capture = timezone.localtime(captured_at)
+    if local_capture.date() != event_date or not (
+        parameters.opening_time <= local_capture.time() <= parameters.closing_time
+    ):
+        raise OperatingWindowError(
+            f"La hora de captura {local_capture:%H:%M} esta fuera de la ventana operativa "
+            f"de la jornada '{parameters.shift}' "
+            f"({parameters.opening_time:%H:%M} a {parameters.closing_time:%H:%M}).",
+            code=OperatingWindowError.OUTSIDE_OPERATING_WINDOW,
+        )
+
+
 @transaction.atomic
 def record_attendance_event(
     *,
@@ -192,6 +245,18 @@ def record_attendance_event(
         if manual_reason is None:
             raise DomainError("Un registro manual debe indicar un motivo de la lista configurable.")
         _require_active(manual_reason, "el motivo")
+    if origin in (AttendanceEvent.Origin.SCAN, AttendanceEvent.Origin.MANUAL):
+        # RF-JOR-001: same operating window as ``record_scan_movement``. A
+        # declared closure is exempt: the system generates it at the jornada's
+        # own closing, it is not received from a capture point.
+        academic_cycle = resolve_academic_cycle_for(shift=shift, event_date=event_date)
+        ensure_within_operating_window(
+            parameters=get_effective_parameters(
+                shift=shift, academic_cycle=academic_cycle, on_date=event_date
+            ),
+            captured_at=captured_at,
+            event_date=event_date,
+        )
 
     event = AttendanceEvent.objects.create(
         student=student,
@@ -311,6 +376,40 @@ class RejectedScanItem:
     client_event_id: str
     outcome: str = "rejected"
     reason: str = ""
+    # Stable machine-readable cause for the rejections a client must tell
+    # apart (RF-JOR-001 window); blank otherwise.
+    reason_code: str = ""
+
+
+# Named after RF-ASI-004's ``attendance.event.rejected_duplicate``: one audit
+# action per rejection family, the precise cause in ``context.reason_code``.
+_SCAN_REJECTION_ACTIONS = {
+    OperatingWindowError.NON_SCHOOL_DAY: "attendance.event.rejected_outside_window",
+    OperatingWindowError.OUTSIDE_OPERATING_WINDOW: "attendance.event.rejected_outside_window",
+}
+
+
+def _reject_scan(*, reason_code, reason, operator, student, shift, client_event_id, context):
+    """
+    Record an auditable scan rejection and return it as a ``RejectedScanItem``
+    -- returned, not raised, for the same reason a suppressed duplicate is
+    (RF-ASI-004): raising inside ``record_scan_movement``'s transaction would
+    roll the audit row back together with everything else.
+    """
+    record_event(
+        actor=operator,
+        action=_SCAN_REJECTION_ACTIONS[reason_code],
+        resource="AttendanceEvent",
+        context={
+            "result": "denied",
+            "reason_code": reason_code,
+            "student_id": str(student.public_id),
+            "shift_id": str(shift.public_id),
+            "client_event_id": client_event_id,
+            **context,
+        },
+    )
+    return RejectedScanItem(client_event_id=client_event_id, reason=reason, reason_code=reason_code)
 
 
 def resolve_scan_confirmation(*, student, shift, event_date):
@@ -358,6 +457,11 @@ def record_scan_movement(
     - RF-ASI-009: ``capture_batch``, when given, must be this same
       operator's own open batch -- checked here too, not only by the view,
       same defense-in-depth reason as the operator guard above.
+    - RF-JOR-001: ``captured_at`` must fall on a school day and inside the
+      jornada's operating window; otherwise the scan is rejected with the
+      ``OperatingWindowError`` code and no event is created.
+
+    The rejection is audited and returned as ``RejectedScanItem``.
     """
     if operator is None:
         raise DomainError("Un movimiento por escaneo debe registrarlo un operador autenticado.")
@@ -394,6 +498,20 @@ def record_scan_movement(
     parameters = get_effective_parameters(
         shift=shift, academic_cycle=academic_cycle, on_date=event_date
     )
+    try:
+        ensure_within_operating_window(
+            parameters=parameters, captured_at=captured_at, event_date=event_date
+        )
+    except OperatingWindowError as exc:
+        return _reject_scan(
+            reason_code=exc.code,
+            reason=str(exc),
+            operator=operator,
+            student=student,
+            shift=shift,
+            client_event_id=client_event_id,
+            context={"event_date": str(event_date), "captured_at": captured_at.isoformat()},
+        )
     suppression_window = timedelta(minutes=parameters.duplicate_suppression_minutes)
 
     duplicate = (

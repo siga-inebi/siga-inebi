@@ -28,6 +28,18 @@ export const SCAN_OUTCOME_LABEL = {
   rejected: "Rechazado",
 };
 
+/**
+ * Motivo estable de un escaneo rechazado (`reason_code`). El servidor lo envia
+ * junto al texto libre de `reason` para los rechazos que el operador debe
+ * distinguir: fuera de la ventana operativa de la jornada (RF-JOR-001).
+ */
+export const SCAN_REJECTION_MESSAGE = {
+  non_school_day:
+    "El escaneo cae en un día no lectivo de la jornada y no se registró.",
+  outside_operating_window:
+    "El escaneo está fuera del horario de recepción de la jornada (antes de la apertura o después del cierre) y no se registró.",
+};
+
 export const SCAN_OUTCOME_VARIANT = {
   created: "success",
   duplicate_suppressed: "warning",
