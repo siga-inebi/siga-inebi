@@ -1189,7 +1189,7 @@ def consume_password_reset(*, token, new_password):
             resource="PasswordResetChallenge",
             context={"result": "denied"},
         )
-        raise DomainError("El enlace de restablecimiento no es valido o ya vencio.")
+        raise DomainError("El enlace de restablecimiento no es válido o ya venció.")
     account = challenge.account
     try:
         validate_password(new_password, user=account)

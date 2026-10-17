@@ -79,7 +79,7 @@ def accounts(*, status=None, search=None, role=None, locked=None, ordering=None)
     """
     queryset = (
         get_user_model()
-        .objects.select_related("person")
+        .objects.select_related("person", "person__teacher_profile")
         .prefetch_related(_current_assignments_prefetch())
     )
     if status:
@@ -107,7 +107,7 @@ def account_detail(public_id):
     account = account_or_404(public_id)
     return (
         get_user_model()
-        .objects.select_related("person")
+        .objects.select_related("person", "person__teacher_profile")
         .prefetch_related(_current_assignments_prefetch())
         .get(pk=account.pk)
     )

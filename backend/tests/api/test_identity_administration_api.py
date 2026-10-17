@@ -716,3 +716,35 @@ def test_successful_login_is_audited_for_access_history(client):
 
     event = AuditEvent.objects.get(action="identity.login.succeeded")
     assert event.actor_id == user.pk
+
+
+def test_scope_options_list_modules_and_institution_public_id(admin):
+    institution = InstitutionFactory(name="Instituto Demo")
+
+    payload = admin.get(reverse("identity-scope-options")).json()
+
+    assert {"value": "students", "label": "Expedientes de estudiantes"} in payload["modules"]
+    assert payload["institution"] == {
+        "public_id": str(institution.public_id),
+        "name": "Instituto Demo",
+    }
+
+
+def test_account_person_reports_teacher_flag(admin):
+    teacher = TeacherFactory()
+    account = UserFactory(person=teacher.person)
+
+    payload = admin.get(reverse("identity-account-detail", args=[account.public_id])).json()
+
+    assert payload["person"]["is_teacher"] is True
+
+
+def test_locked_account_has_no_effective_permissions(client):
+    from apps.identity.services import effective_permission_codes
+
+    user = UserFactory()
+    grant(user, "audit.read")
+    user.locked_until = timezone.now() + timedelta(minutes=5)
+    user.save(update_fields=["locked_until"])
+
+    assert effective_permission_codes(user=user) == []

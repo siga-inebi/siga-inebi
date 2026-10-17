@@ -355,7 +355,13 @@ class AccountListSerializer(serializers.ModelSerializer):
     def get_person(self, obj) -> dict | None:
         if obj.person is None:
             return None
-        return {"public_id": str(obj.person.public_id), "full_name": _full_name(obj.person)}
+        return {
+            "public_id": str(obj.person.public_id),
+            "full_name": _full_name(obj.person),
+            "email": obj.person.email,
+            # RA4: el asistente solo ofrece "sus asignaciones docentes" a docentes.
+            "is_teacher": hasattr(obj.person, "teacher_profile"),
+        }
 
     def get_roles(self, obj) -> list[dict]:
         assignments = getattr(obj, "current_assignments", None)
@@ -485,6 +491,16 @@ class RoleHolderSerializer(serializers.Serializer):
 class ScopeModuleSerializer(serializers.Serializer):
     value = serializers.CharField()
     label = serializers.CharField()
+
+
+class InstitutionRefSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField()
+    name = serializers.CharField()
+
+
+class ScopeOptionsSerializer(serializers.Serializer):
+    modules = ScopeModuleSerializer(many=True)
+    institution = InstitutionRefSerializer(allow_null=True)
 
 
 class MyAccountSerializer(serializers.Serializer):

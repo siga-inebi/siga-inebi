@@ -14,6 +14,7 @@ from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
+from apps.academics import queries as academic_queries
 from apps.audit import queries as audit_queries
 from apps.common.exceptions import ResourceNotFoundError
 from apps.identity import queries
@@ -44,7 +45,7 @@ from apps.identity.api.serializers import (
     RoleHolderSerializer,
     RoleSerializer,
     RoleWriteSerializer,
-    ScopeModuleSerializer,
+    ScopeOptionsSerializer,
     UsernameSuggestionSerializer,
 )
 from apps.identity.atomic_permissions import ATOMIC_PERMISSION_CODES_BY_CODENAME
@@ -242,13 +243,30 @@ class PermissionHolderListView(RoleAdminView):
 
 
 class ScopeOptionsView(RoleAdminView):
-    """RA3: modulos que un alcance puede nombrar, con su etiqueta."""
+    """
+    RA3: lo que el asistente necesita para armar un alcance sin ids internos:
+    los modulos que un alcance puede nombrar y la institucion (una sola por
+    despliegue), con su ``public_id``.
+    """
 
-    serializer_class = ScopeModuleSerializer
+    serializer_class = ScopeOptionsSerializer
 
-    @extend_schema(responses={200: ScopeModuleSerializer(many=True)})
+    @extend_schema(responses={200: ScopeOptionsSerializer})
     def get(self, request):
-        return Response([{"value": value, "label": label} for value, label in SCOPE_MODULES])
+        try:
+            institution = academic_queries.resolve_institution()
+        except ResourceNotFoundError:
+            institution = None
+        return Response(
+            {
+                "modules": [{"value": value, "label": label} for value, label in SCOPE_MODULES],
+                "institution": (
+                    {"public_id": str(institution.public_id), "name": institution.name}
+                    if institution
+                    else None
+                ),
+            }
+        )
 
 
 class RoleListCreateView(RoleAdminView):
