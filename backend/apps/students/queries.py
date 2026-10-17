@@ -31,10 +31,13 @@ def guardians():
     return Guardian.objects.select_related("person").all()
 
 
-def guardian_relations():
+def guardian_relations(*, student_public_id=None):
     from apps.students.models import StudentGuardianRelation
 
-    return StudentGuardianRelation.objects.select_related("student", "guardian__person")
+    queryset = StudentGuardianRelation.objects.select_related("student", "guardian__person")
+    if student_public_id is not None:
+        queryset = queryset.filter(student__public_id=student_public_id)
+    return queryset
 
 
 def emergency_contacts(student, *, include_inactive=False):
@@ -56,7 +59,7 @@ def health_notes(student, *, include_inactive=False):
     return _filter_active(
         StudentHealthNote.objects.filter(student=student).select_related("student", "author"),
         include_inactive=include_inactive,
-    )
+    ).order_by("-recorded_on", "-created_at", "-id")
 
 
 def health_note_or_404(public_id):
@@ -71,7 +74,7 @@ def observations(student, *, include_inactive=False):
     return _filter_active(
         StudentObservation.objects.filter(student=student).select_related("student", "author"),
         include_inactive=include_inactive,
-    )
+    ).order_by("-observed_on", "-created_at", "-id")
 
 
 def observation_or_404(public_id):

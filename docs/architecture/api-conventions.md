@@ -109,6 +109,14 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - `GET /api/v1/students/guardian-relations/` lista solo relaciones de estudiantes dentro del
   alcance `student.view_basic`. Cada elemento conserva `guardian` como identificador y agrega
   `guardian_detail` de solo lectura con los datos necesarios para presentar al encargado.
+- El filtro opcional `student_id` recibe el `public_id` UUID del estudiante y se aplica en el
+  servidor antes de paginar, junto al filtro de alcance. Un UUID desconocido o fuera del alcance
+  devuelve una colección vacía; un valor mal formado o vacío devuelve HTTP 400. Omitir el parámetro
+  conserva el listado autorizado anterior. Las relaciones históricas se conservan.
+- Relaciones, salud, observaciones y contactos devuelven el sobre paginado estándar
+  (`count`, `next`, `previous`, `results`). Sus clientes solicitan cada página al navegar.
+  Salud y observaciones desempatan fechas iguales por identificador descendente, conservando
+  el orden por fecha más reciente y los controles de lectura sensible y auditoría por solicitud.
 - `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por
   el servicio y no se acepta en el payload.
 - `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como
