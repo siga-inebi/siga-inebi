@@ -16,6 +16,23 @@ Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo 
 | Requirement | Issue | Design | Code | Test | Pull Request | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 
+## Entrega UX de listados de comunidad educativa (#632)
+
+Alcance verificable: 1.1.6–1.1.7 y PE1; contratos backend de E10, T2, G2 y PE3.
+E3 y la migración de pantallas siguen pendientes de #630. No se modifican estados globales
+de cumplimiento por esta entrega parcial. No hay RF específico de búsqueda docente/persona
+en el catálogo: esas correcciones se trazan al hallazgo UX, sin inventar identificadores.
+
+| Requerimiento / hallazgo | Diseño y código | Evidencia | Estado de esta entrega |
+| --- | --- | --- | --- |
+| RF-EXP-003; E10 | `apps/students/queries.py`, `api/{views,serializers}.py`; contrato API de comunidad educativa | `test_student_status_is_independent_of_logical_deactivation`, `test_invalid_domain_filter_returns_400` | Filtro por estado probado; acción propia D5/E9 pendiente |
+| RF-EXP-008; 1.1.6 | Queries y vistas de people, students y teachers; ADR-0006 | `test_active_default_and_explicit_inactive_opt_in`, `test_inactive_detail_remains_available` | Listas activas por defecto con historial consultable; sin borrado |
+| RF-ALC-001; 1.1.7 | Alcance estudiantil existente conservado en `StudentListCreateView`; ADR-0005 | `test_student_search_does_not_expand_scope`, `test_student_search_requires_permission_and_scope` | Filtros no amplían alcance; no redefine autorización de otros dominios |
+| PE1; PE3; T2; G2; E3/E10; 1.1.6–1.1.7 | `apps/{people,teachers,students}/{queries.py,api/views.py,api/serializers.py}`; `docs/development/632-community-lists.md` | `backend/tests/api/test_community_list_filters_api.py` | Backend implementado; migración de pantallas y eliminación del tope de 1.000 pendientes |
+
+Comandos y límites de validación: [entrega de listados](../development/632-community-lists.md).
+Referencia del PR y resultados finales se completan al publicar la entrega.
+
 ## Estado inicial
 
 Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno detallado, codigo, pruebas y PR quedan pendientes.

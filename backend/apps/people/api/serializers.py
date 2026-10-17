@@ -4,6 +4,10 @@ from apps.people import queries
 from apps.people.models import Person
 
 
+class PersonListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(default=False)
+
+
 def validate_institutional_person(person):
     if person is None:
         return

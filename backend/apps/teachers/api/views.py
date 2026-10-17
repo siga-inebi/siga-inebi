@@ -1,11 +1,12 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import generics, permissions
+from rest_framework import filters, generics, permissions
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from apps.teachers import queries
 from apps.teachers.api.serializers import (
     SuggestedEmployeeCodeSerializer,
+    TeacherListQuerySerializer,
     TeacherSerializer,
 )
 from apps.teachers.services import deactivate_teacher, next_employee_code
@@ -33,11 +34,16 @@ class TeacherNextCodeView(GenericAPIView):
         )
 
 
+@extend_schema_view(get=extend_schema(parameters=[TeacherListQuerySerializer]))
 class TeacherListCreateView(generics.ListCreateAPIView):
     serializer_class = TeacherSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["employee_code", "person__first_name", "person__last_name", "person__cui"]
 
     def get_queryset(self):
-        return queries.teachers()
+        params = TeacherListQuerySerializer(data=self.request.query_params.dict())
+        params.is_valid(raise_exception=True)
+        return queries.teachers(**params.validated_data)
 
 
 class TeacherDetailView(generics.RetrieveUpdateDestroyAPIView):
