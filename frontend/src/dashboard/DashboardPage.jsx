@@ -6,7 +6,11 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
-import { NAV_GROUPS, prefetchModule } from "@app/navigation.js";
+import { NAV_GROUPS, canViewModule, prefetchModule } from "@app/navigation.js";
+import {
+  ACCOUNT_STATUS_VARIANT,
+  accountStatusLabel,
+} from "@auth/accountLabels.js";
 import { useAuth } from "@auth/useAuth.js";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { QuickActionCard } from "@ui/display/QuickActionCard.jsx";
@@ -32,28 +36,28 @@ function GroupLabel({ children }) {
 
 export function DashboardPage() {
   const { user } = useAuth();
-  const { counts, health, loading } = useDashboardSummary();
+  const { counts, health, loading } = useDashboardSummary(user);
 
   const displayName =
     formatFullName(user?.person) !== "—"
       ? formatFullName(user.person)
       : user?.username;
 
-  // Los accesos rapidos salen del mismo registro que el menu lateral: si se
-  // agrega un modulo, aparece en los dos lados sin tocar esta pantalla.
+  // Los accesos rapidos salen del mismo registro que el menu lateral, con el
+  // mismo filtro por permisos: no se ofrece un atajo a un modulo sin acceso.
   const shortcuts = NAV_GROUPS.flatMap((group) => group.items)
-    .filter((item) => !item.canView || item.canView(user))
+    .filter((item) => canViewModule(user, item))
     .slice(0, 4);
 
   return (
     <>
       <PageHeader
-        subtitle={`Buen dia, ${displayName}. Resumen del establecimiento y accesos rapidos.`}
+        subtitle={`Buen día, ${displayName}. Resumen del establecimiento y accesos rápidos.`}
         title="Panel"
       />
 
       <Box sx={{ mb: 3 }}>
-        <GroupLabel>Accesos rapidos</GroupLabel>
+        <GroupLabel>Accesos rápidos</GroupLabel>
         <Grid container spacing={2}>
           {shortcuts.map((item) => (
             <Grid key={item.key} size={{ xs: 12, sm: 6, lg: 3 }}>
@@ -141,8 +145,8 @@ export function DashboardPage() {
                 label="Estado"
                 value={
                   <StatusChip
-                    label={user?.status ?? "desconocido"}
-                    variant={user?.status === "active" ? "success" : "neutral"}
+                    label={accountStatusLabel(user) || "Desconocido"}
+                    variant={ACCOUNT_STATUS_VARIANT[user?.status] ?? "neutral"}
                   />
                 }
               />
@@ -152,13 +156,13 @@ export function DashboardPage() {
 
         <Grid size={{ xs: 12, md: 6 }}>
           <SectionCard
-            subtitle="Conexion con la API"
+            subtitle="Conexión con la API"
             title="Estado del servicio"
           >
             <Stack gap={1.5} sx={{ px: 3, py: 2.5 }}>
               {health.error ? (
                 <Stack alignItems="center" direction="row" gap={1}>
-                  <StatusChip label="Sin conexion" variant="danger" />
+                  <StatusChip label="Sin conexión" variant="danger" />
                   <Typography color="text.secondary" variant="body2">
                     {health.error}
                   </Typography>

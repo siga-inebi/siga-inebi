@@ -7,20 +7,36 @@ import { PublicShell } from "@layout/PublicShell.jsx";
 import { RouteFallback } from "@ui/feedback/RouteFallback.jsx";
 import { NotFoundPage } from "@ui/feedback/NotFoundPage.jsx";
 
-import { HOME_ITEM, NAV_GROUPS } from "./navigation.js";
+import {
+  EXTRA_ROUTES,
+  HOME_ITEM,
+  NAV_GROUPS,
+  canViewModule,
+} from "./navigation.js";
 import { useModuleCounts } from "./useModuleCounts.js";
 
 /**
  * Cada pagina se carga bajo demanda. `load` es exactamente la misma funcion que
  * usa el prefetch del menu lateral (ver `navigation.js`), asi que el hover
  * calienta el chunk que la ruta va a pedir, no una copia distinta.
- *
- * El login NO es perezoso: es la primera pantalla de un usuario sin sesion, y
- * partirla en un chunk aparte solo agrega un viaje de red antes de poder
- * escribir la contrasena.
  */
 const LoginPage = lazy(() =>
   import("@auth/LoginPage.jsx").then((m) => ({ default: m.LoginPage }))
+);
+const ActivationPage = lazy(() =>
+  import("@auth/ActivationPage.jsx").then((m) => ({
+    default: m.ActivationPage,
+  }))
+);
+const PasswordResetPage = lazy(() =>
+  import("@auth/PasswordResetPage.jsx").then((m) => ({
+    default: m.PasswordResetPage,
+  }))
+);
+const ForbiddenPage = lazy(() =>
+  import("@ui/feedback/ForbiddenPage.jsx").then((m) => ({
+    default: m.ForbiddenPage,
+  }))
 );
 const HomePage = lazy(() =>
   import("@dashboard/HomePage.jsx").then((m) => ({ default: m.HomePage }))
@@ -43,6 +59,7 @@ function lazyModule(item) {
 const MODULE_ROUTES = [
   HOME_ITEM,
   ...NAV_GROUPS.flatMap((group) => group.items),
+  ...EXTRA_ROUTES,
 ].map((item) => ({ ...item, Component: lazyModule(item) }));
 
 function PrivateRoute({ children }) {
@@ -54,16 +71,29 @@ function PrivateRoute({ children }) {
   if (loading) return <RouteFallback />;
 
   if (!isAuthenticated) {
+    // `from` permite volver a la misma pagina al entrar de nuevo (L4).
     return <Navigate replace state={{ from: location }} to="/login" />;
   }
 
   return children;
 }
 
+/**
+ * Ruta de un modulo con permiso: sin el permiso se explica "sin acceso" en vez
+ * de montar la pantalla y dejar que cada peticion responda 403 (ux-ui 1.4).
+ */
+function ModuleGate({ children, item }) {
+  const { user } = useAuth();
+  if (!canViewModule(user, item)) {
+    return <ForbiddenPage moduleLabel={item.label} />;
+  }
+  return children;
+}
+
 /** Shell privado con la sesion ya resuelta. */
 function PrivateLayout({ children }) {
   const { isAuthenticated, logout, logoutAll, user } = useAuth();
-  const counts = useModuleCounts(isAuthenticated);
+  const counts = useModuleCounts(isAuthenticated, user);
 
   return (
     <AppShell
@@ -75,6 +105,10 @@ function PrivateLayout({ children }) {
       <Suspense fallback={<RouteFallback />}>{children}</Suspense>
     </AppShell>
   );
+}
+
+function PublicRoute({ children }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
 }
 
 export function AppRoutes() {
@@ -92,26 +126,48 @@ export function AppRoutes() {
       />
       <Route
         element={
-          <Suspense fallback={<RouteFallback />}>
+          <PublicRoute>
             <LoginPage />
-          </Suspense>
+          </PublicRoute>
         }
         path="/login"
       />
+      {/* L1 y L2: paginas publicas para activar la cuenta y usar un restablecimiento. */}
+      <Route
+        element={
+          <PublicRoute>
+            <ActivationPage />
+          </PublicRoute>
+        }
+        path="/activar"
+      />
+      <Route
+        element={
+          <PublicRoute>
+            <PasswordResetPage />
+          </PublicRoute>
+        }
+        path="/restablecer"
+      />
 
-      {MODULE_ROUTES.map(({ Component, key, path }) => (
-        <Route
-          element={
-            <PrivateRoute>
-              <PrivateLayout>
-                <Component />
-              </PrivateLayout>
-            </PrivateRoute>
-          }
-          key={key}
-          path={path}
-        />
-      ))}
+      {MODULE_ROUTES.map((item) => {
+        const { Component, key, path } = item;
+        return (
+          <Route
+            element={
+              <PrivateRoute>
+                <PrivateLayout>
+                  <ModuleGate item={item}>
+                    <Component />
+                  </ModuleGate>
+                </PrivateLayout>
+              </PrivateRoute>
+            }
+            key={key}
+            path={path}
+          />
+        );
+      })}
 
       <Route
         element={

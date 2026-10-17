@@ -49,7 +49,7 @@ export default [
         "error",
         {
           ignore: [
-            "^@(app|shared|ui|layout|theme|auth|dashboard|people|students|teachers|guardians|academics|cycles|enrolments|attendance|evaluation|documents|reporting)/",
+            "^@(app|shared|ui|layout|theme|auth|dashboard|people|students|teachers|guardians|academics|cycles|enrolments|attendance|evaluation|documents|reporting|audit|platform)/",
           ],
         },
       ],

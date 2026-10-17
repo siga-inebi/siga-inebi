@@ -1,29 +1,135 @@
-// Aun no existe un endpoint de permisos consultable desde el frontend, asi
-// que estas funciones retornan `true` siempre. El backend sigue siendo la
-// autoridad de autorizacion real; cuando exista el endpoint, reemplazar el
-// cuerpo de cada funcion por la verificacion contra `user` (y sus permisos)
-// sin duplicar la regla de negocio en el cliente.
+/**
+ * permissions.js — Presentacion por permisos efectivos (docs/ux-ui.md 1.4).
+ *
+ * `/auth/me/` devuelve los permisos atomicos efectivos de la cuenta
+ * (`user.permissions`, codigos con punto). Con ellos el menu, las rutas y los
+ * botones se ocultan o deshabilitan en vez de dejar que la persona se entere
+ * con un 403 despues de hacer clic.
+ *
+ * Esto es SOLO presentacion. El backend sigue siendo la autoridad: cada
+ * operacion vuelve a autorizarse alla con permiso y alcance, y deniega por
+ * defecto. Aqui tampoco se replica ninguna regla de negocio: solo se pregunta
+ * "¿tiene la cuenta este permiso?".
+ */
 
-export function canViewAlumnos(_user) {
-  return true;
+/** Codigos de permiso que la interfaz consulta. Deben existir en el catalogo atomico. */
+export const PERMISSION = Object.freeze({
+  ACCOUNT_CREATE: "account.create",
+  ACCOUNT_ACTIVATE: "account.activate",
+  ACCOUNT_DISABLE: "account.disable",
+  ROLE_ASSIGN: "role.assign",
+  SCOPE_ASSIGN: "scope.assign",
+  STUDENT_VIEW_BASIC: "student.view_basic",
+  STUDENT_EDIT_BASIC: "student.edit_basic",
+  ENROLLMENT_CREATE: "enrollment.create",
+  ENROLLMENT_UPDATE: "enrollment.update",
+  ATTENDANCE_SCAN: "attendance.scan",
+  ATTENDANCE_RECORD_ENTRY: "attendance.record_entry",
+  ATTENDANCE_RECORD_EXIT: "attendance.record_exit",
+  ATTENDANCE_RECORD_MANUAL: "attendance.record_manual",
+  ATTENDANCE_DECLARED_CLOSE: "attendance.declared_close",
+  ATTENDANCE_JORNADA_CONFIGURE: "attendance.jornada.configure",
+  EVALUATION_CONFIGURE_UNITS: "evaluation.configure_units",
+  GRADE_WRITE: "grade.write",
+  GRADE_CORRECT: "grade.correct",
+  DOCUMENT_UPLOAD: "document.upload",
+  DOCUMENT_ISSUE: "document.issue",
+  REPORTING_ALERT_VIEW: "reporting.alert.view",
+  AUDIT_READ: "audit.read",
+  RETENTION_POLICY_DECLARE: "retention_policy.declare",
+  PLATFORM_MONITOR: "platform.monitor",
+});
+
+/** Cualquiera de estos habilita la administracion de cuentas. */
+export const ACCOUNT_ADMIN_PERMISSIONS = [
+  PERMISSION.ACCOUNT_CREATE,
+  PERMISSION.ACCOUNT_ACTIVATE,
+  PERMISSION.ACCOUNT_DISABLE,
+];
+
+/**
+ * Permisos de cada modulo del menu: basta con UNO. Un modulo sin entrada aqui
+ * no tiene un permiso atomico que lo controle en el backend (sus lecturas solo
+ * exigen sesion), asi que se muestra a toda cuenta autenticada.
+ */
+export const MODULE_PERMISSIONS = Object.freeze({
+  alumnos: [PERMISSION.STUDENT_VIEW_BASIC],
+  matriculas: [
+    PERMISSION.ENROLLMENT_CREATE,
+    PERMISSION.ENROLLMENT_UPDATE,
+    PERMISSION.STUDENT_VIEW_BASIC,
+  ],
+  asistencia: [
+    PERMISSION.ATTENDANCE_SCAN,
+    PERMISSION.ATTENDANCE_RECORD_ENTRY,
+    PERMISSION.ATTENDANCE_RECORD_EXIT,
+    PERMISSION.ATTENDANCE_RECORD_MANUAL,
+    PERMISSION.ATTENDANCE_DECLARED_CLOSE,
+    PERMISSION.ATTENDANCE_JORNADA_CONFIGURE,
+    PERMISSION.STUDENT_VIEW_BASIC,
+  ],
+  evaluacion: [
+    PERMISSION.EVALUATION_CONFIGURE_UNITS,
+    PERMISSION.GRADE_WRITE,
+    PERMISSION.GRADE_CORRECT,
+    PERMISSION.STUDENT_VIEW_BASIC,
+  ],
+  alertas: [PERMISSION.REPORTING_ALERT_VIEW],
+  // Administracion (2.17.6): solo quien tiene esos permisos ve el grupo.
+  cuentas: ACCOUNT_ADMIN_PERMISSIONS,
+  roles: [PERMISSION.ROLE_ASSIGN],
+  personas: [PERMISSION.ACCOUNT_CREATE, PERMISSION.STUDENT_EDIT_BASIC],
+  "tipos-documento": [PERMISSION.DOCUMENT_ISSUE, PERMISSION.DOCUMENT_UPLOAD],
+  auditoria: [PERMISSION.AUDIT_READ, PERMISSION.RETENTION_POLICY_DECLARE],
+  plataforma: [PERMISSION.PLATFORM_MONITOR],
+});
+
+function permissionSet(user) {
+  return new Set(user?.permissions ?? []);
 }
 
-export function canViewDocentes(_user) {
-  return true;
+/** ¿Tiene la cuenta este permiso efectivo? Sin sesion, nunca. */
+export function hasPermission(user, code) {
+  if (!user) return false;
+  if (user.is_superuser) return true;
+  return permissionSet(user).has(code);
 }
 
-export function canViewPadres(_user) {
-  return true;
+/** ¿Tiene al menos uno? Una lista vacia no exige nada. */
+export function hasAnyPermission(user, codes = []) {
+  if (!user) return false;
+  if (!codes || codes.length === 0) return true;
+  if (user.is_superuser) return true;
+  const granted = permissionSet(user);
+  return codes.some((code) => granted.has(code));
 }
 
-export function canViewSedes(_user) {
-  return true;
+/** ¿Puede ver este modulo del registro de navegacion? */
+export function canAccessModule(user, item) {
+  return hasAnyPermission(user, item?.permissions);
 }
 
-export function canViewNiveles(_user) {
-  return true;
+// Compatibilidad: firmas que ya consumian `navigation.js` y otras pantallas.
+export function canViewAlumnos(user) {
+  return hasAnyPermission(user, MODULE_PERMISSIONS.alumnos);
 }
 
-export function canViewCursos(_user) {
-  return true;
+export function canViewDocentes(user) {
+  return Boolean(user);
+}
+
+export function canViewPadres(user) {
+  return Boolean(user);
+}
+
+export function canViewSedes(user) {
+  return Boolean(user);
+}
+
+export function canViewNiveles(user) {
+  return Boolean(user);
+}
+
+export function canViewCursos(user) {
+  return Boolean(user);
 }

@@ -2,6 +2,43 @@ import { queryKeys } from "@shared/api/queryKeys.js";
 import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 
 /**
+ * Nombre de cache de un `load`.
+ *
+ * Antes la key salia de `load.name`. En el build de produccion los nombres se
+ * minifican ("a", "b"...), asi que dos catalogos de chunks distintos podian
+ * compartir cubeta y mostrarse cruzados (ux-ui 1.2.4). Ahora el nombre es
+ * explicito: `defineCatalog("teachers", load)` o la opcion `key`. Para no
+ * romper a quien todavia pasa una funcion sin nombre declarado, se asigna un
+ * identificador estable POR FUNCION (no por nombre): la misma funcion comparte
+ * cache, dos funciones distintas nunca.
+ */
+const anonymousKeys = new WeakMap();
+let anonymousSequence = 0;
+
+export function catalogKeyOf(load, explicitKey) {
+  if (explicitKey) return explicitKey;
+  if (load?.catalogKey) return load.catalogKey;
+  if (!anonymousKeys.has(load)) {
+    anonymousSequence += 1;
+    anonymousKeys.set(load, `anonymous-${anonymousSequence}`);
+  }
+  return anonymousKeys.get(load);
+}
+
+/**
+ * Declara el nombre de cache de un catalogo. Devuelve la misma funcion.
+ *
+ * @template {Function} T
+ * @param {string} key  Nombre explicito, idealmente de `CATALOG` en `queryKeys.js`.
+ * @param {T} load
+ * @returns {T}
+ */
+export function defineCatalog(key, load) {
+  load.catalogKey = key;
+  return load;
+}
+
+/**
  * Catalogo cargado una vez y expuesto como opciones `{value,label}`.
  *
  * Es la base de todos los selectores que reemplazaron a los campos donde antes
@@ -9,22 +46,20 @@ import { useResourceQuery } from "@shared/api/useResourceQuery.js";
  * porque un desplegable vacio es ambiguo: "todavia no llega" y "no hay nada
  * registrado" son respuestas distintas y el formulario debe poder distinguirlas.
  *
- * `load` debe ser estable (definida a nivel de modulo, con nombre propio): el
- * hook la usa como parte de la query key, no solo como dependencia de un
- * efecto. Esto es lo que hace que dos componentes que llaman al mismo catalogo
- * (p.ej. una pantalla y un modal que abre sobre ella) compartan una sola
- * peticion en vez de disparar la suya por separado — antes cada instancia de
- * este hook tenia su propio estado local y su propio fetch.
+ * Dos componentes que llaman al mismo catalogo (una pantalla y un modal que
+ * abre sobre ella) comparten una sola peticion: la key es la misma.
  *
  * `reloadToken` fuerza la relectura despues de crear un registro del catalogo
- * desde otra pantalla.
+ * desde otra pantalla. Ya no es imprescindible: toda escritura invalida
+ * `["catalog", ...]` (ver `invalidation.js`).
  *
  * @param {() => Promise<Array<{value:string,label:string}>>} load
  * @param {number} [reloadToken]
+ * @param {{key?: string}} [options]
  */
-export function useCatalogOptions(load, reloadToken = 0) {
-  const key = queryKeys.catalog(load.name, reloadToken);
-  const { data, loading, error } = useResourceQuery(key, load, {
+export function useCatalogOptions(load, reloadToken = 0, { key } = {}) {
+  const queryKey = queryKeys.catalog(catalogKeyOf(load, key), reloadToken);
+  const { data, loading, error } = useResourceQuery(queryKey, load, {
     defaultData: [],
   });
 
@@ -50,15 +85,22 @@ export function useCatalogsStatus(catalogs) {
  * ciclo, por ejemplo). Sin dependencia resuelta se devuelve una lista vacia en
  * vez de pedir el listado completo: ofrecer secciones de otro ciclo seria peor
  * que no ofrecer ninguna.
+ *
+ * La dependencia forma parte de la key: "secciones del ciclo A" y "secciones
+ * del ciclo B" no comparten cubeta.
  */
-export function useDependentCatalogOptions(buildLoad, dependency) {
-  // No delega en `useCatalogOptions`: esa funcion arma su key con el nombre
-  // de `load`, y aqui `load` es un closure anonimo (mismo nombre para
-  // cualquier dependencia). Incluir `dependency` en la key evita que "secciones
-  // del ciclo A" y "secciones del ciclo B" compartan una cubeta de cache.
-  const key = queryKeys.catalog(`${buildLoad.name}:${dependency ?? ""}`);
+export function useDependentCatalogOptions(
+  buildLoad,
+  dependency,
+  { key } = {}
+) {
+  const queryKey = queryKeys.catalog(
+    catalogKeyOf(buildLoad, key),
+    "by",
+    dependency ?? ""
+  );
   const { data, loading, error } = useResourceQuery(
-    key,
+    queryKey,
     () => buildLoad(dependency),
     { enabled: Boolean(dependency), defaultData: [] }
   );

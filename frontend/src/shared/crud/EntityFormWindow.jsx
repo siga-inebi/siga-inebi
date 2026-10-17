@@ -15,6 +15,7 @@ import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
+import { RemoteSearchSelect } from "@ui/forms/RemoteSearchSelect.jsx";
 
 /**
  * Formulario de alta y edicion en ventana modal centrada.
@@ -27,6 +28,12 @@ import { FormTextField } from "@ui/forms/FormTextField.jsx";
  * para los catalogos que se traen del backend: mientras cargan el desplegable
  * se muestra deshabilitado y no vacio, porque un select sin opciones se lee
  * como "no hay nada" y esa es otra respuesta.
+ *
+ * Los campos `search-select` buscan en el servidor mientras se escribe
+ * (docs/ux-ui.md 1.3): son el tipo por defecto para entidades grandes
+ * (estudiante, docente, matricula, encargado), que con un `select` obligaban a
+ * descargar y recorrer el padron completo. Declaran
+ * `search: { name, fetchPage, mapResult }` y, al editar, `initialOption`.
  *
  * `fields` tambien puede ser una funcion `(values) => campos` cuando un campo
  * depende de otro (las secciones de un ciclo, por ejemplo). Ese campo declara
@@ -213,6 +220,24 @@ function EntityField({ disabled, field, onChange, value }) {
         options={options}
         placeholder={field.placeholder ?? "Seleccione una opcion"}
         required={field.required}
+        value={value ?? ""}
+      />
+    );
+  }
+
+  if (field.type === "search-select") {
+    return (
+      <RemoteSearchSelect
+        disabled={disabled}
+        error={field.optionsError}
+        helperText={field.help}
+        initialOption={field.initialOption}
+        label={field.label}
+        name={field.name}
+        onChange={(event) => onChange(field.name, event.target.value)}
+        placeholder={field.placeholder}
+        required={field.required}
+        search={field.search}
         value={value ?? ""}
       />
     );

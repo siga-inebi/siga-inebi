@@ -40,6 +40,8 @@ export default defineConfig(({ mode }) => {
         "@evaluation": resolvePath("./src/evaluation"),
         "@documents": resolvePath("./src/documents"),
         "@reporting": resolvePath("./src/reporting"),
+        "@audit": resolvePath("./src/audit"),
+        "@platform": resolvePath("./src/platform"),
       },
     },
     server: {

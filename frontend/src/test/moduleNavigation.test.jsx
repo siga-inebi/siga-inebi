@@ -74,10 +74,10 @@ describe("navegacion de modulos", () => {
     renderWithRouter(<App />, { route: "/" });
 
     expect(
-      await screen.findByRole("link", { name: /Iniciar sesion/i })
+      await screen.findByRole("link", { name: /Iniciar sesión/i })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("navigation", { name: "Estructura academica" })
+      screen.queryByRole("navigation", { name: "Estructura académica" })
     ).not.toBeInTheDocument();
   });
 
@@ -86,7 +86,7 @@ describe("navegacion de modulos", () => {
     renderWithRouter(<App />, { route: "/app" });
 
     const nav = await screen.findByRole("navigation", {
-      name: "Estructura academica",
+      name: "Estructura académica",
     });
     await user.click(within(nav).getByRole("link", { name: "Sedes" }));
 
@@ -99,8 +99,9 @@ describe("navegacion de modulos", () => {
     const user = userEvent.setup();
     renderWithRouter(<App />, { route: "/app" });
 
+    // 2.17.6: Personas vive en el grupo Administracion.
     const nav = await screen.findByRole("navigation", {
-      name: "Comunidad educativa",
+      name: "Administración",
     });
     await user.click(within(nav).getByRole("link", { name: "Personas" }));
 
@@ -161,7 +162,7 @@ describe("navegacion de modulos", () => {
       renderWithRouter(<App />, { route });
 
       expect(
-        await screen.findByRole("heading", { name: /Iniciar sesion/i })
+        await screen.findByRole("heading", { name: /Iniciar sesión/i })
       ).toBeInTheDocument();
     }
   );
@@ -176,7 +177,7 @@ describe("navegacion de modulos", () => {
     renderWithRouter(<App />, { route });
 
     expect(
-      await screen.findByRole("heading", { name: /Iniciar sesion/i })
+      await screen.findByRole("heading", { name: /Iniciar sesión/i })
     ).toBeInTheDocument();
   });
 });

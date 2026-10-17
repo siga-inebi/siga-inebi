@@ -11,6 +11,8 @@ import TablePagination from "@mui/material/TablePagination";
 import TableRow from "@mui/material/TableRow";
 
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
+
+import { DEFAULT_ROWS_PER_PAGE_OPTIONS } from "./tableOptions.js";
 import {
   FILL_HEIGHT_QUERY,
   TABLE_FALLBACK_MAX_HEIGHT,
@@ -29,8 +31,8 @@ const BODY_CELL_SX = { px: 2, py: 1.5 };
 
 /** Nombres accesibles de los botones de paginacion, en espanol. */
 const PAGINATION_LABELS = {
-  first: "Primera pagina",
-  last: "Ultima pagina",
+  first: "Primera página",
+  last: "Última página",
   next: "Siguiente",
   previous: "Anterior",
 };
@@ -65,6 +67,9 @@ const DataTableRow = memo(function DataTableRow({ columns, onRowClick, row }) {
  * @param {boolean} [props.loading]
  * @param {string}  [props.emptyMessage="No hay datos disponibles"]
  * @param {object}  [props.pagination] {page (0-based), rowsPerPage, total, onPageChange, onRowsPerPageChange?, rowsPerPageOptions?}
+ *   El selector "Filas por pagina" solo aparece cuando la pantalla entrega
+ *   `onRowsPerPageChange` (ux-ui 1.1.1): antes se mostraba siempre y, como
+ *   ninguna pantalla lo atendia, elegir 50 no hacia nada.
  * @param {Function}[props.getRowKey]
  * @param {Function}[props.onRowClick]
  * @param {boolean} [props.fillHeight] Header pegado y paginacion anclada fuera del scroll.
@@ -185,7 +190,7 @@ export function DataTable({
           labelDisplayedRows={({ count, from, to }) =>
             `Mostrando ${from}–${to} de ${count}`
           }
-          labelRowsPerPage="Filas por pagina:"
+          labelRowsPerPage="Filas por página:"
           onPageChange={(_event, page) => pagination.onPageChange(page)}
           onRowsPerPageChange={
             pagination.onRowsPerPageChange
@@ -195,8 +200,12 @@ export function DataTable({
           }
           page={pagination.page}
           rowsPerPage={pagination.rowsPerPage}
+          // Un arreglo vacio oculta el selector en MUI: sin manejador no se
+          // ofrece un control que no hace nada.
           rowsPerPageOptions={
-            pagination.rowsPerPageOptions ?? [10, 25, 50, 100]
+            pagination.onRowsPerPageChange
+              ? (pagination.rowsPerPageOptions ?? DEFAULT_ROWS_PER_PAGE_OPTIONS)
+              : []
           }
           sx={{ flexShrink: 0, borderTop: "1px solid", borderColor: "divider" }}
         />

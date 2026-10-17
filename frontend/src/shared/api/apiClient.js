@@ -1,4 +1,26 @@
-const API_URL = import.meta.env.VITE_API_URL || "/api/v1";
+export const API_URL = import.meta.env.VITE_API_URL || "/api/v1";
+
+/**
+ * Eventos de la capa HTTP. El cliente no conoce a react-query ni a la sesion:
+ * solo avisa, y quien le interesa escucha.
+ *
+ * - `siga:mutation`: una escritura (POST/PATCH/PUT/DELETE) termino bien. La
+ *   capa de cache invalida lo que esa escritura pudo cambiar (ux-ui 1.2.3:
+ *   "toda mutacion invalida lo que muestra"), ver `invalidation.js`.
+ * - `siga:api-activity`: el servidor respondio a una peticion autenticada, asi
+ *   que la sesion se renovo alli. El aviso de sesion por vencer cuenta desde
+ *   aqui (ux-ui L4).
+ * - `siga:session-expired`: el servidor cerro la sesion por inactividad.
+ */
+export const MUTATION_EVENT = "siga:mutation";
+export const API_ACTIVITY_EVENT = "siga:api-activity";
+export const SESSION_EXPIRED_EVENT = "siga:session-expired";
+
+const SAFE_METHODS = ["GET", "HEAD", "OPTIONS", "TRACE"];
+
+function emit(name, detail) {
+  window.dispatchEvent(new CustomEvent(name, { detail }));
+}
 
 function getErrorMessage(detail) {
   if (typeof detail === "string") {
@@ -21,7 +43,15 @@ function getErrorMessage(detail) {
   return "Solicitud no completada.";
 }
 
-async function parseResponse(response, { asFile = false } = {}) {
+async function parseResponse(response, { asFile = false, method, path } = {}) {
+  const expired = response.headers.get("X-SIGA-Session-Expired") === "1";
+  if (!expired) {
+    emit(API_ACTIVITY_EVENT, { method, path, status: response.status });
+  }
+  if (response.ok && method && !SAFE_METHODS.includes(method)) {
+    emit(MUTATION_EVENT, { method, path });
+  }
+
   if (asFile && response.ok) {
     // Archivos generados (PDF): el cuerpo es binario y los metadatos de la
     // emision viajan en los cabezales, asi que se devuelven ambos.
@@ -32,8 +62,8 @@ async function parseResponse(response, { asFile = false } = {}) {
   const data = isJson ? await response.json() : null;
 
   if (!response.ok) {
-    if (response.headers.get("X-SIGA-Session-Expired") === "1") {
-      window.dispatchEvent(new Event("siga:session-expired"));
+    if (expired) {
+      emit(SESSION_EXPIRED_EVENT, { path });
     }
     // El backend responde de tres formas segun la capa que rechaza: la de
     // dominio manda `{error: {detail}}`, las vistas de permisos mandan
@@ -59,11 +89,12 @@ function getCookie(name) {
   return value ? decodeURIComponent(value) : "";
 }
 
-async function request(path, { asFile = false, ...options } = {}) {
+async function request(path, { asFile = false, accept, ...options } = {}) {
   const headers = new Headers(options.headers || {});
   headers.set(
     "Accept",
-    asFile ? "application/pdf, application/json" : "application/json"
+    accept ??
+      (asFile ? "application/pdf, application/json" : "application/json")
   );
 
   const isFormData = options.body instanceof FormData;
@@ -72,7 +103,7 @@ async function request(path, { asFile = false, ...options } = {}) {
   }
 
   const method = (options.method || "GET").toUpperCase();
-  if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
+  if (!SAFE_METHODS.includes(method)) {
     const csrfToken = getCookie("csrftoken");
     if (csrfToken) {
       headers.set("X-CSRFToken", csrfToken);
@@ -102,7 +133,7 @@ async function request(path, { asFile = false, ...options } = {}) {
     throw error;
   }
 
-  return parseResponse(response, { asFile });
+  return parseResponse(response, { asFile, method, path });
 }
 
 export const apiClient = {
@@ -113,4 +144,7 @@ export const apiClient = {
   /** POST que responde un archivo: devuelve `{ blob, headers }`. */
   postForFile: (path, body) =>
     request(path, { method: "POST", body, asFile: true }),
+  /** GET que responde un archivo (CSV de exportacion): devuelve `{ blob, headers }`. */
+  getFile: (path, accept = "text/csv, application/json") =>
+    request(path, { asFile: true, accept }),
 };
