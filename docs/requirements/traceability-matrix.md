@@ -31,7 +31,8 @@ en el catálogo: esas correcciones se trazan al hallazgo UX, sin inventar identi
 | PE1; PE3; T2; G2; E3/E10; 1.1.6–1.1.7 | `apps/{people,teachers,students}/{queries.py,api/views.py,api/serializers.py}`; `docs/development/632-community-lists.md` | `backend/tests/api/test_community_list_filters_api.py` | Backend implementado; migración de pantallas y eliminación del tope de 1.000 pendientes |
 
 Comandos y límites de validación: [entrega de listados](../development/632-community-lists.md).
-Referencia del PR y resultados finales se completan al publicar la entrega.
+Entrega y checks de integración: [PR #635](https://github.com/siga-inebi/siga-inebi/pull/635),
+con base `develop`; resultados locales completos en el documento de desarrollo enlazado.
 
 ## Estado inicial
 

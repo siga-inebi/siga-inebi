@@ -9,6 +9,8 @@ resuelto: las descargas completas y el corte de 1.000 registros del frontend sig
 Rama `fix/632-community-search`, creada desde `develop` actualizado a `5f8630d`.
 Es independiente de los PR #633 (persistencia de persona) y #634 (registros del expediente).
 No contiene sus cambios ni sustituye su integración en `develop`.
+Entrega publicada en el [PR #635](https://github.com/siga-inebi/siga-inebi/pull/635),
+con base `develop`; los checks de GitHub complementan los resultados locales de este documento.
 
 ## Decisiones aplicadas
 
