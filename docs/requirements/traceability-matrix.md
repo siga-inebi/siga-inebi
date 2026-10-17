@@ -30,6 +30,8 @@ No modifica las reglas de matrícula ni los estados globales de cumplimiento de 
 El límite global de catálogos, `useServerList`, URL, exportaciones y `search-select` del formulario
 siguen pendientes de #630 y de la migración de sus consumidores. Evidencia final y PR en el
 [documento de entrega](../development/632-enrolment-summaries.md).
+Entrega y checks de integración: [PR #636](https://github.com/siga-inebi/siga-inebi/pull/636),
+con base `develop`.
 
 ## Estado inicial
 

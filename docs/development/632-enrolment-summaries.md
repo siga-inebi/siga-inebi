@@ -10,6 +10,8 @@ Esta entrega implementa M1 de [la guía UX/UI](../ux-ui.md): los nombres viajan 
 matrículas. Incluye una búsqueda remota para el filtro de estudiante y carga diferida del
 formulario de alta. Se creó `fix/632-enrolment-names` desde `develop` actualizado a `5f8630d`.
 No duplica los PR #633–#635, que siguen pendientes de integración.
+Entrega: [PR #636](https://github.com/siga-inebi/siga-inebi/pull/636), con base `develop`.
+Sus checks de integración complementan los resultados locales de este documento.
 
 Se adelantó M1 porque #630 todavía no tiene una implementación publicada de `useServerList`.
 La migración completa de los listados de comunidad educativa continúa pendiente de esa base.
