@@ -3,9 +3,9 @@ Domain services for the document templates catalogue (RF-PLA-001).
 
 Every invariant lives here, never in views or serializers (AGENTS.md #8).
 
-Uniqueness is delegated to the database constraint and translated back into a
-``DomainError`` by ``unique_violation_as``. Reading first and writing afterwards
-would leave a window for two concurrent requests to both pass the check.
+Uniqueness is reinforced by database constraints and translated into ``DomainError``.
+Template-use writes additionally lock the institution before checking an occupant,
+so confirmation and replacement cannot race with another catalogue write.
 """
 
 import hashlib
@@ -24,6 +24,7 @@ from django.db import models, transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from apps.academics.models import Institution
 from apps.audit.services import diff_fields, record_event
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import AuthorizationError, DomainError
@@ -601,8 +602,18 @@ def deactivate_document_kind(*, kind, actor=None):
     return kind
 
 
-def get_active_document_template(*, institution, kind):
-    """Resolve the single active template for a given institutional document kind."""
+def get_active_document_template(*, institution, kind=None, issuance_use=None):
+    """Resolve by explicit use. Legacy kind lookup rejects ambiguous classifications."""
+    if issuance_use is not None:
+        _validate_issuance_use(issuance_use)
+        if issuance_use == DocumentTemplate.IssuanceUse.NONE:
+            raise DomainError("Ninguna no identifica un uso de emision.")
+        try:
+            return DocumentTemplate.objects.get(
+                institution=institution, issuance_use=issuance_use, is_active=True
+            )
+        except DocumentTemplate.DoesNotExist as exc:
+            raise DomainError("No hay plantilla activa para este uso de emision.") from exc
     document_kind = resolve_document_kind(institution=institution, code=kind)
     normalized_kind = document_kind.code
 
@@ -997,8 +1008,8 @@ def _document_template_conflicts(code):
         "unique_document_template_code_per_institution": (
             f"Document template code '{code}' already exists for this institution."
         ),
-        "unique_active_document_template_per_kind_per_institution": (
-            "An active document template already exists for this institution and document type."
+        "unique_active_template_per_issuance_use": (
+            "Ya existe una plantilla activa para este uso de emision."
         ),
     }
 
@@ -1020,7 +1031,44 @@ def _record_version(template):
             kind=template.document_kind.code,
             description=template.description,
             content=template.content,
+            issuance_use=template.issuance_use,
         )
+
+
+def _validate_issuance_use(issuance_use):
+    if issuance_use not in DocumentTemplate.IssuanceUse.values:
+        raise DomainError("El uso de emision indicado no es valido.")
+
+
+def _replace_active_template(
+    *,
+    institution,
+    issuance_use,
+    current=None,
+    replaces_template_id=None,
+    actor=None,
+    is_active=True,
+):
+    """Called under the institution lock; confirmation names the exact previous template."""
+    _validate_issuance_use(issuance_use)
+    occupant = None
+    if is_active and issuance_use != DocumentTemplate.IssuanceUse.NONE:
+        active = DocumentTemplate.objects.filter(
+            institution=institution, issuance_use=issuance_use, is_active=True
+        )
+        if current is not None:
+            active = active.exclude(pk=current.pk)
+        occupant = active.first()
+    if replaces_template_id is not None:
+        if occupant is None or str(occupant.public_id) != str(replaces_template_id):
+            raise DomainError(
+                "La plantilla activa cambio; revise y confirme el reemplazo de nuevo."
+            )
+        occupant.is_active = False
+        occupant.save(update_fields=["is_active", "updated_at"])
+        _audit(actor, "documents.template.replaced", occupant, issuance_use=issuance_use)
+    elif occupant is not None:
+        raise DomainError("Ya existe una plantilla activa para este uso; confirme su reemplazo.")
 
 
 @transaction.atomic
@@ -1034,6 +1082,8 @@ def create_document_template(
     content="",
     actor=None,
     is_active=True,
+    issuance_use=DocumentTemplate.IssuanceUse.NONE,
+    replaces_template_id=None,
 ):
     """
     Register a document template.
@@ -1045,7 +1095,15 @@ def create_document_template(
     name = _clean_name(name)
     code = _clean_code(code)
     content = (content or "").strip()
+    Institution.objects.select_for_update().get(pk=institution.pk)
     document_kind = resolve_document_kind(institution=institution, code=kind)
+    _replace_active_template(
+        institution=institution,
+        issuance_use=issuance_use,
+        replaces_template_id=replaces_template_id,
+        actor=actor,
+        is_active=is_active,
+    )
 
     with unique_violation_as(_document_template_conflicts(code)):
         template = DocumentTemplate.objects.create(
@@ -1056,22 +1114,41 @@ def create_document_template(
             description=(description or "").strip(),
             content=content,
             is_active=is_active,
+            issuance_use=issuance_use,
         )
 
-    _audit(actor, "documents.template.created", template, code=code, kind=document_kind.code)
+    _audit(
+        actor,
+        "documents.template.created",
+        template,
+        code=code,
+        kind=document_kind.code,
+        issuance_use=issuance_use,
+        replaces_template_id=str(replaces_template_id or ""),
+    )
     _record_version(template)
     return template
 
 
 @transaction.atomic
 def update_document_template(
-    *, template, name=None, description=None, kind=None, content=None, actor=None
+    *,
+    template,
+    name=None,
+    description=None,
+    kind=None,
+    content=None,
+    actor=None,
+    issuance_use=None,
+    replaces_template_id=None,
 ):
     """
     Update the descriptive attributes of a document template. The code is
     immutable. Any explicitly supplied field records a new version
     (RF-PLA-005); a call with nothing to change does not.
     """
+    Institution.objects.select_for_update().get(pk=template.institution_id)
+    template = DocumentTemplate.objects.select_for_update().get(pk=template.pk)
     if name is not None:
         name = _clean_name(name)
     if description is not None:
@@ -1084,6 +1161,14 @@ def update_document_template(
         else None
     )
 
+    _replace_active_template(
+        institution=template.institution,
+        issuance_use=template.issuance_use if issuance_use is None else issuance_use,
+        current=template,
+        replaces_template_id=replaces_template_id,
+        actor=actor,
+        is_active=template.is_active,
+    )
     with unique_violation_as(_document_template_conflicts(template.code)):
         updated = _changed(
             template,
@@ -1093,10 +1178,18 @@ def update_document_template(
             description=description,
             document_kind=document_kind,
             content=content,
+            issuance_use=issuance_use,
         )
 
-    if any(value is not None for value in (name, description, kind, content)):
+    if any(value is not None for value in (name, description, kind, content, issuance_use)):
         _record_version(updated)
+    if replaces_template_id is not None:
+        _audit(
+            actor,
+            "documents.template.replacement_confirmed",
+            updated,
+            replaces_template_id=str(replaces_template_id),
+        )
 
     return updated
 
@@ -1104,6 +1197,8 @@ def update_document_template(
 @transaction.atomic
 def deactivate_document_template(*, template, actor=None):
     """Deactivate a document template instead of deleting it. Idempotent."""
+    Institution.objects.select_for_update().get(pk=template.institution_id)
+    template = DocumentTemplate.objects.select_for_update().get(pk=template.pk)
     if not template.is_active:
         return template
 
@@ -1303,17 +1398,7 @@ def preview_document_template(*, template, payload=None, actor=None):
 
     template_content = str(getattr(template, "content", "") or "")
     mapping = dict(payload or {})
-    markers = re.findall(r"{{\s*([A-Za-z0-9_.-]+)\s*}}", template_content)
-    for marker in markers:
-        if marker not in FIELD_TAG_CODES:
-            raise DomainError(
-                f"El marcador '{marker}' no esta permitido dentro del catalogo cerrado de "
-                "etiquetas de plantilla."
-            )
-
-    rendered = template_content
-    for marker in markers:
-        rendered = rendered.replace(f"{{{{{marker}}}}}", str(mapping.get(marker, "")))
+    rendered, markers = _render_template_markers(template_content, mapping)
 
     _audit(
         actor,
@@ -1950,13 +2035,7 @@ def ensure_official_document_issuance_allowed(*, enrolment, actor=None):
 # --------------------------------------------------------------------------- #
 
 #: Document-type code of the institutional catalogue (RNF-MAN-001) whose active
-#: template, when one exists, supplies the body text of each individual type.
-#: ``certificate`` ships with every institution; ``constancia`` is the code the
-#: catalogue migration already preserved for institutions that had one.
-INDIVIDUAL_TEMPLATE_KIND = {
-    DocumentIssuance.DocumentType.ENROLMENT_CERTIFICATE: "constancia",
-    DocumentIssuance.DocumentType.STUDY_CERTIFICATE: "certificate",
-}
+#: An explicit issuance_use selects the current body; kind codes only classify.
 
 _ISSUANCE_LINE_WIDTH = 90
 
@@ -2015,10 +2094,10 @@ def _ensure_individual_issuance_allowed(*, enrolment, document_type, actor):
         )
 
 
-def _active_template_version(*, institution, kind_code):
-    """Latest version of the single active template of a kind, or ``None``."""
+def _active_template_version(*, institution, issuance_use):
+    """Latest published version for an explicit use, independent of kind codes."""
     try:
-        template = get_active_document_template(institution=institution, kind=kind_code)
+        template = get_active_document_template(institution=institution, issuance_use=issuance_use)
     except DomainError:
         return None
     return template.versions.order_by("-sequence").first()
@@ -2102,9 +2181,7 @@ def issue_individual_document(*, enrolment, document_type, actor, issued_at=None
     issued_at = issued_at or timezone.now()
     label = document_type.label
     values = _issuance_field_values(enrolment=enrolment, issued_at=issued_at)
-    template_version = _active_template_version(
-        institution=institution, kind_code=INDIVIDUAL_TEMPLATE_KIND[document_type]
-    )
+    template_version = _active_template_version(institution=institution, issuance_use=document_type)
     if template_version is not None and template_version.content.strip():
         body, _markers = _render_template_markers(template_version.content, values)
     else:

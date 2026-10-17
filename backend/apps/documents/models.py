@@ -212,6 +212,14 @@ class DocumentTemplate(TimeStampedModel):
     or structure used to issue reports and certificates (RF-PLA-001).
     """
 
+    class IssuanceUse(models.TextChoices):
+        NONE = "none", "Ninguna"
+        ENROLMENT_CERTIFICATE = "enrolment_certificate", "Constancia de inscripción"
+        STUDY_CERTIFICATE = "study_certificate", "Certificado de estudios"
+
+    issuance_use = models.CharField(
+        max_length=30, choices=IssuanceUse.choices, default=IssuanceUse.NONE
+    )
     institution = models.ForeignKey(
         "academics.Institution", on_delete=models.CASCADE, related_name="document_templates"
     )
@@ -233,9 +241,9 @@ class DocumentTemplate(TimeStampedModel):
                 fields=["institution", "code"], name="unique_document_template_code_per_institution"
             ),
             models.UniqueConstraint(
-                fields=["institution", "document_kind"],
-                condition=models.Q(is_active=True),
-                name="unique_active_document_template_per_kind_per_institution",
+                fields=["institution", "issuance_use"],
+                condition=models.Q(is_active=True) & ~models.Q(issuance_use="none"),
+                name="unique_active_template_per_issuance_use",
             ),
         ]
 
@@ -283,6 +291,11 @@ class DocumentTemplateVersion(TimeStampedModel):
     edited or deleted, same guarantee as ``apps.audit.models.AuditEvent``.
     """
 
+    issuance_use = models.CharField(
+        max_length=30,
+        choices=DocumentTemplate.IssuanceUse.choices,
+        default=DocumentTemplate.IssuanceUse.NONE,
+    )
     template = models.ForeignKey(
         DocumentTemplate, on_delete=models.CASCADE, related_name="versions"
     )
