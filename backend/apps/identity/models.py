@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, Permission
 from django.core.validators import MinValueValidator
@@ -9,10 +11,15 @@ from apps.common.models import TimeStampedModel
 
 class UserAccount(AbstractUser):
     class AccountStatus(models.TextChoices):
-        PENDING = "pending", "Pending"
-        ACTIVE = "active", "Active"
-        BLOCKED = "blocked", "Blocked"
-        DISABLED = "disabled", "Disabled"
+        PENDING = "pending", "Pendiente"
+        ACTIVE = "active", "Activa"
+        BLOCKED = "blocked", "Bloqueada"
+        DISABLED = "disabled", "Desactivada"
+
+    # Identificador opaco para la API (docs/ux-ui.md, criterio "no se exponen IDs
+    # internos"). El ``pk`` entero sigue siendo la llave interna y la referencia
+    # de la bitacora; ningun contrato publico lo recibe ni lo devuelve.
+    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
 
     person = models.OneToOneField(
         "people.Person",
@@ -42,6 +49,7 @@ class UserAccount(AbstractUser):
             .filter(
                 is_active=True,
                 user=self,
+                role__is_active=True,
                 role__permissions__codename=codename,
             )
             .exists()

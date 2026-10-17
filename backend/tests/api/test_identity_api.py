@@ -99,9 +99,14 @@ def test_api_rejection_for_temporarily_locked_account():
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["error"]["detail"]["non_field_errors"] == [
-        "Cuenta temporalmente bloqueada."
-    ]
+    detail = response.json()["error"]["detail"]
+    # L5: el mensaje dice que es un bloqueo temporal y hasta que hora dura.
+    assert detail["non_field_errors"][0].startswith(
+        "Cuenta bloqueada temporalmente por intentos fallidos."
+    )
+    assert "Podrá intentarlo de nuevo a las" in detail["non_field_errors"][0]
+    assert detail["code"] == ["account_locked"]
+    assert detail["locked_until"][0]
 
 
 def test_api_allows_login_after_lockout_period_expires():

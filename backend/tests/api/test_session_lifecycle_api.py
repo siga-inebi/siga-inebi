@@ -140,7 +140,7 @@ def test_authorized_administrator_can_close_another_accounts_sessions(client):
     target_client.force_login(target)
     client.force_login(administrator)
 
-    response = client.post(reverse("identity-account-sessions-close", args=[target.pk]))
+    response = client.post(reverse("identity-account-sessions-close", args=[target.public_id]))
 
     assert response.status_code == 204
     assert target_client.get(reverse("auth-me")).json()["authenticated"] is False
@@ -164,7 +164,11 @@ def test_account_provision_rejects_orphan_and_unregistered_guardian(client):
     person = PersonFactory()
     guardian_response = client.post(
         reverse("identity-account-provision"),
-        {"person": person.pk, "username": "guardian-account", "account_kind": "guardian"},
+        {
+            "person_public_id": str(person.public_id),
+            "username": "guardian-account",
+            "account_kind": "guardian",
+        },
     )
 
     assert orphan_response.status_code == 400
@@ -193,11 +197,11 @@ def test_registered_guardian_can_receive_guardian_account(client):
     response = client.post(
         reverse("identity-account-provision"),
         {
-            "person": guardian.person_id,
+            "person_public_id": str(guardian.person.public_id),
             "username": "registered-guardian-account",
             "account_kind": "guardian",
         },
     )
 
     assert response.status_code == 201
-    assert response.json()["person"] == guardian.person_id
+    assert response.json()["person_public_id"] == str(guardian.person.public_id)

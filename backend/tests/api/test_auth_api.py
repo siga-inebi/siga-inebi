@@ -82,7 +82,7 @@ def test_inactive_user_cannot_login(client):
     )
 
     assert response.status_code == 400
-    assert response.json()["error"]["detail"]["non_field_errors"] == ["Credenciales invalidas."]
+    assert response.json()["error"]["detail"]["non_field_errors"] == ["Credenciales inválidas."]
     assert "_auth_user_id" not in client.session
 
 
@@ -102,9 +102,14 @@ def test_fifth_failed_login_temporarily_locks_account_and_audits_attempts(client
         assert user.failed_login_attempts == attempt
 
     assert response.status_code == 400
-    assert response.json()["error"]["detail"]["non_field_errors"] == [
-        "Cuenta temporalmente bloqueada."
-    ]
+    detail = response.json()["error"]["detail"]
+    # L5: el mensaje dice que es un bloqueo temporal y hasta que hora dura.
+    assert detail["non_field_errors"][0].startswith(
+        "Cuenta bloqueada temporalmente por intentos fallidos."
+    )
+    assert "Podrá intentarlo de nuevo a las" in detail["non_field_errors"][0]
+    assert detail["code"] == ["account_locked"]
+    assert detail["locked_until"][0]
     assert user.locked_until is not None
     assert timedelta(minutes=9, seconds=55) <= user.locked_until - timezone.now()
     assert (
@@ -131,9 +136,14 @@ def test_locked_account_cannot_login_with_correct_password(client):
     )
 
     assert response.status_code == 400
-    assert response.json()["error"]["detail"]["non_field_errors"] == [
-        "Cuenta temporalmente bloqueada."
-    ]
+    detail = response.json()["error"]["detail"]
+    # L5: el mensaje dice que es un bloqueo temporal y hasta que hora dura.
+    assert detail["non_field_errors"][0].startswith(
+        "Cuenta bloqueada temporalmente por intentos fallidos."
+    )
+    assert "Podrá intentarlo de nuevo a las" in detail["non_field_errors"][0]
+    assert detail["code"] == ["account_locked"]
+    assert detail["locked_until"][0]
     assert "_auth_user_id" not in client.session
 
 

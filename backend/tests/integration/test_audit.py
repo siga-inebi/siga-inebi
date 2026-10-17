@@ -172,8 +172,7 @@ def test_successful_login_clearing_stale_lockout_is_audited():
 
     authenticate_account(request=None, username=user.username, password="correct-pass-123")
 
-    event = AuditEvent.objects.latest("created_at")
-    assert event.action == "identity.login.lockout_cleared"
+    event = AuditEvent.objects.get(action="identity.login.lockout_cleared")
     assert event.actor_id == user.id
     assert event.context["cleared_failed_attempts"] == 3
 

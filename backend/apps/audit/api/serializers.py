@@ -7,12 +7,16 @@ class AuditEventSerializer(serializers.ModelSerializer):
     actor_username = serializers.CharField(
         source="actor.username", read_only=True, allow_null=True, default=None
     )
+    actor_public_id = serializers.UUIDField(
+        source="actor.public_id", read_only=True, allow_null=True, default=None
+    )
 
     class Meta:
         model = AuditEvent
         fields = [
             "public_id",
             "actor_id",
+            "actor_public_id",
             "actor_label",
             "actor_username",
             "action",
@@ -65,7 +69,19 @@ class ResultTraceSerializer(serializers.Serializer):
 
 
 class AuditEventQuerySerializer(serializers.Serializer):
-    actor_id = serializers.IntegerField(required=False, help_text="Usuario autor del asiento.")
+    actor_id = serializers.IntegerField(
+        required=False,
+        help_text="Obsoleto: id interno del autor. Usar actor_public_id o actor_username.",
+    )
+    actor_public_id = serializers.UUIDField(
+        required=False, help_text="public_id de la cuenta autora del asiento."
+    )
+    actor_username = serializers.CharField(
+        required=False, help_text="Usuario autor del asiento (coincidencia parcial)."
+    )
+    action_prefix = serializers.CharField(
+        required=False, help_text="Prefijo de la accion, p. ej. identity.account."
+    )
     resource = serializers.CharField(required=False, help_text="Capacidad o recurso afectado.")
     resource_identifier = serializers.CharField(
         required=False,

@@ -1,43 +1,274 @@
-ATOMIC_PERMISSIONS = (
-    ("auth.login", "Can log in"),
-    ("auth.logout", "Can log out"),
-    ("account.create", "Can create accounts"),
-    ("account.activate", "Can issue account activation challenges"),
-    ("account.disable", "Can disable accounts"),
-    ("role.assign", "Can assign roles"),
-    ("scope.assign", "Can assign scopes"),
-    ("student.view_basic", "Can view student basic data"),
-    ("student.view_sensitive", "Can view sensitive student data"),
-    ("student.edit_basic", "Can edit student basic data"),
-    ("enrollment.create", "Can create enrollments"),
-    ("enrollment.update", "Can update enrollments"),
-    ("attendance.scan", "Can scan attendance credentials"),
-    ("attendance.credential.issue", "Can issue student credentials"),
-    ("attendance.credential.resolve", "Can resolve student credential identifiers"),
-    ("attendance.record_entry", "Can record attendance entries"),
-    ("attendance.record_exit", "Can record attendance exits"),
-    ("attendance.declared_close", "Can perform declared attendance close"),
-    ("attendance.record_manual", "Can record attendance manually"),
-    ("attendance.justification.request", "Can request attendance justifications"),
-    ("attendance.justification.resolve", "Can resolve attendance justifications"),
-    ("attendance.permit.request", "Can request attendance permits"),
-    ("attendance.permit.resolve", "Can resolve attendance permits"),
-    ("attendance.jornada.configure", "Can configure jornada parameters"),
-    ("evaluation.configure_units", "Can configure evaluation units"),
-    ("reporting.alert.view", "Can view reporting alerts"),
-    ("reporting.alert.acknowledge", "Can acknowledge reporting alerts"),
-    ("reporting.alert.evaluate", "Can trigger reporting alert evaluation"),
-    ("reporting.absence_threshold.configure", "Can configure the absence threshold"),
-    ("grade.write", "Can write grades"),
-    ("grade.correct", "Can correct grades"),
-    ("academic_cycle.reopen", "Can reopen a closed academic cycle"),
-    ("document.upload", "Can upload documents"),
-    ("document.read", "Can read documents"),
-    ("document.download", "Can download documents"),
-    ("document.issue", "Can issue documents"),
-    ("audit.read", "Can read audit events"),
-    ("platform.monitor", "Can read background task runs and their health"),
+"""
+Catalogo cerrado de permisos atomicos (RF-PER-001).
+
+Cada permiso tiene un codigo publico con punto (``student.view_basic``), que es
+lo que viaja por la API, y un ``codename`` de Django con guion bajo, que es lo
+que se guarda. Ademas de la etiqueta, cada permiso declara una descripcion de
+una linea y el grupo funcional al que pertenece: la pantalla de roles los
+agrupa por modulo (docs/ux-ui.md, RO1 y RO2) y nadie deberia tener que adivinar
+que cubre "Ver datos basicos del estudiante".
+
+Las etiquetas viven aqui y no en la base: el nombre guardado en
+``auth.Permission`` se sincroniza por migracion, pero la fuente de verdad es
+este modulo.
+"""
+
+#: Grupos funcionales, en el orden en que se muestran.
+PERMISSION_GROUPS = (
+    ("accounts", "Cuentas y accesos"),
+    ("students", "Estudiantes"),
+    ("enrolment", "Matrícula"),
+    ("attendance", "Asistencia"),
+    ("evaluation", "Evaluación"),
+    ("cycle", "Ciclo escolar"),
+    ("documents", "Documentos"),
+    ("alerts", "Alertas"),
+    ("audit", "Auditoría"),
+    ("platform", "Plataforma"),
 )
+
+PERMISSION_GROUP_LABELS = dict(PERMISSION_GROUPS)
+
+#: (codigo publico, etiqueta, descripcion, grupo)
+PERMISSION_CATALOGUE = (
+    ("auth.login", "Iniciar sesión", "Permite entrar al sistema con su cuenta.", "accounts"),
+    ("auth.logout", "Cerrar sesión", "Permite cerrar su propia sesión.", "accounts"),
+    (
+        "account.create",
+        "Crear cuentas",
+        "Permite dar acceso al sistema a una persona registrada y editar usuario y correo.",
+        "accounts",
+    ),
+    (
+        "account.activate",
+        "Activar, reactivar y desbloquear cuentas",
+        "Permite reemitir códigos de activación, reactivar cuentas desactivadas y "
+        "levantar bloqueos temporales.",
+        "accounts",
+    ),
+    (
+        "account.disable",
+        "Desactivar cuentas y restablecer acceso",
+        "Permite listar cuentas, desactivarlas, cerrar sus sesiones y emitir enlaces de "
+        "restablecimiento de contraseña.",
+        "accounts",
+    ),
+    (
+        "role.assign",
+        "Administrar roles y asignaciones",
+        "Permite crear y editar roles y asignarlos o revocarlos a otras cuentas.",
+        "accounts",
+    ),
+    (
+        "scope.assign",
+        "Administrar catálogos institucionales",
+        "Permite modificar sedes, niveles, cursos, ciclos y asignaciones docentes dentro del "
+        "alcance asignado.",
+        "accounts",
+    ),
+    (
+        "student.view_basic",
+        "Ver datos básicos del estudiante",
+        "Permite ver nombre, código, foto y matrícula; no incluye salud ni observaciones.",
+        "students",
+    ),
+    (
+        "student.view_sensitive",
+        "Ver datos sensibles del estudiante",
+        "Permite ver salud, observaciones y contactos de familia del estudiante.",
+        "students",
+    ),
+    (
+        "student.edit_basic",
+        "Editar datos básicos del estudiante",
+        "Permite registrar estudiantes y corregir sus datos de identificación.",
+        "students",
+    ),
+    (
+        "enrollment.create",
+        "Matricular",
+        "Permite registrar matrículas y reinscripciones.",
+        "enrolment",
+    ),
+    (
+        "enrollment.update",
+        "Modificar matrículas",
+        "Permite registrar movimientos de matrícula: cambios de sección, retiros y traslados.",
+        "enrolment",
+    ),
+    (
+        "attendance.scan",
+        "Escanear credenciales",
+        "Permite registrar asistencia escaneando el carné del estudiante.",
+        "attendance",
+    ),
+    (
+        "attendance.credential.issue",
+        "Emitir credenciales",
+        "Permite emitir, imprimir y revocar el carné QR del estudiante.",
+        "attendance",
+    ),
+    (
+        "attendance.credential.resolve",
+        "Resolver credenciales",
+        "Permite identificar al estudiante a partir del código de su carné.",
+        "attendance",
+    ),
+    (
+        "attendance.record_entry",
+        "Registrar ingresos",
+        "Permite registrar la entrada del estudiante.",
+        "attendance",
+    ),
+    (
+        "attendance.record_exit",
+        "Registrar egresos",
+        "Permite registrar la salida del estudiante.",
+        "attendance",
+    ),
+    (
+        "attendance.declared_close",
+        "Cerrar asistencia de sección",
+        "Permite declarar el cierre de la asistencia de una sección.",
+        "attendance",
+    ),
+    (
+        "attendance.record_manual",
+        "Registrar asistencia manual",
+        "Permite registrar asistencia sin escaneo, con motivo.",
+        "attendance",
+    ),
+    (
+        "attendance.justification.request",
+        "Solicitar justificaciones",
+        "Permite enviar justificaciones de inasistencia.",
+        "attendance",
+    ),
+    (
+        "attendance.justification.resolve",
+        "Resolver justificaciones",
+        "Permite aprobar o rechazar justificaciones de inasistencia.",
+        "attendance",
+    ),
+    (
+        "attendance.permit.request",
+        "Solicitar permisos de salida",
+        "Permite solicitar permisos de salida anticipada o ingreso tardío.",
+        "attendance",
+    ),
+    (
+        "attendance.permit.resolve",
+        "Resolver permisos de salida",
+        "Permite aprobar o rechazar permisos de salida.",
+        "attendance",
+    ),
+    (
+        "attendance.jornada.configure",
+        "Configurar la jornada",
+        "Permite cambiar los parámetros de la jornada: horarios límite y ventana de escaneo.",
+        "attendance",
+    ),
+    (
+        "evaluation.configure_units",
+        "Configurar evaluación",
+        "Permite configurar y cerrar unidades de evaluación y ventanas de captura.",
+        "evaluation",
+    ),
+    ("grade.write", "Registrar notas", "Permite registrar calificaciones.", "evaluation"),
+    (
+        "grade.correct",
+        "Corregir notas",
+        "Permite corregir calificaciones ya registradas, con motivo.",
+        "evaluation",
+    ),
+    (
+        "academic_cycle.reopen",
+        "Reabrir ciclo escolar",
+        "Permite reabrir un ciclo cerrado, con motivo (RF-CIC-005).",
+        "cycle",
+    ),
+    (
+        "academic_cycle.revert",
+        "Volver un ciclo a borrador",
+        "Permite devolver a borrador un ciclo activado por error, antes de que tenga "
+        "actividad (ADR-0011, D3 y D6).",
+        "cycle",
+    ),
+    (
+        "document.upload",
+        "Subir documentos",
+        "Permite adjuntar documentos al expediente.",
+        "documents",
+    ),
+    (
+        "document.read",
+        "Consultar documentos",
+        "Permite ver el expediente documental.",
+        "documents",
+    ),
+    (
+        "document.download",
+        "Descargar documentos",
+        "Permite descargar documentos del expediente.",
+        "documents",
+    ),
+    (
+        "document.issue",
+        "Emitir documentos oficiales",
+        "Permite emitir constancias, certificados y reportes oficiales.",
+        "documents",
+    ),
+    (
+        "reporting.alert.view",
+        "Ver alertas",
+        "Permite consultar las alertas de asistencia.",
+        "alerts",
+    ),
+    (
+        "reporting.alert.acknowledge",
+        "Atender alertas",
+        "Permite marcar alertas como atendidas.",
+        "alerts",
+    ),
+    (
+        "reporting.alert.evaluate",
+        "Evaluar alertas",
+        "Permite ejecutar la evaluación de alertas.",
+        "alerts",
+    ),
+    (
+        "reporting.absence_threshold.configure",
+        "Configurar umbral de inasistencia",
+        "Permite cambiar el umbral que dispara las alertas de inasistencia.",
+        "alerts",
+    ),
+    (
+        "audit.read",
+        "Consultar la bitácora",
+        "Permite consultar y exportar la bitácora de auditoría.",
+        "audit",
+    ),
+    (
+        "retention_policy.declare",
+        "Declarar plazos de retención",
+        "Permite declarar el plazo de retención de una categoría de datos (RNF-LEG-001).",
+        "audit",
+    ),
+    (
+        "platform.monitor",
+        "Monitorear la plataforma",
+        "Permite consultar tareas programadas, su salud y el estado de los respaldos.",
+        "platform",
+    ),
+)
+
+#: Compatibilidad: pares (codigo, etiqueta) que consumen el sembrado y la API.
+ATOMIC_PERMISSIONS = tuple((code, label) for code, label, _desc, _group in PERMISSION_CATALOGUE)
+
+PERMISSION_DETAILS = {
+    code: {"label": label, "description": description, "group": group}
+    for code, label, description, group in PERMISSION_CATALOGUE
+}
 
 
 def permission_codename(code):
