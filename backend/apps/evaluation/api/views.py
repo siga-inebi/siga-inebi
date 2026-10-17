@@ -104,12 +104,12 @@ class EvaluationUnitListCreateView(ListAPIView, CreateAPIView):
 
         if not self.check_director_permission():
             raise AuthorizationError(
-                "Permission denied. Only directors can configure evaluation units."
+                "Permiso denegado: solo la dirección puede configurar unidades de evaluación."
             )
 
         cycle = queries.academic_cycle_or_none(cycle_public_id)
         if cycle is None:
-            raise ResourceNotFoundError("Cycle not found.")
+            raise ResourceNotFoundError("No se encontró el ciclo escolar.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -157,7 +157,7 @@ class EvaluationUnitRecoveryWindowView(APIView):
     def patch(self, request, *args, **kwargs):
         if not self.check_director_permission():
             raise AuthorizationError(
-                "Permission denied. Only directors can configure evaluation units."
+                "Permiso denegado: solo la dirección puede configurar unidades de evaluación."
             )
 
         cycle_public_id = kwargs.get("cycle_public_id")
@@ -167,7 +167,7 @@ class EvaluationUnitRecoveryWindowView(APIView):
             cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
         )
         if unit is None:
-            raise ResourceNotFoundError("Evaluation unit not found.")
+            raise ResourceNotFoundError("No se encontró la unidad de evaluación.")
 
         serializer = RecoveryWindowSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -225,11 +225,11 @@ class EvaluationUnitCloseView(APIView):
             cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
         )
         if unit is None:
-            raise ResourceNotFoundError("Evaluation unit not found.")
+            raise ResourceNotFoundError("No se encontró la unidad de evaluación.")
 
         if not self.check_configuration_permission(unit):
             raise AuthorizationError(
-                "Permission denied. The actor needs evaluation configuration permission and scope."
+                "Permiso denegado: se requiere permiso y alcance para configurar la evaluación."
             )
 
         unit = close_evaluation_unit(unit, actor=request.user)
@@ -278,7 +278,7 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
         """
         if not self.check_director_permission():
             raise AuthorizationError(
-                "Permission denied. Only academic authorization can grant capture exceptions."
+                "Permiso denegado: solo la autoridad académica otorga excepciones de captura."
             )
 
         cycle_public_id = kwargs.get("cycle_public_id")
@@ -288,7 +288,7 @@ class CaptureExceptionGrantListCreateView(ListAPIView, CreateAPIView):
             cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
         )
         if unit is None:
-            raise ResourceNotFoundError("Evaluation unit not found.")
+            raise ResourceNotFoundError("No se encontró la unidad de evaluación.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -342,7 +342,7 @@ class EvaluationGlobalConfigView(APIView):
     def patch(self, request, *args, **kwargs):
         if not self.check_director_permission():
             raise AuthorizationError(
-                "Permission denied. Only directors can configure evaluation settings."
+                "Permiso denegado: solo la dirección puede configurar la evaluación."
             )
 
         serializer = EvaluationGlobalConfigSerializer(data=request.data, partial=True)
@@ -398,7 +398,7 @@ class CycleEvaluationConfigView(APIView):
     def get(self, request, *args, **kwargs):
         cycle = self._get_cycle_or_none(kwargs.get("cycle_public_id"))
         if cycle is None:
-            raise ResourceNotFoundError("Cycle not found.")
+            raise ResourceNotFoundError("No se encontró el ciclo escolar.")
 
         override = getattr(cycle, "evaluation_config", None)
         return Response(
@@ -411,12 +411,12 @@ class CycleEvaluationConfigView(APIView):
     def patch(self, request, *args, **kwargs):
         if not self.check_director_permission():
             raise AuthorizationError(
-                "Permission denied. Only directors can configure evaluation settings."
+                "Permiso denegado: solo la dirección puede configurar la evaluación."
             )
 
         cycle = self._get_cycle_or_none(kwargs.get("cycle_public_id"))
         if cycle is None:
-            raise ResourceNotFoundError("Cycle not found.")
+            raise ResourceNotFoundError("No se encontró el ciclo escolar.")
 
         serializer = CycleEvaluationConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -475,11 +475,11 @@ class CloneCycleEvaluationConfigView(APIView):
     def post(self, request, *args, **kwargs):
         source_cycle = queries.academic_cycle_or_none(kwargs.get("cycle_public_id"))
         if source_cycle is None:
-            raise ResourceNotFoundError("Cycle not found.")
+            raise ResourceNotFoundError("No se encontró el ciclo escolar.")
 
         if not self.check_configuration_permission(source_cycle):
             raise AuthorizationError(
-                "Permission denied. The actor needs evaluation configuration permission and scope."
+                "Permiso denegado: se requiere permiso y alcance para configurar la evaluación."
             )
 
         serializer = CloneCycleEvaluationConfigSerializer(data=request.data)
@@ -545,7 +545,7 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
         assignment over the enrolment's section and the subject (RF-CAL-006).
         """
         if not self.check_teacher_permission():
-            raise AuthorizationError("Permission denied. Only teachers can register grades.")
+            raise AuthorizationError("Permiso denegado: solo los docentes pueden registrar notas.")
 
         cycle_public_id = kwargs.get("cycle_public_id")
         unit_public_id = kwargs.get("unit_public_id")
@@ -554,7 +554,7 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
             cycle_public_id=cycle_public_id, unit_public_id=unit_public_id
         )
         if unit is None:
-            raise ResourceNotFoundError("Evaluation unit not found.")
+            raise ResourceNotFoundError("No se encontró la unidad de evaluación.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -576,7 +576,7 @@ class GradeListCreateView(ListAPIView, CreateAPIView):
                 },
             )
             raise AuthorizationError(
-                "Permission denied. No teaching assignment over this section and subject."
+                "Permiso denegado: no tiene asignación docente en esta sección y curso."
             )
 
         grade = register_unit_grade(
@@ -621,7 +621,7 @@ class UnitCaptureProgressView(APIView):
             unit_public_id=kwargs.get("unit_public_id"),
         )
         if unit is None:
-            raise ResourceNotFoundError("Evaluation unit not found.")
+            raise ResourceNotFoundError("No se encontró la unidad de evaluación.")
 
         report = build_capture_progress_report(unit)
         return Response(CaptureProgressReportSerializer(report).data)
@@ -663,7 +663,7 @@ class BulkGradeUploadView(APIView):
             unit_public_id=kwargs.get("unit_public_id"),
         )
         if unit is None:
-            raise ResourceNotFoundError("Evaluation unit not found.")
+            raise ResourceNotFoundError("No se encontró la unidad de evaluación.")
 
         serializer = BulkGradeUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -687,7 +687,7 @@ class BulkGradeUploadView(APIView):
                 },
             )
             raise AuthorizationError(
-                "Permission denied. No teaching assignment over this section and subject."
+                "Permiso denegado: no tiene asignación docente en esta sección y curso."
             )
 
         result = bulk_register_unit_grades(
@@ -716,11 +716,11 @@ def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
         cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
     )
     if enrolment is None:
-        raise ResourceNotFoundError("Enrolment not found.")
+        raise ResourceNotFoundError("No se encontró la matrícula.")
 
     subject = queries.subject_or_none(subject_id)
     if subject is None:
-        raise ResourceNotFoundError("Subject not found.")
+        raise ResourceNotFoundError("No se encontró el curso.")
 
     return enrolment, subject
 
@@ -809,7 +809,7 @@ class RecoveryEligibilityView(APIView):
             enrolment_id=kwargs.get("enrolment_id"),
         )
         if enrolment is None:
-            raise ResourceNotFoundError("Enrolment not found.")
+            raise ResourceNotFoundError("No se encontró la matrícula.")
 
         eligibility = assess_recovery_eligibility(enrolment)
         return Response(RecoveryEligibilitySerializer(eligibility).data)
@@ -845,7 +845,7 @@ class RecoveryGradeCreateView(APIView):
             enrolment_id=kwargs.get("enrolment_id"),
         )
         if enrolment is None:
-            raise ResourceNotFoundError("Enrolment not found.")
+            raise ResourceNotFoundError("No se encontró la matrícula.")
 
         serializer = RecoveryGradeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -901,7 +901,7 @@ class EnrolmentGradesView(APIView):
             cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
         )
         if enrolment is None:
-            raise ResourceNotFoundError("Enrolment not found.")
+            raise ResourceNotFoundError("No se encontró la matrícula.")
 
         if not can_read_historical_student(
             user=request.user,
@@ -913,7 +913,7 @@ class EnrolmentGradesView(APIView):
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=enrolment.student
         ):
             raise AuthorizationError(
-                "Permission denied. No hay una asociacion vigente con este estudiante."
+                "Permiso denegado: no hay una asociación vigente con este estudiante."
             )
 
         grades = queries.grades_for_enrolment(enrolment)

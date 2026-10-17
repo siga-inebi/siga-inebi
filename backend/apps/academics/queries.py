@@ -28,7 +28,7 @@ from apps.common.exceptions import DomainError, ResourceNotFoundError
 def resolve_institution():
     institution = Institution.objects.order_by("pk").first()
     if institution is None:
-        raise ResourceNotFoundError("No institution is configured yet.")
+        raise ResourceNotFoundError("Todavía no hay una institución configurada.")
     return institution
 
 
@@ -37,11 +37,11 @@ def academic_cycles(institution):
 
 
 def academic_cycle_or_404(institution, public_id):
-    return _get(academic_cycles(institution), public_id, "Academic cycle")
+    return _get(academic_cycles(institution), public_id, "el ciclo escolar")
 
 
 def academic_cycle_for_payload(public_id):
-    return _get_payload(AcademicCycle.objects.all(), public_id, "Academic cycle")
+    return _get_payload(AcademicCycle.objects.all(), public_id, "el ciclo escolar")
 
 
 def latest_cycle_year(institution):
@@ -65,7 +65,7 @@ def campuses(institution, *, include_inactive=False):
 
 
 def campus_or_404(institution, public_id):
-    return _get(campuses_all(institution), public_id, "Campus")
+    return _get(campuses_all(institution), public_id, "la sede")
 
 
 def classrooms(institution, *, include_inactive=False, campus_id=None):
@@ -100,7 +100,9 @@ def shift_or_404(institution, public_id):
 
 
 def shift_for_payload(institution, public_id):
-    return _get_payload(Shift.objects.filter(campus__institution=institution), public_id, "Shift")
+    return _get_payload(
+        Shift.objects.filter(campus__institution=institution), public_id, "la jornada"
+    )
 
 
 def class_schedule_blocks(shift, *, include_inactive=False):
@@ -144,7 +146,7 @@ def levels(institution, *, include_inactive=False):
 
 
 def level_or_404(institution, public_id):
-    return _get(levels_all(institution), public_id, "Level")
+    return _get(levels_all(institution), public_id, "el nivel")
 
 
 def grades(level, *, include_inactive=False):
@@ -176,7 +178,7 @@ def grade_or_404(institution, public_id):
 
 
 def grade_for_payload(institution, public_id):
-    return _get_payload(Grade.objects.filter(level__institution=institution), public_id, "Grade")
+    return _get_payload(Grade.objects.filter(level__institution=institution), public_id, "el grado")
 
 
 def subjects(institution, *, include_inactive=False):
@@ -195,7 +197,7 @@ def subject_or_404(institution, public_id):
 
 
 def subject_for_payload(public_id):
-    return _get_payload(Subject.objects.all(), public_id, "Subject")
+    return _get_payload(Subject.objects.all(), public_id, "el curso")
 
 
 def level_subjects(level):
@@ -233,7 +235,7 @@ def section_or_404(institution, public_id):
 
 
 def section_for_payload(public_id):
-    return _get_payload(Section.objects.all(), public_id, "Section")
+    return _get_payload(Section.objects.all(), public_id, "la sección")
 
 
 _CLASS_SESSION_RELATED = (
@@ -391,23 +393,23 @@ def historical_cycle_or_404(institution, public_id):
             ),
         )
     )
-    return _get(queryset, public_id, "Academic cycle")
+    return _get(queryset, public_id, "el ciclo escolar")
 
 
 def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise ResourceNotFoundError(f"No se encontro {label}.") from exc
+        raise ResourceNotFoundError(f"No se encontró {label}.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError(f"No se encontro {label}.") from exc
+        raise ResourceNotFoundError(f"No se encontró {label}.") from exc
 
 
 def _get_payload(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
-        raise DomainError(f"No se encontro {label}.") from exc
+        raise DomainError(f"No se encontró {label}.") from exc
 
 
 def frozen_subject_result_history(*, enrolment, subject):

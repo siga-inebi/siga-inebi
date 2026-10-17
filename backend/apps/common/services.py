@@ -11,7 +11,7 @@ PLATFORM_MONITOR_PERMISSION = "platform_monitor"
 def ensure_platform_monitor_permission(*, actor):
     """Only the system administrator reads the operational picture."""
     if actor is None or not actor.has_atomic_permission(PLATFORM_MONITOR_PERMISSION):
-        raise AuthorizationError("Actor lacks the required permission.")
+        raise AuthorizationError("El actor no tiene el permiso requerido.")
 
 
 def task_health_summary(*, actor):

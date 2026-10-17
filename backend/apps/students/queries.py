@@ -12,13 +12,13 @@ def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise ResourceNotFoundError(f"{label} not found.") from exc
+        raise ResourceNotFoundError(f"No se encontró {label}.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError(f"{label} not found.") from exc
+        raise ResourceNotFoundError(f"No se encontró {label}.") from exc
 
 
 def student_or_404(public_id):
-    return _get(Student.objects.all(), public_id, "Student")
+    return _get(Student.objects.all(), public_id, "el estudiante")
 
 
 def students():
@@ -48,7 +48,9 @@ def emergency_contacts(student, *, include_inactive=False):
 
 def emergency_contact_or_404(public_id):
     return _get(
-        EmergencyContact.objects.select_related("student").all(), public_id, "EmergencyContact"
+        EmergencyContact.objects.select_related("student").all(),
+        public_id,
+        "el contacto de emergencia",
     )
 
 
@@ -63,7 +65,7 @@ def health_note_or_404(public_id):
     return _get(
         StudentHealthNote.objects.select_related("student", "author").all(),
         public_id,
-        "Student health note",
+        "la nota de salud",
     )
 
 
@@ -78,5 +80,5 @@ def observation_or_404(public_id):
     return _get(
         StudentObservation.objects.select_related("student", "author"),
         public_id,
-        "Student observation",
+        "la observación",
     )

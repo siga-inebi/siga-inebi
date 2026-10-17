@@ -43,7 +43,7 @@ def _payload_get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
-        raise DomainError(f"No se encontro {label}.") from exc
+        raise DomainError(f"No se encontró {label}.") from exc
 
 
 def student_for_payload(public_id):
@@ -131,5 +131,5 @@ def movement_type_permissions():
 
 def no_event_error():
     return ResourceNotFoundError(
-        "No se encontro movimiento de asistencia para los criterios indicados."
+        "No se encontró movimiento de asistencia para los criterios indicados."
     )

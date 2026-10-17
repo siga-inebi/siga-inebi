@@ -28,9 +28,9 @@ def document_kind_or_404(institution, public_id):
     try:
         return document_kinds_all(institution).get(public_id=public_id)
     except DocumentKind.DoesNotExist as exc:
-        raise ResourceNotFoundError("DocumentKind not found.") from exc
+        raise ResourceNotFoundError("No se encontró el tipo de documento.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError("DocumentKind not found.") from exc
+        raise ResourceNotFoundError("No se encontró el tipo de documento.") from exc
 
 
 def document_templates_all(institution):
@@ -49,9 +49,9 @@ def document_template_or_404(institution, public_id):
     try:
         return document_templates_all(institution).get(public_id=public_id)
     except DocumentTemplate.DoesNotExist as exc:
-        raise ResourceNotFoundError("DocumentTemplate not found.") from exc
+        raise ResourceNotFoundError("No se encontró la plantilla.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError("DocumentTemplate not found.") from exc
+        raise ResourceNotFoundError("No se encontró la plantilla.") from exc
 
 
 def document_template_versions(template):
@@ -62,18 +62,18 @@ def enrolment_or_404(public_id):
     try:
         return Enrolment.objects.get(public_id=public_id)
     except Enrolment.DoesNotExist as exc:
-        raise ResourceNotFoundError("Enrolment not found.") from exc
+        raise ResourceNotFoundError("No se encontró la matrícula.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError("Enrolment not found.") from exc
+        raise ResourceNotFoundError("No se encontró la matrícula.") from exc
 
 
 def student_or_404(public_id):
     try:
         return Student.objects.get(public_id=public_id)
     except Student.DoesNotExist as exc:
-        raise ResourceNotFoundError("Student not found.") from exc
+        raise ResourceNotFoundError("No se encontró el estudiante.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError("Student not found.") from exc
+        raise ResourceNotFoundError("No se encontró el estudiante.") from exc
 
 
 def document_record_or_404(public_id):
@@ -82,9 +82,9 @@ def document_record_or_404(public_id):
             public_id=public_id
         )
     except DocumentRecord.DoesNotExist as exc:
-        raise ResourceNotFoundError("DocumentRecord not found.") from exc
+        raise ResourceNotFoundError("No se encontró el documento.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError("DocumentRecord not found.") from exc
+        raise ResourceNotFoundError("No se encontró el documento.") from exc
 
 
 def document_records_for_enrolment(enrolment):
@@ -97,18 +97,18 @@ def document_issuance_or_404(public_id):
     try:
         return DocumentIssuance.objects.select_related("student").get(public_id=public_id)
     except DocumentIssuance.DoesNotExist as exc:
-        raise ResourceNotFoundError("DocumentIssuance not found.") from exc
+        raise ResourceNotFoundError("No se encontró la emisión.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError("DocumentIssuance not found.") from exc
+        raise ResourceNotFoundError("No se encontró la emisión.") from exc
 
 
 def teacher_or_404(public_id):
     try:
         return Teacher.objects.select_related("person").get(public_id=public_id)
     except Teacher.DoesNotExist as exc:
-        raise ResourceNotFoundError("Teacher not found.") from exc
+        raise ResourceNotFoundError("No se encontró el docente.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError("Teacher not found.") from exc
+        raise ResourceNotFoundError("No se encontró el docente.") from exc
 
 
 def document_records_for_teacher(teacher):

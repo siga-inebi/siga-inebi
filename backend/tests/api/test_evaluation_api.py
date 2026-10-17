@@ -280,7 +280,7 @@ class TestEvaluationUnitAPI:
         )
 
         assert response.status_code == 404
-        assert "not found" in response.json()["error"]["detail"]["detail"].lower()
+        assert response.json()["error"]["detail"]["detail"] == "No se encontró el ciclo escolar."
 
 
 class TestRecoveryWindowAPI:

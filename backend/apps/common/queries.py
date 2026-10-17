@@ -18,6 +18,6 @@ def task_run_or_404(public_id):
     try:
         return TaskRun.objects.get(public_id=public_id)
     except TaskRun.DoesNotExist as exc:
-        raise ResourceNotFoundError("TaskRun not found.") from exc
+        raise ResourceNotFoundError("No se encontró la ejecución de la tarea.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError("TaskRun not found.") from exc
+        raise ResourceNotFoundError("No se encontró la ejecución de la tarea.") from exc

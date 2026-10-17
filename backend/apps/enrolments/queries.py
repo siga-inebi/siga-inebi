@@ -10,35 +10,35 @@ def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
-        raise ResourceNotFoundError(f"{label} not found.") from exc
+        raise ResourceNotFoundError(f"No se encontró {label}.") from exc
 
 
 def student_or_404(public_id):
-    return _get(Student.objects.all(), public_id, "Student")
+    return _get(Student.objects.all(), public_id, "el estudiante")
 
 
 def academic_cycle_or_404(public_id):
-    return _get(AcademicCycle.objects.all(), public_id, "Academic cycle")
+    return _get(AcademicCycle.objects.all(), public_id, "el ciclo escolar")
 
 
 def grade_or_404(public_id):
-    return _get(Grade.objects.all(), public_id, "Grade")
+    return _get(Grade.objects.all(), public_id, "el grado")
 
 
 def shift_or_404(public_id):
-    return _get(Shift.objects.all(), public_id, "Shift")
+    return _get(Shift.objects.all(), public_id, "la jornada")
 
 
 def section_or_404(public_id):
-    return _get(Section.objects.all(), public_id, "Section")
+    return _get(Section.objects.all(), public_id, "la sección")
 
 
 def enrolment_or_404(public_id):
-    return _get(Enrolment.objects.all(), public_id, "Enrolment")
+    return _get(Enrolment.objects.all(), public_id, "la matrícula")
 
 
 def student_movement_or_404(public_id):
-    return _get(StudentMovement.objects.all(), public_id, "Student movement")
+    return _get(StudentMovement.objects.all(), public_id, "el movimiento del estudiante")
 
 
 def student_movements(*, student):
