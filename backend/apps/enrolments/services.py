@@ -371,7 +371,13 @@ def _ensure_section_has_capacity(section):
 def active_enrolments(*, student=None):
     queryset = (
         Enrolment.objects.filter(is_active=True, status=Enrolment.EnrolmentStatus.ACTIVE)
-        .select_related("student", "academic_cycle", "grade", "section")
+        .select_related(
+            "student__person",
+            "academic_cycle",
+            "grade",
+            "section__offering__grade",
+            "section__offering__shift",
+        )
         .order_by("student__student_code", "effective_on", "pk")
     )
     return queryset.filter(student=student) if student is not None else queryset
@@ -380,7 +386,13 @@ def active_enrolments(*, student=None):
 def enrolment_history(*, student):
     return (
         Enrolment.objects.filter(student=student)
-        .select_related("student", "academic_cycle", "grade", "section")
+        .select_related(
+            "student__person",
+            "academic_cycle",
+            "grade",
+            "section__offering__grade",
+            "section__offering__shift",
+        )
         .order_by("-effective_on", "-created_at", "-pk")
     )
 

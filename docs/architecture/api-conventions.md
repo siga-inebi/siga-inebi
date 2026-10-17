@@ -34,6 +34,42 @@ excepciones. El sobre de error se conserva como `error.status_code` y `error.det
 404 y 403, `detail` mantiene la forma `{"detail": "..."}` usada por DRF; asi el traslado de una
 consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 
+## Resúmenes de matrícula (#632, M1)
+
+Las respuestas que utilizan `EnrolmentSerializer` agregan cuatro objetos de solo lectura.
+Se conservan `student_id`, `academic_cycle_id`, `grade_id` y `section_id`, los campos de
+vigencia/estado y el sobre paginado existente.
+
+| Objeto | Campos publicados |
+| --- | --- |
+| `student` | `public_id`, `full_name`, `student_code` |
+| `academic_cycle` | `public_id`, `name` |
+| `grade` | `public_id`, `name` |
+| `section` | `public_id`, `name`, `grade_name`, `shift_name` |
+
+Aplica a `GET /api/v1/enrolments/active/`, `GET /api/v1/enrolments/history/?student_id=...`
+y las respuestas de alta/movimientos que reutilizan el serializador, incluida su variante
+`MatriculationSerializer`. Los payloads de escritura mantienen sus UUID existentes; los
+resúmenes no son entradas de esos endpoints. No se agregan CUI, domicilio, correo, teléfono,
+salud ni datos del expediente de persona a los resúmenes.
+
+Los nombres provienen de las entidades vinculadas actuales; no son una instantánea de sus
+etiquetas al momento de matricular. Se preservan las referencias históricas aunque los perfiles
+o secciones estén desactivados. El orden, la vigencia y la autorización de cada operación no
+cambian. Los listados vigentes e históricos mantienen sus controles de sesión existentes.
+
+Las lecturas precargan estudiante/persona, ciclo, grado y oferta de sección con grado/jornada:
+serializar una página de 1 o 25 matrículas requiere una consulta, sin consultas adicionales por
+fila. Esto se verifica en `backend/tests/api/test_enrolment_summaries_api.py`.
+
+La tabla de Matrículas usa estos nombres sin pedir padrones para traducir UUID. El filtro de
+estudiante reutiliza la búsqueda remota existente (dos caracteres como mínimo, espera de
+300 ms, primera página y sugerencia de afinar la búsqueda). Solicita `include_inactive=true`
+para consultar historial de perfiles desactivados; su soporte explícito se entrega en #635.
+No recupera todas las páginas de coincidencias ni promete un catálogo completo.
+
+Detalles y límites: [entrega M1](../development/632-enrolment-summaries.md).
+
 ## Disponibilidad de aulas (RF-AUL-005)
 
 - Las respuestas de aulas agregan `service_status`: `available` (Disponible),

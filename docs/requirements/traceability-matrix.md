@@ -16,6 +16,21 @@ Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo 
 | Requirement | Issue | Design | Code | Test | Pull Request | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 
+## Entrega UX M1 de Matrículas (#632)
+
+M1 agrega resúmenes de lectura para evitar catálogos globales usados como traductores de UUID.
+No modifica las reglas de matrícula ni los estados globales de cumplimiento de los RF.
+
+| Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
+| --- | --- | --- | --- |
+| RF-MAT-007; M1; 1.1.5 | `backend/apps/enrolments/{services.py,api/serializers.py}`; `frontend/src/enrolments/EnrolmentsPage.jsx`; contrato API | `backend/tests/api/test_enrolment_summaries_api.py`; `frontend/src/test/EnrolmentListSummaries.test.jsx` | Nombres incluidos en página vigente; sin catálogos al abrir la tabla ni N+1 al serializar |
+| RF-MAT-008; M1 | Mismos archivos; `EnrolmentStudentFilter.jsx`; `docs/development/632-enrolment-summaries.md` | Casos de historia y referencias desactivadas; búsqueda remota y selección del estudiante | Conserva historial y UUID; consulta de historial solo después de selección |
+| RF-MAT-002/003; M1 | `frontend/src/enrolments/EnrolmentCreateWindow.jsx` | `frontend/src/test/newModulePages.test.jsx` | Extrae formulario para cargar catálogos bajo demanda; mismos payloads y reglas de alta/reinscripción |
+
+El límite global de catálogos, `useServerList`, URL, exportaciones y `search-select` del formulario
+siguen pendientes de #630 y de la migración de sus consumidores. Evidencia final y PR en el
+[documento de entrega](../development/632-enrolment-summaries.md).
+
 ## Estado inicial
 
 Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno detallado, codigo, pruebas y PR quedan pendientes.
