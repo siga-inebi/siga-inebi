@@ -24,6 +24,10 @@
   (`RECOVERY_POINT_OBJECTIVE_HOURS`, `RECOVERY_TIME_OBJECTIVE_HOURS`) para que
   reemplazarlas no toque codigo. Queda pendiente la confirmacion institucional
   de los valores, no su definicion.
+- **PD-004.** Sigue abierta. ADR-0011 (D9) deja el portal de encargados fuera
+  del alcance actual: el backend conserva `account_kind = "guardian"`, pero la
+  interfaz no ofrece crear cuentas de encargado hasta que exista ese
+  requerimiento.
 - **PD-011.** La guardia de `.github/workflows/pr-validation.yml` rechaza toda
   ruta que contenga `backup` o `dump`, incluidos el codigo, las pruebas y la
   documentacion de la propia herramienta de respaldo que exige `RNF-RES-001`.
