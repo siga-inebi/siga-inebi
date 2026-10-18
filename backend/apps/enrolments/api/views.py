@@ -77,7 +77,7 @@ class ActiveEnrolmentListView(GenericAPIView):
         summary="Listar inscripciones activas",
         description=(
             "Devuelve la fuente vigente de estudiantes habilitados para asistencia, "
-            "notas y horarios. Puede filtrarse por estudiante."
+            "notas y horarios. Puede filtrarse por estudiante, ciclo, grado y seccion."
         ),
         parameters=[ActiveEnrolmentQuerySerializer],
         responses={200: EnrolmentSerializer(many=True)},
@@ -90,7 +90,8 @@ class ActiveEnrolmentListView(GenericAPIView):
         student_id = query.validated_data.get("student_id")
         if student_id:
             student = queries.student_or_404(student_id)
-        page = self.paginate_queryset(services.active_enrolments(student=student))
+        filters = {key: value for key, value in query.validated_data.items() if key != "student_id"}
+        page = self.paginate_queryset(services.active_enrolments(student=student, **filters))
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
 

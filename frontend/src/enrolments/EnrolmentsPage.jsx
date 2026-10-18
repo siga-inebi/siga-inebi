@@ -11,6 +11,8 @@ import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
+import { EnrolmentAcademicFilters } from "./EnrolmentAcademicFilters.jsx";
+import { EMPTY_ACADEMIC_FILTERS } from "./academicFilters.js";
 import {
   ENROLMENT_STATUS_LABEL,
   ENROLMENT_STATUS_VARIANT,
@@ -85,6 +87,9 @@ const HISTORY_TAB = "history";
  */
 export function EnrolmentsPage() {
   const [tab, setTab] = useState(ACTIVE_TAB);
+  const [academicFilters, setAcademicFilters] = useState(
+    EMPTY_ACADEMIC_FILTERS
+  );
   const [studentFilter, setStudentFilter] = useState("");
   const [creating, setCreating] = useState(null);
   const [bulkEnrolling, setBulkEnrolling] = useState(false);
@@ -101,8 +106,11 @@ export function EnrolmentsPage() {
       enrolmentsService.listActive({
         ...params,
         student_id: studentFilter || undefined,
+        academic_cycle_id: academicFilters.academic_cycle_id || undefined,
+        grade_id: academicFilters.grade_id || undefined,
+        section_id: academicFilters.section?.value,
       }),
-    [studentFilter]
+    [studentFilter, academicFilters]
   );
 
   const loadHistory = useCallback(
@@ -117,6 +125,11 @@ export function EnrolmentsPage() {
   });
 
   const historyReady = studentFilter !== "";
+  const hasAcademicFilters = Boolean(
+    academicFilters.academic_cycle_id ||
+    academicFilters.grade_id ||
+    academicFilters.section
+  );
   const historyList = usePaginatedList(
     historyReady ? loadHistory : EMPTY_LOADER,
     {
@@ -321,35 +334,65 @@ export function EnrolmentsPage() {
         </Tabs>
 
         <FilterBar
-          onClear={studentFilter ? () => setStudentFilter("") : undefined}
+          onClear={
+            studentFilter || (tab === ACTIVE_TAB && hasAcademicFilters)
+              ? () => {
+                  setStudentFilter("");
+                  if (tab === ACTIVE_TAB)
+                    setAcademicFilters(EMPTY_ACADEMIC_FILTERS);
+                  activeList.goToPage(1);
+                  historyList.goToPage(1);
+                }
+              : undefined
+          }
         >
-          <FilterSelect
-            emptyLabel="Todos los estudiantes"
-            label="Estudiante"
-            loading={students.loading}
-            // La etiqueta es "Nombre Apellido · EST-2026-0027": mas angosto que
-            // esto la parte en dos lineas y el codigo, que es lo que
-            // desambigua a dos homonimos, queda cortado abajo.
-            minWidth={360}
-            onChange={setStudentFilter}
-            options={students.options}
-            value={studentFilter}
-          />
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            flexWrap="wrap"
+            gap={1.5}
+            sx={{ minWidth: 0, flex: 1 }}
+          >
+            {tab === ACTIVE_TAB ? (
+              <EnrolmentAcademicFilters
+                value={academicFilters}
+                onChange={(next) => {
+                  setAcademicFilters(next);
+                  activeList.goToPage(1);
+                }}
+              />
+            ) : null}
+            <FilterSelect
+              emptyLabel="Todos los estudiantes"
+              label="Estudiante"
+              loading={students.loading}
+              // La etiqueta es "Nombre Apellido · EST-2026-0027": mas angosto que
+              // esto la parte en dos lineas y el codigo, que es lo que
+              // desambigua a dos homonimos, queda cortado abajo.
+              minWidth={360}
+              onChange={(next) => {
+                setStudentFilter(next);
+                activeList.goToPage(1);
+                historyList.goToPage(1);
+              }}
+              options={students.options}
+              value={studentFilter}
+            />
+          </Stack>
         </FilterBar>
 
         {tab === ACTIVE_TAB ? (
           <ListSection
             columns={columns}
             emptyMessage={
-              studentFilter
-                ? "Este estudiante no tiene matricula vigente."
+              studentFilter || hasAcademicFilters
+                ? "No hay matrículas vigentes que coincidan con los filtros."
                 : "Todavia no hay matriculas vigentes."
             }
             fillHeight
             getRowKey={(row) => row.public_id}
             list={activeList}
             showInactiveToggle={false}
-            subtitle="Solo matriculas activas del ciclo vigente"
+            subtitle="Matrículas activas según los filtros seleccionados"
             title="Matriculas vigentes"
           />
         ) : historyReady ? (

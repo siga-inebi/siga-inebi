@@ -155,6 +155,9 @@ class EnrolmentCreateSerializer(serializers.Serializer):
 
 class ActiveEnrolmentQuerySerializer(serializers.Serializer):
     student_id = serializers.UUIDField(required=False, help_text="Filtra por estudiante.")
+    academic_cycle_id = serializers.UUIDField(required=False)
+    grade_id = serializers.UUIDField(required=False)
+    section_id = serializers.UUIDField(required=False)
 
 
 class EnrolmentHistoryQuerySerializer(serializers.Serializer):

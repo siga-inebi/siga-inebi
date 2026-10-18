@@ -265,6 +265,19 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - Las respuestas de registros documentales agregan `student_id` y `teacher_id` (uno siempre nulo).
 - `POST /api/v1/documents/records/{public_id}/download-tokens/` emite el token breve de descarga.
 
+## Filtros de matriculas vigentes
+
+- `GET /api/v1/enrolments/active/` admite `student_id`, `academic_cycle_id`,
+  `grade_id` y `section_id` como UUID opcionales. Se combinan por interseccion
+  antes de contar y paginar; no cambia la forma de respuesta.
+- UUID academico mal formado devuelve 400; un UUID academico valido sin
+  coincidencias o una combinacion contradictoria devuelve 200 con lista vacia.
+- Se conservan el requisito de sesion y la seleccion de registros activos del
+  endpoint existente. Esta entrega no modifica autorizacion ni vigencias.
+- M5 usa ese contrato desde la interfaz; es el mismo preparado en PR #638.
+  Detalle de dependencias, pruebas e historial en
+  [filtros de matriculas](enrolment-filters-ui.md).
+
 ## Historial de inscripciones
 
 - `GET /api/v1/enrolments/history/?student_id={public_id}` devuelve todas las inscripciones

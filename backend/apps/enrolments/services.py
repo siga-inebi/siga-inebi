@@ -368,13 +368,22 @@ def _ensure_section_has_capacity(section):
         raise DomainError("La seccion alcanzo su cupo.")
 
 
-def active_enrolments(*, student=None):
+def active_enrolments(*, student=None, academic_cycle_id=None, grade_id=None, section_id=None):
     queryset = (
         Enrolment.objects.filter(is_active=True, status=Enrolment.EnrolmentStatus.ACTIVE)
         .select_related("student", "academic_cycle", "grade", "section")
         .order_by("student__student_code", "effective_on", "pk")
     )
-    return queryset.filter(student=student) if student is not None else queryset
+    if student is not None:
+        queryset = queryset.filter(student=student)
+    for field, public_id in (
+        ("academic_cycle", academic_cycle_id),
+        ("grade", grade_id),
+        ("section", section_id),
+    ):
+        if public_id is not None:
+            queryset = queryset.filter(**{f"{field}__public_id": public_id})
+    return queryset
 
 
 def enrolment_history(*, student):

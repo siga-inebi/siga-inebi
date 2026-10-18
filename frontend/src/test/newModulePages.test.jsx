@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -123,6 +123,7 @@ import { DocumentTypesPage } from "@documents/DocumentTypesPage.jsx";
 import { TemplatesPage } from "@documents/TemplatesPage.jsx";
 import { todayInputValue } from "@shared/utils/format.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
+import { selectOption } from "./helpers/selectOption.jsx";
 import {
   academicsServiceMock,
   resetAcademicsServiceMock,
@@ -642,6 +643,112 @@ describe("pantallas de los modulos con backend previo", () => {
       ).toBeInTheDocument();
       expect(screen.getByText("Luis Perez · EST-1")).toBeInTheDocument();
       expect(screen.getByText("Activa")).toBeInTheDocument();
+    });
+
+    test("filtra en servidor y vuelve a la primera página al cambiar o limpiar filtros", async () => {
+      enrolmentsServiceMock.listActive.mockResolvedValue({
+        count: 60,
+        results: [ENROLMENT],
+      });
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByText("Luis Perez · EST-1");
+      await user.click(
+        screen.getByRole("button", { name: "Siguiente", exact: true })
+      );
+      await waitFor(() =>
+        expect(enrolmentsServiceMock.listActive).toHaveBeenLastCalledWith(
+          expect.objectContaining({ page: 2 })
+        )
+      );
+      await selectOption(user, "Ciclo escolar", "Ciclo 2026 · Activo");
+      await waitFor(() =>
+        expect(enrolmentsServiceMock.listActive).toHaveBeenLastCalledWith(
+          expect.objectContaining({ page: 1, academic_cycle_id: "cycle-2026" })
+        )
+      );
+      await selectOption(user, "Grado", "Primero Basico · Basico");
+      await screen.findByText(/Página 1 de 1/);
+      await selectOption(user, "Sección", "Primero Basico · A · Matutina");
+      await waitFor(() =>
+        expect(enrolmentsServiceMock.listActive).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            page: 1,
+            academic_cycle_id: "cycle-2026",
+            grade_id: "grade-1",
+            section_id: "section-a",
+          })
+        )
+      );
+      await selectOption(user, "Estudiante", "Luis Perez · EST-1");
+      await waitFor(() =>
+        expect(enrolmentsServiceMock.listActive).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            student_id: "student-1",
+            academic_cycle_id: "cycle-2026",
+            section_id: "section-a",
+          })
+        )
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Limpiar", exact: true })
+      );
+      await waitFor(() =>
+        expect(enrolmentsServiceMock.listActive).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            page: 1,
+            student_id: undefined,
+            academic_cycle_id: undefined,
+            grade_id: undefined,
+            section_id: undefined,
+          })
+        )
+      );
+      expect(screen.queryByText(/Página 1 de 1/)).not.toBeInTheDocument();
+    });
+
+    test("conserva filtros al volver de historial y no filtra el historial por contexto académico", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByText("Luis Perez · EST-1");
+      await selectOption(user, "Ciclo escolar", "Ciclo 2026 · Activo");
+      await selectOption(user, "Estudiante", "Luis Perez · EST-1");
+      await user.click(
+        screen.getByRole("tab", { name: "Historial por estudiante" })
+      );
+      await waitFor(() =>
+        expect(enrolmentsServiceMock.listHistory).toHaveBeenLastCalledWith(
+          expect.objectContaining({ student_id: "student-1" })
+        )
+      );
+      expect(
+        enrolmentsServiceMock.listHistory.mock.lastCall[0]
+      ).not.toHaveProperty("academic_cycle_id");
+      expect(
+        screen.queryByRole("group", { name: "Filtros académicos de matrícula" })
+      ).not.toBeInTheDocument();
+      await user.click(screen.getByRole("tab", { name: "Vigentes" }));
+      expect(
+        screen.getByRole("combobox", { name: "Ciclo escolar" })
+      ).toHaveTextContent("Ciclo 2026");
+    });
+
+    test("muestra errores de listado sin descartar el grado seleccionado", async () => {
+      enrolmentsServiceMock.listActive.mockImplementation(({ grade_id }) =>
+        grade_id
+          ? Promise.reject(new Error("No se pudo consultar la matrícula."))
+          : Promise.resolve(paged([ENROLMENT]))
+      );
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByText("Luis Perez · EST-1");
+      await selectOption(user, "Grado", "Primero Basico · Basico");
+      expect(
+        await screen.findByText("No se pudo consultar la matrícula.")
+      ).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Grado" })).toHaveTextContent(
+        "Primero Basico"
+      );
     });
 
     test("el historial pide un estudiante antes de consultar", async () => {

@@ -108,6 +108,18 @@ describe("servicios de los modulos", () => {
       );
     });
 
+    test("envía los filtros académicos de matrícula como UUID en la consulta", async () => {
+      await enrolmentsService.listActive({
+        page: 2,
+        academic_cycle_id: CYCLE,
+        grade_id: "grade-1",
+        section_id: "section-a",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/active/?page=2&academic_cycle_id=${CYCLE}&grade_id=grade-1&section_id=section-a`
+      );
+    });
+
     test("matricular y reinscribir son endpoints distintos", async () => {
       const payload = { student_id: STUDENT, academic_cycle_id: CYCLE };
 
