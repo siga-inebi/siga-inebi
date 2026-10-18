@@ -82,9 +82,14 @@ from apps.identity.services import (
 
 IDENTITY_SCOPE = {"module_key": "identity"}
 
-#: Cualquiera de estos permisos habilita la consulta de cuentas: quien crea,
+#: Cualquiera de estos permisos habilita la consulta de cuentas: quien crea, edita,
 #: activa o desactiva cuentas necesita encontrarlas.
-ACCOUNT_ADMIN_CODENAMES = ("account_disable", "account_create", "account_activate")
+ACCOUNT_ADMIN_CODENAMES = (
+    "account_disable",
+    "account_create",
+    "account_update",
+    "account_activate",
+)
 
 
 def _no_store(response):
