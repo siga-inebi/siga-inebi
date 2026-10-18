@@ -11,6 +11,7 @@ from django.core.signing import salted_hmac
 from django.db import models, transaction
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
+from django.utils.dateparse import parse_datetime
 from django.utils.text import slugify
 
 from apps.audit.services import record_event
@@ -27,11 +28,13 @@ from apps.identity.models import (
     Role,
     RoleAssignment,
     ScopeGrant,
+    UserSession,
 )
 
 ACCOUNT_DISABLE_PERMISSION = "account_disable"
 ACCOUNT_CREATE_PERMISSION = "account_create"
 ACCOUNT_ACTIVATE_PERMISSION = "account_activate"
+ACCOUNT_UPDATE_PERMISSION = "account_update"
 PASSWORD_RESET_TTL_MINUTES = 30
 ACTIVATION_CODE_DIGITS = 8
 PERMISSION_CATALOG_READ_PERMISSION = "role_assign"
@@ -795,7 +798,7 @@ def assign_role(
     if not role.is_active:
         raise DomainError("El rol está retirado y no se puede asignar.")
     if user.status == user.AccountStatus.DISABLED:
-        raise DomainError("No se pueden asignar roles a una cuenta desactivada.")
+        raise DomainError("Reactive la cuenta antes de asignarle roles.")
 
     scope = dict(scope or {})
     if scope.pop("teaching_assignments", False):
@@ -988,18 +991,150 @@ def disable_account(*, actor, user, force=False, reason=""):
         return {"account": account, "disabled": True, "warnings": deps}
 
 
+SESSION_TOUCH_INTERVAL_SECONDS = 60
+SESSION_TOUCH_KEY = "identity.user_session_touched_at"
+USER_AGENT_MAX_LENGTH = 255
+
+
+def _request_ip(request):
+    value = (getattr(request, "META", {}) or {}).get("REMOTE_ADDR") or None
+    return value
+
+
+def _request_user_agent(request):
+    agent = (getattr(request, "META", {}) or {}).get("HTTP_USER_AGENT", "") or ""
+    return agent[:USER_AGENT_MAX_LENGTH]
+
+
+def start_user_session(*, request, user, now=None):
+    """
+    Riesgo A (ADR-0011): registra la sesion recien iniciada. Se llama desde la
+    senal ``user_logged_in``, asi que cubre el login de la API y cualquier otro
+    camino que use ``django.contrib.auth.login``.
+    """
+    session = getattr(request, "session", None)
+    if session is None or not getattr(user, "pk", None):
+        return None
+    if not session.session_key:
+        session.save()
+    now = now or timezone.now()
+    record, _ = UserSession.objects.update_or_create(
+        session_key=session.session_key,
+        defaults={
+            "account": user,
+            "last_seen_at": now,
+            "ip_address": _request_ip(request),
+            "user_agent": _request_user_agent(request),
+            "ended_at": None,
+            "end_reason": "",
+        },
+    )
+    session[SESSION_TOUCH_KEY] = now.isoformat()
+    return record
+
+
+def touch_user_session(*, request, user=None, now=None):
+    """
+    Actualiza la ultima actividad de la sesion, a lo sumo una vez por minuto:
+    una escritura por peticion seria desproporcionada para un dato informativo.
+
+    Una sesion abierta antes de existir ``UserSession`` (despliegue) se registra
+    en su primera peticion autenticada. Las que no vuelven a usarse vencen solas
+    por inactividad, asi que la ventana sin registro dura como maximo el mayor
+    tiempo de inactividad de los roles.
+    """
+    session = getattr(request, "session", None)
+    if session is None or not session.session_key:
+        return False
+    now = now or timezone.now()
+    previous = session.get(SESSION_TOUCH_KEY)
+    previous_at = parse_datetime(previous) if isinstance(previous, str) else None
+    if previous_at and (now - previous_at).total_seconds() < SESSION_TOUCH_INTERVAL_SECONDS:
+        return False
+    session[SESSION_TOUCH_KEY] = now.isoformat()
+    updated = UserSession.objects.filter(
+        session_key=session.session_key, ended_at__isnull=True
+    ).update(last_seen_at=now, updated_at=now)
+    if not updated and getattr(user, "pk", None):
+        UserSession.objects.get_or_create(
+            session_key=session.session_key,
+            defaults={
+                "account": user,
+                "last_seen_at": now,
+                "ip_address": _request_ip(request),
+                "user_agent": _request_user_agent(request),
+            },
+        )
+    return True
+
+
+def end_user_sessions(*, session_keys, reason, now=None):
+    """Cierra filas de sesion sin borrarlas (historia)."""
+    if not session_keys:
+        return 0
+    now = now or timezone.now()
+    return UserSession.objects.filter(
+        session_key__in=list(session_keys), ended_at__isnull=True
+    ).update(ended_at=now, end_reason=reason, updated_at=now)
+
+
+def active_user_sessions(*, user, now=None):
+    """
+    Sesiones vivas de la cuenta: fila abierta y sesion de Django todavia vigente.
+    Consulta indexada por cuenta; ya no se decodifican todas las sesiones.
+    """
+    now = now or timezone.now()
+    live_keys = Session.objects.filter(expire_date__gte=now).values("session_key")
+    return UserSession.objects.filter(
+        account=user, ended_at__isnull=True, session_key__in=live_keys
+    ).order_by("-last_seen_at")
+
+
 def _session_keys_for_user(*, user):
-    """Return live server-side session keys owned by ``user`` without exposing their data."""
-    user_id_str = str(user.pk)
-    keys = []
-    for session in Session.objects.filter(expire_date__gte=timezone.now()):
-        data = session.get_decoded()
-        if str(data.get("_auth_user_id")) == user_id_str:
-            keys.append(session.session_key)
-    return keys
+    """Claves de las sesiones vivas de ``user``, sin exponer su contenido."""
+    return list(active_user_sessions(user=user).values_list("session_key", flat=True))
 
 
-def close_account_sessions(*, actor, user, current_session_key=None, administrative=False):
+def describe_user_agent(user_agent):
+    """Resumen legible del dispositivo: "Chrome en Windows"."""
+    agent = user_agent or ""
+    browser = next(
+        (
+            label
+            for token, label in (
+                ("Edg/", "Edge"),
+                ("OPR/", "Opera"),
+                ("Firefox/", "Firefox"),
+                ("Chrome/", "Chrome"),
+                ("Safari/", "Safari"),
+            )
+            if token in agent
+        ),
+        "",
+    )
+    system = next(
+        (
+            label
+            for token, label in (
+                ("Android", "Android"),
+                ("iPhone", "iPhone"),
+                ("iPad", "iPad"),
+                ("Windows", "Windows"),
+                ("Mac OS", "macOS"),
+                ("Linux", "Linux"),
+            )
+            if token in agent
+        ),
+        "",
+    )
+    if browser and system:
+        return f"{browser} en {system}"
+    return browser or system or "Dispositivo desconocido"
+
+
+def close_account_sessions(
+    *, actor, user, current_session_key=None, administrative=False, reason=None
+):
     """Close every active session for an account and audit the security operation."""
     is_self_service = actor and actor.pk == user.pk
     if not is_self_service and not _has_identity_permission(actor, ACCOUNT_DISABLE_PERMISSION):
@@ -1015,11 +1150,21 @@ def close_account_sessions(*, actor, user, current_session_key=None, administrat
         )
 
     session_keys = _session_keys_for_user(user=user)
-    if session_keys:
-        Session.objects.filter(session_key__in=session_keys).delete()
+    if current_session_key and current_session_key not in session_keys:
+        # La sesion desde la que se pide tambien se cierra aunque sea anterior
+        # a la tabla de sesiones.
+        session_keys.append(current_session_key)
+    administrative_close = administrative and not is_self_service
+    end_reason = reason or (
+        UserSession.EndReason.ADMINISTRATIVE
+        if administrative_close
+        else UserSession.EndReason.LOGOUT_ALL
+    )
+    end_user_sessions(session_keys=session_keys, reason=end_reason)
+    closed = Session.objects.filter(session_key__in=session_keys).delete()[0]
 
     action = "identity.session.closed_all"
-    if administrative and not is_self_service:
+    if administrative_close:
         action = "identity.session.closed_administratively"
     record_event(
         actor=actor,
@@ -1028,17 +1173,65 @@ def close_account_sessions(*, actor, user, current_session_key=None, administrat
         resource_identifier=str(user.pk),
         context={
             "target_user_id": user.pk,
-            "closed_session_count": len(session_keys),
+            "closed_session_count": closed,
             "current_session_included": bool(current_session_key in session_keys),
             "result": "success",
         },
     )
-    return len(session_keys)
+    return closed
+
+
+def close_user_session(*, actor, user_session, current_session_key=None):
+    """
+    Cierra UNA sesion (riesgo A): la persona titular puede cerrar las suyas desde
+    Mi cuenta; administracion, las de otra cuenta con ``account.disable``.
+    """
+    account = user_session.account
+    is_self_service = actor.pk == account.pk
+    if not is_self_service and not _has_identity_permission(actor, ACCOUNT_DISABLE_PERMISSION):
+        record_event(
+            actor=actor,
+            action="identity.session.close_denied",
+            resource="UserAccount",
+            resource_identifier=str(account.pk),
+            context={
+                "target_user_id": account.pk,
+                "session_id": str(user_session.public_id),
+                "result": "denied",
+                "reason": "missing_permission",
+            },
+        )
+        raise AuthorizationError("El actor no tiene permiso para cerrar esta sesión.")
+    if user_session.ended_at is not None:
+        raise DomainError("La sesión ya estaba cerrada.")
+
+    reason = (
+        UserSession.EndReason.CLOSED_BY_OWNER
+        if is_self_service
+        else UserSession.EndReason.ADMINISTRATIVE
+    )
+    end_user_sessions(session_keys=[user_session.session_key], reason=reason)
+    Session.objects.filter(session_key=user_session.session_key).delete()
+    record_event(
+        actor=actor,
+        action="identity.session.closed_single",
+        resource="UserAccount",
+        resource_identifier=str(account.pk),
+        context={
+            "target_user_id": account.pk,
+            "session_id": str(user_session.public_id),
+            "current_session": user_session.session_key == current_session_key,
+            "result": "success",
+        },
+    )
+    user_session.refresh_from_db()
+    return user_session
 
 
 def close_session_key(*, session_key, actor, target, reason):
     """Close a specific server-side session without exposing its payload."""
     if session_key:
+        end_user_sessions(session_keys=[session_key], reason=UserSession.EndReason.OPERATIONAL)
         Session.objects.filter(session_key=session_key).delete()
     record_event(
         actor=actor,
@@ -1053,12 +1246,14 @@ def close_other_user_sessions(*, user, current_session_key=None):
     """Password changes preserve the current session while invalidating the rest."""
     session_keys = [key for key in _session_keys_for_user(user=user) if key != current_session_key]
     if session_keys:
+        end_user_sessions(session_keys=session_keys, reason=UserSession.EndReason.PASSWORD_CHANGED)
         Session.objects.filter(session_key__in=session_keys).delete()
     return len(session_keys)
 
 
-def record_current_session_logout(*, user):
+def record_current_session_logout(*, user, session_key=None):
     if getattr(user, "is_authenticated", False):
+        end_user_sessions(session_keys=[session_key], reason=UserSession.EndReason.LOGOUT)
         record_event(
             actor=user,
             action="identity.session.closed_current",
@@ -1066,6 +1261,11 @@ def record_current_session_logout(*, user):
             resource_identifier=str(user.pk),
             context={"target_user_id": user.pk, "result": "success"},
         )
+
+
+def record_session_expired(*, session_key):
+    """La sesion vencio por inactividad (middleware)."""
+    end_user_sessions(session_keys=[session_key], reason=UserSession.EndReason.EXPIRED)
 
 
 def effective_session_idle_timeout_minutes(*, user, when=None):
@@ -1091,6 +1291,7 @@ def refresh_session_activity(*, request, user, now=None):
     timeout_minutes = effective_session_idle_timeout_minutes(user=user, when=now)
     request.session["identity.session_last_activity_at"] = now.isoformat()
     request.session.set_expiry(timeout_minutes * 60)
+    touch_user_session(request=request, user=user, now=now)
     return timeout_minutes
 
 
@@ -1197,7 +1398,7 @@ def consume_password_reset(*, token, new_password):
         raise FieldValidationError({"password": exc.messages}) from exc
     account.set_password(new_password)
     account.save(update_fields=["password"])
-    close_account_sessions(actor=account, user=account)
+    close_account_sessions(actor=account, user=account, reason=UserSession.EndReason.PASSWORD_RESET)
     challenge.used_at = timezone.now()
     challenge.save(update_fields=["used_at", "updated_at"])
     record_event(
@@ -1399,25 +1600,26 @@ def assignment_status(assignment, *, when=None):
 
 def account_sessions(*, user, current_session_key=None):
     """
-    MC1/U5: sesiones vivas de la cuenta, sin exponer su clave ni su contenido.
-    Solo se devuelve cuando fue la ultima actividad, cuando vence y si es la
-    sesion desde la que se consulta.
+    MC1/U5: sesiones vivas de la cuenta, desde ``UserSession`` (riesgo A). Nunca
+    se expone la clave de sesion: se identifican por ``public_id``.
     """
-    user_id = str(user.pk)
-    sessions = []
-    for session in Session.objects.filter(expire_date__gte=timezone.now()).order_by("-expire_date"):
-        data = session.get_decoded()
-        if str(data.get("_auth_user_id")) != user_id:
-            continue
-        sessions.append(
-            {
-                "last_activity_at": data.get("identity.session_last_activity_at"),
-                "expires_at": session.expire_date,
-                "is_current": bool(current_session_key)
-                and session.session_key == current_session_key,
-            }
-        )
-    return sessions
+    expiries = dict(
+        Session.objects.filter(
+            session_key__in=active_user_sessions(user=user).values("session_key")
+        ).values_list("session_key", "expire_date")
+    )
+    return [
+        {
+            "public_id": record.public_id,
+            "started_at": record.created_at,
+            "last_activity_at": record.last_seen_at,
+            "expires_at": expiries.get(record.session_key),
+            "ip_address": record.ip_address,
+            "device": describe_user_agent(record.user_agent),
+            "is_current": bool(current_session_key) and record.session_key == current_session_key,
+        }
+        for record in active_user_sessions(user=user)
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -1454,12 +1656,20 @@ def _deny_account_operation(*, actor, account, action, reason):
 
 
 def update_account(*, actor, account, username=None, email=None):
-    """U7: corrige usuario o correo de otra cuenta. Requiere ``account.create``."""
-    if not _has_identity_permission(actor, ACCOUNT_CREATE_PERMISSION):
+    """
+    U7: corrige usuario o correo de OTRA cuenta. Requiere ``account.update``
+    (ADR-0011). La cuenta propia se gestiona en "Mi cuenta", nunca por esta via.
+    """
+    if not _has_identity_permission(actor, ACCOUNT_UPDATE_PERMISSION):
         _deny_account_operation(
             actor=actor, account=account, action="update", reason="missing_permission"
         )
         raise AuthorizationError("El actor no tiene permiso para editar cuentas.")
+    if actor.pk == account.pk:
+        _deny_account_operation(actor=actor, account=account, action="update", reason="self_edit")
+        raise AuthorizationError(
+            "Nadie puede editar su propia cuenta desde administración; use Mi cuenta."
+        )
 
     user_model = get_user_model()
     with transaction.atomic():

@@ -57,6 +57,7 @@ from apps.identity.services import (
     activate_account,
     assign_role,
     close_account_sessions,
+    close_user_session,
     consume_password_reset,
     create_role,
     deactivate_role,
@@ -636,6 +637,39 @@ class AccountDisableView(GenericAPIView):
         if not result["disabled"]:
             return Response(result, status=status.HTTP_409_CONFLICT)
         return Response(AccountListSerializer(result["account"]).data)
+
+
+class MySessionCloseView(GenericAPIView):
+    """Riesgo A: la persona titular cierra una de sus sesiones desde Mi cuenta."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AccountSessionSerializer
+
+    @extend_schema(request=None, responses={204: OpenApiResponse(description="Sesión cerrada")})
+    def post(self, request, session_id):
+        user_session = queries.user_session_or_404(session_id, account=request.user)
+        close_user_session(
+            actor=request.user,
+            user_session=user_session,
+            current_session_key=request.session.session_key,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AccountSingleSessionCloseView(GenericAPIView):
+    """Riesgo A: administracion cierra una sesion concreta de otra cuenta."""
+
+    permission_classes = [permissions.IsAuthenticated, ScopedAtomicPermission]
+    permission_codename = "account_disable"
+    permission_scope = IDENTITY_SCOPE
+    serializer_class = AccountSessionSerializer
+
+    @extend_schema(request=None, responses={204: OpenApiResponse(description="Sesión cerrada")})
+    def post(self, request, account_id, session_id):
+        account = queries.account_or_404(account_id)
+        user_session = queries.user_session_or_404(session_id, account=account)
+        close_user_session(actor=request.user, user_session=user_session)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AccountSessionCloseView(GenericAPIView):

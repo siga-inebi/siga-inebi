@@ -7,7 +7,7 @@ from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 
 from apps.common.exceptions import ResourceNotFoundError
-from apps.identity.models import Role, RoleAssignment, ScopeGrant
+from apps.identity.models import Role, RoleAssignment, ScopeGrant, UserSession
 from apps.people.models import Person
 
 SCOPE_GRANT_RELATED = (
@@ -242,3 +242,14 @@ def pending_activation_expiry(account):
         .values_list("expires_at", flat=True)
         .first()
     )
+
+
+def user_session_or_404(public_id, *, account=None):
+    """Una sesion registrada; con ``account``, solo si pertenece a esa cuenta."""
+    queryset = UserSession.objects.select_related("account")
+    if account is not None:
+        queryset = queryset.filter(account=account)
+    try:
+        return queryset.get(public_id=public_id)
+    except (UserSession.DoesNotExist, ValueError, TypeError) as exc:
+        raise ResourceNotFoundError("No se encontró la sesión.") from exc

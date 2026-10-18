@@ -237,3 +237,49 @@ class ScopeGrant(TimeStampedModel):
         from apps.identity.scopes import grant_matches_scope
 
         return grant_matches_scope(self, scope, when=when)
+
+
+class UserSession(TimeStampedModel):
+    """
+    Registro de cada sesion iniciada (ADR-0011, riesgo A).
+
+    Antes, listar o cerrar las sesiones de una cuenta obligaba a decodificar
+    TODAS las sesiones vivas de Django. Esta tabla indexa la sesion por cuenta y
+    guarda lo que la persona necesita para reconocerla (dispositivo, IP, inicio
+    y ultima actividad). Es historia: las filas nunca se borran, se cierran con
+    ``ended_at`` y ``end_reason`` (AGENTS.md, regla 12).
+
+    Las sesiones abiertas antes de existir esta tabla no tienen fila: aparecen
+    en la siguiente autenticacion.
+    """
+
+    class EndReason(models.TextChoices):
+        LOGOUT = "logout", "Cierre de sesión"
+        LOGOUT_ALL = "logout_all", "Cierre de todas las sesiones"
+        ADMINISTRATIVE = "administrative", "Cerrada por administración"
+        CLOSED_BY_OWNER = "closed_by_owner", "Cerrada por la persona titular"
+        EXPIRED = "expired", "Vencida por inactividad"
+        PASSWORD_CHANGED = "password_changed", "Cambio de contraseña"
+        PASSWORD_RESET = "password_reset", "Restablecimiento de contraseña"
+        OPERATIONAL = "operational", "Cierre operativo"
+
+    account = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="user_sessions",
+    )
+    session_key = models.CharField(max_length=40, unique=True)
+    last_seen_at = models.DateTimeField()
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    end_reason = models.CharField(max_length=30, choices=EndReason.choices, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["account", "ended_at"], name="identity_session_open_idx"),
+        ]
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("User sessions are history and cannot be deleted.")

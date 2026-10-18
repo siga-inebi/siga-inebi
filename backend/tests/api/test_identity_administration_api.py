@@ -52,6 +52,7 @@ def admin(client):
     grant(
         user,
         "account.create",
+        "account.update",
         "account.activate",
         "account.disable",
         "role.assign",
@@ -290,9 +291,10 @@ def test_account_edit_changes_username_and_email_and_audits_changes(admin):
     assert event.context["changes"]["username"] == {"before": "antes", "after": "despues"}
 
 
-def test_account_edit_requires_account_create(client):
+def test_account_edit_requires_account_update(client):
+    """ADR-0011 D1: `account.create` ya no basta para editar cuentas."""
     user = UserFactory()
-    grant(user, "account.disable")
+    grant(user, "account.disable", "account.create")
     client.force_login(user)
     target = UserFactory(username="intacta")
 

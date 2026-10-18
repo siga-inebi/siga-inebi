@@ -10,11 +10,13 @@ from apps.identity.api.views import (
     AccountReactivateView,
     AccountRoleAssignmentView,
     AccountSessionCloseView,
+    AccountSingleSessionCloseView,
     AccountUnlockView,
     ActivationChallengeReissueView,
     AtomicPermissionListView,
     ExpiringRoleAssignmentListView,
     MyAccountView,
+    MySessionCloseView,
     MyWeeklyScheduleView,
     PasswordPolicyView,
     PasswordResetConsumeView,
@@ -43,6 +45,11 @@ urlpatterns = [
     path("scope-options/", ScopeOptionsView.as_view(), name="identity-scope-options"),
     path("me/schedule/", MyWeeklyScheduleView.as_view(), name="identity-my-schedule"),
     path("me/account/", MyAccountView.as_view(), name="identity-my-account"),
+    path(
+        "me/sessions/<uuid:session_id>/close/",
+        MySessionCloseView.as_view(),
+        name="identity-my-session-close",
+    ),
     path("roles/", RoleListCreateView.as_view(), name="identity-role-list-create"),
     path("roles/<uuid:role_id>/", RoleDetailView.as_view(), name="identity-role-detail"),
     path(
@@ -117,6 +124,11 @@ urlpatterns = [
         "accounts/<uuid:account_id>/sessions/close/",
         AccountSessionCloseView.as_view(),
         name="identity-account-sessions-close",
+    ),
+    path(
+        "accounts/<uuid:account_id>/sessions/<uuid:session_id>/close/",
+        AccountSingleSessionCloseView.as_view(),
+        name="identity-account-session-close",
     ),
     path(
         "accounts/<uuid:account_id>/password-resets/",

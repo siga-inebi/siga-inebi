@@ -16,6 +16,7 @@ este modulo.
 #: Grupos funcionales, en el orden en que se muestran.
 PERMISSION_GROUPS = (
     ("accounts", "Cuentas y accesos"),
+    ("people", "Personas"),
     ("students", "Estudiantes"),
     ("enrolment", "Matrícula"),
     ("attendance", "Asistencia"),
@@ -36,7 +37,13 @@ PERMISSION_CATALOGUE = (
     (
         "account.create",
         "Crear cuentas",
-        "Permite dar acceso al sistema a una persona registrada y editar usuario y correo.",
+        "Permite dar acceso al sistema a una persona registrada.",
+        "accounts",
+    ),
+    (
+        "account.update",
+        "Editar cuentas",
+        "Permite corregir el usuario y el correo de otra cuenta. La propia se edita en Mi cuenta.",
         "accounts",
     ),
     (
@@ -65,6 +72,18 @@ PERMISSION_CATALOGUE = (
         "Permite modificar sedes, niveles, cursos, ciclos y asignaciones docentes dentro del "
         "alcance asignado.",
         "accounts",
+    ),
+    (
+        "person.view",
+        "Ver personas",
+        "Permite consultar el registro base de personas de la institución.",
+        "people",
+    ),
+    (
+        "person.edit",
+        "Editar personas",
+        "Permite registrar, corregir y desactivar personas del registro base.",
+        "people",
     ),
     (
         "student.view_basic",
@@ -216,6 +235,12 @@ PERMISSION_CATALOGUE = (
         "document.issue",
         "Emitir documentos oficiales",
         "Permite emitir constancias, certificados y reportes oficiales.",
+        "documents",
+    ),
+    (
+        "document_type.manage",
+        "Administrar tipos de documento",
+        "Permite crear, editar y desactivar tipos de documento.",
         "documents",
     ),
     (

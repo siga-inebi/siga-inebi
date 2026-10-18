@@ -374,8 +374,14 @@ class AccountListSerializer(serializers.ModelSerializer):
 
 
 class AccountSessionSerializer(serializers.Serializer):
+    """Sesion viva (riesgo A, ADR-0011): sin clave de sesion, por ``public_id``."""
+
+    public_id = serializers.UUIDField()
+    started_at = serializers.DateTimeField()
     last_activity_at = serializers.DateTimeField(allow_null=True)
-    expires_at = serializers.DateTimeField()
+    expires_at = serializers.DateTimeField(allow_null=True)
+    ip_address = serializers.IPAddressField(allow_null=True)
+    device = serializers.CharField()
     is_current = serializers.BooleanField()
 
 

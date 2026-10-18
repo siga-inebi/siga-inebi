@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 
 from apps.academics.services import create_teaching_assignment
 from apps.audit.models import AuditEvent
+from apps.identity.models import UserSession
 from apps.identity.scopes import scope_matches
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
 from tests.factories.identity import (
@@ -47,6 +48,10 @@ def test_password_change_lifecycle_and_session_invalidation():
         session_key="session-key-device-b",
         session_data=client_a.session.encode({"_auth_user_id": str(user.pk)}),
         expire_date=timezone.now() + timedelta(days=1),
+    )
+    # Riesgo A (ADR-0011): toda sesion abierta por login queda registrada.
+    UserSession.objects.create(
+        account=user, session_key=session_b.session_key, last_seen_at=timezone.now()
     )
 
     # Cambio de contraseña desde sesión A
