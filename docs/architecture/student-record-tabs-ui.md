@@ -151,3 +151,30 @@ Base: `develop` actualizado en `5f8630d`; rama `feat/632-student-record-tabs`.
 
 La revision visual local es evidencia tecnica; no sustituye la aceptacion funcional
 pendiente por parte del usuario. Docker no se ejecuto en esta validacion local.
+
+
+### Combinacion de PR anteriores verificada localmente
+
+Preview separado y no publicado: `tmp/worktrees/632-record-tabs-integration`,
+commit `3c37404`, combina esta entrega con #633, #634 y #635.
+**106 pruebas backend y 45 pruebas frontend aprobadas** (personas, docentes,
+encargados, listado, nuevo expediente y contratos de servicios anteriores).
+
+Conflictos detectados y resolucion probada para integrar posteriormente:
+
+- #633: conservar `AlumnosPage` y sus pruebas de navegacion de esta entrega;
+  los cinco campos pasan al editor de `StudentRecordPage`. Combinar ambas
+  secciones de `api-conventions.md`. El soporte de `update_person` es identico.
+- #634: conservar la ficha nueva y su suite `StudentRecordPage.test.jsx`.
+  `StudentRecordPagination.test.jsx` prueba los botones y ventanas del modal
+  retirado: debe sustituirse al integrar por los recorridos de pesta?as,
+  borrador/pagina, reintento y refresco ya verificados en la nueva suite.
+  Conservar `studentRecordServices.test.js` y los contratos antiguos.
+  En `queries.py`, combinar el filtro opcional `student_public_id` con
+  `guardian_relations_for_record`; `-id` y `-pk` son el mismo desempate.
+- #635: conservar clases nuevas del expediente y colocar el decorador
+  `GuardianListQuerySerializer` justo antes de `GuardianListCreateView`.
+  Mantener filtros de comunidad y sus pruebas.
+
+El preview no cambia ninguna rama publica ni declara integrados estos PR en
+`develop`. Sus conflictos requieren estas resoluciones cuando se fusionen.
