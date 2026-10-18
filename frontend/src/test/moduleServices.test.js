@@ -90,6 +90,13 @@ describe("servicios de los modulos", () => {
   });
 
   describe("enrolmentsService", () => {
+    test("las matriculas vigentes se pueden filtrar por estudiante", async () => {
+      await enrolmentsService.listActive({ page: 1, student_id: STUDENT });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/active/?page=1&student_id=${STUDENT}`
+      );
+    });
+
     test("movimientos usan los endpoints existentes y el identificador correspondiente", async () => {
       await enrolmentsService.changeSection(ENROLMENT, {
         new_section_id: "section",
@@ -115,13 +122,6 @@ describe("servicios de los modulos", () => {
         { reason: "Corrección" }
       );
     });
-    test("las matriculas vigentes se pueden filtrar por estudiante", async () => {
-      await enrolmentsService.listActive({ page: 1, student_id: STUDENT });
-      expect(apiClient.get).toHaveBeenCalledWith(
-        `/enrolments/active/?page=1&student_id=${STUDENT}`
-      );
-    });
-
     test("el historial viaja siempre con el estudiante, que el backend exige", async () => {
       await enrolmentsService.listHistory({ page: 1, student_id: STUDENT });
       await enrolmentsService.listMovements({ page: 1, student_id: STUDENT });
