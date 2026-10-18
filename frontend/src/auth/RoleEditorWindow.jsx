@@ -10,6 +10,9 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { groupPermissions } from "@auth/rolesService.js";
+import { useFormDraft } from "@shared/hooks/useFormDraft.js";
+import { useSessionKeepAlive } from "@shared/hooks/useSessionKeepAlive.js";
+import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
@@ -43,6 +46,45 @@ export function RoleEditorWindow({
   const [selected, setSelected] = useState(new Set(role?.permissions ?? []));
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // Riesgo D (ADR-0011): el editor de roles es el formulario largo de esta
+  // seccion. Escribir con cambios renueva la sesion y hay borrador local.
+  const current = {
+    name,
+    description,
+    timeout,
+    permissions: [...selected].sort(),
+  };
+  const initial = {
+    name: role?.name ?? "",
+    description: role?.description ?? "",
+    timeout: String(role?.session_idle_timeout_minutes ?? 30),
+    permissions: [...(role?.permissions ?? [])].sort(),
+  };
+  const dirty = JSON.stringify(current) !== JSON.stringify(initial);
+  const keepAlive = useSessionKeepAlive(dirty);
+  const draft = useFormDraft(`role:${role?.public_id ?? "nuevo"}`, current, {
+    enabled: open && !(role?.is_system && !canEditSystem),
+  });
+
+  const restoreDraft = () => {
+    const restored = draft.accept();
+    if (!restored) return;
+    setName(restored.name ?? "");
+    setDescription(restored.description ?? "");
+    setTimeoutMinutes(restored.timeout ?? "30");
+    setSelected(new Set(restored.permissions ?? []));
+  };
+
+  const requestClose = () => {
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    draft.clear();
+    onClose();
+  };
 
   const groups = useMemo(() => groupPermissions(permissions), [permissions]);
   const locked = Boolean(role?.is_system) && !canEditSystem;
@@ -85,6 +127,7 @@ export function RoleEditorWindow({
         session_idle_timeout_minutes: minutes,
         permissions: [...selected].sort(),
       });
+      draft.clear();
     } catch (submitError) {
       setError(submitError.message);
       setSubmitting(false);
@@ -96,7 +139,7 @@ export function RoleEditorWindow({
       busy={submitting}
       footer={
         <>
-          <Button disabled={submitting} onClick={onClose} variant="text">
+          <Button disabled={submitting} onClick={requestClose} variant="text">
             Cancelar
           </Button>
           <Button
@@ -110,7 +153,7 @@ export function RoleEditorWindow({
           </Button>
         </>
       }
-      onClose={onClose}
+      onClose={requestClose}
       open={open}
       title={role ? `Editar rol «${role.name}»` : "Nuevo rol"}
       width={WINDOW_WIDTH.wide}
@@ -120,8 +163,40 @@ export function RoleEditorWindow({
         gap={2.5}
         id="role-editor-form"
         noValidate
+        onChange={keepAlive}
+        onKeyDown={keepAlive}
         onSubmit={submit}
       >
+        {draft.pending ? (
+          <Alert
+            action={
+              <>
+                <Button color="inherit" onClick={restoreDraft} size="small">
+                  Recuperar
+                </Button>
+                <Button color="inherit" onClick={draft.dismiss} size="small">
+                  Descartar
+                </Button>
+              </>
+            }
+            severity="info"
+          >
+            Hay un borrador sin guardar de este rol.
+          </Alert>
+        ) : null}
+        <ConfirmDialog
+          confirmColor="error"
+          confirmText="Descartar cambios"
+          message="Los cambios que no guardó se perderán, incluido el borrador."
+          onClose={() => setConfirmDiscard(false)}
+          onConfirm={() => {
+            setConfirmDiscard(false);
+            draft.clear();
+            onClose();
+          }}
+          open={confirmDiscard}
+          title="¿Descartar los cambios?"
+        />
         {locked ? (
           <Alert severity="info" variant="outlined">
             Rol del sistema: lo crea la instalación y protege el acceso de

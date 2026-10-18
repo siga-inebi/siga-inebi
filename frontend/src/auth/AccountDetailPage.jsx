@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Link as RouterLink, useParams } from "react-router-dom";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
 import Stack from "@mui/material/Stack";
 
 import {
@@ -29,7 +30,17 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 
-import { AssignRoleWizard } from "./AssignRoleWizard.jsx";
+import { SessionsTable } from "./SessionsTable.jsx";
+
+// El asistente solo se descarga al abrirlo (riesgo C).
+const AssignRoleWizard = lazy(() =>
+  import("./AssignRoleWizard.jsx").then((module) => ({
+    default: module.AssignRoleWizard,
+  }))
+);
+
+/** Regla de identidad (ADR-0011): una cuenta desactivada no recibe roles. */
+const DISABLED_ROLE_HINT = "Reactive la cuenta antes de asignarle roles.";
 import { scopeDimensionsText } from "./scopeChoice.js";
 import { useAccountActions } from "./useAccountActions.jsx";
 import { TextLink } from "@ui/display/TextLink.jsx";
@@ -78,7 +89,9 @@ export function AccountDetailPage() {
   );
 
   const refresh = () => invalidate(queryKeys.identity.all);
-  const { actionsFor, dialogs } = useAccountActions({ onChanged: refresh });
+  const { actionsFor, dialogs, startAction } = useAccountActions({
+    onChanged: refresh,
+  });
 
   const account = detail.data;
 
@@ -280,19 +293,43 @@ export function AccountDetailPage() {
       {canManageRoles ? (
         <SectionCard
           action={
-            account.status !== "disabled" ? (
-              <Button
-                onClick={() => setAssigning(true)}
-                size="small"
-                variant="contained"
-              >
-                Asignar rol
-              </Button>
-            ) : null
+            <Tooltip
+              title={account.status === "disabled" ? DISABLED_ROLE_HINT : ""}
+            >
+              <span>
+                <Button
+                  disabled={account.status === "disabled"}
+                  onClick={() => setAssigning(true)}
+                  size="small"
+                  variant="contained"
+                >
+                  Asignar rol
+                </Button>
+              </span>
+            </Tooltip>
           }
           subtitle="Un rol solo da permisos dentro de su alcance y su vigencia."
           title="Roles y alcances"
         >
+          {account.status === "disabled" ? (
+            <Alert
+              action={
+                can(PERMISSION.ACCOUNT_ACTIVATE) ? (
+                  <Button
+                    color="inherit"
+                    onClick={() => startAction("reactivate", account)}
+                    size="small"
+                  >
+                    Reactivar
+                  </Button>
+                ) : null
+              }
+              severity="info"
+              sx={{ mx: 2, mt: 1.5 }}
+            >
+              {DISABLED_ROLE_HINT}
+            </Alert>
+          ) : null}
           <SectionTableArea>
             <DataTable
               columns={assignmentColumns}
@@ -309,25 +346,20 @@ export function AccountDetailPage() {
         subtitle="Sesiones abiertas en este momento."
         title="Sesiones activas"
       >
-        <SectionTableArea>
-          <DataTable
-            columns={[
-              {
-                key: "last_activity_at",
-                label: "Última actividad",
-                render: (row) => formatDateTime(row.last_activity_at),
-              },
-              {
-                key: "expires_at",
-                label: "Vence",
-                render: (row) => formatDateTime(row.expires_at),
-              },
-            ]}
-            emptyMessage="Sin sesiones activas."
-            getRowKey={(row) => `${row.expires_at}-${row.last_activity_at}`}
-            rows={account.sessions ?? []}
-          />
-        </SectionTableArea>
+        <SessionsTable
+          onCloseSession={
+            can(PERMISSION.ACCOUNT_DISABLE)
+              ? async (session) => {
+                  await accountsService.closeSession(
+                    account.public_id,
+                    session.public_id
+                  );
+                  refresh();
+                }
+              : undefined
+          }
+          sessions={account.sessions}
+        />
       </SectionCard>
 
       <SectionCard
@@ -345,12 +377,14 @@ export function AccountDetailPage() {
       </SectionCard>
 
       {assigning ? (
-        <AssignRoleWizard
-          account={account}
-          onAssigned={refresh}
-          onClose={() => setAssigning(false)}
-          open
-        />
+        <Suspense fallback={null}>
+          <AssignRoleWizard
+            account={account}
+            onAssigned={refresh}
+            onClose={() => setAssigning(false)}
+            open
+          />
+        </Suspense>
       ) : null}
 
       <ConfirmDialog

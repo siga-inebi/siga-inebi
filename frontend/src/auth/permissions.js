@@ -16,6 +16,10 @@
 export const PERMISSION = Object.freeze({
   ACCOUNT_CREATE: "account.create",
   ACCOUNT_ACTIVATE: "account.activate",
+  ACCOUNT_UPDATE: "account.update",
+  PERSON_VIEW: "person.view",
+  PERSON_EDIT: "person.edit",
+  DOCUMENT_TYPE_MANAGE: "document_type.manage",
   ACCOUNT_DISABLE: "account.disable",
   ROLE_ASSIGN: "role.assign",
   SCOPE_ASSIGN: "scope.assign",
@@ -43,6 +47,7 @@ export const PERMISSION = Object.freeze({
 /** Cualquiera de estos habilita la administracion de cuentas. */
 export const ACCOUNT_ADMIN_PERMISSIONS = [
   PERMISSION.ACCOUNT_CREATE,
+  PERMISSION.ACCOUNT_UPDATE,
   PERMISSION.ACCOUNT_ACTIVATE,
   PERMISSION.ACCOUNT_DISABLE,
 ];
@@ -78,8 +83,10 @@ export const MODULE_PERMISSIONS = Object.freeze({
   // Administracion (2.17.6): solo quien tiene esos permisos ve el grupo.
   cuentas: ACCOUNT_ADMIN_PERMISSIONS,
   roles: [PERMISSION.ROLE_ASSIGN],
-  personas: [PERMISSION.ACCOUNT_CREATE, PERMISSION.STUDENT_EDIT_BASIC],
-  "tipos-documento": [PERMISSION.DOCUMENT_ISSUE, PERMISSION.DOCUMENT_UPLOAD],
+  // PROVISIONAL (ADR-0011): solo presentacion hasta que el dueño de Personas y
+  // Tipos de documento exija estos permisos en el backend.
+  personas: [PERMISSION.PERSON_VIEW, PERMISSION.PERSON_EDIT],
+  "tipos-documento": [PERMISSION.DOCUMENT_TYPE_MANAGE],
   auditoria: [PERMISSION.AUDIT_READ, PERMISSION.RETENTION_POLICY_DECLARE],
   plataforma: [PERMISSION.PLATFORM_MONITOR],
 });

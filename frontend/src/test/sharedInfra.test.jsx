@@ -163,7 +163,7 @@ describe("Selector con busqueda remota en EntityFormWindow (1.3)", () => {
       { user: sessionUser() }
     );
 
-    await user.type(screen.getByLabelText(/Docente/), "Mar");
+    await user.type(await screen.findByLabelText(/Docente/), "Mar");
     await user.click(await screen.findByText("Docente Mar"));
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 

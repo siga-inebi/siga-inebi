@@ -13,6 +13,7 @@ import {
 } from "@auth/accountLabels.js";
 import { authService } from "@auth/authService.js";
 import { useAuth } from "@auth/useAuth.js";
+import { useInvalidate } from "@shared/api/invalidation.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
 import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 import { formatDateTime } from "@shared/utils/format.js";
@@ -26,6 +27,7 @@ import { MutedCell } from "@ui/table/cells.jsx";
 
 import { ChangePasswordWindow } from "./ChangePasswordWindow.jsx";
 import { scopeDimensionsText } from "./scopeChoice.js";
+import { SessionsTable } from "./SessionsTable.jsx";
 
 function Grid({ children }) {
   return (
@@ -103,7 +105,8 @@ function MySchedule() {
  * sesiones. Cualquier cuenta autenticada la ve.
  */
 export function MyAccountPage() {
-  const { logoutAll } = useAuth();
+  const { logout, logoutAll } = useAuth();
+  const invalidate = useInvalidate();
   const [changingPassword, setChangingPassword] = useState(false);
   const [closingAll, setClosingAll] = useState(false);
   const [closeError, setCloseError] = useState("");
@@ -236,33 +239,17 @@ export function MyAccountPage() {
         }
         title="Mis sesiones"
       >
-        <SectionTableArea>
-          <DataTable
-            columns={[
-              {
-                key: "last_activity_at",
-                label: "Última actividad",
-                render: (row) => formatDateTime(row.last_activity_at),
-              },
-              {
-                key: "expires_at",
-                label: "Vence",
-                render: (row) => formatDateTime(row.expires_at),
-              },
-              {
-                key: "is_current",
-                label: "",
-                render: (row) =>
-                  row.is_current ? (
-                    <StatusChip label="Esta sesión" variant="primary" />
-                  ) : null,
-              },
-            ]}
-            emptyMessage="Sin sesiones abiertas."
-            getRowKey={(row) => `${row.expires_at}-${row.last_activity_at}`}
-            rows={sessions}
-          />
-        </SectionTableArea>
+        <SessionsTable
+          onCloseSession={async (session) => {
+            await authService.closeMySession(session.public_id);
+            if (session.is_current) {
+              await logout().catch(() => {});
+              return;
+            }
+            invalidate(queryKeys.identity.me());
+          }}
+          sessions={sessions}
+        />
       </SectionCard>
 
       <ChangePasswordWindow

@@ -87,7 +87,7 @@ export const MUTATION_RULES = [
 ];
 
 /** Escrituras que no cambian datos que alguna pantalla muestre desde cache. */
-const IGNORED_PREFIXES = ["/auth/login", "/auth/logout"];
+const IGNORED_PREFIXES = ["/auth/login", "/auth/logout", "/auth/session"];
 
 /**
  * Keys a invalidar despues de escribir en `path`. Devuelve `null` cuando ninguna

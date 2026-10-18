@@ -17,4 +17,9 @@ export const authService = {
   /** MC1: datos, roles con alcances y sesiones de la cuenta propia. */
   myAccount: () => apiClient.get("/identity/me/account/"),
   mySchedule: () => apiClient.get("/identity/me/schedule/"),
+  /** Riesgo A: la persona cierra una de sus sesiones. */
+  closeMySession: (sessionId) =>
+    apiClient.post(`/identity/me/sessions/${sessionId}/close/`, {}),
+  /** Riesgo D: renueva la sesion mientras se escribe en un formulario sin guardar. */
+  keepAlive: () => apiClient.post("/auth/session/keep-alive/", {}),
 };

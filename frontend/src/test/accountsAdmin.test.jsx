@@ -342,7 +342,9 @@ describe("AccountDetailPage (U5, D8, RA2)", () => {
     await user.click(
       await screen.findByRole("button", { name: "Acciones de ana.lopez" })
     );
-    await user.click(await screen.findByText("Reactivar"));
+    await user.click(
+      within(await screen.findByRole("menu")).getByText("Reactivar")
+    );
     expect(
       screen.getByText(/Los roles revocados no vuelven solos/)
     ).toBeInTheDocument();

@@ -345,6 +345,7 @@ function RetentionDeclarations() {
       {declaring ? (
         <EntityFormWindow
           description="Queda registrado en la bitácora con su autor y la fecha."
+          draftKey="retention-declaration"
           fields={RETENTION_FIELDS}
           initialValues={{
             category: "",

@@ -40,6 +40,12 @@ export const accountsService = {
       force,
       reason,
     }),
+  /** Riesgo A: cierra una sesion concreta de otra cuenta. */
+  closeSession: (accountId, sessionId) =>
+    apiClient.post(
+      `${ROOT}/accounts/${accountId}/sessions/${sessionId}/close/`,
+      {}
+    ),
   closeSessions: (accountId) =>
     apiClient.post(`${ROOT}/accounts/${accountId}/sessions/close/`, {}),
   issuePasswordReset: (accountId) =>

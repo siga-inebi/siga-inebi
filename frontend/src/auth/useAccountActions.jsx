@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
@@ -18,12 +18,14 @@ import {
 } from "@auth/accountsService.js";
 import { PERMISSION } from "@auth/permissions.js";
 import { usePermissions } from "@auth/usePermissions.js";
-import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { formatDateTime } from "@shared/utils/format.js";
 import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
 import { ReasonDialog } from "@ui/feedback/ReasonDialog.jsx";
 
-import { SecretHandoverDialog } from "./SecretHandoverDialog.jsx";
+import {
+  LazyEntityFormWindow as EntityFormWindow,
+  LazySecretHandoverDialog as SecretHandoverDialog,
+} from "./lazyAccountWindows.jsx";
 
 const EDIT_FIELDS = [
   { name: "username", label: "Usuario", required: true },
@@ -48,7 +50,7 @@ function accountName(account) {
  * @param {Function} [options.onView] Abrir la ficha (solo en el listado).
  */
 export function useAccountActions({ onChanged, onView } = {}) {
-  const { can } = usePermissions();
+  const { can, user } = usePermissions();
   const [pending, setPending] = useState(null);
   const [secret, setSecret] = useState(null);
   const [warnings, setWarnings] = useState(null);
@@ -157,7 +159,10 @@ export function useAccountActions({ onChanged, onView } = {}) {
       {
         key: "edit",
         label: "Editar usuario y correo",
-        hidden: !can(PERMISSION.ACCOUNT_CREATE),
+        // D1 (ADR-0011): `account.update`, y nunca la cuenta propia (eso es Mi cuenta).
+        hidden:
+          !can(PERMISSION.ACCOUNT_UPDATE) ||
+          account.public_id === user?.public_id,
         onClick: () => setPending({ type: "edit", account }),
       },
       {
@@ -214,22 +219,25 @@ export function useAccountActions({ onChanged, onView } = {}) {
       ) : null}
 
       {pending?.type === "edit" ? (
-        <EntityFormWindow
-          description="El cambio queda registrado en la bitácora con el valor anterior y el nuevo."
-          fields={EDIT_FIELDS}
-          initialValues={{
-            username: account.username,
-            email: account.email ?? "",
-          }}
-          onCancel={close}
-          onSubmit={async (values) => {
-            await accountsService.update(account.public_id, values);
-            close();
-            changed();
-          }}
-          open
-          title={`Editar cuenta de ${accountName(account)}`}
-        />
+        <Suspense fallback={null}>
+          <EntityFormWindow
+            draftKey={`account-edit:${account.public_id}`}
+            description="El cambio queda registrado en la bitácora con el valor anterior y el nuevo."
+            fields={EDIT_FIELDS}
+            initialValues={{
+              username: account.username,
+              email: account.email ?? "",
+            }}
+            onCancel={close}
+            onSubmit={async (values) => {
+              await accountsService.update(account.public_id, values);
+              close();
+              changed();
+            }}
+            open
+            title={`Editar cuenta de ${accountName(account)}`}
+          />
+        </Suspense>
       ) : null}
 
       <ConfirmDialog
@@ -346,17 +354,24 @@ export function useAccountActions({ onChanged, onView } = {}) {
         </DialogActions>
       </Dialog>
 
-      <SecretHandoverDialog
-        details={secret?.details ?? []}
-        instructions={secret?.instructions ?? ""}
-        onClose={() => setSecret(null)}
-        open={Boolean(secret)}
-        secret={secret?.secret ?? ""}
-        secretLabel={secret?.secretLabel ?? ""}
-        title={secret?.title ?? ""}
-      />
+      {secret ? (
+        <Suspense fallback={null}>
+          <SecretHandoverDialog
+            details={secret?.details ?? []}
+            instructions={secret?.instructions ?? ""}
+            onClose={() => setSecret(null)}
+            open={Boolean(secret)}
+            secret={secret?.secret ?? ""}
+            secretLabel={secret?.secretLabel ?? ""}
+            title={secret?.title ?? ""}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 
-  return { actionsFor, dialogs, busy };
+  /** Abre una accion desde fuera del menu (p.ej. "Reactivar" junto a un aviso). */
+  const startAction = (type, target) => setPending({ type, account: target });
+
+  return { actionsFor, dialogs, busy, startAction };
 }
