@@ -67,3 +67,40 @@ de ocupación y en el guard de escritura existente.
 
 No se agrega una pantalla general de ocupación ni se cambia M2, M6 o el contrato
 de los flujos masivos.
+
+## Verificación e integración
+
+Validación local de esta rama sobre `develop` (`5f8630d`):
+
+- Backend completo con PostgreSQL: **1779 pruebas aprobadas, 23 omitidas**;
+  cobertura **95,16 %**. Se conserva `CONN_MAX_AGE=60`.
+- Frontend completo: **323 pruebas aprobadas en 37 archivos**; cobertura
+  **85,16 %**. Incluye los diez casos del aviso de cupo.
+- Validadores de documentación/trazabilidad: **49 pruebas aprobadas**.
+- Ruff, ESLint, compilación y presupuesto de bundles aprobados.
+
+La rama es independiente de los PR abiertos del mismo issue. Las simulaciones
+de combinación con #638, #639, #640, #641 y #642 no presentan conflictos
+textuales. Esto no sustituye las pruebas de la rama que finalmente se integre.
+
+El PR #636 extrae el alta a `EnrolmentCreateWindow`. Al combinarlo, conservar
+esa extracción y colocar el aviso como hijo contextual de `EntityFormWindow`
+en dicha ventana, con `values.academic_cycle_id`, `values.section_id` y
+`submitting`. No restaurar catálogos globales ni el formulario en el listado.
+
+La revisión conjunta local con M1 (#636) y M5 (#642) aplica esa adaptación.
+También ajusta las expectativas antiguas de `EnrolmentListSummaries.test.jsx`:
+M5 consulta los catálogos pequeños de ciclos y grados para filtrar. Las pruebas
+deben contar solicitudes de matrículas por ruta y seguir prohibiendo descargas
+de estudiantes/secciones para traducir identificadores; abrir el alta reutiliza
+los catálogos de filtros. Este ajuste pertenece a la integración, sin modificar
+las ramas públicas de los otros PR.
+
+El flujo nuevo de reinscripción masiva de #638 no existe en la base de este PR.
+La cobertura aquí descrita corresponde al lote inicial y a las operaciones
+individuales; no se afirma haber añadido el aviso a esa ventana nueva.
+
+La revisión HTTP de la aplicación conjunta usa datos sintéticos aislados:
+login, listado, ocupación filtrada de una sola sección, coincidencia con las
+matrículas activas y errores 400/404. Las pruebas DOM y HTTP no sustituyen la
+aceptación visual institucional. No se fusionan PR públicos automáticamente.
