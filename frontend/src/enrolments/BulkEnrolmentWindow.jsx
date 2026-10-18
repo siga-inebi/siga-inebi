@@ -10,6 +10,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { enrolmentsService } from "@enrolments/enrolmentsService.js";
+import { SectionOccupancyNotice } from "./SectionOccupancyNotice.jsx";
 import { collectAllPages } from "@shared/api/pages.js";
 import { BatchResultAlert } from "@shared/crud/BatchResultAlert.jsx";
 import { useBatchSubmit } from "@shared/crud/useBatchSubmit.js";
@@ -264,6 +265,12 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
             value={effectiveOn}
           />
         </Box>
+
+        <SectionOccupancyNotice
+          cycleId={cycleId}
+          sectionId={sectionId}
+          busy={submitting}
+        />
 
         {loadError ? <Alert severity="error">{loadError}</Alert> : null}
 

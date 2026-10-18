@@ -66,6 +66,8 @@ export const enrolmentsService = {
     apiClient.get(withQuery(`${ROOT}/movements/`, params)),
 
   create: (payload) => apiClient.post(`${ROOT}/`, payload),
+  listSectionOccupancy: (params) =>
+    apiClient.get(withQuery(`${ROOT}/sections/occupancy/`, params)),
   matriculate: (payload) => apiClient.post(`${ROOT}/matriculations/`, payload),
   reenrol: (payload) => apiClient.post(`${ROOT}/re-enrolments/`, payload),
 

@@ -90,6 +90,15 @@ describe("servicios de los modulos", () => {
   });
 
   describe("enrolmentsService", () => {
+    test("consulta ocupación solo de la sección y ciclo elegidos", async () => {
+      await enrolmentsService.listSectionOccupancy({
+        academic_cycle_id: CYCLE,
+        section_id: "section-1",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/sections/occupancy/?academic_cycle_id=${CYCLE}&section_id=section-1`
+      );
+    });
     test("las matriculas vigentes se pueden filtrar por estudiante", async () => {
       await enrolmentsService.listActive({ page: 1, student_id: STUDENT });
       expect(apiClient.get).toHaveBeenCalledWith(

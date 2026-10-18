@@ -24,6 +24,7 @@ const cyclesServiceMock = vi.hoisted(() => ({
 }));
 
 const enrolmentsServiceMock = vi.hoisted(() => ({
+  listSectionOccupancy: vi.fn(),
   listActive: vi.fn(),
   listHistory: vi.fn(),
   create: vi.fn(),
@@ -516,6 +517,18 @@ describe("pantallas de los modulos con backend previo", () => {
 
   describe("EnrolmentsPage", () => {
     beforeEach(() => {
+      enrolmentsServiceMock.listSectionOccupancy.mockReset().mockResolvedValue({
+        count: 1,
+        results: [
+          {
+            public_id: "section-a",
+            academic_cycle_id: "cycle-2026",
+            capacity: 30,
+            occupied_seats: 12,
+            available_seats: 18,
+          },
+        ],
+      });
       studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
       academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
       // El catalogo de grados pide niveles con ?expand=grades, no un
@@ -569,6 +582,31 @@ describe("pantallas de los modulos con backend previo", () => {
 
     test("matricula a varios estudiantes en una sola pasada", async () => {
       const user = userEvent.setup();
+      enrolmentsServiceMock.listSectionOccupancy
+        .mockResolvedValueOnce({
+          count: 1,
+          results: [
+            {
+              public_id: "section-a",
+              academic_cycle_id: "cycle-2026",
+              capacity: 30,
+              occupied_seats: 12,
+              available_seats: 18,
+            },
+          ],
+        })
+        .mockResolvedValue({
+          count: 1,
+          results: [
+            {
+              public_id: "section-a",
+              academic_cycle_id: "cycle-2026",
+              capacity: 30,
+              occupied_seats: 13,
+              available_seats: 17,
+            },
+          ],
+        });
       const OTRO = {
         ...STUDENT,
         public_id: "student-2",
@@ -632,6 +670,96 @@ describe("pantallas de los modulos con backend previo", () => {
         section_id: "section-a",
         effective_on: "2026-03-02",
       });
+      const occupancy = within(window).getByRole("region", {
+        name: "Cupo de la sección",
+      });
+      expect(await within(occupancy).findByText("17")).toBeInTheDocument();
+      expect(enrolmentsServiceMock.listSectionOccupancy).toHaveBeenCalledTimes(
+        2
+      );
+    });
+
+    test.each(["Nueva matricula", "Reinscribir"])(
+      "muestra cupo en el formulario de %s",
+      async (button) => {
+        const user = userEvent.setup();
+        renderWithRouter(<EnrolmentsPage />);
+        await screen.findByText("Luis Perez · EST-1");
+        await user.click(
+          screen.getByRole("button", { name: button, exact: true })
+        );
+        const dialog = await screen.findByRole("dialog");
+        expect(
+          enrolmentsServiceMock.listSectionOccupancy
+        ).not.toHaveBeenCalled();
+        await user.click(
+          within(dialog).getByRole("combobox", { name: /Ciclo escolar/ })
+        );
+        await user.click(
+          await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+        );
+        await user.click(
+          within(dialog).getByRole("combobox", { name: /Seccion/ })
+        );
+        await user.click(
+          await screen.findByRole("option", { name: "Primero Basico A" })
+        );
+        const occupancy = within(dialog).getByRole("region", {
+          name: "Cupo de la sección",
+        });
+        expect(await within(occupancy).findByText("18")).toBeInTheDocument();
+        expect(enrolmentsServiceMock.listSectionOccupancy).toHaveBeenCalledWith(
+          { academic_cycle_id: "cycle-2026", section_id: "section-a" }
+        );
+      }
+    );
+
+    test("conserva el formulario y relee cupo después de un rechazo al matricular", async () => {
+      enrolmentsServiceMock.matriculate.mockRejectedValueOnce(
+        new Error("La sección alcanzó su cupo.")
+      );
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByText("Luis Perez · EST-1");
+      await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
+      const dialog = await screen.findByRole("dialog");
+      for (const [label, option] of [
+        [/Estudiante/, "Luis Perez · EST-1"],
+        [/Ciclo escolar/, "Ciclo 2026 · Activo"],
+        [/Seccion/, "Primero Basico A"],
+      ]) {
+        await user.click(within(dialog).getByRole("combobox", { name: label }));
+        await user.click(await screen.findByRole("option", { name: option }));
+      }
+      await within(dialog).findByText("18");
+      enrolmentsServiceMock.listSectionOccupancy.mockResolvedValue({
+        count: 1,
+        results: [
+          {
+            public_id: "section-a",
+            academic_cycle_id: "cycle-2026",
+            capacity: 30,
+            occupied_seats: 30,
+            available_seats: 0,
+          },
+        ],
+      });
+      await user.type(
+        within(dialog).getByLabelText(/Vigente desde/),
+        "2026-02-01"
+      );
+      await user.click(
+        within(dialog).getByRole("button", { name: "Matricular", exact: true })
+      );
+      expect(
+        await within(dialog).findByText("La sección alcanzó su cupo.")
+      ).toBeInTheDocument();
+      expect(
+        await within(dialog).findByText(/Sección sin vacantes/)
+      ).toBeInTheDocument();
+      expect(within(dialog).getByLabelText(/Vigente desde/)).toHaveValue(
+        "2026-02-01"
+      );
     });
 
     test("muestra las matriculas vigentes", async () => {

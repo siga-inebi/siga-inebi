@@ -11,6 +11,7 @@ import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
+import { SectionOccupancyNotice } from "./SectionOccupancyNotice.jsx";
 import {
   ENROLMENT_STATUS_LABEL,
   ENROLMENT_STATUS_VARIANT,
@@ -389,7 +390,15 @@ export function EnrolmentsPage() {
               ? "Reinscribir estudiante"
               : "Nueva matricula"
           }
-        />
+        >
+          {(values, { submitting }) => (
+            <SectionOccupancyNotice
+              cycleId={values.academic_cycle_id}
+              sectionId={values.section_id}
+              busy={submitting}
+            />
+          )}
+        </EntityFormWindow>
       ) : null}
 
       <Suspense fallback={null}>

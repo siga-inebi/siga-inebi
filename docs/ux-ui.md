@@ -241,7 +241,7 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 | M4 | **P1 · Sin UI** | **Promoción** (`/<id>/promotion/`) y **reinscripción masiva** (`/re-enrolments/bulk/`). |
 | M5 | **P1 · Clics** | "Vigentes" solo filtra por estudiante (con un desplegable sin búsqueda de todo el padrón). Faltan filtros por ciclo, grado y sección, que es como trabaja secretaría. |
 | M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. |
-| M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). |
+| M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). **Seguimiento #632:** [cupo contextual](architecture/enrolment-capacity-ui.md) en nueva matrícula, reinscripción individual y lote inicial; distingue sin límite, lleno y error, y actualiza al terminar envíos. Conserva la validación de servidor. Integración y aceptación pendientes. |
 
 ### 2.11 Evaluación
 
