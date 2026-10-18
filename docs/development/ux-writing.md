@@ -83,4 +83,5 @@ API, acciones de auditoría) no cambia: esta guía es para el texto visible.
   servidor).
 - Menú, rutas y acciones se filtran con los permisos efectivos de `/auth/me/`
   (`permissions.js`, `<Can>`, `usePermissions`). Es presentación: el backend
-  sigue autorizando cada operación.
+  sigue autorizando cada operación. La tabla acción → permiso de cada módulo y
+  lo pendiente por dueño está en [permisos-en-ui.md](permisos-en-ui.md).

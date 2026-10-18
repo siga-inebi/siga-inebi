@@ -436,7 +436,10 @@ actualizo en el mismo cambio.
 | `RoleAssignment` (respuesta) | `user` (entero) | `account` (UUID), `role_name`, `status`, `status_display`, `scopes[].dimensions[]` con `public_id` y etiqueta |
 | `AccountList` (respuesta) | `id`, `username`, `status`, `is_active`, `person_name` | `public_id`, `email`, `status_display`, `person` (`public_id`, `full_name`, `email`, `is_teacher`), `roles`, `last_login`, `locked_until`, `is_locked` |
 | `POST .../disable/` con dependencias | `teaching_assignments[].id` | `teaching_assignments[].public_id` |
-| `GET /api/v1/identity/permissions/` | `name` del modelo (ingles) | `name` y `description` en espanol, `group`, `group_label`; incluye `academic_cycle.revert` y `retention_policy.declare` |
+| `GET /api/v1/identity/permissions/` | `name` del modelo (ingles) | `name` y `description` en espanol, `group`, `group_label`; incluye `academic_cycle.revert`, `retention_policy.declare`, `account.update`, `person.view`, `person.edit` y `document_type.manage` |
+| `PATCH /api/v1/identity/accounts/{public_id}/` | `account.create` | `account.update`; la cuenta propia se rechaza (403) |
+| `GET /api/v1/audit/events/` (y `export/`) | campo y filtro `actor_id` | sin `actor_id`; usar `actor_public_id` |
+| `sessions[]` en ficha y Mi cuenta | `last_activity_at`, `expires_at`, `is_current` | agrega `public_id`, `started_at`, `ip_address`, `device`; `expires_at` admite nulo |
 
 Endpoints nuevos (todos con sesion salvo los marcados publicos):
 
@@ -445,8 +448,8 @@ Endpoints nuevos (todos con sesion salvo los marcados publicos):
   `last_login` o `person`. Cualquiera de `account.create`, `account.activate` o
   `account.disable` sobre `identity`.
 - `GET|PATCH /identity/accounts/{public_id}/`: ficha (incluye `sessions`, `recent_activity`,
-  `activation_expires_at`) y edicion de `username` y `email` (`account.create`, auditada con
-  valor anterior y nuevo).
+  `activation_expires_at`) y edicion de `username` y `email` (`account.update`, auditada con
+  valor anterior y nuevo; nadie edita su propia cuenta por esta ruta).
 - `POST /identity/accounts/{public_id}/reactivate/` y `.../unlock/` con `{reason}`
   (`account.activate`, D8).
 - `GET /identity/accounts/candidates/?search=`: personas sin cuenta por nombre, CUI exacto o
@@ -461,6 +464,16 @@ Endpoints nuevos (todos con sesion salvo los marcados publicos):
 - `GET /identity/scope-options/`: modulos de alcance y la institucion (`public_id`).
 - `GET /identity/me/account/`: datos, roles con alcances, sesiones y permisos propios.
 - `GET /identity/password-policy/` (**publico**): reglas reales de contrasena.
-- `GET /audit/events/` admite ademas `actor_public_id`, `actor_username` y `action_prefix`, y
-  devuelve `actor_public_id`; `actor_id` queda como parametro obsoleto.
+- `GET /audit/events/` y `GET /audit/events/export/` filtran por `actor_public_id`,
+  `actor_username` y `action_prefix`, y la respuesta devuelve `actor_public_id`.
+  **Retirado (incompatible):** el campo `actor_id` y el filtro `?actor_id=`.
+- `POST /auth/session/keep-alive/` (sesion): solo renueva la actividad de la sesion; responde 204.
+- `POST /identity/me/sessions/{public_id}/close/`: la persona cierra una de sus sesiones.
+- `POST /identity/accounts/{public_id}/sessions/{session_id}/close/`: administracion cierra una
+  sesion concreta (`account.disable`).
+- Elementos de `sessions` (ficha y Mi cuenta): `public_id`, `started_at`, `last_activity_at`,
+  `expires_at` (nulo si la sesion de Django ya no existe), `ip_address`, `device` (resumen del
+  agente de usuario) e `is_current`. Nunca se expone la clave de sesion.
+- `POST /identity/accounts/{public_id}/role-assignments/` sobre una cuenta desactivada responde
+  400 "Reactive la cuenta antes de asignarle roles."
 

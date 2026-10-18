@@ -3993,5 +3993,39 @@
     "module": "Expediente",
     "source": "ADR-0011 (docs/ux-ui.md, seccion 3)",
     "has_card": false
+  },
+  {
+    "id": "RF-CTA-009",
+    "kind": "RF",
+    "prefix": "CTA",
+    "name": "Edición administrativa de cuenta",
+    "catalogue_description": "Edicion administrativa de cuenta",
+    "priority": "Deberia",
+    "domain": "identity-access",
+    "epic": "ux-ui",
+    "actor": "Administrador del sistema",
+    "user_story": "",
+    "business_rule": "",
+    "acceptance_criteria": "Administración corrige usuario y correo de otra cuenta con un permiso específico; el cambio queda auditado y nadie edita su propia cuenta por esa vía.",
+    "module": "Cuentas y Accesos",
+    "source": "ADR-0011 (docs/ux-ui.md, seccion 3)",
+    "has_card": false
+  },
+  {
+    "id": "RF-PER-008",
+    "kind": "RF",
+    "prefix": "PER",
+    "name": "Control de acceso a Personas y Tipos de documento por permiso atómico",
+    "catalogue_description": "Control de acceso a Personas y Tipos de documento por permiso atomico",
+    "priority": "Debe",
+    "domain": "identity-access",
+    "epic": "ux-ui",
+    "actor": "Administrador del sistema",
+    "user_story": "",
+    "business_rule": "",
+    "acceptance_criteria": "Las operaciones de Personas y de Tipos de documento exigen permisos atómicos propios y se niegan por defecto.",
+    "module": "Cuentas y Accesos",
+    "source": "ADR-0011 (docs/ux-ui.md, seccion 3)",
+    "has_card": false
   }
 ]
