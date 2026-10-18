@@ -90,12 +90,12 @@ const HISTORY_TAB = "history";
  * posibilidad de contradecirse y recibir un rechazo al guardar.
  */
 export function EnrolmentsPage() {
+  const [transferFor, setTransferFor] = useState(null);
   const [tab, setTab] = useState(ACTIVE_TAB);
   const [studentFilter, setStudentFilter] = useState("");
   const [creating, setCreating] = useState(null);
   const [bulkEnrolling, setBulkEnrolling] = useState(false);
   const [documentsFor, setDocumentsFor] = useState(null);
-  const [transferFor, setTransferFor] = useState(null);
   const [movementStudentId, setMovementStudentId] = useState("");
 
   const students = useStudentCatalog();
