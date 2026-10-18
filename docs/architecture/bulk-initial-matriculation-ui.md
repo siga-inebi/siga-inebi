@@ -100,6 +100,27 @@ individuales y `/re-enrolments/bulk/`, el expediente único y el historial audit
   checks de la rama final integrada se registran por separado. Los catálogos
   académicos y la base `useServerList`/URL/selectores comunes siguen bajo #630.
 
+## Evidencia de verificación
+
+- Rama independiente sobre `develop` (`5f8630d`): backend completo PostgreSQL,
+  **1794 aprobadas y 23 omitidas**, cobertura **95,19 %**; frontend completo,
+  **317 aprobadas en 37 archivos**.
+- **49 pruebas** de validadores de documentación/requerimientos; Ruff lint/formato
+  de 284 archivos, ESLint, build y presupuestos aprobados. Django check y detección
+  de migraciones sin cambios. OpenAPI con cero errores y 27 advertencias existentes
+  (23 únicas). La ejecución local es nativa Windows; CI valida versiones fijadas.
+- Combinación local M1/M5/M6/M7/M2: **349 pruebas frontend en 42 archivos**,
+  cobertura **85,61 %**, y **53 pruebas API** aprobadas; lint y build aprobados.
+  Merge local `612b681` y adaptación de cupo `3d71e62`; sin fusionar ramas públicas.
+- Preview sintética aislada: `http://127.0.0.1:5184/`, backend 8012, ciclos 2026/2027.
+  Se añadieron 30 candidatos `M2-DEMO`, sección A con cupo 3 y B con cupo 1.
+- HTTP: dos páginas de 30 candidatos únicos; revisión de cuatro alumnos con tres
+  listas/uno rechazado y cero altas; confirmación con tres creadas/un error;
+  repetición con tres existentes/un error e iguales UUID. Candidatos actualizados
+  a 27. Dos solicitudes concurrentes por la última plaza de B dejaron una sola alta.
+- La revisión DOM/HTTP no sustituye aceptación visual institucional. Docker no se
+  ejecuta localmente en esta evidencia; sus resultados se registran en CI del PR.
+
 ## Reversión
 
 Revertir el código del PR restaura el envío previo. No eliminar matrículas ni eventos

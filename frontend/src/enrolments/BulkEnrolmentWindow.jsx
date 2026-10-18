@@ -249,16 +249,23 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
           </Typography>
         ) : (
           <Stack gap={1.5}>
-            <SearchField
+            <Box
+              component="fieldset"
               disabled={submitting}
-              value={search}
-              placeholder="Buscar por nombre o codigo (mínimo 2 letras)…"
-              onChange={(value) => {
-                setSearch(value);
-                candidates.goToPage(1);
-                invalidateReview();
-              }}
-            />
+              sx={{ border: 0, m: 0, p: 0 }}
+            >
+              <SearchField
+                disabled={submitting}
+                value={search}
+                placeholder="Buscar por nombre o codigo (mínimo 2 letras)…"
+                onChange={(value) => {
+                  if (submitting) return;
+                  setSearch(value);
+                  candidates.goToPage(1);
+                  invalidateReview();
+                }}
+              />
+            </Box>
             <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1}>
               <FormControlLabel
                 label={`Seleccionar los ${candidates.items.length} visibles`}

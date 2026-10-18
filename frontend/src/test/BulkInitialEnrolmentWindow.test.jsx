@@ -215,6 +215,9 @@ test("bloquea cierre y cambios mientras procesa", async () => {
   expect(
     screen.getAllByRole("button", { name: "Cerrar" }).at(-1)
   ).toBeDisabled();
+  expect(
+    screen.getByRole("button", { name: "Limpiar busqueda" })
+  ).toBeDisabled();
   await user.keyboard("{Escape}");
   expect(onClose).not.toHaveBeenCalled();
   expect(screen.getByLabelText(/Vigente desde/)).toBeDisabled();
