@@ -76,3 +76,29 @@ PostgreSQL, **1784 aprobadas / 23 omitidas**, cobertura **95.15%**. Frontend:
 de herramientas de requerimientos también pasan; Ruff, ESLint, compilación y
 presupuesto de assets, comprobación Django y ausencia de migraciones pendientes
 verificados. No se afirma aceptación visual por esas pruebas.
+
+## Integración con las entregas anteriores
+
+Los PR siguen independientes hacia `develop`. Se verificaron combinaciones
+locales en checkouts separados, sin fusionar ramas públicas:
+
+- Con #636: **69 pruebas de frontend y 8 de API aprobadas**, más ESLint,
+  compilación y presupuesto. Hay cambios concurrentes en `EnrolmentsPage.jsx`:
+  al integrar se conserva `EnrolmentStudentFilter` con valor `{value,label}`,
+  nombres anidados y carga exclusiva de la pestaña activa; se agregan los
+  filtros académicos, su estado, los parámetros y el reinicio de página de M5.
+  Limpiar usa `changeStudentFilter(null)` en esa combinación. No debe restaurarse
+  el catálogo completo de estudiantes ni quitarse la barra académica al resolver.
+- Con #638: **17 pruebas de API aprobadas** (M5 y candidatos de reinscripción).
+  Los campos de `ActiveEnrolmentQuerySerializer` son idénticos; Git puede marcar
+  conflicto al coincidir su inserción con las clases nuevas de candidatos. Se
+  conservan los tres campos una sola vez y las clases de candidatos de #638.
+  No cambia ningún contrato de reinscripción.
+- Con #639, #640 y #641: combinaciones Git sin conflictos de contenido. Esto no
+  sustituye las pruebas posteriores a la integración completa.
+
+La vista local de revisión conjunta con #636 usa una base PostgreSQL aislada y
+datos sintéticos. Se comprobaron por HTTP login/CSRF, combinación de filtros,
+nombres anidados, catálogo de secciones acotado, UUID inválido (400), ausencia de
+coincidencias y acceso al historial. La revisión visual institucional permanece
+pendiente.
