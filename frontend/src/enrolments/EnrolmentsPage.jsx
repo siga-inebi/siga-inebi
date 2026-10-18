@@ -11,7 +11,6 @@ import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
-import { SectionOccupancyNotice } from "./SectionOccupancyNotice.jsx";
 import {
   ENROLMENT_STATUS_LABEL,
   ENROLMENT_STATUS_VARIANT,
@@ -34,6 +33,7 @@ import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
+import { SectionOccupancyNotice } from "./SectionOccupancyNotice.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
 import { MutedCell, NameCell } from "@ui/table/cells.jsx";

@@ -66,14 +66,14 @@ export const enrolmentsService = {
     apiClient.get(withQuery(`${ROOT}/movements/`, params)),
 
   create: (payload) => apiClient.post(`${ROOT}/`, payload),
-  listSectionOccupancy: (params) =>
-    apiClient.get(withQuery(`${ROOT}/sections/occupancy/`, params)),
   matriculate: (payload) => apiClient.post(`${ROOT}/matriculations/`, payload),
   reenrol: (payload) => apiClient.post(`${ROOT}/re-enrolments/`, payload),
 
   /** Requisitos documentales de una matricula (RF-MAT-005). */
   listDocuments: (enrolmentId, params) =>
     apiClient.get(withQuery(`${ROOT}/${enrolmentId}/documents/`, params)),
+  listSectionOccupancy: (params) =>
+    apiClient.get(withQuery(`${ROOT}/sections/occupancy/`, params)),
   addDocument: (enrolmentId, payload) =>
     apiClient.post(`${ROOT}/${enrolmentId}/documents/`, payload),
 };

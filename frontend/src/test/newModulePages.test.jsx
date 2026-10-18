@@ -24,12 +24,12 @@ const cyclesServiceMock = vi.hoisted(() => ({
 }));
 
 const enrolmentsServiceMock = vi.hoisted(() => ({
-  listSectionOccupancy: vi.fn(),
   listActive: vi.fn(),
   listHistory: vi.fn(),
   create: vi.fn(),
   matriculate: vi.fn(),
   reenrol: vi.fn(),
+  listSectionOccupancy: vi.fn(),
   listDocuments: vi.fn(),
   addDocument: vi.fn(),
 }));
