@@ -37,6 +37,17 @@ def guardian_relations():
     return StudentGuardianRelation.objects.select_related("student", "guardian__person")
 
 
+def guardian_relations_for_record(*, actor, student_public_id):
+    from apps.identity.scopes import authorized_student_queryset
+
+    student = _get(
+        authorized_student_queryset(user=actor, codename="student_view_basic"),
+        student_public_id,
+        "Student",
+    )
+    return guardian_relations().filter(student=student).order_by("-is_primary", "pk")
+
+
 def emergency_contacts(student, *, include_inactive=False):
     # Orden explicito: el listado se pagina, y sin el dos paginas pueden repetir u
     # omitir contactos (INC-009). `id` desempata nombres iguales.
@@ -56,7 +67,7 @@ def health_notes(student, *, include_inactive=False):
     return _filter_active(
         StudentHealthNote.objects.filter(student=student).select_related("student", "author"),
         include_inactive=include_inactive,
-    )
+    ).order_by("-recorded_on", "-created_at", "-pk")
 
 
 def health_note_or_404(public_id):
@@ -71,7 +82,7 @@ def observations(student, *, include_inactive=False):
     return _filter_active(
         StudentObservation.objects.filter(student=student).select_related("student", "author"),
         include_inactive=include_inactive,
-    )
+    ).order_by("-observed_on", "-created_at", "-pk")
 
 
 def observation_or_404(public_id):

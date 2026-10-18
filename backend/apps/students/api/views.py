@@ -91,6 +91,24 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
         deactivate_student(student=instance, actor=self.request.user)
 
 
+class StudentDossierDetailView(StudentDetailView):
+    """Lectura por UUID para la ruta de expediente, sin ampliar sus campos."""
+
+    lookup_field = "public_id"
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "head", "options"]
+
+
+class StudentRecordGuardiansView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentGuardianRelationSerializer
+
+    def get_queryset(self):
+        return queries.guardian_relations_for_record(
+            actor=self.request.user, student_public_id=self.kwargs["public_id"]
+        )
+
+
 class GuardianListCreateView(generics.ListCreateAPIView):
     serializer_class = GuardianSerializer
 

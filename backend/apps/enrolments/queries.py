@@ -6,6 +6,23 @@ from apps.enrolments.models import Enrolment, StudentMovement
 from apps.students.models import Student
 
 
+def student_record_enrolments(*, actor, public_id):
+    from django.db.models import Exists, OuterRef
+
+    from apps.enrolments.services import active_enrolments
+    from apps.identity.scopes import authorized_student_queryset
+
+    student = _get(
+        authorized_student_queryset(user=actor, codename="student_view_basic"), public_id, "Student"
+    )
+    return (
+        Enrolment.objects.filter(student=student)
+        .annotate(is_current=Exists(active_enrolments(student=student).filter(pk=OuterRef("pk"))))
+        .select_related("academic_cycle", "grade", "section__offering__shift")
+        .order_by("-effective_on", "-created_at", "-pk")
+    )
+
+
 def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)

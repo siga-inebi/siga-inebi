@@ -28,6 +28,8 @@ export function templateKindLabel(kinds, code) {
 }
 
 export const documentsService = {
+  listStudentRecords: (id, params) =>
+    apiClient.get(withQuery(`${ROOT}/students/${id}/records/`, params)),
   /** Catalogo institucional de tipos de documento (RNF-MAN-001). */
   listTypes: (params) => apiClient.get(withQuery(`${ROOT}/types/`, params)),
   createType: (payload) => apiClient.post(`${ROOT}/types/`, payload),

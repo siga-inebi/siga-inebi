@@ -66,6 +66,12 @@ class JornadaParametersCreateSerializer(serializers.Serializer):
     effective_from = serializers.DateField(help_text="Fecha desde la que rigen estos parametros.")
 
 
+class AttendanceEventListQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(
+        required=False, help_text="Filtra por UUID del estudiante antes de paginar."
+    )
+
+
 class AttendanceEventSerializer(serializers.ModelSerializer):
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     shift_id = serializers.UUIDField(source="shift.public_id", read_only=True)

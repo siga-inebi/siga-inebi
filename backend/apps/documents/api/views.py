@@ -627,6 +627,20 @@ class StorageConsumptionView(GenericAPIView):
         return Response(services.storage_consumption_summary(actor=request.user))
 
 
+class StudentDocumentRecordListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentRecordSerializer
+
+    @extend_schema(
+        responses={200: DocumentRecordSerializer(many=True)}, tags=["documents: records"]
+    )
+    def get(self, request, student_id):
+        student = queries.student_or_404(student_id)
+        services.ensure_document_access(actor=request.user, student=student)
+        page = self.paginate_queryset(queries.document_records_for_student(student))
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+
 class EnrolmentDocumentRecordListView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DocumentRecordSerializer

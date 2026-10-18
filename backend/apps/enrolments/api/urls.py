@@ -1,5 +1,6 @@
 from django.urls import path
 
+from apps.enrolments.api.student_record import StudentRecordEnrolmentsView
 from apps.enrolments.api.views import (
     ActiveEnrolmentListView,
     BulkReenrolmentCreateView,
@@ -19,6 +20,11 @@ from apps.enrolments.api.views import (
 )
 
 urlpatterns = [
+    path(
+        "students/<uuid:student_id>/record/",
+        StudentRecordEnrolmentsView.as_view(),
+        name="student-record-enrolments",
+    ),
     path("active/", ActiveEnrolmentListView.as_view(), name="active-enrolment-list"),
     path("history/", EnrolmentHistoryListView.as_view(), name="enrolment-history-list"),
     path("movements/", StudentMovementListView.as_view(), name="student-movement-list"),
