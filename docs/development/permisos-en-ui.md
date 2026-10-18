@@ -12,7 +12,9 @@ La columna "Permiso que exige el backend" sale de leer la vista o el servicio
 que atiende la petición (revisión del 2026-10-18 sobre `develop` +
 `feat/ux-base-identidad-acceso`). "**Sin control de permiso**" significa que el
 backend solo exige sesión: es un hueco a cerrar por el dueño del módulo en el
-backend antes (o a la vez) que el botón.
+backend antes (o a la vez) que el botón. Esos huecos se siguen en el issue
+[#643](https://github.com/siga-inebi/siga-inebi/issues/643) ("security: exigir permisos atómicos en los endpoints que solo piden
+sesión").
 
 Notación: `x.y` es el código público del permiso; "con alcance" indica que,
 además del permiso, se evalúa el alcance sobre el recurso (estudiante,
@@ -97,6 +99,9 @@ Las pantallas de Persona 1 (Cuentas, Roles, Auditoría, Plataforma, Mi cuenta)
 ya aplican esta regla.
 
 ## Pendiente por dueño
+
+Los huecos del backend de ambas listas se siguen en [#643](https://github.com/siga-inebi/siga-inebi/issues/643); aquí solo se
+resume qué toca a cada dueño.
 
 **Persona 2** (Ciclos, Sedes, Aulas, Niveles, Cursos, Asignaciones,
 Evaluación, Asistencia):

@@ -437,7 +437,7 @@ actualizo en el mismo cambio.
 | `AccountList` (respuesta) | `id`, `username`, `status`, `is_active`, `person_name` | `public_id`, `email`, `status_display`, `person` (`public_id`, `full_name`, `email`, `is_teacher`), `roles`, `last_login`, `locked_until`, `is_locked` |
 | `POST .../disable/` con dependencias | `teaching_assignments[].id` | `teaching_assignments[].public_id` |
 | `GET /api/v1/identity/permissions/` | `name` del modelo (ingles) | `name` y `description` en espanol, `group`, `group_label`; incluye `academic_cycle.revert`, `retention_policy.declare`, `account.update`, `person.view`, `person.edit` y `document_type.manage` |
-| `PATCH /api/v1/identity/accounts/{public_id}/` | `account.create` | `account.update`; la cuenta propia se rechaza (403) |
+| `PATCH /api/v1/identity/accounts/{public_id}/` | `account.create` | `account.update`; la cuenta propia se rechaza (403). Los roles con `account.create` reciben `account.update` al migrar (`identity/0017`); revisar y retirar donde no corresponda |
 | `GET /api/v1/audit/events/` (y `export/`) | campo y filtro `actor_id` | sin `actor_id`; usar `actor_public_id` |
 | `sessions[]` en ficha y Mi cuenta | `last_activity_at`, `expires_at`, `is_current` | agrega `public_id`, `started_at`, `ip_address`, `device`; `expires_at` admite nulo |
 
