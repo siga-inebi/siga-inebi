@@ -516,6 +516,15 @@ describe("pantallas de los modulos con backend previo", () => {
   });
 
   describe("EnrolmentsPage", () => {
+    async function selectStudentFilter(user) {
+      const field = screen.getByRole("combobox", { name: "Estudiante" });
+      await user.click(field);
+      // Compatible con la búsqueda remota que introduce el PR #636.
+      if (field.tagName === "INPUT") await user.type(field, "Luis");
+      await user.click(
+        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+      );
+    }
     beforeEach(() => {
       studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
       academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
@@ -680,7 +689,7 @@ describe("pantallas de los modulos con backend previo", () => {
           })
         )
       );
-      await selectOption(user, "Estudiante", "Luis Perez · EST-1");
+      await selectStudentFilter(user);
       await waitFor(() =>
         expect(enrolmentsServiceMock.listActive).toHaveBeenLastCalledWith(
           expect.objectContaining({
@@ -712,7 +721,7 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<EnrolmentsPage />);
       await screen.findByText("Luis Perez · EST-1");
       await selectOption(user, "Ciclo escolar", "Ciclo 2026 · Activo");
-      await selectOption(user, "Estudiante", "Luis Perez · EST-1");
+      await selectStudentFilter(user);
       await user.click(
         screen.getByRole("tab", { name: "Historial por estudiante" })
       );

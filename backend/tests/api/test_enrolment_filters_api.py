@@ -35,7 +35,7 @@ def test_academic_filters_intersect_with_student_before_pagination(auth_client):
     same_grade_section = SectionFactory(academic_cycle=cycle, grade=target.grade)
     peer = enrolment_in(same_grade_section)
     another_cycle = AcademicCycleFactory()
-    outsider = enrolment_in(SectionFactory(academic_cycle=another_cycle))
+    enrolment_in(SectionFactory(academic_cycle=another_cycle))
     enrolment_in(target_section, status="withdrawn")
     enrolment_in(target_section, is_active=False)
     url = reverse("active-enrolment-list")
@@ -71,7 +71,6 @@ def test_academic_filters_intersect_with_student_before_pagination(auth_client):
         },
     )
     assert mismatch.json()["count"] == 0
-    assert outsider.public_id != target.public_id
 
 
 @pytest.mark.parametrize("field", ["academic_cycle_id", "grade_id", "section_id"])

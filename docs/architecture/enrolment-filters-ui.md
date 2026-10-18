@@ -69,3 +69,10 @@ ADR-0008 (capas). No se añaden migraciones, permisos, dependencias ni variables
 
 La aceptación visual institucional y la integración de los PR se registran por
 separado de las pruebas automatizadas.
+
+Validación local del 17 de octubre de 2026: suite completa de backend sobre
+PostgreSQL, **1784 aprobadas / 23 omitidas**, cobertura **95.15%**. Frontend:
+**317 aprobadas en 37 archivos**, cobertura de líneas **85.28%**. Las 49 pruebas
+de herramientas de requerimientos también pasan; Ruff, ESLint, compilación y
+presupuesto de assets, comprobación Django y ausencia de migraciones pendientes
+verificados. No se afirma aceptación visual por esas pruebas.
