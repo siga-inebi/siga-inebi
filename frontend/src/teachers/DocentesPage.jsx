@@ -9,6 +9,7 @@ import AddIcon from "@mui/icons-material/Add";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
+import { GrantAccessButton } from "@auth/GrantAccessButton.jsx";
 import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
 import { teachersService } from "@teachers/teachersService.js";
 import { TeacherDocumentsWindow } from "@teachers/TeacherDocumentsWindow.jsx";
@@ -320,6 +321,7 @@ export function DocentesPage() {
         actions={
           selected ? (
             <>
+              <GrantAccessButton person={selected.person} size="medium" />
               <Button onClick={() => setDocumentsFor(selected)} variant="text">
                 Documentos
               </Button>

@@ -1,12 +1,8 @@
 import { lazy, Suspense, useState } from "react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
-import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import FormControlLabel from "@mui/material/FormControlLabel";
-import List from "@mui/material/List";
-import ListItem from "@mui/material/ListItem";
-import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined";
@@ -24,7 +20,7 @@ import { queryKeys } from "@shared/api/queryKeys.js";
 import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { useServerList } from "@shared/crud/useServerList.js";
-import { formatDate, formatDateTime } from "@shared/utils/format.js";
+import { formatDateTime } from "@shared/utils/format.js";
 import { RowActionsMenu } from "@ui/buttons/RowActionsMenu.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
@@ -35,6 +31,13 @@ import { MutedCell } from "@ui/table/cells.jsx";
 
 import { useAccountActions } from "./useAccountActions.jsx";
 
+// RA5: el aviso de vencimientos solo pesa para quien administra roles.
+const ExpiringAssignmentsAlert = lazy(() =>
+  import("./ExpiringAssignmentsAlert.jsx").then((module) => ({
+    default: module.ExpiringAssignmentsAlert,
+  }))
+);
+
 // "Dar acceso" se descarga al abrirlo (buscador remoto y entrega del codigo).
 const GrantAccessWindow = lazy(() =>
   import("./GrantAccessWindow.jsx").then((module) => ({
@@ -42,8 +45,6 @@ const GrantAccessWindow = lazy(() =>
   }))
 );
 import { TextLink } from "@ui/display/TextLink.jsx";
-
-const EXPIRING_DAYS = 15;
 
 function RolesCell({ roles }) {
   if (!roles?.length) return <MutedCell>Sin roles vigentes</MutedCell>;
@@ -70,60 +71,6 @@ function StatusCell({ account }) {
         />
       ) : null}
     </Stack>
-  );
-}
-
-/** RA5: asignaciones por vencer o vencidas, para que nadie pierda acceso sin aviso. */
-function ExpiringAssignmentsAlert() {
-  const [open, setOpen] = useState(false);
-  const { data } = useResourceQuery(
-    queryKeys.identity.expiring(EXPIRING_DAYS),
-    () =>
-      accountsService.expiringAssignments({
-        days: EXPIRING_DAYS,
-        page_size: 100,
-      })
-  );
-  const rows = data?.results ?? [];
-  if (rows.length === 0) return null;
-  const expired = rows.filter((row) => row.status === "ended").length;
-  const upcoming = rows.length - expired;
-
-  return (
-    <Alert
-      action={
-        <Button
-          color="inherit"
-          onClick={() => setOpen((value) => !value)}
-          size="small"
-        >
-          {open ? "Ocultar" : "Ver detalle"}
-        </Button>
-      }
-      severity="warning"
-      variant="outlined"
-    >
-      {upcoming > 0
-        ? `${upcoming} asignación(es) de rol vencen en los próximos ${EXPIRING_DAYS} días. `
-        : ""}
-      {expired > 0 ? `${expired} venció(eron) en los últimos 30 días.` : ""}
-      {open ? (
-        <List dense>
-          {rows.map((row) => (
-            <ListItem disableGutters key={row.assignment}>
-              <ListItemText
-                primary={
-                  <TextLink to={`/app/cuentas/${row.account}`}>
-                    {row.person_name || row.username}
-                  </TextLink>
-                }
-                secondary={`${row.role_name} · ${row.status === "ended" ? "venció" : "vence"} el ${formatDate(row.ends_at)}`}
-              />
-            </ListItem>
-          ))}
-        </List>
-      ) : null}
-    </Alert>
   );
 }
 
@@ -230,7 +177,11 @@ export function AccountsPage() {
         title="Cuentas"
       />
 
-      {canSeeRoles ? <ExpiringAssignmentsAlert /> : null}
+      {canSeeRoles ? (
+        <Suspense fallback={null}>
+          <ExpiringAssignmentsAlert />
+        </Suspense>
+      ) : null}
       {dialogs}
 
       <ListSection
