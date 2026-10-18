@@ -135,9 +135,9 @@ def declare_data_retention(*, actor, category, period_days, legal_basis, applies
     yet finalized, so automated deletion is out of scope until it is.
     """
     if period_days <= 0:
-        raise DomainError("El plazo de retencion debe ser un numero de dias mayor a cero.")
+        raise DomainError("El plazo de retención debe ser un número de días mayor a cero.")
     if not legal_basis:
-        raise DomainError("Debe declararse un fundamento legal para el plazo de retencion.")
+        raise DomainError("Debe declararse un fundamento legal para el plazo de retención.")
 
     return record_event(
         actor=actor,

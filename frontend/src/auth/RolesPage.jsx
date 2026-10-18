@@ -133,16 +133,17 @@ function PermissionHoldersWindow({ onClose, permissions }) {
 
 /** RO5: comparacion de roles por permiso. */
 function CompareRolesWindow({ onClose, permissions, roles }) {
-  const [chosen, setChosen] = useState(
-    roles.slice(0, 2).map((role) => role.public_id)
-  );
+  // Hasta que la persona elija, se comparan los dos primeros roles (que pueden
+  // llegar despues de abrir la ventana).
+  const [picked, setPicked] = useState(null);
+  const chosen = picked ?? roles.slice(0, 2).map((role) => role.public_id);
   const selectedRoles = roles.filter((role) => chosen.includes(role.public_id));
   const groups = useMemo(() => groupPermissions(permissions), [permissions]);
   const toggle = (id) =>
-    setChosen((current) =>
-      current.includes(id)
-        ? current.filter((value) => value !== id)
-        : [...current, id]
+    setPicked(
+      chosen.includes(id)
+        ? chosen.filter((value) => value !== id)
+        : [...chosen, id]
     );
 
   return (
