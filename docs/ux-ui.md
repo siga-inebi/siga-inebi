@@ -472,3 +472,12 @@ Como cambian reglas del dominio, cada una debe registrarse como ADR en [docs/dec
 **Fase 6 — Pulido**
 
 Expediente con pestañas (1.5), cambio de estado del expediente (E9), menú de Administración (2.17.6), auditoría y plataforma (2.18), textos y fechas (1.6) y el resto de los P2.
+
+## Seguimiento de implementación de M3 — issue #632
+
+La entrega de [cambio, retiro y anulación (#639)](https://github.com/siga-inebi/siga-inebi/pull/639)
+y la de [traslados de ingreso y egreso](architecture/student-transfers-ui.md)
+cubren en código las cinco operaciones de M3 con captura, revisión e historial.
+La documentación de traslados contiene la tabla de cobertura y sus pruebas.
+Integración en `develop` y aceptación institucional pendientes; M4 y el resto
+del epic mantienen su alcance.

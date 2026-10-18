@@ -141,6 +141,29 @@ describe("servicios de los modulos", () => {
     });
   });
 
+  describe("traslados de estudiantes", () => {
+    test("ingreso y egreso mantienen rutas e identificadores distintos", async () => {
+      const payload = {
+        student_id: STUDENT,
+        section_id: "section",
+        effective_on: "2026-03-01",
+      };
+      await enrolmentsService.transferIn(payload);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/enrolments/transfers/in/",
+        payload
+      );
+      await enrolmentsService.transferOut(ENROLMENT, {
+        effective_on: "2026-03-01",
+        reason: "Cambio",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/enrolments/${ENROLMENT}/transfer-out/`,
+        { effective_on: "2026-03-01", reason: "Cambio" }
+      );
+    });
+  });
+
   describe("documentsService", () => {
     test("catalogo de plantillas y su historial de versiones", async () => {
       await documentsService.listTemplates({ include_inactive: true });

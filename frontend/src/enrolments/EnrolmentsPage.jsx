@@ -9,6 +9,7 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
 import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import ExitToAppOutlinedIcon from "@mui/icons-material/ExitToAppOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
@@ -57,6 +58,11 @@ const MovementHistoryWindow = lazy(() =>
     ({ MovementHistoryWindow: Window }) => ({ default: Window })
   )
 );
+const StudentTransferWindow = lazy(() =>
+  import("./StudentTransferWindow.jsx").then(
+    ({ StudentTransferWindow: Window }) => ({ default: Window })
+  )
+);
 
 const EMPTY_ENROLMENT = {
   student_id: "",
@@ -89,6 +95,7 @@ export function EnrolmentsPage() {
   const [creating, setCreating] = useState(null);
   const [bulkEnrolling, setBulkEnrolling] = useState(false);
   const [documentsFor, setDocumentsFor] = useState(null);
+  const [transferFor, setTransferFor] = useState(null);
   const [movementStudentId, setMovementStudentId] = useState("");
 
   const students = useStudentCatalog();
@@ -264,6 +271,35 @@ export function EnrolmentsPage() {
           >
             <DescriptionOutlinedIcon fontSize="small" />
           </ActionIconButton>
+          {tab === ACTIVE_TAB ? (
+            <ActionIconButton
+              label="Traslado de egreso"
+              onClick={() =>
+                setTransferFor({
+                  direction: "out",
+                  enrolment: row,
+                  studentLabel: columns
+                    .find((column) => column.key === "student_id")
+                    .render(row),
+                  enrolmentLabel: (
+                    <Stack direction="row" flexWrap="wrap" gap={1}>
+                      {["academic_cycle_id", "grade_id", "section_id"].map(
+                        (key) => (
+                          <span key={key}>
+                            {columns
+                              .find((column) => column.key === key)
+                              .render(row)}
+                          </span>
+                        )
+                      )}
+                    </Stack>
+                  ),
+                })
+              }
+            >
+              <ExitToAppOutlinedIcon fontSize="small" />
+            </ActionIconButton>
+          ) : null}
         </Stack>
       ),
     },
@@ -302,6 +338,12 @@ export function EnrolmentsPage() {
               variant="contained"
             >
               Nueva matricula
+            </Button>
+            <Button
+              onClick={() => setTransferFor({ direction: "in" })}
+              variant="outlined"
+            >
+              Traslado de ingreso
             </Button>
           </Stack>
         }
@@ -416,6 +458,16 @@ export function EnrolmentsPage() {
             key={movementStudentId}
             onClose={() => setMovementStudentId("")}
             studentId={movementStudentId}
+          />
+        ) : null}
+        {transferFor ? (
+          <StudentTransferWindow
+            {...transferFor}
+            onClose={() => setTransferFor(null)}
+            onChanged={() => {
+              activeList.refresh();
+              if (historyReady) historyList.refresh();
+            }}
           />
         ) : null}
       </Suspense>

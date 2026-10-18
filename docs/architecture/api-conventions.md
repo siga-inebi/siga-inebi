@@ -208,6 +208,8 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   expediente a `transferred`, revoca acceso y credencial y agrega `transfer_out` con origen.
 - Ambos endpoints exigen `enrollment_update` y alcance efectivo. Rechazan fechas futuras hasta
   que RF-MOV-003 defina su ejecucion; no registran datos externos no declarados.
+- La UI de ambos traslados, la revisión obligatoria, el selector paginado y la
+  cobertura conjunta de M3 se detallan en [Traslados de estudiantes](student-transfers-ui.md).
 
 ### Anulacion de movimientos
 

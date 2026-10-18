@@ -4,6 +4,12 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 
 ## Functional Requirements
 
+Seguimiento UX #632: RF-MOV-001 y RF-MOV-003 incorporan ingreso y egreso con
+revisión explícita y pruebas de API/interfaz. Véase
+[Traslados y cobertura de M3](../architecture/student-transfers-ui.md).
+La cobertura conjunta con PR #639 completa las cinco operaciones en código;
+integración y aceptación institucional permanecen pendientes.
+
 | ID | Descripcion original | Prioridad | Dominio | Estado de implementacion | Issue relacionado | Pruebas relacionadas | Observaciones |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | RF-ASI-001 | Captura mediada por operador | Debe | attendance-capture | Not implemented | #85 | TBD | Nucleo fundacional |

@@ -699,6 +699,39 @@ describe("pantallas de los modulos con backend previo", () => {
     });
   });
 
+  describe("accesos de traslados", () => {
+    test.each(["ingreso", "egreso"])(
+      "abre traslado de %s desde Matriculas",
+      async (direction) => {
+        const user = userEvent.setup();
+        studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
+        academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
+        academicsServiceMock.listLevels.mockResolvedValue(
+          paged([{ ...LEVEL, grades: [GRADE] }])
+        );
+        renderWithRouter(<EnrolmentsPage />);
+        await screen.findByText("Luis Perez · EST-1");
+        await user.click(
+          screen.getAllByRole("button", { name: `Traslado de ${direction}` })[0]
+        );
+        const dialog = await screen.findByRole("dialog", {
+          name: `Traslado de ${direction}`,
+        });
+        if (direction === "ingreso")
+          expect(
+            within(dialog).getByPlaceholderText(
+              "Buscar estudiante por nombre o código"
+            )
+          ).toBeInTheDocument();
+        else
+          expect(
+            within(dialog).getByText("Luis Perez · EST-1")
+          ).toBeInTheDocument();
+        expect(screen.getAllByRole("dialog")).toHaveLength(1);
+      }
+    );
+  });
+
   describe("DocumentTypesPage", () => {
     test("lista el catalogo institucional de tipos", async () => {
       renderWithRouter(<DocumentTypesPage />);
