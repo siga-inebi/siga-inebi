@@ -27,6 +27,7 @@ from apps.enrolments.api.serializers import (
     StudentTransferInCreateSerializer,
     StudentTransferOutCreateSerializer,
     StudentWithdrawalCreateSerializer,
+    UnifiedMatriculationSerializer,
 )
 from apps.enrolments.authorization import require_section_scope
 
@@ -286,6 +287,44 @@ class ReenrolmentCreateView(GenericAPIView):
             actor=request.user,
         )
         return Response(MatriculationSerializer(enrolment).data, status=status.HTTP_201_CREATED)
+
+
+class UnifiedMatriculationCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = MatriculationCreateSerializer
+
+    @extend_schema(
+        summary="Matricular o reinscribir según historial",
+        description=(
+            "Selecciona el caso de uso en el servidor. Hereda una matrícula no anulada "
+            "de otro ciclo cuando existe; de lo contrario realiza matrícula inicial. "
+            "Conserva validaciones, permisos, alcance y auditoría de cada operación."
+        ),
+        request=MatriculationCreateSerializer,
+        responses={201: UnifiedMatriculationSerializer},
+        tags=["enrolments"],
+    )
+    def post(self, request):
+        if not request.user.has_atomic_permission("enrollment_create"):
+            raise AuthorizationError("Actor lacks the required permission.")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = queries.section_or_404(payload["section_id"])
+        require_section_scope(actor=request.user, codenames="enrollment_create", sections=[section])
+        enrolment, mode = services.register_student(
+            student=queries.student_or_404(payload["student_id"]),
+            academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
+            grade=queries.grade_or_404(payload["grade_id"]),
+            shift=queries.shift_or_404(payload["shift_id"]),
+            section=section,
+            effective_on=payload["effective_on"],
+            actor=request.user,
+        )
+        return Response(
+            {**MatriculationSerializer(enrolment).data, "registration_mode": mode},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class BulkReenrolmentCreateView(GenericAPIView):

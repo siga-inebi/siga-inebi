@@ -272,6 +272,19 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - La respuesta es paginada y se ordena desde la vigencia más reciente hacia la más antigua.
   Los estados y fechas se conservan para mantener la trazabilidad histórica.
 
+## Alta individual unificada
+
+- `POST /api/v1/enrolments/registrations/` recibe `student_id`, `academic_cycle_id`,
+  `grade_id`, `shift_id`, `section_id` (UUID públicos) y `effective_on` (fecha).
+- El servicio elige reinscripción si existe matrícula no anulada en otro ciclo;
+  en otro caso usa matrícula inicial. No decide por estado manual del expediente.
+- Respuesta 201: los campos de matrícula/jornada existentes más `registration_mode`
+  (`matriculation` o `reenrolment`). Las rutas explícitas previas se conservan.
+- Exige sesión, `enrollment_create` y alcance sobre sección destino. Conserva
+  validaciones y auditoría; errores de dominio/validación 400, autorización 403 y
+  referencias inexistentes 404. Un fallo no cierra la matrícula de origen.
+- Comportamiento, pruebas e integración en [alta unificada](unified-matriculation-ui.md).
+
 ## Matricula masiva del ciclo siguiente
 
 - `POST /api/v1/enrolments/re-enrolments/bulk/` recibe `effective_on`, `preview` y una lista

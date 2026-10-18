@@ -203,8 +203,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EXP-007 | Fotografia del estudiante | Debe | student-records | In progress | #191 | backend/tests/unit/test_students_services.py; backend/tests/api/test_students_api.py; frontend/src/test/AlumnosPage.test.jsx | Carga y visualizacion restringidas; limites y normalizacion dependen de RF-ARC-001/002 |
 | RF-EXP-008 | Conservacion del expediente | Debe | student-records | In progress | #192 | backend/tests/unit/test_students.py; backend/tests/api/test_students_api.py; backend/tests/integration/test_student_lifecycle.py | API desactiva y conserva persona y relaciones; prohibicion global de borrado ORM pendiente |
 | RF-MAT-001 | La inscripcion como registro con vigencia | Debe | enrollment-lifecycle | Not implemented | #225 | TBD | Nucleo fundacional |
-| RF-MAT-002 | Matricula de un estudiante | Debe | enrollment-lifecycle | Not implemented | #226 | TBD | Nucleo fundacional |
-| RF-MAT-003 | Reinscripcion con datos heredados | Debe | enrollment-lifecycle | Not implemented | #227 | TBD | Nucleo fundacional |
+| RF-MAT-002 | Matricula de un estudiante | Debe | enrollment-lifecycle | Not implemented | #226 | TBD | Nucleo fundacional ; #632/M6: acceso unificado y pruebas en docs/architecture/unified-matriculation-ui.md; integracion pendiente |
+| RF-MAT-003 | Reinscripcion con datos heredados | Debe | enrollment-lifecycle | Not implemented | #227 | TBD | Nucleo fundacional ; #632/M6: acceso unificado y pruebas en docs/architecture/unified-matriculation-ui.md; integracion pendiente |
 | RF-MAT-004 | Efecto del cupo de la seccion | Debe | enrollment-lifecycle | Not implemented | #228 | TBD | Regla central |
 | RF-MAT-005 | Verificacion documental | Debe | enrollment-lifecycle | Not implemented | #229 | TBD | Cruza documentos |
 | RF-MAT-006 | Bloqueo de documentos oficiales por pendientes | Deberia | document-generation | Not implemented | #230 | TBD | Regla posterior |

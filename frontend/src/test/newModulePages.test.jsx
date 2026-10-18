@@ -27,6 +27,7 @@ const enrolmentsServiceMock = vi.hoisted(() => ({
   listActive: vi.fn(),
   listHistory: vi.fn(),
   create: vi.fn(),
+  register: vi.fn(),
   matriculate: vi.fn(),
   reenrol: vi.fn(),
   listDocuments: vi.fn(),
@@ -539,7 +540,9 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<EnrolmentsPage />);
       await screen.findByRole("heading", { name: "Matriculas vigentes" });
 
-      await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
+      await user.click(screen.getByRole("button", { name: "Matricular" }));
+      await user.click(screen.getByRole("menuitem", { name: /Un estudiante/ }));
+      await screen.findByRole("dialog", { name: "Matricular estudiante" });
       await user.click(screen.getByRole("combobox", { name: /Estudiante/ }));
       await user.click(
         await screen.findByRole("option", { name: "Luis Perez · EST-1" })
@@ -553,11 +556,13 @@ describe("pantallas de los modulos con backend previo", () => {
         await screen.findByRole("option", { name: "Primero Basico A" })
       );
       await user.type(screen.getByLabelText(/Vigente desde/), "2026-02-01");
-      await user.click(screen.getByRole("button", { name: "Matricular" }));
+      await user.click(
+        screen.getByRole("button", { name: "Confirmar matrícula" })
+      );
 
       // Grado y jornada no se piden: son propiedades de la seccion elegida, y
       // pedirlos aparte solo permitiria contradecirlas.
-      expect(enrolmentsServiceMock.matriculate).toHaveBeenCalledWith({
+      expect(enrolmentsServiceMock.register).toHaveBeenCalledWith({
         student_id: "student-1",
         academic_cycle_id: "cycle-2026",
         section_id: "section-a",
@@ -581,8 +586,9 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<EnrolmentsPage />);
       await screen.findByRole("heading", { name: "Matriculas vigentes" });
 
+      await user.click(screen.getByRole("button", { name: "Matricular" }));
       await user.click(
-        screen.getByRole("button", { name: "Matricular por lotes" })
+        screen.getByRole("menuitem", { name: /Altas iniciales por lotes/ })
       );
       const window = await screen.findByRole("dialog", {
         name: "Matriculacion por lotes",

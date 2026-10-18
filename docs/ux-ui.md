@@ -240,7 +240,7 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 | M3 | **P1 · Sin UI** | **Movimientos del estudiante:** cambio de sección (`/<id>/section-change/`), retiro (`/<id>/withdrawal/`), traslado de egreso (`/<id>/transfer-out/`), traslado de ingreso (`/transfers/in/`) y anulación de movimiento (`/movements/<id>/annulment/`). Hoy solo se puede *ver* el historial de movimientos. |
 | M4 | **P1 · Sin UI** | **Promoción** (`/<id>/promotion/`) y **reinscripción masiva** (`/re-enrolments/bulk/`). |
 | M5 | **P1 · Clics** | "Vigentes" solo filtra por estudiante (con un desplegable sin búsqueda de todo el padrón). Faltan filtros por ciclo, grado y sección, que es como trabaja secretaría. |
-| M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. |
+| M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino.  **Seguimiento #632:** [alta unificada](architecture/unified-matriculation-ui.md): acceso Matricular, formulario individual con seleccion en servidor y entradas masivas agrupadas. Rutas anteriores conservadas; integracion y aceptacion pendientes. |
 | M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). |
 
 ### 2.11 Evaluación

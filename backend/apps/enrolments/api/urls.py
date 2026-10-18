@@ -16,6 +16,7 @@ from apps.enrolments.api.views import (
     StudentTransferInCreateView,
     StudentTransferOutCreateView,
     StudentWithdrawalCreateView,
+    UnifiedMatriculationCreateView,
 )
 
 urlpatterns = [
@@ -34,6 +35,11 @@ urlpatterns = [
     ),
     path("", EnrolmentCreateView.as_view(), name="enrolment-list-create"),
     path("matriculations/", MatriculationCreateView.as_view(), name="matriculation-create"),
+    path(
+        "registrations/",
+        UnifiedMatriculationCreateView.as_view(),
+        name="unified-matriculation-create",
+    ),
     path("re-enrolments/", ReenrolmentCreateView.as_view(), name="reenrolment-create"),
     path("transfers/in/", StudentTransferInCreateView.as_view(), name="student-transfer-in"),
     path(

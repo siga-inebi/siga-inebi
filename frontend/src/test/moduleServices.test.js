@@ -108,6 +108,16 @@ describe("servicios de los modulos", () => {
       );
     });
 
+    test("el alta unificada conserva el payload y usa una sola escritura", async () => {
+      const payload = { student_id: "student-1", section_id: "section-1" };
+      await enrolmentsService.register(payload);
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/enrolments/registrations/",
+        payload
+      );
+    });
+
     test("matricular y reinscribir son endpoints distintos", async () => {
       const payload = { student_id: STUDENT, academic_cycle_id: CYCLE };
 

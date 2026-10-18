@@ -4,11 +4,10 @@ import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
-import AddIcon from "@mui/icons-material/Add";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
-import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+
+import { EnrolmentEntryMenu } from "@enrolments/EnrolmentEntryMenu.jsx";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
@@ -18,13 +17,11 @@ import {
 } from "@enrolments/enrolmentsService.js";
 import {
   labelIndex,
-  sectionsForCycle,
   useCycleCatalog,
   useGradeCatalog,
   useSectionCatalog,
   useStudentCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
-import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate } from "@shared/utils/format.js";
@@ -58,12 +55,11 @@ const MovementHistoryWindow = lazy(() =>
   )
 );
 
-const EMPTY_ENROLMENT = {
-  student_id: "",
-  academic_cycle_id: "",
-  section_id: "",
-  effective_on: "",
-};
+const EnrolmentCreateWindow = lazy(() =>
+  import("./EnrolmentCreateWindow.jsx").then(
+    ({ EnrolmentCreateWindow: Window }) => ({ default: Window })
+  )
+);
 
 const ACTIVE_TAB = "active";
 const HISTORY_TAB = "history";
@@ -134,75 +130,6 @@ export function EnrolmentsPage() {
     }),
     [students.options, cycles.options, sections.options, grades.options]
   );
-
-  const enrolmentFields = useCallback(
-    (values) => [
-      {
-        name: "student_id",
-        label: "Estudiante",
-        type: "select",
-        options: students.options,
-        loading: students.loading,
-        optionsError: students.error,
-        emptyHint: "No hay estudiantes registrados.",
-        required: true,
-        span: "full",
-      },
-      {
-        name: "academic_cycle_id",
-        label: "Ciclo escolar",
-        type: "select",
-        options: cycles.options,
-        loading: cycles.loading,
-        optionsError: cycles.error,
-        emptyHint: "No hay ciclos escolares registrados.",
-        required: true,
-        resets: ["section_id"],
-      },
-      {
-        name: "section_id",
-        label: "Seccion",
-        type: "select",
-        options: sectionsForCycle(sections.options, values.academic_cycle_id),
-        loading: sections.loading,
-        optionsError: sections.error,
-        emptyHint: values.academic_cycle_id
-          ? "Ese ciclo no tiene secciones registradas."
-          : "Elija primero el ciclo escolar.",
-        help: "El grado y la jornada se toman de la seccion.",
-        required: true,
-      },
-      {
-        name: "effective_on",
-        label: "Vigente desde",
-        type: "date",
-        required: true,
-        span: "full",
-      },
-    ],
-    [students, cycles, sections]
-  );
-
-  const handleSubmit = async (values) => {
-    const section = sections.options.find(
-      (option) => option.value === values.section_id
-    );
-
-    const payload = {
-      ...values,
-      grade_id: section?.gradeId,
-      shift_id: section?.shiftId,
-    };
-
-    if (creating === "reenrol") {
-      await enrolmentsService.reenrol(payload);
-    } else {
-      await enrolmentsService.matriculate(payload);
-    }
-    setCreating(null);
-    activeList.refresh();
-    if (historyReady) historyList.refresh();
-  };
 
   const columns = [
     {
@@ -282,27 +209,10 @@ export function EnrolmentsPage() {
             >
               Movimientos
             </Button>
-            <Button
-              onClick={() => setBulkEnrolling(true)}
-              startIcon={<PlaylistAddCheckOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Matricular por lotes
-            </Button>
-            <Button
-              onClick={() => setCreating("reenrol")}
-              startIcon={<ReplayOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Reinscribir
-            </Button>
-            <Button
-              onClick={() => setCreating("matriculate")}
-              startIcon={<AddIcon fontSize="small" />}
-              variant="contained"
-            >
-              Nueva matricula
-            </Button>
+            <EnrolmentEntryMenu
+              onIndividual={() => setCreating(true)}
+              onInitialBulk={() => setBulkEnrolling(true)}
+            />
           </Stack>
         }
         breadcrumb="Matricula"
@@ -370,29 +280,18 @@ export function EnrolmentsPage() {
         )}
       </SectionCard>
 
-      {creating ? (
-        <EntityFormWindow
-          description={
-            creating === "reenrol"
-              ? "Reinscripcion de un estudiante con matricula previa. El backend valida que exista historial y que el ciclo destino este abierto."
-              : "Matriculacion nueva. El backend valida cupo de la seccion, jornada y requisitos del ciclo."
-          }
-          fields={enrolmentFields}
-          initialValues={EMPTY_ENROLMENT}
-          key={creating}
-          onCancel={() => setCreating(null)}
-          onSubmit={handleSubmit}
-          open
-          submitLabel={creating === "reenrol" ? "Reinscribir" : "Matricular"}
-          title={
-            creating === "reenrol"
-              ? "Reinscribir estudiante"
-              : "Nueva matricula"
-          }
-        />
-      ) : null}
-
       <Suspense fallback={null}>
+        {creating ? (
+          <EnrolmentCreateWindow
+            onCancel={() => setCreating(null)}
+            onCreated={() => {
+              setCreating(null);
+              activeList.refresh();
+              if (historyReady) historyList.refresh();
+            }}
+          />
+        ) : null}
+
         {bulkEnrolling ? (
           <BulkEnrolmentWindow
             onClose={() => setBulkEnrolling(false)}

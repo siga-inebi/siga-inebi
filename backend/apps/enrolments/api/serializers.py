@@ -169,6 +169,15 @@ class MatriculationSerializer(EnrolmentSerializer):
         fields = EnrolmentSerializer.Meta.fields + ["shift_id"]
 
 
+class UnifiedMatriculationSerializer(MatriculationSerializer):
+    registration_mode = serializers.ChoiceField(
+        choices=["matriculation", "reenrolment"], read_only=True
+    )
+
+    class Meta(MatriculationSerializer.Meta):
+        fields = MatriculationSerializer.Meta.fields + ["registration_mode"]
+
+
 class MatriculationCreateSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(help_text="Public ID del estudiante pre-enrolled.")
     academic_cycle_id = serializers.UUIDField(help_text="Public ID del ciclo escolar.")
