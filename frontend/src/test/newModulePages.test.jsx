@@ -124,7 +124,6 @@ import { DocumentTypesPage } from "@documents/DocumentTypesPage.jsx";
 import { TemplatesPage } from "@documents/TemplatesPage.jsx";
 import { todayInputValue } from "@shared/utils/format.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
-import { selectOption } from "./helpers/selectOption.jsx";
 import {
   academicsServiceMock,
   resetAcademicsServiceMock,
@@ -555,7 +554,16 @@ describe("pantallas de los modulos con backend previo", () => {
       await user.click(
         within(dialog).getAllByRole("button", { name: "Cerrar" })[1]
       );
-      await selectOption(user, "Estudiante", "Luis Perez · EST-1");
+      const studentFilter = screen.getByRole("combobox", {
+        name: "Estudiante",
+      });
+      await user.click(studentFilter);
+      // El PR #636 sustituye el selector de catálogo por búsqueda remota.
+      if (studentFilter.tagName === "INPUT")
+        await user.type(studentFilter, "Luis");
+      await user.click(
+        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+      );
       await user.click(
         screen.getByRole("tab", { name: "Historial por estudiante" })
       );
