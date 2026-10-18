@@ -62,3 +62,11 @@ dependencias ni variables de entorno nuevas.
 
 La revisión visual institucional y la integración de los PR son pasos pendientes
 de aceptación; las pruebas automatizadas no sustituyen esa revisión.
+
+Validación local (17 de octubre de 2026): suite completa de backend sobre
+PostgreSQL, **1783 aprobadas / 23 omitidas**, cobertura **95.17%**; frontend,
+**318 aprobadas en 37 archivos**, cobertura de líneas **85.27%**; herramientas
+de requerimientos, **49 aprobadas**. Ruff, ESLint, compilación y presupuesto de
+assets, comprobación Django y ausencia de migraciones pendientes verificados.
+También se verificaron por HTTP el inicio de sesión con CSRF y la consulta de
+promoción a través del proxy Vite, usando solo datos sintéticos.

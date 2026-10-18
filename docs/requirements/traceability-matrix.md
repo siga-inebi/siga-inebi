@@ -310,4 +310,3 @@ promoción. No crea matrículas ni movimientos y no recalcula resultados en Reac
 Detalle de contratos, ADR, límites y revisión: [consulta de promoción](../architecture/enrolment-promotion-ui.md).
 Integración a `develop` y aceptación institucional pendientes. La reinscripción
 masiva corresponde al PR #638; esta evidencia no declara cerrados M2 ni #632.
-
