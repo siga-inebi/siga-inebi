@@ -15,7 +15,6 @@ class AuditEventSerializer(serializers.ModelSerializer):
         model = AuditEvent
         fields = [
             "public_id",
-            "actor_id",
             "actor_public_id",
             "actor_label",
             "actor_username",
@@ -69,10 +68,6 @@ class ResultTraceSerializer(serializers.Serializer):
 
 
 class AuditEventQuerySerializer(serializers.Serializer):
-    actor_id = serializers.IntegerField(
-        required=False,
-        help_text="Obsoleto: id interno del autor. Usar actor_public_id o actor_username.",
-    )
     actor_public_id = serializers.UUIDField(
         required=False, help_text="public_id de la cuenta autora del asiento."
     )

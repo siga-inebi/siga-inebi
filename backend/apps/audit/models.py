@@ -38,6 +38,26 @@ class AuditEvent(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        # Consultas de la consola de bitacora (AU1) y del historial de una
+        # cuenta (U5): por accion (exacta o prefijo) en el tiempo, por autor en
+        # el tiempo y por recurso afectado. Sin estos indices cada consulta
+        # recorria la tabla completa, que crece con cada inicio de sesion.
+        indexes = [
+            models.Index(fields=["action", "-created_at"], name="audit_action_recent_idx"),
+            models.Index(fields=["actor", "-created_at"], name="audit_actor_recent_idx"),
+            models.Index(
+                fields=["resource", "resource_identifier", "-created_at"],
+                name="audit_resource_recent_idx",
+            ),
+            models.Index(fields=["-created_at"], name="audit_recent_idx"),
+            # `action__startswith` (filtro por prefijo) solo usa un btree con
+            # esta clase de operadores en PostgreSQL.
+            models.Index(
+                fields=["action"],
+                name="audit_action_prefix_idx",
+                opclasses=["varchar_pattern_ops"],
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if self.pk:

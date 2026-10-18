@@ -70,7 +70,6 @@ def record_event(
 
 def list_audit_events(
     *,
-    actor_id=None,
     actor_public_id=None,
     actor_username=None,
     resource=None,
@@ -90,8 +89,6 @@ def list_audit_events(
     with the student's pk on every ``documents.document.issued`` event.
     """
     queryset = AuditEvent.objects.select_related("actor")
-    if actor_id is not None:
-        queryset = queryset.filter(actor_id=actor_id)
     if actor_public_id is not None:
         queryset = queryset.filter(actor__public_id=actor_public_id)
     if actor_username:

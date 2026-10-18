@@ -155,7 +155,7 @@ def test_list_audit_events_filters_by_actor_resource_action_and_date_range():
 
     today = timezone.localdate()
     results = list_audit_events(
-        actor_id=actor.id,
+        actor_public_id=actor.public_id,
         resource="Resource",
         action="test.match",
         date_from=today,
