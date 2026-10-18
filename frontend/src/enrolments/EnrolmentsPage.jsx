@@ -47,6 +47,11 @@ const BulkEnrolmentWindow = lazy(() =>
     })
   )
 );
+const BulkReenrolmentWindow = lazy(() =>
+  import("./BulkReenrolmentWindow.jsx").then(
+    ({ BulkReenrolmentWindow: Window }) => ({ default: Window })
+  )
+);
 const EnrolmentDocumentsWindow = lazy(() =>
   import("./EnrolmentDocumentsWindow.jsx").then(
     ({ EnrolmentDocumentsWindow: Window }) => ({ default: Window })
@@ -88,6 +93,7 @@ export function EnrolmentsPage() {
   const [studentFilter, setStudentFilter] = useState("");
   const [creating, setCreating] = useState(null);
   const [bulkEnrolling, setBulkEnrolling] = useState(false);
+  const [bulkReenrolling, setBulkReenrolling] = useState(false);
   const [documentsFor, setDocumentsFor] = useState(null);
   const [movementStudentId, setMovementStudentId] = useState("");
 
@@ -289,6 +295,9 @@ export function EnrolmentsPage() {
             >
               Matricular por lotes
             </Button>
+            <Button onClick={() => setBulkReenrolling(true)} variant="outlined">
+              Reinscribir por lotes
+            </Button>
             <Button
               onClick={() => setCreating("reenrol")}
               startIcon={<ReplayOutlinedIcon fontSize="small" />}
@@ -393,6 +402,15 @@ export function EnrolmentsPage() {
       ) : null}
 
       <Suspense fallback={null}>
+        {bulkReenrolling ? (
+          <BulkReenrolmentWindow
+            onClose={() => setBulkReenrolling(false)}
+            onCreated={() => {
+              activeList.refresh();
+              if (historyReady) historyList.refresh();
+            }}
+          />
+        ) : null}
         {bulkEnrolling ? (
           <BulkEnrolmentWindow
             onClose={() => setBulkEnrolling(false)}

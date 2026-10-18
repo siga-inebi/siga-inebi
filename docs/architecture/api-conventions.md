@@ -274,6 +274,13 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 
 ## Matricula masiva del ciclo siguiente
 
+- `GET /api/v1/enrolments/re-enrolments/candidates/` consulta el ciclo de origen
+  obligatorio con búsqueda, filtros académicos y alcance antes de paginar. Expone
+  nombres y códigos mínimos junto al UUID de matrícula para seleccionar el lote.
+- `GET /api/v1/enrolments/active/` admite filtros UUID opcionales por
+  `academic_cycle_id`, `grade_id` y `section_id`, además de `student_id`.
+- El contrato completo de candidatos, la secuencia de revisión/confirmación y
+  sus límites están en [Reinscripción por lotes](bulk-reenrolment-ui.md).
 - `POST /api/v1/enrolments/re-enrolments/bulk/` recibe `effective_on`, `preview` y una lista
   explicita de pares `source_enrolment_id` / `target_section_id`.
 - `preview=true` aplica las mismas validaciones sin persistir. La confirmacion procesa cada

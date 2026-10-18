@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -565,6 +565,29 @@ describe("pantallas de los modulos con backend previo", () => {
         shift_id: "shift-1",
         effective_on: "2026-02-01",
       });
+    });
+
+    test("abre reinscripcion por lotes sin confundirla con altas iniciales", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await user.click(
+        screen.getByRole("button", { name: "Reinscribir por lotes" })
+      );
+      const dialog = await screen.findByRole("dialog", {
+        name: "Reinscripción por lotes",
+      });
+      expect(
+        within(dialog).getByText(
+          "Elija el ciclo de origen para consultar candidatos."
+        )
+      ).toBeInTheDocument();
+      expect(enrolmentsServiceMock.matriculate).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByLabelText("Cerrar"));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: "Reinscripción por lotes" })
+        ).not.toBeInTheDocument()
+      );
     });
 
     test("matricula a varios estudiantes en una sola pasada", async () => {
