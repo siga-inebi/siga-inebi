@@ -272,6 +272,22 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - La respuesta es paginada y se ordena desde la vigencia más reciente hacia la más antigua.
   Los estados y fechas se conservan para mantener la trazabilidad histórica.
 
+## Altas iniciales masivas
+
+- `GET /api/v1/enrolments/matriculations/candidates/?section_id={uuid}&search=texto&page=1`
+  devuelve candidatos paginados con UUID, nombre y código. Aplica permiso/alcance de
+  lectura de estudiantes y autorización de matrícula sobre sección destino.
+- `POST /api/v1/enrolments/matriculations/bulk/` recibe `section_id`, `effective_on`,
+  `student_ids` (1–100 UUID distintos) y `preview` (por defecto `true`). Deriva ciclo,
+  grado y jornada de la sección. Exige `enrollment_create` y alcance destino.
+- Devuelve 200 con `preview`, `total`, `succeeded`, `failed` y `results` por alumno:
+  `student_id`, `status` (`ready`/`created`/`existing`/`error`), `enrolment_id`, `error`.
+  Preview valida ocupación acumulada y revierte; confirmar permite errores de dominio
+  por fila. Un fallo técnico inesperado revierte toda la solicitud.
+- Reintentar reconoce solo la matrícula activa con igual sección y fecha; no modifica
+  historia ni repite auditoría de alta. Consultar/revisar no reserva cupo.
+- Contratos y evidencia en [altas iniciales por lote](bulk-initial-matriculation-ui.md).
+
 ## Matricula masiva del ciclo siguiente
 
 - `POST /api/v1/enrolments/re-enrolments/bulk/` recibe `effective_on`, `preview` y una lista

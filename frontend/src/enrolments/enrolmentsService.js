@@ -72,6 +72,10 @@ export const enrolmentsService = {
   /** Requisitos documentales de una matricula (RF-MAT-005). */
   listDocuments: (enrolmentId, params) =>
     apiClient.get(withQuery(`${ROOT}/${enrolmentId}/documents/`, params)),
+  listInitialCandidates: (params) =>
+    apiClient.get(withQuery(`${ROOT}/matriculations/candidates/`, params)),
+  bulkMatriculate: (payload) =>
+    apiClient.post(`${ROOT}/matriculations/bulk/`, payload),
   addDocument: (enrolmentId, payload) =>
     apiClient.post(`${ROOT}/${enrolmentId}/documents/`, payload),
 };
