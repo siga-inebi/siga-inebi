@@ -69,6 +69,10 @@ export const enrolmentsService = {
   matriculate: (payload) => apiClient.post(`${ROOT}/matriculations/`, payload),
   reenrol: (payload) => apiClient.post(`${ROOT}/re-enrolments/`, payload),
 
+  /** Resultado y grado elegible; esta consulta no reinscribe al estudiante. */
+  getPromotion: (enrolmentId) =>
+    apiClient.get(`${ROOT}/${enrolmentId}/promotion/`),
+
   /** Requisitos documentales de una matricula (RF-MAT-005). */
   listDocuments: (enrolmentId, params) =>
     apiClient.get(withQuery(`${ROOT}/${enrolmentId}/documents/`, params)),

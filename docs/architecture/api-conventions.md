@@ -294,6 +294,11 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   nulo. La consulta no crea una reinscripcion.
 - Si existe un resultado congelado al cierre del ciclo, ese snapshot es la fuente autoritativa;
   solo ciclos sin snapshot usan el calculo vigente como compatibilidad.
+- La lectura exige `enrollment_create` o `enrollment_update` y alcance administrativo vigente
+  sobre la seccion de la matricula, tambien para ciclos cerrados. Una sesion por si sola no
+  autoriza la consulta: sin permiso o alcance devuelve 403 y audita la denegacion antes de
+  determinar el resultado. Ruta y campos JSON no cambian. Vease
+  [consulta de promocion](enrolment-promotion-ui.md) para la UI de M4 (#632).
 
 ## Administracion de roles
 

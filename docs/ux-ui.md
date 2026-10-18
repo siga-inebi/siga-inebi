@@ -243,6 +243,16 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 | M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. |
 | M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). |
 
+#### Seguimiento de M4: consulta de promoción
+
+Entrega de #632: la acción **Consultar promoción** en cada fila de Vigentes e
+Historial muestra promoción, repitencia o graduación, grado elegible, subáreas
+pendientes y fuente congelada/vigente. No crea una reinscripción. Reutiliza el
+endpoint existente con permiso y alcance de matrícula; no añade catálogos.
+La reinscripción masiva se entrega separadamente en PR #638. Ambas partes de M4
+requieren integración a `develop` y aceptación; no completan M2 ni el resto de
+Matrículas. Evidencia y límites: [consulta de promoción](architecture/enrolment-promotion-ui.md).
+
 ### 2.11 Evaluación
 
 | # | Prioridad · Tipo | Hallazgo |

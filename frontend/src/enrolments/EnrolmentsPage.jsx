@@ -9,6 +9,7 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
 import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import SchoolOutlinedIcon from "@mui/icons-material/SchoolOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
@@ -58,6 +59,12 @@ const MovementHistoryWindow = lazy(() =>
   )
 );
 
+const PromotionWindow = lazy(() =>
+  import("./PromotionWindow.jsx").then(({ PromotionWindow: Window }) => ({
+    default: Window,
+  }))
+);
+
 const EMPTY_ENROLMENT = {
   student_id: "",
   academic_cycle_id: "",
@@ -84,6 +91,7 @@ const HISTORY_TAB = "history";
  * posibilidad de contradecirse y recibir un rechazo al guardar.
  */
 export function EnrolmentsPage() {
+  const [promotionFor, setPromotionFor] = useState(null);
   const [tab, setTab] = useState(ACTIVE_TAB);
   const [studentFilter, setStudentFilter] = useState("");
   const [creating, setCreating] = useState(null);
@@ -264,6 +272,20 @@ export function EnrolmentsPage() {
           >
             <DescriptionOutlinedIcon fontSize="small" />
           </ActionIconButton>
+          <ActionIconButton
+            label="Consultar promoción"
+            onClick={() =>
+              setPromotionFor({
+                enrolment: row,
+                context: columns.slice(0, 4).map((column) => ({
+                  label: column.label,
+                  value: column.render(row),
+                })),
+              })
+            }
+          >
+            <SchoolOutlinedIcon fontSize="small" />
+          </ActionIconButton>
         </Stack>
       ),
     },
@@ -393,6 +415,13 @@ export function EnrolmentsPage() {
       ) : null}
 
       <Suspense fallback={null}>
+        {promotionFor ? (
+          <PromotionWindow
+            {...promotionFor}
+            key={promotionFor.enrolment.public_id}
+            onClose={() => setPromotionFor(null)}
+          />
+        ) : null}
         {bulkEnrolling ? (
           <BulkEnrolmentWindow
             onClose={() => setBulkEnrolling(false)}

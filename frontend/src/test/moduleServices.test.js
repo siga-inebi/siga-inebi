@@ -90,6 +90,13 @@ describe("servicios de los modulos", () => {
   });
 
   describe("enrolmentsService", () => {
+    test("consulta promoción por matrícula sin enviar una escritura", async () => {
+      await enrolmentsService.getPromotion(ENROLMENT);
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/${ENROLMENT}/promotion/`
+      );
+      expect(apiClient.post).not.toHaveBeenCalled();
+    });
     test("las matriculas vigentes se pueden filtrar por estudiante", async () => {
       await enrolmentsService.listActive({ page: 1, student_id: STUDENT });
       expect(apiClient.get).toHaveBeenCalledWith(

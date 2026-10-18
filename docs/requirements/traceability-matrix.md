@@ -257,6 +257,22 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 
 | RF-MOV-006 | #238 | docs/architecture/{domain-map.md,initial-data-model.md,api-conventions.md,authorization-model.md}; docs/decisions/{ADR-0004-rest-api.md,ADR-0005-authentication-and-authorization.md,ADR-0006-soft-delete-and-history.md,ADR-0008-application-layer-boundaries.md} | backend/apps/academics/queries.py; backend/apps/enrolments/{services.py,api/serializers.py,api/views.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | TBD | Implemented | Extiende de forma aditiva la consulta de promocion: promovido avanza al siguiente grado activo segun orden pedagogico; no promovido repite el mismo grado; aprobar el ultimo grado produce graduated sin grado elegible. Los ciclos cerrados consumen el snapshot inmutable de RF-RES-007 y no recalculan notas; no crea la matricula siguiente |
 
+## Evidencia UX de promoción — #632, M4
+
+RF-MOV-006 y RF-RES-006 conservan sus reglas existentes y su evidencia de backend.
+La consulta ahora tiene entrada en cada fila de Matrículas (Vigentes e Historial),
+con resultado, grado elegible, fuente congelada/vigente y subáreas que impiden la
+promoción. No crea matrículas ni movimientos y no recalcula resultados en React.
+
+| Requerimiento | Implementación de esta entrega | Pruebas verificables |
+| --- | --- | --- |
+| RF-MOV-006 / RF-RES-006 | `frontend/src/enrolments/{EnrolmentsPage.jsx,PromotionWindow.jsx,enrolmentsService.js}`; `backend/apps/enrolments/api/views.py` | `frontend/src/test/{PromotionWindow.test.jsx,newModulePages.test.jsx,moduleServices.test.js}`; `backend/tests/api/test_enrolments_api.py` (promoción, repitencia, graduación y snapshot sin mutaciones) |
+| RF-ALC-001, alcance de la consulta | `require_section_scope` existente aplicado antes de determinar el resultado, con `enrollment_create` o `enrollment_update` | `test_promotion_denies_missing_permission_or_effective_scope`: sin permiso, sin alcance, otra sección o asignación vencida; denegación auditada y cálculo no ejecutado. `test_promotion_reads_frozen_result_with_scoped_permission_without_mutating`: ambos permisos, sección autorizada en ciclo cerrado |
+
+Detalle de contratos, ADR, límites y revisión: [consulta de promoción](../architecture/enrolment-promotion-ui.md).
+Integración a `develop` y aceptación institucional pendientes. La reinscripción
+masiva corresponde al PR #638; esta evidencia no declara cerrados M2 ni #632.
+
 ## Mantenimiento
 
 - Actualizar fila por cada requerimiento implementado o afectado.
