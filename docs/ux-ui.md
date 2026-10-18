@@ -233,16 +233,6 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 
 ### 2.10 Matrículas
 
-| # | Prioridad · Tipo | Hallazgo |
-|---|---|---|
-| M1 | **P1 · Rendimiento** | **Por qué carga estudiantes:** [EnrolmentsPage.jsx](../frontend/src/enrolments/EnrolmentsPage.jsx) monta `useStudentCatalog`, `useSectionCatalog`, `useGradeCatalog` y `useCycleCatalog`. Cada uno descarga el catálogo completo **solo para traducir** `student_id`, `section_id`, etc. a nombres, porque [EnrolmentSerializer](../backend/apps/enrolments/api/serializers.py) responde únicamente UUIDs. *Corrección:* que el serializador incluya `student: {full_name, student_code}`, `section: {name, grade_name, shift_name}` y `academic_cycle: {name}`, y quitar esos catálogos de la página. |
-| M2 | **P1 · Rendimiento** | [BulkEnrolmentWindow.jsx](../frontend/src/enrolments/BulkEnrolmentWindow.jsx) descarga todas las matrículas activas de todos los ciclos y filtra por ciclo en el navegador. Después matricula **una petición por estudiante**. El backend ofrece `/re-enrolments/bulk/` y filtros por ciclo. |
-| M3 | **P1 · Sin UI** | **Movimientos del estudiante:** cambio de sección (`/<id>/section-change/`), retiro (`/<id>/withdrawal/`), traslado de egreso (`/<id>/transfer-out/`), traslado de ingreso (`/transfers/in/`) y anulación de movimiento (`/movements/<id>/annulment/`). Hoy solo se puede *ver* el historial de movimientos. |
-| M4 | **P1 · Sin UI** | **Promoción** (`/<id>/promotion/`) y **reinscripción masiva** (`/re-enrolments/bulk/`). |
-| M5 | **P1 · Clics** | "Vigentes" solo filtra por estudiante (con un desplegable sin búsqueda de todo el padrón). Faltan filtros por ciclo, grado y sección, que es como trabaja secretaría. |
-| M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. |
-| M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). |
-
 #### Seguimiento de M4: consulta de promoción
 
 Entrega de #632: la acción **Consultar promoción** en cada fila de Vigentes e
@@ -252,6 +242,16 @@ endpoint existente con permiso y alcance de matrícula; no añade catálogos.
 La reinscripción masiva se entrega separadamente en PR #638. Ambas partes de M4
 requieren integración a `develop` y aceptación; no completan M2 ni el resto de
 Matrículas. Evidencia y límites: [consulta de promoción](architecture/enrolment-promotion-ui.md).
+
+| # | Prioridad · Tipo | Hallazgo |
+|---|---|---|
+| M1 | **P1 · Rendimiento** | **Por qué carga estudiantes:** [EnrolmentsPage.jsx](../frontend/src/enrolments/EnrolmentsPage.jsx) monta `useStudentCatalog`, `useSectionCatalog`, `useGradeCatalog` y `useCycleCatalog`. Cada uno descarga el catálogo completo **solo para traducir** `student_id`, `section_id`, etc. a nombres, porque [EnrolmentSerializer](../backend/apps/enrolments/api/serializers.py) responde únicamente UUIDs. *Corrección:* que el serializador incluya `student: {full_name, student_code}`, `section: {name, grade_name, shift_name}` y `academic_cycle: {name}`, y quitar esos catálogos de la página. |
+| M2 | **P1 · Rendimiento** | [BulkEnrolmentWindow.jsx](../frontend/src/enrolments/BulkEnrolmentWindow.jsx) descarga todas las matrículas activas de todos los ciclos y filtra por ciclo en el navegador. Después matricula **una petición por estudiante**. El backend ofrece `/re-enrolments/bulk/` y filtros por ciclo. |
+| M3 | **P1 · Sin UI** | **Movimientos del estudiante:** cambio de sección (`/<id>/section-change/`), retiro (`/<id>/withdrawal/`), traslado de egreso (`/<id>/transfer-out/`), traslado de ingreso (`/transfers/in/`) y anulación de movimiento (`/movements/<id>/annulment/`). Hoy solo se puede *ver* el historial de movimientos. |
+| M4 | **P1 · Sin UI** | **Promoción** (`/<id>/promotion/`) y **reinscripción masiva** (`/re-enrolments/bulk/`). |
+| M5 | **P1 · Clics** | "Vigentes" solo filtra por estudiante (con un desplegable sin búsqueda de todo el padrón). Faltan filtros por ciclo, grado y sección, que es como trabaja secretaría. |
+| M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. |
+| M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). |
 
 ### 2.11 Evaluación
 
