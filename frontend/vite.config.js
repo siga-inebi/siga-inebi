@@ -78,14 +78,34 @@ export default defineConfig(({ mode }) => {
             "vendor-react": ["react", "react-dom", "react-router-dom"],
             "vendor-mui-core": ["@mui/material", "@mui/material/styles"],
             "vendor-emotion": ["@emotion/react", "@emotion/styled"],
-            // Las ventanas bajo demanda de asistencia comparten estos modulos
-            // con la pagina principal. Sin un limite explicito, Rollup los
-            // asociaba al chunk de AttendancePage y una ventana terminaba
-            // descargando codigo de la pagina que no utiliza.
-            "attendance-shared": [
+            // Las ventanas bajo demanda de asistencia comparten modulos con la
+            // pagina principal. Sin un limite explicito, Rollup los asociaba al
+            // chunk de AttendancePage y una ventana terminaba descargando
+            // codigo de la pagina que no utiliza. Ese objetivo se mantiene.
+            //
+            // Antes los tres modulos iban juntos en "attendance-shared", y como
+            // `format.js` lo usa el arranque (menu de usuario), TODO ese chunk
+            // (servicio de asistencia incluido) viajaba en la carga inicial de
+            // cualquier pantalla. Ahora (riesgo C, ADR-0011):
+            //
+            // - "attendance-service": solo el servicio de asistencia, diferido;
+            //   lo descargan la pagina y sus ventanas, nadie mas.
+            // - "shared-data": lo generico que casi toda pantalla usa (cliente
+            //   HTTP, claves de cache, formato y catalogos de los selectores con
+            //   los servicios que consultan). Un solo chunk para no pagar la
+            //   sobrecarga de una docena de chunks pequeños por ruta.
+            "attendance-service": [
               resolvePath("./src/attendance/attendanceService.js"),
-              resolvePath("./src/shared/catalogs/academicCatalogs.js"),
+            ],
+            "shared-data": [
+              resolvePath("./src/shared/api/apiClient.js"),
+              resolvePath("./src/shared/api/query.js"),
+              resolvePath("./src/shared/api/pages.js"),
+              resolvePath("./src/shared/api/queryKeys.js"),
+              resolvePath("./src/shared/api/useResourceQuery.js"),
               resolvePath("./src/shared/utils/format.js"),
+              resolvePath("./src/shared/catalogs/useCatalogOptions.js"),
+              resolvePath("./src/shared/catalogs/academicCatalogs.js"),
             ],
           },
         },
