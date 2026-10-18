@@ -97,6 +97,26 @@ decisiones del servidor quedan verificadas por API.
 La adopción de `useServerList`, URL y selectores comunes depende de #630.
 Esta entrega no sustituye esa infraestructura ni afirma resolver sus catálogos.
 
+## Evidencia de validación
+
+- Rama independiente sobre `develop` (`5f8630d`): backend completo con PostgreSQL,
+  **1792 aprobadas y 23 omitidas**, cobertura **95,18 %**; frontend completo,
+  **316 aprobadas en 38 archivos**, cobertura **85,10 %**.
+- Documentación/requerimientos: **49 pruebas aprobadas**. Ruff lint/formato,
+  ESLint, build/presupuesto de bundles, Django check y detección de migraciones
+  aprobados. OpenAPI sin errores, con las 27 advertencias preexistentes
+  (23 únicas). No se cambian dependencias locales para igualar CI.
+- Integración local M1 + M5 + M7 + M6: **341 pruebas frontend en 41 archivos**,
+  cobertura **85,51 %**, y **35 pruebas API** aprobadas; lint y build aprobados.
+  Resolución local en `2f7807e` y adaptación de pruebas en `dd46bdf`. Es evidencia
+  de compatibilidad, sin fusionar ni modificar las ramas públicas de otros PR.
+- Preview aislada en `http://127.0.0.1:5183/`, backend 8011, con datos sintéticos
+  y ciclos 2026/2027. Por HTTP real se verificaron login/CSRF, primera matrícula,
+  reinscripción automática, duplicado rechazado con 400, origen conservado como
+  completado y cupo actualizado a 2 ocupadas de 35.
+- Revisión DOM/HTTP y compilación no equivalen a aceptación visual institucional.
+  La ejecución local nativa tampoco se presenta como ejecución local de Docker.
+
 ## Reversión
 
 Revertir el código del PR restaura las entradas explícitas. No borrar matrículas,
