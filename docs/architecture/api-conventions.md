@@ -219,6 +219,12 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   el ciclo permita escrituras. Traslados se rechazan hasta que sus casos de uso conserven estado
   reversible. La doble anulacion tambien se rechaza.
 - El historial incluye `annulment` como campo aditivo, nulo para movimientos vigentes.
+- El historial agrega `supports_annulment`, booleano de solo lectura que indica
+  soporte de anulación para el tipo (retiro/cambio de sección). No acredita
+  permiso, alcance ni elegibilidad del estado actual; se revalidan al escribir.
+- La captura, revisión y evidencia de la UI están documentadas en
+  [Movimientos de matrícula](enrolment-movements-ui.md). Las escrituras conservan
+  sus endpoints y payloads existentes.
 ## Requisitos documentales de matrícula
 
 - `GET /api/v1/enrolments/{enrolment_id}/documents/` lista los requisitos documentales activos

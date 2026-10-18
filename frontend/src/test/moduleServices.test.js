@@ -90,6 +90,31 @@ describe("servicios de los modulos", () => {
   });
 
   describe("enrolmentsService", () => {
+    test("movimientos usan los endpoints existentes y el identificador correspondiente", async () => {
+      await enrolmentsService.changeSection(ENROLMENT, {
+        new_section_id: "section",
+        effective_on: "2026-03-01",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/enrolments/${ENROLMENT}/section-change/`,
+        { new_section_id: "section", effective_on: "2026-03-01" }
+      );
+      await enrolmentsService.withdraw(ENROLMENT, {
+        reason: "Causa",
+        effective_on: "2026-03-01",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/enrolments/${ENROLMENT}/withdrawal/`,
+        { reason: "Causa", effective_on: "2026-03-01" }
+      );
+      await enrolmentsService.annulMovement("movement-id", {
+        reason: "Corrección",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/enrolments/movements/movement-id/annulment/",
+        { reason: "Corrección" }
+      );
+    });
     test("las matriculas vigentes se pueden filtrar por estudiante", async () => {
       await enrolmentsService.listActive({ page: 1, student_id: STUDENT });
       expect(apiClient.get).toHaveBeenCalledWith(

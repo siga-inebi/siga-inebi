@@ -89,6 +89,7 @@ export function EnrolmentsPage() {
   const [creating, setCreating] = useState(null);
   const [bulkEnrolling, setBulkEnrolling] = useState(false);
   const [documentsFor, setDocumentsFor] = useState(null);
+  const [movementFor, setMovementFor] = useState(null);
   const [movementStudentId, setMovementStudentId] = useState("");
 
   const students = useStudentCatalog();
@@ -259,6 +260,34 @@ export function EnrolmentsPage() {
       render: (row) => (
         <Stack direction="row" gap={0.5} justifyContent="flex-end">
           <ActionIconButton
+            label="Movimientos de matrícula"
+            onClick={() =>
+              setMovementFor({
+                studentId: row.student_id,
+                // Reuse the displayed cells with either catalogues or M1's nested DTO.
+                studentLabel: columns
+                  .find((column) => column.key === "student_id")
+                  .render(row),
+                enrolment: tab === ACTIVE_TAB ? row : undefined,
+                enrolmentLabel: (
+                  <Stack direction="row" flexWrap="wrap" gap={1}>
+                    {["academic_cycle_id", "grade_id", "section_id"].map(
+                      (key) => (
+                        <span key={key}>
+                          {columns
+                            .find((column) => column.key === key)
+                            .render(row)}
+                        </span>
+                      )
+                    )}
+                  </Stack>
+                ),
+              })
+            }
+          >
+            <HistoryOutlinedIcon fontSize="small" />
+          </ActionIconButton>
+          <ActionIconButton
             label="Requisitos documentales"
             onClick={() => setDocumentsFor(row)}
           >
@@ -411,11 +440,22 @@ export function EnrolmentsPage() {
           />
         ) : null}
 
-        {movementStudentId ? (
+        {movementFor || movementStudentId ? (
           <MovementHistoryWindow
-            key={movementStudentId}
-            onClose={() => setMovementStudentId("")}
+            key={
+              movementFor?.enrolment?.public_id ??
+              (movementStudentId || movementFor?.studentId)
+            }
+            onClose={() => {
+              setMovementFor(null);
+              setMovementStudentId("");
+            }}
             studentId={movementStudentId}
+            {...movementFor}
+            onChanged={() => {
+              activeList.refresh();
+              if (historyReady) historyList.refresh();
+            }}
           />
         ) : null}
       </Suspense>

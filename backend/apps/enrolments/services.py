@@ -245,10 +245,7 @@ def annul_student_movement(*, movement, reason, actor):
     movement = StudentMovement.objects.select_for_update().get(pk=movement.pk)
     if StudentMovementAnnulment.objects.filter(movement=movement).exists():
         raise DomainError("El movimiento ya fue anulado.")
-    if movement.movement_type not in {
-        StudentMovement.MovementType.WITHDRAWAL,
-        StudentMovement.MovementType.SECTION_CHANGE,
-    }:
+    if not movement.supports_annulment:
         raise DomainError("Este tipo de movimiento todavia no admite anulacion segura.")
 
     source = movement.source_enrolment

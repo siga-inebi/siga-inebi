@@ -68,6 +68,12 @@ export const enrolmentsService = {
   create: (payload) => apiClient.post(`${ROOT}/`, payload),
   matriculate: (payload) => apiClient.post(`${ROOT}/matriculations/`, payload),
   reenrol: (payload) => apiClient.post(`${ROOT}/re-enrolments/`, payload),
+  changeSection: (enrolmentId, payload) =>
+    apiClient.post(`${ROOT}/${enrolmentId}/section-change/`, payload),
+  withdraw: (enrolmentId, payload) =>
+    apiClient.post(`${ROOT}/${enrolmentId}/withdrawal/`, payload),
+  annulMovement: (movementId, payload) =>
+    apiClient.post(`${ROOT}/movements/${movementId}/annulment/`, payload),
 
   /** Requisitos documentales de una matricula (RF-MAT-005). */
   listDocuments: (enrolmentId, params) =>

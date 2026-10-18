@@ -243,6 +243,11 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 | M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. |
 | M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). |
 
+Seguimiento M3 (#632): cambio de sección, retiro y anulación con captura y revisión
+en una sola ventana se documentan en
+[Movimientos de matrícula](architecture/enrolment-movements-ui.md). Traslados de
+ingreso/egreso y el expediente completo de 1.5 siguen pendientes.
+
 ### 2.11 Evaluación
 
 | # | Prioridad · Tipo | Hallazgo |
