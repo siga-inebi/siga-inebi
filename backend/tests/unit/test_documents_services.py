@@ -979,33 +979,39 @@ def test_template_version_snapshot_keeps_the_code_it_was_issued_with():
     assert template.versions.first().kind == "constancia"
 
 
-def test_get_active_document_template_requires_a_single_active_template_per_kind():
+def test_get_active_document_template_requires_a_single_active_template_per_use():
     institution = InstitutionFactory()
     certificate = create_document_template(
         institution=institution,
         name="Certificado",
         code="CERT",
         kind="certificate",
+        issuance_use="study_certificate",
     )
     create_document_template(
         institution=institution,
         name="Certificado viejo",
         code="CERT-OLD",
         kind="certificate",
+        issuance_use="study_certificate",
         is_active=False,
     )
 
-    assert get_active_document_template(institution=institution, kind="certificate") == certificate
+    assert (
+        get_active_document_template(institution=institution, issuance_use="study_certificate")
+        == certificate
+    )
 
     with pytest.raises(
         DomainError,
-        match="active.*document template|already exists.*document type|document type.*active",
+        match="uso",
     ):
         create_document_template(
             institution=institution,
             name="Segundo certificado",
             code="CERT-2",
             kind="certificate",
+            issuance_use="study_certificate",
         )
 
     certificate.is_active = False
@@ -1015,9 +1021,13 @@ def test_get_active_document_template_requires_a_single_active_template_per_kind
         name="Segundo certificado",
         code="CERT-2",
         kind="certificate",
+        issuance_use="study_certificate",
     )
 
-    assert get_active_document_template(institution=institution, kind="certificate") == second
+    assert (
+        get_active_document_template(institution=institution, issuance_use="study_certificate")
+        == second
+    )
 
     second.is_active = False
     second.save(update_fields=["is_active", "updated_at"])

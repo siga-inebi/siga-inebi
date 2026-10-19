@@ -109,7 +109,7 @@ export function DocumentTypesPage() {
           </Button>
         }
         breadcrumb="Documentos"
-        subtitle="Tipos de documento que la institucion emite. Se administran aqui, sin cambios en el sistema."
+        subtitle="Los tipos clasifican documentos. El uso de emisión se elige en «Se usa para» de cada plantilla, independientemente del código del tipo."
         title="Tipos de documento"
       />
 

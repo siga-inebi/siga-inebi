@@ -233,15 +233,31 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 
 ### 2.10 Matrículas
 
+#### Seguimiento de M4: consulta de promoción
+
+Entrega de #632: la acción **Consultar promoción** en cada fila de Vigentes e
+Historial muestra promoción, repitencia o graduación, grado elegible, subáreas
+pendientes y fuente congelada/vigente. No crea una reinscripción. Reutiliza el
+endpoint existente con permiso y alcance de matrícula; no añade catálogos.
+La reinscripción masiva se entrega separadamente en PR #638. Ambas partes de M4
+requieren integración a `develop` y aceptación; no completan M2 ni el resto de
+Matrículas. Evidencia y límites: [consulta de promoción](architecture/enrolment-promotion-ui.md).
+
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
 | M1 | **P1 · Rendimiento** | **Por qué carga estudiantes:** [EnrolmentsPage.jsx](../frontend/src/enrolments/EnrolmentsPage.jsx) monta `useStudentCatalog`, `useSectionCatalog`, `useGradeCatalog` y `useCycleCatalog`. Cada uno descarga el catálogo completo **solo para traducir** `student_id`, `section_id`, etc. a nombres, porque [EnrolmentSerializer](../backend/apps/enrolments/api/serializers.py) responde únicamente UUIDs. *Corrección:* que el serializador incluya `student: {full_name, student_code}`, `section: {name, grade_name, shift_name}` y `academic_cycle: {name}`, y quitar esos catálogos de la página. |
 | M2 | **P1 · Rendimiento** | [BulkEnrolmentWindow.jsx](../frontend/src/enrolments/BulkEnrolmentWindow.jsx) descarga todas las matrículas activas de todos los ciclos y filtra por ciclo en el navegador. Después matricula **una petición por estudiante**. El backend ofrece `/re-enrolments/bulk/` y filtros por ciclo. |
-| M3 | **P1 · Sin UI** | **Movimientos del estudiante:** cambio de sección (`/<id>/section-change/`), retiro (`/<id>/withdrawal/`), traslado de egreso (`/<id>/transfer-out/`), traslado de ingreso (`/transfers/in/`) y anulación de movimiento (`/movements/<id>/annulment/`). Hoy solo se puede *ver* el historial de movimientos. |
+| M3 | **P1 · Sin UI** | **Movimientos del estudiante:** cambio de sección (`/<id>/section-change/`), retiro (`/<id>/withdrawal/`), traslado de egreso (`/<id>/transfer-out/`), traslado de ingreso (`/transfers/in/`) y anulación de movimiento (`/movements/<id>/annulment/`). Hoy solo se puede *ver* el historial de movimientos. Seguimiento parcial: [cambio, retiro y anulación](architecture/enrolment-movements-ui.md); traslados pendientes. |
 | M4 | **P1 · Sin UI** | **Promoción** (`/<id>/promotion/`) y **reinscripción masiva** (`/re-enrolments/bulk/`). |
-| M5 | **P1 · Clics** | "Vigentes" solo filtra por estudiante (con un desplegable sin búsqueda de todo el padrón). Faltan filtros por ciclo, grado y sección, que es como trabaja secretaría. |
+| M5 | **P1 · Clics** | "Vigentes" solo filtra por estudiante (con un desplegable sin búsqueda de todo el padrón). Faltan filtros por ciclo, grado y sección, que es como trabaja secretaría. **Seguimiento #632:** filtros académicos de servidor, reinicio de página y secciones paginadas en [M5](architecture/enrolment-filters-ui.md); búsqueda remota de estudiante en PR #636. Integración/aceptación pendientes; base común de URL y `useServerList` en #630. |
 | M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. |
 | M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). **Seguimiento #632:** [cupo contextual](architecture/enrolment-capacity-ui.md) en nueva matrícula, reinscripción individual y lote inicial; distingue sin límite, lleno y error, y actualiza al terminar envíos. Conserva la validación de servidor. Integración y aceptación pendientes. |
+
+Seguimiento del bloque de matrículas #632: la interfaz de reinscripción masiva,
+los candidatos paginados y el alcance parcial de M2/M4/M5 están documentados en
+[Reinscripción por lotes](architecture/bulk-reenrolment-ui.md). La operación
+masiva de altas iniciales y promoción siguen pendientes; no se consideran
+intercambiables los contratos de matriculación inicial y reinscripción.
 
 ### 2.11 Evaluación
 
@@ -472,3 +488,12 @@ Como cambian reglas del dominio, cada una debe registrarse como ADR en [docs/dec
 **Fase 6 — Pulido**
 
 Expediente con pestañas (1.5), cambio de estado del expediente (E9), menú de Administración (2.17.6), auditoría y plataforma (2.18), textos y fechas (1.6) y el resto de los P2.
+
+## Seguimiento de implementación de M3 — issue #632
+
+La entrega de [cambio, retiro y anulación (#639)](https://github.com/siga-inebi/siga-inebi/pull/639)
+y la de [traslados de ingreso y egreso](architecture/student-transfers-ui.md)
+cubren en código las cinco operaciones de M3 con captura, revisión e historial.
+La documentación de traslados contiene la tabla de cobertura y sus pruebas.
+Integración en `develop` y aceptación institucional pendientes; M4 y el resto
+del epic mantienen su alcance.
