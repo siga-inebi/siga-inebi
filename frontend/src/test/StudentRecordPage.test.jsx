@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const students = vi.hoisted(() => ({
   getRecord: vi.fn(),
   update: vi.fn(),
+  deactivate: vi.fn(),
   listRecordGuardians: vi.fn(),
   listHealthNotesPage: vi.fn(),
   listObservationsPage: vi.fn(),
@@ -265,6 +266,10 @@ test("edita todos los campos disponibles en línea sin incluir CUI ni nacimiento
       last_name: "Nuevo",
     },
   };
+  students.getRecord.mockResolvedValue({
+    ...RECORD,
+    actions: { deactivate: true },
+  });
   students.update.mockResolvedValue(updated);
   const user = userEvent.setup();
   renderRecord();
@@ -285,6 +290,9 @@ test("edita todos los campos disponibles en línea sin incluir CUI ni nacimiento
   );
   expect(
     await screen.findByRole("heading", { name: "Alumno Nuevo" })
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Desactivar estudiante" })
   ).toBeInTheDocument();
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
@@ -418,4 +426,141 @@ test("la denegación del expediente no monta pestañas ni consulta datos relacio
   await screen.findByText("Acceso denegado");
   expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   expect(students.listHealthNotesPage).not.toHaveBeenCalled();
+});
+
+const DEACTIVATABLE = {
+  ...RECORD,
+  is_active: true,
+  actions: { deactivate: true },
+};
+const DEACTIVATED = {
+  ...RECORD,
+  status: "inactive",
+  is_active: false,
+  actions: { deactivate: false },
+};
+
+test("E7 requiere confirmacion y cancelar conserva al estudiante", async () => {
+  students.getRecord.mockResolvedValue(DEACTIVATABLE);
+  const user = userEvent.setup();
+  renderRecord();
+  await user.click(
+    await screen.findByRole("button", { name: "Desactivar estudiante" })
+  );
+  expect(
+    screen.getByRole("heading", { name: "Desactivar estudiante: Alumno Demo" })
+  ).toHaveFocus();
+  expect(students.deactivate).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Cancelar" }));
+  expect(students.deactivate).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole("button", { name: "Desactivar estudiante" })
+  ).toBeInTheDocument();
+});
+
+test("E7 confirma desactivacion y recarga el estado del servidor", async () => {
+  students.getRecord
+    .mockResolvedValueOnce(DEACTIVATABLE)
+    .mockResolvedValue(DEACTIVATED);
+  const user = userEvent.setup();
+  renderRecord();
+  await user.click(
+    await screen.findByRole("button", { name: "Desactivar estudiante" })
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Confirmar desactivación" })
+  );
+  await screen.findByText("Estudiante desactivado. El historial se conserva.");
+  await screen.findByText("Inactivo");
+  expect(students.deactivate).toHaveBeenCalledExactlyOnceWith(1);
+  expect(students.getRecord).toHaveBeenCalledTimes(2);
+  expect(
+    screen.queryByRole("button", { name: "Desactivar estudiante" })
+  ).not.toBeInTheDocument();
+});
+
+test("E7 respeta capacidad de solo lectura aunque el perfil este activo", async () => {
+  students.getRecord.mockResolvedValue({
+    ...DEACTIVATABLE,
+    actions: { deactivate: false },
+  });
+  renderRecord();
+  await screen.findByRole("heading", { name: "Alumno Demo" });
+  expect(
+    screen.queryByRole("button", { name: "Desactivar estudiante" })
+  ).not.toBeInTheDocument();
+});
+
+test("E7 conserva confirmacion ante rechazo sin mostrar exito", async () => {
+  students.getRecord.mockResolvedValue(DEACTIVATABLE);
+  students.deactivate.mockRejectedValue(
+    new Error("Sin permiso para desactivar")
+  );
+  const user = userEvent.setup();
+  renderRecord();
+  await user.click(
+    await screen.findByRole("button", { name: "Desactivar estudiante" })
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Confirmar desactivación" })
+  );
+  await screen.findByText("Sin permiso para desactivar");
+  expect(
+    screen.getByRole("button", { name: "Confirmar desactivación" })
+  ).toBeEnabled();
+  expect(
+    screen.queryByText("Estudiante desactivado. El historial se conserva.")
+  ).not.toBeInTheDocument();
+  expect(students.getRecord).toHaveBeenCalledTimes(1);
+});
+
+test("E7 distingue escritura confirmada de error al recargar y no repite DELETE", async () => {
+  students.getRecord
+    .mockResolvedValueOnce(DEACTIVATABLE)
+    .mockRejectedValueOnce(new Error("Lectura temporalmente no disponible"))
+    .mockResolvedValue(DEACTIVATED);
+  const user = userEvent.setup();
+  renderRecord();
+  await user.click(
+    await screen.findByRole("button", { name: "Desactivar estudiante" })
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Confirmar desactivación" })
+  );
+  await screen.findByText("Lectura temporalmente no disponible");
+  expect(
+    screen.getByText("Estudiante desactivado. El historial se conserva.")
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Confirmar desactivación" })
+  ).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Reintentar" }));
+  await screen.findByText("Inactivo");
+  expect(students.deactivate).toHaveBeenCalledTimes(1);
+});
+
+test("E7 bloquea doble envio y navegacion durante DELETE", async () => {
+  students.getRecord
+    .mockResolvedValueOnce(DEACTIVATABLE)
+    .mockResolvedValue(DEACTIVATED);
+  let resolve;
+  students.deactivate.mockReturnValue(
+    new Promise((done) => {
+      resolve = done;
+    })
+  );
+  const user = userEvent.setup();
+  renderRecord();
+  await user.click(
+    await screen.findByRole("button", { name: "Desactivar estudiante" })
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Confirmar desactivación" })
+  );
+  expect(screen.getByRole("button", { name: "Guardando…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Cancelar" })).toBeDisabled();
+  expect(screen.getByRole("tab", { name: "Salud" })).toBeDisabled();
+  expect(students.deactivate).toHaveBeenCalledTimes(1);
+  await act(async () => resolve(null));
+  await screen.findByText("Inactivo");
 });

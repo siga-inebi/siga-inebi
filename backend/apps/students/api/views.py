@@ -14,6 +14,7 @@ from apps.students.api.serializers import (
     EmergencyContactUpdateSerializer,
     GuardianListQuerySerializer,
     GuardianSerializer,
+    StudentDossierSerializer,
     StudentGuardianRelationEndSerializer,
     StudentGuardianRelationQuerySerializer,
     StudentGuardianRelationSerializer,
@@ -106,11 +107,15 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class StudentDossierDetailView(StudentDetailView):
-    """Lectura por UUID para la ruta de expediente, sin ampliar sus campos."""
+    """Lectura por UUID con capacidades, sin ampliar datos sensibles."""
 
     lookup_field = "public_id"
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "head", "options"]
+    serializer_class = StudentDossierSerializer
+
+    def get_queryset(self):
+        return queries.student_dossier_queryset(actor=self.request.user)
 
 
 @extend_schema_view(get=extend_schema(parameters=[StudentRecordGuardiansQuerySerializer]))

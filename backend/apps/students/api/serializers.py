@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.people.api.serializers import PersonSerializer, validate_institutional_person
+from apps.students import services
 from apps.students.models import (
     EmergencyContact,
     Guardian,
@@ -90,6 +91,18 @@ class StudentSerializer(serializers.ModelSerializer):
         validated_data.pop("person", None)
         actor = getattr(self.context.get("request"), "user", None)
         return update_student(student=instance, actor=actor, **validated_data)
+
+
+class StudentDossierSerializer(StudentSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(StudentSerializer.Meta):
+        fields = [*StudentSerializer.Meta.fields, "actions"]
+
+    def get_actions(self, instance) -> dict[str, bool]:
+        return services.student_deactivation_action(
+            student=instance, can_manage=instance.record_can_manage
+        )
 
 
 class GuardianSerializer(serializers.ModelSerializer):
