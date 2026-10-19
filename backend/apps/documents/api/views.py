@@ -63,6 +63,7 @@ from .serializers import (
     OfficialDocumentEligibilityResponseSerializer,
     StorageConsumptionSerializer,
     TeacherDocumentUploadSerializer,
+    TemplateIssuanceUseSerializer,
 )
 
 CATALOGUE = ["documents: catalogue"]
@@ -143,13 +144,26 @@ class DocumentTemplateListCreateView(CatalogueListCreateView):
         return queries.document_template_or_404(self.institution, template.public_id)
 
 
+class TemplateIssuanceUseListView(CatalogueView):
+    serializer_class = TemplateIssuanceUseSerializer
+
+    @extend_schema(responses={200: TemplateIssuanceUseSerializer(many=True)}, tags=CATALOGUE)
+    def get(self, request):
+        return Response(
+            self.get_serializer(queries.template_issuance_uses(self.institution), many=True).data
+        )
+
+
 @extend_schema_view(
     get=extend_schema(
         summary="Consultar plantilla", tags=CATALOGUE, responses={200: DocumentTemplateSerializer}
     ),
     patch=extend_schema(
         summary="Actualizar plantilla",
-        description="El codigo es inmutable; se actualizan nombre, descripcion y tipo.",
+        description=(
+            "El codigo es inmutable; se actualizan contenido, descripcion, tipo y uso de emision. "
+            "Reemplazar requiere confirmar el UUID de la plantilla activa."
+        ),
         tags=CATALOGUE,
         request=DocumentTemplateUpdateSerializer,
         responses={200: DocumentTemplateSerializer},

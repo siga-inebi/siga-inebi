@@ -179,6 +179,11 @@ export function DocentesPage() {
         last_name: values.last_name,
         email: values.email,
         phone_number: values.phone_number,
+        sex: values.sex,
+        nationality: values.nationality,
+        address: values.address,
+        department: values.department,
+        municipality: values.municipality,
       },
     });
     list.replaceItem(updated, (item) => item.id === updated.id);

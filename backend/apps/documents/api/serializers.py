@@ -56,6 +56,7 @@ class DocumentTemplateSerializer(serializers.ModelSerializer):
             "name",
             "code",
             "kind",
+            "issuance_use",
             "description",
             "content",
             "is_active",
@@ -64,6 +65,10 @@ class DocumentTemplateSerializer(serializers.ModelSerializer):
 
 
 class DocumentTemplateCreateSerializer(serializers.Serializer):
+    issuance_use = serializers.ChoiceField(
+        choices=DocumentTemplate.IssuanceUse.choices, default=DocumentTemplate.IssuanceUse.NONE
+    )
+    replaces_template_id = serializers.UUIDField(required=False)
     name = serializers.CharField(max_length=150, help_text="Nombre visible de la plantilla.")
     code = serializers.CharField(
         max_length=30,
@@ -87,6 +92,10 @@ class DocumentTemplateCreateSerializer(serializers.Serializer):
 
 
 class DocumentTemplateUpdateSerializer(serializers.Serializer):
+    issuance_use = serializers.ChoiceField(
+        choices=DocumentTemplate.IssuanceUse.choices, required=False
+    )
+    replaces_template_id = serializers.UUIDField(required=False)
     name = serializers.CharField(max_length=150, required=False)
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     kind = serializers.CharField(max_length=30, required=False)
@@ -103,10 +112,31 @@ class FieldTagSerializer(serializers.Serializer):
     sensitive = serializers.BooleanField()
 
 
+class ActiveIssuanceTemplateSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField()
+    name = serializers.CharField()
+
+
+class TemplateIssuanceUseSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    label = serializers.CharField()
+    active_template = ActiveIssuanceTemplateSerializer(allow_null=True)
+    uses_fallback = serializers.BooleanField()
+
+
 class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = DocumentTemplateVersion
-        fields = ["public_id", "sequence", "name", "kind", "description", "content", "created_at"]
+        fields = [
+            "public_id",
+            "sequence",
+            "name",
+            "kind",
+            "issuance_use",
+            "description",
+            "content",
+            "created_at",
+        ]
 
 
 class StorageConsumptionSerializer(serializers.Serializer):

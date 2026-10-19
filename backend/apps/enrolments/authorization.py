@@ -1,5 +1,5 @@
 """
-Alcance contextual de las escrituras de matricula (RF-ALC-001, INC-DIA-001).
+Alcance contextual de operaciones de matricula (RF-ALC-001, INC-DIA-001).
 
 El permiso atomico (``enrollment_create`` / ``enrollment_update``) dice QUE
 puede hacer la cuenta; el alcance dice DONDE. Una escritura de matricula afecta
@@ -15,6 +15,9 @@ el ciclo siguiente mientras sigue en preparacion (``draft``). El ciclo cerrado l
 sigue rechazando el dominio (``require_cycle_academic_writes``). Tampoco se
 deriva alcance de una asignacion docente: dar clase en una seccion no autoriza a
 matricular en ella.
+
+La consulta academica de promocion reutiliza estos grants administrativos para
+autorizar la lectura historica de la seccion, incluso en ciclos cerrados.
 """
 
 from apps.audit.services import record_event

@@ -1,5 +1,9 @@
 from django.urls import path
 
+from apps.enrolments.api.initial_matriculations import (
+    BulkMatriculationCreateView,
+    InitialMatriculationCandidatesView,
+)
 from apps.enrolments.api.student_record import StudentRecordEnrolmentsView
 from apps.enrolments.api.views import (
     ActiveEnrolmentListView,
@@ -9,6 +13,7 @@ from apps.enrolments.api.views import (
     EnrolmentHistoryListView,
     MatriculationCreateView,
     PromotionDetailView,
+    ReenrolmentCandidateListView,
     ReenrolmentCreateView,
     SectionChangeCreateView,
     SectionOccupancyListView,
@@ -17,6 +22,7 @@ from apps.enrolments.api.views import (
     StudentTransferInCreateView,
     StudentTransferOutCreateView,
     StudentWithdrawalCreateView,
+    UnifiedMatriculationCreateView,
 )
 
 urlpatterns = [
@@ -24,6 +30,16 @@ urlpatterns = [
         "students/<uuid:student_id>/record/",
         StudentRecordEnrolmentsView.as_view(),
         name="student-record-enrolments",
+    ),
+    path(
+        "matriculations/bulk/",
+        BulkMatriculationCreateView.as_view(),
+        name="bulk-matriculation-create",
+    ),
+    path(
+        "matriculations/candidates/",
+        InitialMatriculationCandidatesView.as_view(),
+        name="initial-matriculation-candidates",
     ),
     path("active/", ActiveEnrolmentListView.as_view(), name="active-enrolment-list"),
     path("history/", EnrolmentHistoryListView.as_view(), name="enrolment-history-list"),
@@ -40,7 +56,17 @@ urlpatterns = [
     ),
     path("", EnrolmentCreateView.as_view(), name="enrolment-list-create"),
     path("matriculations/", MatriculationCreateView.as_view(), name="matriculation-create"),
+    path(
+        "registrations/",
+        UnifiedMatriculationCreateView.as_view(),
+        name="unified-matriculation-create",
+    ),
     path("re-enrolments/", ReenrolmentCreateView.as_view(), name="reenrolment-create"),
+    path(
+        "re-enrolments/candidates/",
+        ReenrolmentCandidateListView.as_view(),
+        name="reenrolment-candidate-list",
+    ),
     path("transfers/in/", StudentTransferInCreateView.as_view(), name="student-transfer-in"),
     path(
         "re-enrolments/bulk/",
