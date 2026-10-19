@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router-dom";
 import { vi } from "vitest";
@@ -12,6 +12,10 @@ import {
   sessionUser,
 } from "./helpers/renderWithSession.jsx";
 import { selectOption } from "./helpers/selectOption.jsx";
+
+// Cada pestaña, bandeja y formulario se descarga diferido: bajo la carga de la
+// suite completa el primer chunk puede tardar más que el segundo por omisión.
+configure({ asyncUtilTimeout: 5000 });
 
 const attendanceServiceMock = vi.hoisted(() => ({
   listJornadaParameters: vi.fn(),
