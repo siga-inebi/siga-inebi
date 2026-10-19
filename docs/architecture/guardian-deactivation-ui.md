@@ -12,6 +12,9 @@ entregas abiertas son independientes. Este PR no incorpora G2 ni cambia paginaci
 CSV, edición o alta. Al integrar #656 se deben conservar sus cambios de listado y
 el `list.refresh()` posterior a la baja. G4 sigue pendiente.
 
+Entrega: [PR #657](https://github.com/siga-inebi/siga-inebi/pull/657), hacia `develop`.
+CI, integración y aceptación pendientes al publicar; evidencia local debajo.
+
 Revisados AGENTS, ADR-0004/0005/0006/0008, guía UX, autorización y requerimientos
 de permisos, alcances y bitácora. El diseño mantiene la baja lógica y las reglas
 de alcance derivado existentes; no introduce cierres automáticos de vínculos.
