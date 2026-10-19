@@ -36,6 +36,8 @@ const page = (results, count = results.length) => ({
   next: null,
   previous: null,
 });
+const enrolmentCalls = () =>
+  get.mock.calls.filter(([url]) => url.startsWith("/enrolments/"));
 
 beforeEach(() => {
   get.mockReset();
@@ -49,8 +51,8 @@ test("renders embedded labels with only the enrolment request", async () => {
   expect(await screen.findByText("Alumno Demo · EST-DEMO")).toBeInTheDocument();
   expect(screen.getByText("Ciclo demo")).toBeInTheDocument();
   expect(screen.getByText("Primero A · Matutina")).toBeInTheDocument();
-  expect(get).toHaveBeenCalledTimes(1);
-  expect(get.mock.calls[0][0]).toMatch(/^\/enrolments\/active\//);
+  expect(enrolmentCalls()).toHaveLength(1);
+  expect(enrolmentCalls()[0][0]).toMatch(/^\/enrolments\/active\//);
   expect(screen.queryByText("student-1")).not.toBeInTheDocument();
 });
 
@@ -76,8 +78,8 @@ test("requests only the visible enrolment page", async () => {
   expect(
     await screen.findByText("Segunda Demo · EST-DEMO")
   ).toBeInTheDocument();
-  expect(get).toHaveBeenCalledTimes(2);
-  expect(get.mock.calls[1][0]).toContain("page=2");
+  expect(enrolmentCalls()).toHaveLength(2);
+  expect(enrolmentCalls()[1][0]).toContain("page=2");
 });
 
 test("searches students remotely and loads history only after selection", async () => {
@@ -131,7 +133,13 @@ test("defers creation catalogues until the user opens the form", async () => {
   const user = userEvent.setup();
   renderWithRouter(<EnrolmentsPage />);
   await screen.findByText("Alumno Demo · EST-DEMO");
-  expect(get).toHaveBeenCalledTimes(1);
+  expect(enrolmentCalls()).toHaveLength(1);
+  expect(get.mock.calls.some(([url]) => url.startsWith("/students/"))).toBe(
+    false
+  );
+  expect(
+    get.mock.calls.some(([url]) => url.startsWith("/academics/sections/"))
+  ).toBe(false);
   await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
   const dialog = await screen.findByRole("dialog", { name: "Nueva matricula" });
   expect(
@@ -142,7 +150,7 @@ test("defers creation catalogues until the user opens the form", async () => {
       get.mock.calls.some(([url]) => url.startsWith("/academics/sections/"))
     ).toBe(true)
   );
-  expect(
-    get.mock.calls.some(([url]) => url.startsWith("/academics/levels/"))
-  ).toBe(false);
+  expect(get.mock.calls.some(([url]) => url.startsWith("/students/"))).toBe(
+    true
+  );
 });

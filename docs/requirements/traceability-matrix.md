@@ -347,6 +347,23 @@ y aceptación institucional pendientes; #632 permanece abierto.
 - Si requerimiento cambia, agregar nota de impacto.
 - Si PR cubre varios requerimientos, repetir PR en cada fila correspondiente.
 
+## Evidencia UX de filtros académicos — #632, M5
+
+RF-MAT-007 extiende su consulta de matrículas activas con filtros combinables por
+ciclo, grado y sección, aplicados antes de paginar. La UI agrega esos selectores,
+reinicia la página al cambiar/limpiar y conserva la independencia del historial
+por estudiante. No añade reglas de matrícula, cupo ni promoción.
+
+| Implementación | Prueba verificable | Alcance |
+| --- | --- | --- |
+| `backend/apps/enrolments/{services.py,api/serializers.py,api/views.py}` | `backend/tests/api/test_enrolment_filters_api.py` | Intersección antes de paginar, registros activos, UUID, filtros sin coincidencias y sesión; mismo contrato que PR #638 |
+| `frontend/src/enrolments/{EnrolmentsPage.jsx,EnrolmentAcademicFilters.jsx,academicFilters.js}` | `frontend/src/test/{EnrolmentAcademicFilters.test.jsx,newModulePages.test.jsx,moduleServices.test.js}` | Peticiones filtradas, página 1, limpiar, historial, secciones paginadas, errores/reintento y respuestas tardías |
+
+Diseño, ADR y límites en [M5](../architecture/enrolment-filters-ui.md).
+Integración y aceptación institucional pendientes; `useServerList` y URL dependen
+de #630. El buscador remoto de estudiante y nombres anidados corresponden a #636.
+No se declara cerrado #632 ni otros hallazgos de Matrículas.
+
 ## Evidencia de documentos, contratos API y QA4-PDF-01 — aporte de Roí
 
 La siguiente evidencia complementa las filas canónicas sin cambiar un
