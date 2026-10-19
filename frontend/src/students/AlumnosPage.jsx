@@ -1,3 +1,5 @@
+import { StudentGuardianRelations } from "./StudentGuardianRelations.jsx";
+import { StudentRecordWindow } from "./StudentRecordWindow.jsx";
 import { useCallback, useState } from "react";
 
 import Avatar from "@mui/material/Avatar";
@@ -145,98 +147,16 @@ export function AlumnosPage() {
   // solo, despues, debajo de quien escribe, es peor que uno vacio.
   const [creating, setCreating] = useState(null);
   const [viewingPhoto, setViewingPhoto] = useState(null);
-  const [healthOpen, setHealthOpen] = useState(false);
-  const [healthNotes, setHealthNotes] = useState([]);
-  const [healthError, setHealthError] = useState("");
-  const [creatingHealthNote, setCreatingHealthNote] = useState(false);
-  const [observationsOpen, setObservationsOpen] = useState(false);
-  const [observations, setObservations] = useState([]);
-  const [observationError, setObservationError] = useState("");
-  const [creatingObservation, setCreatingObservation] = useState(false);
-  const [emergencyContactsOpen, setEmergencyContactsOpen] = useState(false);
-  const [emergencyContacts, setEmergencyContacts] = useState([]);
-  const [emergencyContactError, setEmergencyContactError] = useState("");
-  const [creatingEmergencyContact, setCreatingEmergencyContact] =
-    useState(false);
-
-  const openHealth = async () => {
-    setHealthError("");
-    try {
-      setHealthNotes(await studentsService.listHealthNotes(selected.public_id));
-      setHealthOpen(true);
-    } catch (error) {
-      setHealthError(error.message);
-    }
-  };
-
-  const handleCreateHealthNote = async (values) => {
-    const created = await studentsService.createHealthNote(
-      selected.public_id,
-      values
-    );
-    setHealthNotes((current) => [created, ...current]);
-    setCreatingHealthNote(false);
-  };
-
-  const openObservations = async () => {
-    setObservationError("");
-    try {
-      setObservations(
-        await studentsService.listObservations(selected.public_id)
-      );
-      setObservationsOpen(true);
-    } catch (error) {
-      setObservationError(error.message);
-    }
-  };
-
-  const handleCreateObservation = async (values) => {
-    const created = await studentsService.createObservation(
-      selected.public_id,
-      values
-    );
-    setObservations((current) => [created, ...current]);
-    setCreatingObservation(false);
-  };
-
-  const openEmergencyContacts = async () => {
-    setEmergencyContactError("");
-    try {
-      setEmergencyContacts(
-        await studentsService.listEmergencyContacts(selected.public_id)
-      );
-      setEmergencyContactsOpen(true);
-    } catch (error) {
-      setEmergencyContactError(error.message);
-    }
-  };
-
-  const handleCreateEmergencyContact = async (values) => {
-    const created = await studentsService.createEmergencyContact(
-      selected.public_id,
-      values
-    );
-    setEmergencyContacts((current) => [created, ...current]);
-    setCreatingEmergencyContact(false);
-  };
-
-  const [guardianRelations, setGuardianRelations] = useState([]);
+  const [recordKind, setRecordKind] = useState(null);
+  const [guardianVersion, setGuardianVersion] = useState(0);
   const [availableGuardians, setAvailableGuardians] = useState([]);
   const [linkingGuardian, setLinkingGuardian] = useState(false);
   const [guardianError, setGuardianError] = useState("");
 
-  const handleSelect = async (student) => {
+  const handleSelect = (student) => {
     setSelected(student);
-    setGuardianRelations([]);
     setGuardianError("");
-    try {
-      const relations = await studentsService.listGuardianRelations();
-      setGuardianRelations(
-        relations.filter((relation) => relation.student === student.id)
-      );
-    } catch (error) {
-      setGuardianError(error.message);
-    }
+    setRecordKind(null);
   };
 
   const openGuardianLink = async () => {
@@ -250,12 +170,12 @@ export function AlumnosPage() {
   };
 
   const handleGuardianLink = async (values) => {
-    const created = await studentsService.createGuardianRelation({
+    await studentsService.createGuardianRelation({
       student: selected.id,
       guardian: Number(values.guardian),
       relationship_label: values.relationship_label,
     });
-    setGuardianRelations((current) => [...current, created]);
+    setGuardianVersion((value) => value + 1);
     setLinkingGuardian(false);
   };
 
@@ -294,6 +214,11 @@ export function AlumnosPage() {
         last_name: values.last_name,
         email: values.email,
         phone_number: values.phone_number,
+        sex: values.sex,
+        nationality: values.nationality,
+        address: values.address,
+        department: values.department,
+        municipality: values.municipality,
       },
       student_code: values.student_code,
       status: values.status,
@@ -425,13 +350,22 @@ export function AlumnosPage() {
         actions={
           selected ? (
             <Stack direction="row" gap={1}>
-              <Button onClick={openHealth} variant="outlined">
+              <Button
+                onClick={() => setRecordKind("health")}
+                variant="outlined"
+              >
                 Salud
               </Button>
-              <Button onClick={openObservations} variant="outlined">
+              <Button
+                onClick={() => setRecordKind("observations")}
+                variant="outlined"
+              >
                 Observaciones
               </Button>
-              <Button onClick={openEmergencyContacts} variant="outlined">
+              <Button
+                onClick={() => setRecordKind("contacts")}
+                variant="outlined"
+              >
                 Contactos de emergencia
               </Button>
               <Button onClick={openGuardianLink} variant="outlined">
@@ -491,23 +425,11 @@ export function AlumnosPage() {
                   label: "Encargados",
                   value: guardianError ? (
                     <Alert severity="error">{guardianError}</Alert>
-                  ) : guardianRelations.length ? (
-                    <Stack gap={0.75}>
-                      {guardianRelations.map((relation) => (
-                        <Box key={relation.id}>
-                          <Typography fontWeight={600} variant="body2">
-                            {fullName(relation.guardian_detail)}
-                          </Typography>
-                          <Typography color="text.secondary" variant="body2">
-                            {relation.relationship_label}
-                            {relation.is_primary ? " · Principal" : ""}
-                            {relation.ends_at ? " · Finalizado" : ""}
-                          </Typography>
-                        </Box>
-                      ))}
-                    </Stack>
                   ) : (
-                    <MutedCell>Sin encargados vinculados</MutedCell>
+                    <StudentGuardianRelations
+                      key={`${selected.public_id}:${guardianVersion}`}
+                      studentPublicId={selected.public_id}
+                    />
                   ),
                 },
               ]
@@ -516,183 +438,21 @@ export function AlumnosPage() {
         onClose={() => {
           setSelected(null);
           setViewingPhoto(null);
-          setHealthOpen(false);
-          setHealthNotes([]);
-          setHealthError("");
-          setObservationsOpen(false);
-          setObservations([]);
-          setObservationError("");
-          setEmergencyContactsOpen(false);
-          setEmergencyContacts([]);
-          setEmergencyContactError("");
-          setGuardianRelations([]);
+          setRecordKind(null);
           setGuardianError("");
         }}
         open={Boolean(selected)}
         title={selected ? fullName(selected) : ""}
       />
 
-      <DetailWindow
-        actions={
-          <Button
-            onClick={() => setCreatingHealthNote(true)}
-            variant="contained"
-          >
-            Nueva nota
-          </Button>
-        }
-        fields={[
-          {
-            label: "Notas de salud",
-            value: healthError ? (
-              <Alert severity="error">{healthError}</Alert>
-            ) : healthNotes.length ? (
-              <Stack gap={1}>
-                {healthNotes.map((note) => (
-                  <Box key={note.public_id}>
-                    <Typography fontWeight={600} variant="body2">
-                      {note.recorded_on} · {note.author}
-                    </Typography>
-                    <Typography variant="body2">{note.content}</Typography>
-                  </Box>
-                ))}
-              </Stack>
-            ) : (
-              <MutedCell>Sin notas de salud</MutedCell>
-            ),
-          },
-        ]}
-        onClose={() => setHealthOpen(false)}
-        open={healthOpen}
-        title={selected ? `Salud de ${fullName(selected)}` : "Salud"}
-      />
-
-      <EntityFormWindow
-        fields={[
-          { name: "content", label: "Información de salud", required: true },
-        ]}
-        initialValues={{ content: "" }}
-        key={creatingHealthNote ? `health-${selected?.id}` : "health-closed"}
-        onCancel={() => setCreatingHealthNote(false)}
-        onSubmit={handleCreateHealthNote}
-        open={creatingHealthNote}
-        submitLabel="Registrar nota"
-        title="Nueva nota de salud"
-      />
-
-      <DetailWindow
-        actions={
-          <Button
-            onClick={() => setCreatingObservation(true)}
-            variant="contained"
-          >
-            Nueva observación
-          </Button>
-        }
-        fields={[
-          {
-            label: "Observaciones sensibles",
-            value: observationError ? (
-              <Alert severity="error">{observationError}</Alert>
-            ) : observations.length ? (
-              <Stack gap={1}>
-                {observations.map((observation) => (
-                  <Box key={observation.public_id}>
-                    <Typography fontWeight={600} variant="body2">
-                      {observation.observed_on} · {observation.author}
-                    </Typography>
-                    <Typography variant="body2">
-                      {observation.description}
-                    </Typography>
-                  </Box>
-                ))}
-              </Stack>
-            ) : (
-              <MutedCell>Sin observaciones</MutedCell>
-            ),
-          },
-        ]}
-        onClose={() => setObservationsOpen(false)}
-        open={observationsOpen}
-        title={
-          selected ? `Observaciones de ${fullName(selected)}` : "Observaciones"
-        }
-      />
-
-      <EntityFormWindow
-        fields={[{ name: "description", label: "Descripción", required: true }]}
-        initialValues={{ description: "" }}
-        key={
-          creatingObservation
-            ? `observation-${selected?.id}`
-            : "observation-closed"
-        }
-        onCancel={() => setCreatingObservation(false)}
-        onSubmit={handleCreateObservation}
-        open={creatingObservation}
-        submitLabel="Registrar observación"
-        title="Nueva observación"
-      />
-
-      <DetailWindow
-        actions={
-          <Button
-            onClick={() => setCreatingEmergencyContact(true)}
-            variant="contained"
-          >
-            Nuevo contacto
-          </Button>
-        }
-        fields={[
-          {
-            label: "Contactos de emergencia",
-            value: emergencyContactError ? (
-              <Alert severity="error">{emergencyContactError}</Alert>
-            ) : emergencyContacts.length ? (
-              <Stack gap={1}>
-                {emergencyContacts.map((contact) => (
-                  <Box key={contact.public_id}>
-                    <Typography fontWeight={600} variant="body2">
-                      {contact.name} · {contact.relationship_label}
-                    </Typography>
-                    <Typography variant="body2">
-                      {contact.phone_number}
-                    </Typography>
-                  </Box>
-                ))}
-              </Stack>
-            ) : (
-              <MutedCell>Sin contactos de emergencia</MutedCell>
-            ),
-          },
-        ]}
-        onClose={() => setEmergencyContactsOpen(false)}
-        open={emergencyContactsOpen}
-        title={selected ? `Contactos de ${fullName(selected)}` : "Contactos"}
-      />
-
-      <EntityFormWindow
-        fields={[
-          { name: "name", label: "Nombre", required: true },
-          { name: "phone_number", label: "Teléfono", required: true },
-          {
-            name: "relationship_label",
-            label: "Relación",
-            required: true,
-          },
-        ]}
-        initialValues={{ name: "", phone_number: "", relationship_label: "" }}
-        key={
-          creatingEmergencyContact
-            ? `emergency-contact-${selected?.id}`
-            : "emergency-contact-closed"
-        }
-        onCancel={() => setCreatingEmergencyContact(false)}
-        onSubmit={handleCreateEmergencyContact}
-        open={creatingEmergencyContact}
-        submitLabel="Registrar contacto"
-        title="Nuevo contacto de emergencia"
-      />
+      {recordKind && selected ? (
+        <StudentRecordWindow
+          key={`${selected.public_id}:${recordKind}`}
+          kind={recordKind}
+          onClose={() => setRecordKind(null)}
+          student={selected}
+        />
+      ) : null}
 
       <ImageDialog
         alt={selected ? fullName(selected) : ""}

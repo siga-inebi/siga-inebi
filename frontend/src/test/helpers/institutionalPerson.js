@@ -17,6 +17,28 @@ export const institutionalPerson = {
   ...visibleInstitutionalPerson,
 };
 
+export const editedInstitutionalPerson = {
+  sex: "male",
+  nationality: "Salvadoreña",
+  address: "Calle de prueba 42",
+  department: "Quetzaltenango",
+  municipality: "Salcaja",
+};
+
+export async function editInstitutionalPerson(user) {
+  await selectOption(user, /^Sexo/, "Masculino");
+  for (const [label, name] of [
+    [/^Nacionalidad/, "nationality"],
+    [/^Dirección/, "address"],
+    [/^Departamento/, "department"],
+    [/^Municipio/, "municipality"],
+  ]) {
+    fireEvent.change(screen.getByLabelText(label), {
+      target: { value: editedInstitutionalPerson[name] },
+    });
+  }
+}
+
 export async function fillInstitutionalPerson(user) {
   fireEvent.change(screen.getByLabelText(/^CUI/), {
     target: { value: institutionalPerson.cui },
