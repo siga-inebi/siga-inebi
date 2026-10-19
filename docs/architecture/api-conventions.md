@@ -115,6 +115,14 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   principal.
 - `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
   Debe incluir `replacement_relation` al terminar la relacion principal.
+- `PATCH /api/v1/students/guardian-relations/{id}/` permite corregir exclusivamente
+  `relationship_label`, con `student.edit_basic` y alcance. No modifica identidades,
+  fechas, principal o actividad; campos adicionales se rechazan con 400. Antes era 405.
+  El cambio se audita con valor anterior/nuevo y se revierte si falla la auditoria.
+- El listado del expediente `/students/records/{public_id}/guardians/` agrega
+  capacidades `actions` calculadas en servidor y acepta `replacement_for={id}` para
+  consultar reemplazos validos del mismo estudiante por paginas. Ver
+  [contratos y evidencia E5](guardian-relation-actions-ui.md).
 
 ## Observaciones del estudiante
 

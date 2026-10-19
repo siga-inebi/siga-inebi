@@ -265,6 +265,43 @@ def create_student_guardian_relation(
 
 
 @transaction.atomic
+def update_student_guardian_relation(*, relation, relationship_label, actor=None):
+    """Correct the description without changing identity, dates or access."""
+    label = _clean_text(relationship_label, field="relationship label")
+    if len(label) > 100:
+        raise DomainError("El parentesco o responsabilidad no puede superar 100 caracteres.")
+    Student.objects.select_for_update().get(pk=relation.student_id)
+    relation = StudentGuardianRelation.objects.select_for_update().get(pk=relation.pk)
+    previous = relation.relationship_label
+    relation.relationship_label = label
+    relation.save(update_fields=["relationship_label", "updated_at"])
+    record_event(
+        actor=actor,
+        action="students.student_guardian_relation.updated",
+        resource="StudentGuardianRelation",
+        resource_identifier=str(relation.pk),
+        context={"student_id": relation.student_id, "guardian_id": relation.guardian_id},
+        changes={"relationship_label": {"before": previous, "after": label}},
+    )
+    return relation
+
+
+def guardian_relation_actions(*, relation, can_manage):
+    """Presentation capabilities; mutation services remain authoritative."""
+    return {
+        "edit": can_manage,
+        "make_primary": (
+            can_manage
+            and relation.is_active
+            and relation.ends_at is None
+            and not relation.is_primary
+        ),
+        "end": can_manage and relation.ends_at is None,
+        "requires_replacement": relation.is_primary,
+    }
+
+
+@transaction.atomic
 def change_primary_student_guardian_relation(*, relation, actor=None):
     """Atomically select one current relationship as the student's primary link."""
     student = Student.objects.select_for_update().get(pk=relation.student_id)

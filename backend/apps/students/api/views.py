@@ -14,10 +14,13 @@ from apps.students.api.serializers import (
     GuardianSerializer,
     StudentGuardianRelationEndSerializer,
     StudentGuardianRelationSerializer,
+    StudentGuardianRelationUpdateSerializer,
     StudentHealthNoteCreateSerializer,
     StudentHealthNoteSerializer,
     StudentObservationCreateSerializer,
     StudentObservationSerializer,
+    StudentRecordGuardianRelationSerializer,
+    StudentRecordGuardiansQuerySerializer,
     StudentSerializer,
     SuggestedStudentCodeSerializer,
 )
@@ -99,13 +102,18 @@ class StudentDossierDetailView(StudentDetailView):
     http_method_names = ["get", "head", "options"]
 
 
+@extend_schema_view(get=extend_schema(parameters=[StudentRecordGuardiansQuerySerializer]))
 class StudentRecordGuardiansView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = StudentGuardianRelationSerializer
+    serializer_class = StudentRecordGuardianRelationSerializer
 
     def get_queryset(self):
+        params = StudentRecordGuardiansQuerySerializer(data=self.request.query_params)
+        params.is_valid(raise_exception=True)
         return queries.guardian_relations_for_record(
-            actor=self.request.user, student_public_id=self.kwargs["public_id"]
+            actor=self.request.user,
+            student_public_id=self.kwargs["public_id"],
+            **params.validated_data,
         )
 
 
@@ -147,18 +155,32 @@ class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
 
 
 class StudentGuardianRelationDetailView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentGuardianRelationSerializer
+
+    @extend_schema(request=StudentGuardianRelationUpdateSerializer)
+    def patch(self, request, pk):
+        relation = self.get_object()
+        serializer = StudentGuardianRelationUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated = services.update_student_guardian_relation(
+            relation=relation, actor=request.user, **serializer.validated_data
+        )
+        return Response(self.get_serializer(updated).data)
 
     def get_queryset(self):
         return queries.guardian_relations().filter(
             student__in=authorized_student_queryset(
                 user=self.request.user,
-                codename="student_view_basic",
+                codename=(
+                    "student_edit_basic" if self.request.method == "PATCH" else "student_view_basic"
+                ),
             )
         )
 
 
 class StudentGuardianRelationPrimaryView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):
@@ -176,6 +198,7 @@ class StudentGuardianRelationPrimaryView(GenericAPIView):
 
 
 class StudentGuardianRelationEndView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentGuardianRelationEndSerializer
 
     def get_queryset(self):

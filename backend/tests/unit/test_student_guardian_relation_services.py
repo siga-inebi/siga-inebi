@@ -7,6 +7,7 @@ from apps.students.services import (
     change_primary_student_guardian_relation,
     create_student_guardian_relation,
     end_student_guardian_relation,
+    update_student_guardian_relation,
 )
 from tests.factories.students import GuardianFactory, StudentFactory
 
@@ -113,3 +114,35 @@ def test_change_primary_replaces_the_current_primary():
     second.refresh_from_db()
     assert first.is_primary is False
     assert second.is_primary is True
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_relation_edit_rolls_back_when_audit_fails(monkeypatch):
+    relation = create_student_guardian_relation(
+        student=StudentFactory(),
+        guardian=GuardianFactory(),
+        relationship_label="Madre",
+    )
+
+    def fail(**kwargs):
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr("apps.students.services.record_event", fail)
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        update_student_guardian_relation(relation=relation, relationship_label="Tutor")
+    relation.refresh_from_db()
+    assert relation.relationship_label == "Madre"
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+@pytest.mark.parametrize("label", [" ", "x" * 101])
+def test_relation_edit_validates_description_in_domain(label):
+    relation = create_student_guardian_relation(
+        student=StudentFactory(),
+        guardian=GuardianFactory(),
+        relationship_label="Madre",
+    )
+    with pytest.raises(DomainError):
+        update_student_guardian_relation(relation=relation, relationship_label=label)

@@ -212,8 +212,9 @@ def test_retrieve_missing_student_guardian_relation_returns_404(logged_in_client
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_direct_student_guardian_relation_update_is_not_available(logged_in_client):
+def test_student_guardian_relation_description_can_be_corrected(logged_in_client):
     relation = StudentGuardianRelationFactory(relationship_label="Padre")
+    _grant_student_permission(logged_in_client.user, "student_edit_basic", relation.student)
 
     response = logged_in_client.patch(
         reverse("student-guardian-relation-detail", args=[relation.pk]),
@@ -221,9 +222,9 @@ def test_direct_student_guardian_relation_update_is_not_available(logged_in_clie
         content_type="application/json",
     )
 
-    assert response.status_code == 405
+    assert response.status_code == 200
     relation.refresh_from_db()
-    assert relation.relationship_label == "Padre"
+    assert relation.relationship_label == "Tutor"
 
 
 @pytest.mark.api
