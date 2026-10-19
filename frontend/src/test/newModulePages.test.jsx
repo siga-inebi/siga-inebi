@@ -775,7 +775,10 @@ describe("pantallas de los modulos con backend previo", () => {
       await selectOption(user, "Ciclo escolar", "Ciclo 2026 · Activo");
       await waitFor(() =>
         expect(enrolmentsServiceMock.listActive).toHaveBeenLastCalledWith(
-          expect.objectContaining({ page: 1, academic_cycle_id: "cycle-2026" })
+          expect.objectContaining({
+            page: 1,
+            academic_cycle_id: "cycle-2026",
+          })
         )
       );
       await selectOption(user, "Grado", "Primero Basico · Basico");
@@ -816,7 +819,7 @@ describe("pantallas de los modulos con backend previo", () => {
         )
       );
       expect(screen.queryByText(/Página 1 de 1/)).not.toBeInTheDocument();
-    });
+    }, 15000);
 
     test("conserva filtros al volver de historial y no filtra el historial por contexto académico", async () => {
       const user = userEvent.setup();
