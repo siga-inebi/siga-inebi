@@ -4,6 +4,7 @@ from apps.audit.services import record_event
 from apps.common.codes import create_with_generated_code, next_sequential_code
 from apps.common.db import unique_violation_as
 from apps.people.models import Person
+from apps.teachers.authorization import require_teacher_deactivation
 from apps.teachers.models import Teacher
 
 # Serie del codigo de empleado: "DOC-007".
@@ -79,14 +80,22 @@ def create_teacher(
     return teacher
 
 
-def deactivate_teacher(*, teacher, actor=None):
-    teacher.is_active = False
-    teacher.save(update_fields=["is_active", "updated_at"])
-    record_event(
-        actor=actor,
-        action="teachers.teacher.deactivated",
-        resource="Teacher",
-        resource_identifier=str(teacher.pk),
-        context={"employee_code": teacher.employee_code},
-    )
+def deactivate_teacher(*, teacher, actor):
+    require_teacher_deactivation(actor=actor, teacher=teacher)
+    with transaction.atomic():
+        teacher = Teacher.objects.select_for_update().get(pk=teacher.pk)
+        if not teacher.is_active:
+            return teacher
+        teacher.is_active = False
+        teacher.save(update_fields=["is_active", "updated_at"])
+        record_event(
+            actor=actor,
+            action="teachers.teacher.deactivated",
+            resource="Teacher",
+            resource_identifier=str(teacher.pk),
+            context={
+                "employee_code": teacher.employee_code,
+                "is_active": {"old": True, "new": False},
+            },
+        )
     return teacher

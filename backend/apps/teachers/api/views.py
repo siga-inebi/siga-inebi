@@ -51,8 +51,17 @@ class TeacherNextCodeView(GenericAPIView):
         )
 
 
+class TeacherActionsContextMixin:
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["teacher_action_permissions"] = queries.teacher_action_permissions(
+            actor=self.request.user
+        )
+        return context
+
+
 @extend_schema_view(get=extend_schema(parameters=[TeacherListQuerySerializer]))
-class TeacherListCreateView(generics.ListCreateAPIView):
+class TeacherListCreateView(TeacherActionsContextMixin, generics.ListCreateAPIView):
     serializer_class = TeacherSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["employee_code", "person__first_name", "person__last_name", "person__cui"]
@@ -63,7 +72,19 @@ class TeacherListCreateView(generics.ListCreateAPIView):
         return queries.teachers(**params.validated_data)
 
 
-class TeacherDetailView(generics.RetrieveUpdateDestroyAPIView):
+@extend_schema_view(
+    delete=extend_schema(
+        summary="Desactivar el perfil docente",
+        description=(
+            "Requiere teacher.deactivate con alcance teachers (o superusuario). "
+            "Conserva persona, cuenta, asignaciones y documentos. Es idempotente; "
+            "la baja y su auditoría se confirman en una transacción."
+        ),
+        responses={204: None},
+    )
+)
+class TeacherDetailView(TeacherActionsContextMixin, generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = TeacherSerializer
 
     def get_queryset(self):

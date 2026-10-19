@@ -35,6 +35,7 @@ institución, módulo).
 | Estudiantes | Exportar CSV | `GET /students/` (todas las páginas) | `student.view_basic` con alcance |
 | Docentes | Nuevo docente / Crear registro | `POST /teachers/` | **Sin control de permiso** |
 | Docentes | Editar / Guardar cambios | `PATCH /teachers/{id}/` | **Sin control de permiso** |
+| Docentes | Desactivar docente (T3, #632) | `DELETE /teachers/{id}/` | `teacher.deactivate` con alcance `teachers`; capacidad del servidor y nueva validación al escribir; no autoriza editar, crear ni desactivar la cuenta |
 | Docentes | Documentos → Adjuntar documento | `POST /documents/teachers/{id}/records/` | `document.upload` con alcance (módulo `teachers`) |
 | Docentes | Documentos → Descargar | `POST /documents/records/{id}/download-tokens/` | `document.read` con alcance (módulo `teachers`) |
 | Docentes | Exportar CSV | `GET /teachers/` | **Sin control de permiso** |

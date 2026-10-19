@@ -47,6 +47,12 @@ const TeacherDocumentsWindow = lazy(() =>
   }))
 );
 
+const TeacherDeactivationDialog = lazy(() =>
+  import("@teachers/TeacherDeactivationDialog.jsx").then((module) => ({
+    default: module.TeacherDeactivationDialog,
+  }))
+);
+
 const TEACHER_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
   { name: "last_name", label: "Apellidos", required: true },
@@ -159,6 +165,8 @@ export function DocentesPage() {
   const [selected, setSelected] = useState(null);
   // "Qué imparte" consulta un listado que exige administrar asignaciones.
   const canSeeAssignments = usePermissions().can(PERMISSION.SCOPE_ASSIGN);
+  const [deactivating, setDeactivating] = useState(null);
+  const [deactivationNotice, setDeactivationNotice] = useState("");
   const [editing, setEditing] = useState(null);
   // Valores iniciales, no un booleano: ver el comentario homonimo en
   // AlumnosPage. El codigo sugerido se pide al abrir.
@@ -255,7 +263,7 @@ export function DocentesPage() {
       <PageHeader
         action={
           <Button
-            disabled={!positionsReady}
+            disabled={!positionsReady || Boolean(deactivating)}
             onClick={async () =>
               setCreating({
                 ...EMPTY_TEACHER,
@@ -279,6 +287,11 @@ export function DocentesPage() {
         title="Docentes y administrativos"
       />
 
+      {deactivationNotice ? (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {deactivationNotice}
+        </Alert>
+      ) : null}
       <SectionCard fillHeight>
         <FilterBar
           actions={
@@ -361,7 +374,9 @@ export function DocentesPage() {
               }
               fillHeight
               loading={updating}
-              onRowClick={setSelected}
+              onRowClick={(teacher) => {
+                if (!deactivating) setSelected(teacher);
+              }}
               pagination={list.pagination}
               rows={list.items}
             />
@@ -395,6 +410,17 @@ export function DocentesPage() {
               >
                 Editar
               </Button>
+              {selected.actions?.deactivate === true ? (
+                <Button
+                  color="error"
+                  onClick={() => {
+                    setDeactivating(selected);
+                    setSelected(null);
+                  }}
+                >
+                  Desactivar docente
+                </Button>
+              ) : null}
             </>
           ) : null
         }
@@ -402,6 +428,19 @@ export function DocentesPage() {
           selected
             ? [
                 { label: "Nombre completo", value: fullName(selected) },
+                {
+                  label: "Actividad del perfil",
+                  value: (
+                    <StatusChip
+                      label={
+                        selected.is_active === false ? "Desactivado" : "Activo"
+                      }
+                      variant={
+                        selected.is_active === false ? "neutral" : "success"
+                      }
+                    />
+                  ),
+                },
                 { label: "Especialidad", value: selected.specialty },
                 {
                   label: "Puesto",
@@ -468,6 +507,25 @@ export function DocentesPage() {
           </Suspense>
         ) : null}
       </DetailWindow>
+
+      {deactivating ? (
+        <Suspense fallback={<p role="status">Preparando confirmación…</p>}>
+          <TeacherDeactivationDialog
+            teacher={deactivating}
+            onCancel={() => {
+              setSelected(deactivating);
+              setDeactivating(null);
+            }}
+            onCompleted={() => {
+              setDeactivating(null);
+              setDeactivationNotice(
+                "Docente desactivado. El historial se conserva."
+              );
+              list.refresh();
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       {documentsFor ? (
         <Suspense fallback={<p role="status">Cargando documentos…</p>}>
