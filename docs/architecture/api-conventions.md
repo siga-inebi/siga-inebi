@@ -491,7 +491,68 @@ Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad edu
   sus permisos dejan de ser efectivos. Un encargado conserva su cuenta y otros estudiantes
   vigentes, pero pierde el alcance derivado sobre el estudiante retirado.
 
+## Uso de emisión de plantillas (#632, D7)
 
+`DocumentTemplate` y sus versiones agregan `issuance_use`:
+
+| Código | Etiqueta | Regla |
+| --- | --- | --- |
+| `none` | Ninguna | No selecciona una emisión automática; admite varias plantillas activas. |
+| `enrolment_certificate` | Constancia de inscripción | Como máximo una activa por institución. |
+| `study_certificate` | Certificado de estudios | Como máximo una activa por institución. |
+
+`kind` conserva el código del catálogo institucional como clasificación; no decide qué plantilla
+usa la emisión individual. Se conservan los campos existentes y los endpoints de alta, actualización,
+baja lógica, versiones y vista previa. La emisión selecciona la última versión publicada de la
+plantilla activa del uso solicitado, independientemente del código de tipo.
+
+`POST /api/v1/documents/templates/` acepta el uso opcional, predeterminado `none`.
+`PATCH /api/v1/documents/templates/{public_id}/` lo acepta opcional: omitir conserva el valor.
+Un uso vacío, desconocido o `null` devuelve HTTP 400 con error de campo. No se infiere el uso
+de plantillas nuevas a partir de tipos legados. Las versiones nuevas guardan también su uso.
+
+Si el uso elegido está ocupado, el alta/actualización debe incluir `replaces_template_id`, UUID
+público de la plantilla activa que se confirma reemplazar. Sin confirmación se devuelve HTTP 400.
+Si la activa cambió, se rechaza con HTTP 400 y no se reemplaza la nueva ocupante. Un UUID de otra
+institución, de otro uso, propio, desactivado o sin ocupante coincidente tampoco autoriza reemplazo.
+La interfaz refresca disponibilidad ante error y exige confirmar el nuevo UUID, conservando el
+borrador. No se acepta un booleano que autorice reemplazar cualquier ocupante futuro.
+
+Reemplazar desactiva la anterior y crea/publica la nueva versión dentro de una transacción. Si falla
+la unicidad del código o la publicación de versión se revierte todo, incluidos los asientos de esa
+operación. Se conservan las versiones y emisiones anteriores. Guardar una plantilla desactivada
+no la reactiva. Los servicios serializan escrituras mediante bloqueo de institución y la restricción
+parcial de PostgreSQL protege la unicidad por uso. La auditoría identifica uso y plantillas afectadas.
+
+`GET /api/v1/documents/templates/issuance-uses/` devuelve un arreglo cerrado, no paginado, de dos
+elementos, correspondientes a los usos de emisión distintos de `none`:
+
+```json
+[
+  {"code": "enrolment_certificate", "label": "Constancia de inscripción", "active_template": null, "uses_fallback": true},
+  {"code": "study_certificate", "label": "Certificado de estudios", "active_template": {"public_id": "00000000-0000-0000-0000-000000000001", "name": "Certificado de ejemplo"}, "uses_fallback": false}
+]
+```
+
+Son datos de ejemplo. `uses_fallback=true` si falta plantilla, versión publicada o contenido de esa
+versión; el emisor conserva el texto predeterminado y la pantalla avisa. La consulta es institucional,
+requiere sesión y resuelve las últimas versiones en una consulta, sin descargar el catálogo completo.
+Las escrituras mantienen `scope_assign` con alcance institucional del catálogo existente.
+
+La migración `documents.0016_template_issuance_use` asigna usos a las activas legadas de tipo
+`constancia`/`certificate` y añade metadatos a las versiones según su código histórico. No cambia
+contenido, secuencia, fechas, identificadores ni referencias de emisiones anteriores. Antes de
+revertir deben resolverse explícitamente las activas del mismo tipo que violarían la restricción
+anterior; la reversión no desactiva filas ni borra historia automáticamente.
+
+La vista previa conserva `POST .../{public_id}/preview/` con `{payload: {...}}`. La interfaz aporta
+valores sintéticos no vacíos para las ocho etiquetas del catálogo. El sustituidor seguro compartido
+con emisión admite espacios dentro de `{{ ... }}` y rechaza marcadores no autorizados. No guarda
+versiones ni emite documentos. PDF real y vista previa de borradores sin guardar pertenecen a D4,
+PL4/PL6/PL10 y continúan pendientes.
+
+Decisión y evidencia: [ADR-0011, aporte D7](../decisions/ADR-0011-template-issuance-use.md) y
+[entrega de plantillas](../development/632-template-issuance-use.md).
 ## Edición de persona desde comunidad educativa (#632: E1, T1, G1)
 
 - Los formularios de estudiantes, docentes y encargados envían los datos de persona a

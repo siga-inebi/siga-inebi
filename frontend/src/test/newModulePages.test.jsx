@@ -39,6 +39,7 @@ const documentsServiceMock = vi.hoisted(() => ({
   updateType: vi.fn(),
   deactivateType: vi.fn(),
   listTemplates: vi.fn(),
+  listTemplateIssuanceUses: vi.fn(),
   getTemplate: vi.fn(),
   createTemplate: vi.fn(),
   updateTemplate: vi.fn(),
@@ -769,6 +770,23 @@ describe("pantallas de los modulos con backend previo", () => {
   });
 
   describe("TemplatesPage", () => {
+    beforeEach(() => {
+      documentsServiceMock.listTemplateIssuanceUses.mockResolvedValue([
+        {
+          code: "enrolment_certificate",
+          label: "Constancia de inscripcion",
+          active_template: null,
+          uses_fallback: true,
+        },
+        {
+          code: "study_certificate",
+          label: "Certificado de estudios",
+          active_template: null,
+          uses_fallback: true,
+        },
+      ]);
+    });
+
     test("el selector de tipo se llena con el catalogo del backend", async () => {
       const user = userEvent.setup();
       renderWithRouter(<TemplatesPage />);

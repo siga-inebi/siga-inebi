@@ -1,11 +1,14 @@
 """Read-side queries for the documents domain."""
 
+from django.db.models import OuterRef, Subquery
+
 from apps.common.exceptions import ResourceNotFoundError
 from apps.documents.models import (
     DocumentIssuance,
     DocumentKind,
     DocumentRecord,
     DocumentTemplate,
+    DocumentTemplateVersion,
 )
 from apps.enrolments.models import Enrolment
 from apps.students.models import Student
@@ -56,6 +59,34 @@ def document_template_or_404(institution, public_id):
 
 def document_template_versions(template):
     return template.versions.all()
+
+
+def template_issuance_uses(institution):
+    latest = DocumentTemplateVersion.objects.filter(template_id=OuterRef("pk")).order_by(
+        "-sequence"
+    )
+    templates = (
+        DocumentTemplate.objects.filter(institution=institution, is_active=True)
+        .exclude(issuance_use=DocumentTemplate.IssuanceUse.NONE)
+        .annotate(latest_content=Subquery(latest.values("content")[:1]))
+    )
+    active = {template.issuance_use: template for template in templates}
+    result = []
+    for code, label in DocumentTemplate.IssuanceUse.choices:
+        if code == DocumentTemplate.IssuanceUse.NONE:
+            continue
+        template = active.get(code)
+        result.append(
+            {
+                "code": code,
+                "label": label,
+                "active_template": {"public_id": template.public_id, "name": template.name}
+                if template
+                else None,
+                "uses_fallback": not template or not (template.latest_content or "").strip(),
+            }
+        )
+    return result
 
 
 def enrolment_or_404(public_id):
