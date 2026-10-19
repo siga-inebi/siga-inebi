@@ -1,212 +1,172 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
-import CircularProgress from "@mui/material/CircularProgress";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { enrolmentsService } from "@enrolments/enrolmentsService.js";
-import { collectAllPages } from "@shared/api/pages.js";
-import { BatchResultAlert } from "@shared/crud/BatchResultAlert.jsx";
-import { useBatchSubmit } from "@shared/crud/useBatchSubmit.js";
+import { SectionOccupancyNotice } from "./SectionOccupancyNotice.jsx";
 import {
   sectionsForCycle,
-  studentOption,
   useCycleCatalog,
   useSectionCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
-import { useSearchableCatalog } from "@shared/catalogs/useSearchableCatalog.js";
-import { studentsService } from "@students/studentsService.js";
-import { EmptyState } from "@ui/feedback/EmptyState.jsx";
+import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { SearchField } from "@ui/filters/SearchField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 
-/**
- * Matriculacion por lotes: una seccion, varios estudiantes.
- *
- * Matricular un grado entero de uno en uno son treinta y cinco formularios
- * identicos salvo el nombre. Aqui el ciclo, la seccion y la fecha se eligen una
- * vez y lo que se marca es a quien matricular.
- *
- * La lista solo ofrece a quien NO tiene matricula vigente en ese ciclo: el
- * backend rechaza la segunda, y mostrar candidatos imposibles solo produce
- * errores que la persona no provoco.
- *
- * El estudiante se busca por texto en el backend (`?search=`), no se trae el
- * catalogo completo para filtrar en el cliente: con miles de estudiantes esta
- * ventana pedia 4 paginas enteras solo para poder escribir un nombre. Por eso
- * la lista arranca vacia — hay que escribir para ver candidatos, no hay un
- * listado inicial que mostrar sin pedirlo entero.
- *
- * Cada alta va por separado — no hay endpoint de lote — y el cupo se valida del
- * lado del servidor: si la seccion se llena a mitad del lote, las que entraron
- * quedan y el resumen dice cuales no.
- */
+const EMPTY_LOADER = () => Promise.resolve({ count: 0, results: [] });
+const STATUS = {
+  ready: "Lista para matricular",
+  created: "Creada",
+  existing: "Ya registrada",
+  error: "No procesada",
+};
+const label = (student) => `${student.full_name} · ${student.student_code}`;
+
+/** Una lectura paginada de candidatos y un POST por revisión/confirmación. */
 export function BulkEnrolmentWindow({ onClose, onCreated }) {
   const cycles = useCycleCatalog();
   const sections = useSectionCatalog();
-
   const [cycleId, setCycleId] = useState("");
   const [sectionId, setSectionId] = useState("");
   const [effectiveOn, setEffectiveOn] = useState("");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState([]);
-  // Etiqueta capturada al marcar, no al enviar: para cuando se envia el lote,
-  // la busqueda ya pudo cambiar y el estudiante ya no estar entre los
-  // resultados visibles, pero el resumen todavia necesita su nombre.
-  const [selectedLabels, setSelectedLabels] = useState(new Map());
-
-  const [enrolled, setEnrolled] = useState(null);
-  const [loadingEnrolled, setLoadingEnrolled] = useState(false);
-  const [loadError, setLoadError] = useState("");
-
-  const students = useSearchableCatalog(
-    "students",
-    studentsService.listPage,
-    studentOption,
-    search
-  );
-
-  const sectionOptions = sectionsForCycle(sections.options, cycleId);
-  const section = sectionOptions.find((option) => option.value === sectionId);
-
-  const createOne = useCallback(
-    (studentId) =>
-      enrolmentsService.matriculate({
-        student_id: studentId,
-        academic_cycle_id: cycleId,
-        grade_id: section.gradeId,
-        shift_id: section.shiftId,
-        section_id: sectionId,
-        effective_on: effectiveOn,
-      }),
-    [cycleId, section, sectionId, effectiveOn]
-  );
-  const describe = useCallback(
-    (studentId) => selectedLabels.get(studentId) ?? studentId,
-    [selectedLabels]
-  );
-  const { run, reset, submitting, result } = useBatchSubmit(
-    createOne,
-    describe
-  );
-
-  // Quien ya tiene matricula vigente en el ciclo. Se relee al cambiar de ciclo
-  // y despues de cada lote, porque el propio lote cambia la respuesta.
-  useEffect(() => {
-    if (!cycleId) {
-      setEnrolled(null);
-      return undefined;
-    }
-
-    let active = true;
-    setLoadingEnrolled(true);
-    setLoadError("");
-
-    collectAllPages((params) => enrolmentsService.listActive(params))
-      .then((rows) => {
-        if (!active) return;
-        setEnrolled(
-          new Set(
-            rows
-              .filter((row) => row.academic_cycle_id === cycleId)
-              .map((row) => row.student_id)
-          )
-        );
-      })
-      .catch((error) => {
-        if (active) {
-          setEnrolled(null);
-          setLoadError(error.message);
-        }
-      })
-      .finally(() => {
-        if (active) setLoadingEnrolled(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [cycleId, result]);
-
-  const candidates = useMemo(() => {
-    if (!enrolled) return [];
-    return students.options.filter((student) => !enrolled.has(student.value));
-  }, [enrolled, students.options]);
-
-  const visibleIds = candidates.map((student) => student.value);
-  const allVisibleSelected =
-    visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
-
-  const rememberLabels = (rows) =>
-    setSelectedLabels((current) => {
-      const next = new Map(current);
-      for (const row of rows) next.set(row.value, row.label);
-      return next;
-    });
-
-  const toggle = (student) => {
-    rememberLabels([student]);
-    setSelected((current) =>
-      current.includes(student.value)
-        ? current.filter((id) => id !== student.value)
-        : [...current, student.value]
-    );
-  };
-
-  const toggleAllVisible = () => {
-    rememberLabels(candidates);
-    setSelected((current) =>
-      allVisibleSelected
-        ? current.filter((id) => !visibleIds.includes(id))
-        : [...new Set([...current, ...visibleIds])]
-    );
-  };
-
-  const handleSubmit = async () => {
-    const summary = await run(selected);
-    setSelected([]);
-    if (summary.created.length > 0) {
-      onCreated?.();
-    }
-  };
-
+  const [selected, setSelected] = useState(new Map());
+  const [result, setResult] = useState(null);
+  const [resultLabels, setResultLabels] = useState(new Map());
+  const [reviewed, setReviewed] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const ready = Boolean(cycleId && sectionId && effectiveOn);
+  const searchReady = ready && search.trim().length >= 2;
+  const load = useCallback(
+    (params) =>
+      enrolmentsService.listInitialCandidates({
+        page: params.page,
+        section_id: sectionId,
+        search: search.trim(),
+      }),
+    [sectionId, search]
+  );
+  const candidates = usePaginatedList(searchReady ? load : EMPTY_LOADER, {
+    canIncludeInactive: false,
+    pageSize: 25,
+  });
+  const invalidateReview = () => {
+    setReviewed(null);
+    setResult(null);
+    setError("");
+  };
+  const changeSelection = (next) => {
+    if (next.size > 100) {
+      setError("Puede seleccionar hasta 100 estudiantes por lote.");
+      return;
+    }
+    setSelected(next);
+    invalidateReview();
+  };
+  const toggle = (student) => {
+    const next = new Map(selected);
+    if (next.has(student.public_id)) next.delete(student.public_id);
+    else next.set(student.public_id, label(student));
+    changeSelection(next);
+  };
+  const allVisible =
+    candidates.items.length > 0 &&
+    candidates.items.every((row) => selected.has(row.public_id));
+  const toggleVisible = () => {
+    const next = new Map(selected);
+    for (const row of candidates.items) {
+      if (allVisible) next.delete(row.public_id);
+      else next.set(row.public_id, label(row));
+    }
+    changeSelection(next);
+  };
+  const process = async (confirm) => {
+    const payload = confirm
+      ? reviewed
+      : {
+          section_id: sectionId,
+          effective_on: effectiveOn,
+          student_ids: [...selected.keys()],
+        };
+    if (!payload || submitting) return;
+    setResultLabels(new Map(selected));
+    setSubmitting(true);
+    setReviewed(null);
+    setError("");
+    try {
+      const response = await enrolmentsService.bulkMatriculate({
+        ...payload,
+        preview: !confirm,
+      });
+      setResult(response);
+      if (!confirm) setReviewed(payload);
+      if (confirm) {
+        const failedIds = new Set(
+          response.results
+            .filter((row) => row.status === "error")
+            .map((row) => row.student_id)
+        );
+        setSelected(
+          (current) => new Map([...current].filter(([id]) => failedIds.has(id)))
+        );
+        candidates.goToPage(1);
+        candidates.refresh();
+        if (
+          response.results.some(
+            (row) => row.status === "created" || row.status === "existing"
+          )
+        )
+          onCreated?.();
+      }
+    } catch (requestError) {
+      setResult(null);
+      setError(requestError.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <FloatingWindow
       busy={submitting}
-      description="Elija la seccion una vez y marque a quien matricular. Solo aparecen los estudiantes sin matricula vigente en ese ciclo."
-      footer={
-        <>
-          <Button disabled={submitting} onClick={onClose} variant="text">
-            Cerrar
-          </Button>
-          <Button
-            disabled={!ready || selected.length === 0 || submitting}
-            onClick={handleSubmit}
-            startIcon={submitting ? <CircularProgress size={16} /> : undefined}
-            variant="contained"
-          >
-            {submitting
-              ? "Matriculando…"
-              : `Matricular ${selected.length} ${
-                  selected.length === 1 ? "estudiante" : "estudiantes"
-                }`}
-          </Button>
-        </>
-      }
-      onClose={onClose}
       open
       title="Matriculacion por lotes"
       width={WINDOW_WIDTH.wide}
+      description="Busque estudiantes sin matrícula activa, seleccione hasta 100 y revise antes de confirmar. Este flujo no cierra matrículas anteriores; para continuarlas use reinscripción."
+      onClose={() => {
+        if (!submitting) onClose();
+      }}
+      footer={
+        <>
+          <Button disabled={submitting} onClick={onClose}>
+            Cerrar
+          </Button>
+          <Button
+            disabled={!ready || !selected.size || submitting}
+            onClick={() => process(false)}
+            variant="outlined"
+          >
+            Vista previa
+          </Button>
+          <Button
+            disabled={submitting || !reviewed || !result?.succeeded}
+            onClick={() => process(true)}
+            variant="contained"
+          >
+            {submitting ? "Procesando…" : "Confirmar matrículas"}
+          </Button>
+        </>
+      }
     >
       <Stack gap={2.5}>
         <Box
@@ -217,139 +177,184 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
           }}
         >
           <FormSelect
+            disabled={submitting}
             error={cycles.error}
-            fullWidth
             label="Ciclo escolar"
             loading={cycles.loading}
+            options={cycles.options}
+            value={cycleId}
+            placeholder="Seleccione un ciclo"
+            required
             onChange={(event) => {
               setCycleId(event.target.value);
               setSectionId("");
-              setSelected([]);
-              reset();
+              setSelected(new Map());
+              candidates.goToPage(1);
+              invalidateReview();
             }}
-            options={cycles.options}
-            placeholder="Seleccione un ciclo"
-            required
-            value={cycleId}
           />
           <FormSelect
-            disabled={!cycleId}
+            disabled={!cycleId || submitting}
             error={sections.error}
-            fullWidth
-            helperText={
-              section?.capacity
-                ? `Cupo de la seccion: ${section.capacity}.`
-                : !cycleId
-                  ? "Elija primero el ciclo escolar."
-                  : undefined
-            }
             label="Seccion"
             loading={sections.loading}
+            options={sectionsForCycle(sections.options, cycleId)}
+            value={sectionId}
+            placeholder="Seleccione una sección"
+            required
             onChange={(event) => {
               setSectionId(event.target.value);
-              reset();
+              setSelected(new Map());
+              candidates.goToPage(1);
+              invalidateReview();
             }}
-            options={sectionOptions}
-            placeholder="Seleccione una seccion"
-            required
-            value={sectionId}
           />
           <FormTextField
-            helperText="Misma fecha para todo el lote."
+            disabled={submitting}
             label="Vigente desde"
-            onChange={(event) => setEffectiveOn(event.target.value)}
-            required
-            slotProps={{ inputLabel: { shrink: true } }}
             type="date"
+            required
             value={effectiveOn}
+            slotProps={{ inputLabel: { shrink: true } }}
+            onChange={(event) => {
+              setEffectiveOn(event.target.value);
+              invalidateReview();
+            }}
           />
         </Box>
-
-        {loadError ? <Alert severity="error">{loadError}</Alert> : null}
-
-        <BatchResultAlert noun="matricula" result={result} />
-
-        {!ready ? (
-          <Alert severity="info">
-            Elija ciclo, seccion y fecha de vigencia para ver a los estudiantes
-            disponibles.
+        <SectionOccupancyNotice
+          busy={submitting}
+          cycleId={cycleId}
+          sectionId={sectionId}
+        />
+        {error ? <Alert severity="error">{error}</Alert> : null}
+        {result ? (
+          <Alert severity={result.failed ? "warning" : "success"}>
+            <Stack gap={0.5}>
+              <span>
+                {result.preview ? "Revisión" : "Resultado"}: {result.succeeded}{" "}
+                correctas, {result.failed} no procesadas.
+              </span>
+              {result.results.map((row) => (
+                <span key={row.student_id}>
+                  {resultLabels.get(row.student_id) ?? row.student_id}:{" "}
+                  {STATUS[row.status]}
+                  {row.error ? ` — ${row.error}` : ""}
+                </span>
+              ))}
+            </Stack>
           </Alert>
-        ) : loadingEnrolled ? (
-          <Stack alignItems="center" sx={{ py: 4 }}>
-            <CircularProgress size={24} />
-          </Stack>
+        ) : null}
+        <Alert severity="info">
+          La revisión no reserva vacantes. El servidor vuelve a validar al
+          confirmar y puede aceptar solo parte del lote.
+        </Alert>
+        {!ready ? (
+          <Typography>
+            Elija ciclo, sección y fecha para buscar estudiantes.
+          </Typography>
         ) : (
           <Stack gap={1.5}>
-            <Stack
-              alignItems={{ xs: "stretch", sm: "center" }}
-              direction={{ xs: "column", sm: "row" }}
-              gap={1.5}
+            <Box
+              component="fieldset"
+              disabled={submitting}
+              sx={{ border: 0, m: 0, p: 0 }}
             >
               <SearchField
-                onChange={setSearch}
-                placeholder="Buscar por nombre o codigo (minimo 2 letras)…"
+                disabled={submitting}
                 value={search}
+                placeholder="Buscar por nombre o codigo (mínimo 2 letras)…"
+                onChange={(value) => {
+                  if (submitting) return;
+                  setSearch(value);
+                  candidates.goToPage(1);
+                  invalidateReview();
+                }}
               />
+            </Box>
+            <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1}>
               <FormControlLabel
+                label={`Seleccionar los ${candidates.items.length} visibles`}
                 control={
                   <Checkbox
-                    checked={allVisibleSelected}
-                    disabled={visibleIds.length === 0}
-                    onChange={toggleAllVisible}
-                  />
-                }
-                label={`Seleccionar los ${visibleIds.length} visibles`}
-              />
-              <Typography
-                color="text.secondary"
-                sx={{ fontSize: "0.8125rem", ml: { sm: "auto" } }}
-              >
-                {selected.length} seleccionado
-                {selected.length === 1 ? "" : "s"}
-              </Typography>
-            </Stack>
-
-            {!students.ready ? (
-              <EmptyState message="Escriba al menos 2 letras del nombre o codigo para buscar." />
-            ) : students.loading ? (
-              <Stack alignItems="center" sx={{ py: 4 }}>
-                <CircularProgress size={24} />
-              </Stack>
-            ) : candidates.length === 0 ? (
-              <EmptyState
-                message={
-                  students.options.length === 0
-                    ? "Ningun estudiante coincide con la busqueda."
-                    : "Los estudiantes que coinciden ya tienen matricula vigente en este ciclo."
-                }
-              />
-            ) : (
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
-                  border: "1px solid",
-                  borderColor: "divider",
-                  borderRadius: 1,
-                  maxHeight: "22rem",
-                  overflowY: "auto",
-                  px: 1.5,
-                  py: 1,
-                }}
-              >
-                {candidates.map((student) => (
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={selected.includes(student.value)}
-                        onChange={() => toggle(student)}
-                      />
+                    disabled={
+                      submitting ||
+                      candidates.loading ||
+                      !searchReady ||
+                      !candidates.items.length
                     }
-                    key={student.value}
-                    label={student.label}
+                    checked={allVisible && searchReady}
+                    onChange={toggleVisible}
                   />
-                ))}
-              </Box>
+                }
+              />
+              <Typography>{selected.size} seleccionados de 100</Typography>
+            </Stack>
+            {!searchReady ? (
+              <Typography>Escriba al menos 2 letras para buscar.</Typography>
+            ) : candidates.error ? (
+              <Alert severity="error">
+                {candidates.error}
+                <Button disabled={submitting} onClick={candidates.refresh}>
+                  Reintentar búsqueda
+                </Button>
+              </Alert>
+            ) : candidates.loading ? (
+              <Typography role="status">Buscando estudiantes…</Typography>
+            ) : (
+              <>
+                {!candidates.items.length ? (
+                  <Typography>
+                    Ningún estudiante disponible coincide con la búsqueda.
+                  </Typography>
+                ) : null}
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+                    maxHeight: "22rem",
+                    overflowY: "auto",
+                  }}
+                >
+                  {candidates.items.map((student) => (
+                    <FormControlLabel
+                      key={student.public_id}
+                      label={label(student)}
+                      control={
+                        <Checkbox
+                          disabled={submitting}
+                          checked={selected.has(student.public_id)}
+                          onChange={() => toggle(student)}
+                        />
+                      }
+                    />
+                  ))}
+                </Box>
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                >
+                  <Button
+                    disabled={submitting || candidates.page === 1}
+                    onClick={() => candidates.goToPage(candidates.page - 1)}
+                  >
+                    Anterior
+                  </Button>
+                  <Typography>
+                    Página {candidates.page} de {candidates.pageCount} ·{" "}
+                    {candidates.count} coincidencias
+                  </Typography>
+                  <Button
+                    disabled={
+                      submitting || candidates.page >= candidates.pageCount
+                    }
+                    onClick={() => candidates.goToPage(candidates.page + 1)}
+                  >
+                    Siguiente
+                  </Button>
+                </Stack>
+              </>
             )}
           </Stack>
         )}

@@ -245,10 +245,7 @@ def annul_student_movement(*, movement, reason, actor):
     movement = StudentMovement.objects.select_for_update().get(pk=movement.pk)
     if StudentMovementAnnulment.objects.filter(movement=movement).exists():
         raise DomainError("El movimiento ya fue anulado.")
-    if movement.movement_type not in {
-        StudentMovement.MovementType.WITHDRAWAL,
-        StudentMovement.MovementType.SECTION_CHANGE,
-    }:
+    if not movement.supports_annulment:
         raise DomainError("Este tipo de movimiento todavia no admite anulacion segura.")
 
     source = movement.source_enrolment
@@ -368,19 +365,40 @@ def _ensure_section_has_capacity(section):
         raise DomainError("La seccion alcanzo su cupo.")
 
 
-def active_enrolments(*, student=None):
+def active_enrolments(*, student=None, academic_cycle_id=None, grade_id=None, section_id=None):
     queryset = (
         Enrolment.objects.filter(is_active=True, status=Enrolment.EnrolmentStatus.ACTIVE)
-        .select_related("student", "academic_cycle", "grade", "section")
+        .select_related(
+            "student__person",
+            "academic_cycle",
+            "grade",
+            "section__offering__grade",
+            "section__offering__shift",
+        )
         .order_by("student__student_code", "effective_on", "pk")
     )
-    return queryset.filter(student=student) if student is not None else queryset
+    if student is not None:
+        queryset = queryset.filter(student=student)
+    for field, public_id in (
+        ("academic_cycle", academic_cycle_id),
+        ("grade", grade_id),
+        ("section", section_id),
+    ):
+        if public_id is not None:
+            queryset = queryset.filter(**{f"{field}__public_id": public_id})
+    return queryset
 
 
 def enrolment_history(*, student):
     return (
         Enrolment.objects.filter(student=student)
-        .select_related("student", "academic_cycle", "grade", "section")
+        .select_related(
+            "student__person",
+            "academic_cycle",
+            "grade",
+            "section__offering__grade",
+            "section__offering__shift",
+        )
         .order_by("-effective_on", "-created_at", "-pk")
     )
 
@@ -681,6 +699,30 @@ def reenrol_student(
         },
     )
     return enrolment
+
+
+@transaction.atomic
+def register_student(
+    *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
+):
+    """M6: elige el caso de uso existente, sin inferirlo del estado del expediente."""
+    has_previous = (
+        Enrolment.objects.filter(student=student)
+        .exclude(academic_cycle=academic_cycle)
+        .exclude(status=Enrolment.EnrolmentStatus.CANCELLED)
+        .exists()
+    )
+    operation = reenrol_student if has_previous else matriculate_student
+    enrolment = operation(
+        student=student,
+        academic_cycle=academic_cycle,
+        grade=grade,
+        shift=shift,
+        section=section,
+        actor=actor,
+        effective_on=effective_on,
+    )
+    return enrolment, "reenrolment" if has_previous else "matriculation"
 
 
 def _bulk_reenrolment_result(*, source_enrolment, target_section, effective_on, actor, preview):
