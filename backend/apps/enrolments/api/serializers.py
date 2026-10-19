@@ -117,7 +117,30 @@ class EnrolmentDocumentRequirementCreateSerializer(serializers.Serializer):
     )
 
 
+class EnrolmentStudentSummarySerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    student_code = serializers.CharField(read_only=True)
+    full_name = serializers.SerializerMethodField()
+
+    def get_full_name(self, student) -> str:
+        return f"{student.person.first_name} {student.person.last_name}".strip()
+
+
+class EnrolmentNamedSummarySerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+
+class EnrolmentSectionSummarySerializer(EnrolmentNamedSummarySerializer):
+    grade_name = serializers.CharField(source="grade.name", read_only=True)
+    shift_name = serializers.CharField(source="shift.name", read_only=True)
+
+
 class EnrolmentSerializer(serializers.ModelSerializer):
+    student = EnrolmentStudentSummarySerializer(read_only=True)
+    academic_cycle = EnrolmentNamedSummarySerializer(read_only=True)
+    grade = EnrolmentNamedSummarySerializer(read_only=True)
+    section = EnrolmentSectionSummarySerializer(read_only=True)
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
     grade_id = serializers.UUIDField(source="grade.public_id", read_only=True)
@@ -131,6 +154,10 @@ class EnrolmentSerializer(serializers.ModelSerializer):
             "academic_cycle_id",
             "grade_id",
             "section_id",
+            "student",
+            "academic_cycle",
+            "grade",
+            "section",
             "effective_on",
             "ends_on",
             "status",
