@@ -29,6 +29,7 @@ const enrolmentsServiceMock = vi.hoisted(() => ({
   listHistory: vi.fn(),
   listMovements: vi.fn(),
   create: vi.fn(),
+  register: vi.fn(),
   matriculate: vi.fn(),
   reenrol: vi.fn(),
   listSectionOccupancy: vi.fn(),
@@ -636,9 +637,10 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<EnrolmentsPage />);
       await screen.findByRole("heading", { name: "Matriculas vigentes" });
 
-      await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
+      await user.click(screen.getByRole("button", { name: "Matricular" }));
+      await user.click(screen.getByRole("menuitem", { name: /Un estudiante/ }));
       const form = await screen.findByRole("dialog", {
-        name: "Nueva matricula",
+        name: "Matricular estudiante",
       });
       await user.click(
         within(form).getByRole("combobox", { name: /Estudiante/ })
@@ -655,11 +657,13 @@ describe("pantallas de los modulos con backend previo", () => {
         await screen.findByRole("option", { name: "Primero Basico A" })
       );
       await user.type(screen.getByLabelText(/Vigente desde/), "2026-02-01");
-      await user.click(screen.getByRole("button", { name: "Matricular" }));
+      await user.click(
+        screen.getByRole("button", { name: "Confirmar matrícula" })
+      );
 
       // Grado y jornada no se piden: son propiedades de la seccion elegida, y
       // pedirlos aparte solo permitiria contradecirlas.
-      expect(enrolmentsServiceMock.matriculate).toHaveBeenCalledWith({
+      expect(enrolmentsServiceMock.register).toHaveBeenCalledWith({
         student_id: "student-1",
         academic_cycle_id: "cycle-2026",
         section_id: "section-a",
@@ -672,8 +676,9 @@ describe("pantallas de los modulos con backend previo", () => {
     test("abre reinscripcion por lotes sin confundirla con altas iniciales", async () => {
       const user = userEvent.setup();
       renderWithRouter(<EnrolmentsPage />);
+      await user.click(screen.getByRole("button", { name: "Matricular" }));
       await user.click(
-        screen.getByRole("button", { name: "Reinscribir por lotes" })
+        screen.getByRole("menuitem", { name: /Reinscribir por lotes/ })
       );
       const dialog = await screen.findByRole("dialog", {
         name: "Reinscripción por lotes",
@@ -683,7 +688,7 @@ describe("pantallas de los modulos con backend previo", () => {
           "Elija el ciclo de origen para consultar candidatos."
         )
       ).toBeInTheDocument();
-      expect(enrolmentsServiceMock.matriculate).not.toHaveBeenCalled();
+      expect(enrolmentsServiceMock.register).not.toHaveBeenCalled();
       await user.click(within(dialog).getByLabelText("Cerrar"));
       await waitFor(() =>
         expect(
@@ -731,8 +736,9 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<EnrolmentsPage />);
       await screen.findByRole("heading", { name: "Matriculas vigentes" });
 
+      await user.click(screen.getByRole("button", { name: "Matricular" }));
       await user.click(
-        screen.getByRole("button", { name: "Matricular por lotes" })
+        screen.getByRole("menuitem", { name: /Altas iniciales por lotes/ })
       );
       const window = await screen.findByRole("dialog", {
         name: "Matriculacion por lotes",
@@ -791,49 +797,45 @@ describe("pantallas de los modulos con backend previo", () => {
       );
     });
 
-    test.each(["Nueva matricula", "Reinscribir"])(
-      "muestra cupo en el formulario de %s",
-      async (button) => {
-        const user = userEvent.setup();
-        renderWithRouter(<EnrolmentsPage />);
-        await screen.findByText("Luis Perez · EST-1");
-        await user.click(
-          screen.getByRole("button", { name: button, exact: true })
-        );
-        const dialog = await screen.findByRole("dialog");
-        expect(
-          enrolmentsServiceMock.listSectionOccupancy
-        ).not.toHaveBeenCalled();
-        await user.click(
-          within(dialog).getByRole("combobox", { name: /Ciclo escolar/ })
-        );
-        await user.click(
-          await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
-        );
-        await user.click(
-          within(dialog).getByRole("combobox", { name: /Seccion/ })
-        );
-        await user.click(
-          await screen.findByRole("option", { name: "Primero Basico A" })
-        );
-        const occupancy = within(dialog).getByRole("region", {
-          name: "Cupo de la sección",
-        });
-        expect(await within(occupancy).findByText("18")).toBeInTheDocument();
-        expect(enrolmentsServiceMock.listSectionOccupancy).toHaveBeenCalledWith(
-          { academic_cycle_id: "cycle-2026", section_id: "section-a" }
-        );
-      }
-    );
+    test("muestra cupo en el formulario individual unificado", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByText("Luis Perez · EST-1");
+      await user.click(screen.getByRole("button", { name: "Matricular" }));
+      await user.click(screen.getByRole("menuitem", { name: /Un estudiante/ }));
+      const dialog = await screen.findByRole("dialog");
+      expect(enrolmentsServiceMock.listSectionOccupancy).not.toHaveBeenCalled();
+      await user.click(
+        within(dialog).getByRole("combobox", { name: /Ciclo escolar/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Ciclo 2026 · Activo" })
+      );
+      await user.click(
+        within(dialog).getByRole("combobox", { name: /Seccion/ })
+      );
+      await user.click(
+        await screen.findByRole("option", { name: "Primero Basico A" })
+      );
+      const occupancy = within(dialog).getByRole("region", {
+        name: "Cupo de la sección",
+      });
+      expect(await within(occupancy).findByText("18")).toBeInTheDocument();
+      expect(enrolmentsServiceMock.listSectionOccupancy).toHaveBeenCalledWith({
+        academic_cycle_id: "cycle-2026",
+        section_id: "section-a",
+      });
+    });
 
     test("conserva el formulario y relee cupo después de un rechazo al matricular", async () => {
-      enrolmentsServiceMock.matriculate.mockRejectedValueOnce(
+      enrolmentsServiceMock.register.mockRejectedValueOnce(
         new Error("La sección alcanzó su cupo.")
       );
       const user = userEvent.setup();
       renderWithRouter(<EnrolmentsPage />);
       await screen.findByText("Luis Perez · EST-1");
-      await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
+      await user.click(screen.getByRole("button", { name: "Matricular" }));
+      await user.click(screen.getByRole("menuitem", { name: /Un estudiante/ }));
       const dialog = await screen.findByRole("dialog");
       for (const [label, option] of [
         [/Estudiante/, "Luis Perez · EST-1"],
@@ -861,7 +863,7 @@ describe("pantallas de los modulos con backend previo", () => {
         "2026-02-01"
       );
       await user.click(
-        within(dialog).getByRole("button", { name: "Matricular", exact: true })
+        within(dialog).getByRole("button", { name: "Confirmar matrícula" })
       );
       expect(
         await within(dialog).findByText("La sección alcanzó su cupo.")

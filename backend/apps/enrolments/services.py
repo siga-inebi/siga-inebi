@@ -701,6 +701,30 @@ def reenrol_student(
     return enrolment
 
 
+@transaction.atomic
+def register_student(
+    *, student, academic_cycle, grade, shift, section, actor=None, effective_on=None
+):
+    """M6: elige el caso de uso existente, sin inferirlo del estado del expediente."""
+    has_previous = (
+        Enrolment.objects.filter(student=student)
+        .exclude(academic_cycle=academic_cycle)
+        .exclude(status=Enrolment.EnrolmentStatus.CANCELLED)
+        .exists()
+    )
+    operation = reenrol_student if has_previous else matriculate_student
+    enrolment = operation(
+        student=student,
+        academic_cycle=academic_cycle,
+        grade=grade,
+        shift=shift,
+        section=section,
+        actor=actor,
+        effective_on=effective_on,
+    )
+    return enrolment, "reenrolment" if has_previous else "matriculation"
+
+
 def _bulk_reenrolment_result(*, source_enrolment, target_section, effective_on, actor, preview):
     student = source_enrolment.student
     target_cycle = target_section.academic_cycle

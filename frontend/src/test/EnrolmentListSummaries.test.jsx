@@ -140,10 +140,13 @@ test("defers creation catalogues until the user opens the form", async () => {
   expect(
     get.mock.calls.some(([url]) => url.startsWith("/academics/sections/"))
   ).toBe(false);
-  await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
-  const dialog = await screen.findByRole("dialog", { name: "Nueva matricula" });
+  await user.click(screen.getByRole("button", { name: "Matricular" }));
+  await user.click(screen.getByRole("menuitem", { name: /Un estudiante/ }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Matricular estudiante",
+  });
   expect(
-    within(dialog).getByRole("button", { name: "Matricular" })
+    within(dialog).getByRole("button", { name: "Confirmar matrícula" })
   ).toBeInTheDocument();
   await waitFor(() =>
     expect(

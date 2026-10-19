@@ -17,7 +17,7 @@ const EMPTY_ENROLMENT = {
   effective_on: "",
 };
 
-export function EnrolmentCreateWindow({ creating, onCancel, onCreated }) {
+export function EnrolmentCreateWindow({ onCancel, onCreated }) {
   const students = useStudentCatalog();
   const cycles = useCycleCatalog();
   const sections = useSectionCatalog();
@@ -80,31 +80,20 @@ export function EnrolmentCreateWindow({ creating, onCancel, onCreated }) {
       shift_id: section?.shiftId,
     };
 
-    if (creating === "reenrol") {
-      await enrolmentsService.reenrol(payload);
-    } else {
-      await enrolmentsService.matriculate(payload);
-    }
+    await enrolmentsService.register(payload);
     onCreated();
   };
 
   return (
     <EntityFormWindow
-      description={
-        creating === "reenrol"
-          ? "Reinscripcion de un estudiante con matricula previa. El backend valida que exista historial y que el ciclo destino este abierto."
-          : "Matriculacion nueva. El backend valida cupo de la seccion, jornada y requisitos del ciclo."
-      }
+      description="El servidor detecta si corresponde una primera matrícula o una reinscripción con historial de otro ciclo. Si reinscribe, cierra la matrícula anterior que siga activa."
       fields={enrolmentFields}
       initialValues={EMPTY_ENROLMENT}
-      key={creating}
       onCancel={onCancel}
       onSubmit={handleSubmit}
       open
-      submitLabel={creating === "reenrol" ? "Reinscribir" : "Matricular"}
-      title={
-        creating === "reenrol" ? "Reinscribir estudiante" : "Nueva matricula"
-      }
+      submitLabel="Confirmar matrícula"
+      title="Matricular estudiante"
     >
       {(values, { submitting }) => (
         <SectionOccupancyNotice

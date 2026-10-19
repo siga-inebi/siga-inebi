@@ -5,14 +5,12 @@ import Stack from "@mui/material/Stack";
 import SchoolOutlinedIcon from "@mui/icons-material/SchoolOutlined";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
-import AddIcon from "@mui/icons-material/Add";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
-import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import ExitToAppOutlinedIcon from "@mui/icons-material/ExitToAppOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
+import { EnrolmentEntryMenu } from "@enrolments/EnrolmentEntryMenu.jsx";
 import { EnrolmentAcademicFilters } from "./EnrolmentAcademicFilters.jsx";
 import { EMPTY_ACADEMIC_FILTERS } from "./academicFilters.js";
 import {
@@ -332,30 +330,11 @@ export function EnrolmentsPage() {
             >
               Movimientos
             </Button>
-            <Button
-              onClick={() => setBulkEnrolling(true)}
-              startIcon={<PlaylistAddCheckOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Matricular por lotes
-            </Button>
-            <Button onClick={() => setBulkReenrolling(true)} variant="outlined">
-              Reinscribir por lotes
-            </Button>
-            <Button
-              onClick={() => setCreating("reenrol")}
-              startIcon={<ReplayOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Reinscribir
-            </Button>
-            <Button
-              onClick={() => setCreating("matriculate")}
-              startIcon={<AddIcon fontSize="small" />}
-              variant="contained"
-            >
-              Nueva matricula
-            </Button>
+            <EnrolmentEntryMenu
+              onIndividual={() => setCreating(true)}
+              onInitialBulk={() => setBulkEnrolling(true)}
+              onReenrolBulk={() => setBulkReenrolling(true)}
+            />
             <Button
               onClick={() => setTransferFor({ direction: "in" })}
               variant="outlined"
@@ -450,7 +429,6 @@ export function EnrolmentsPage() {
       <Suspense fallback={null}>
         {creating ? (
           <EnrolmentCreateWindow
-            creating={creating}
             onCancel={() => setCreating(null)}
             onCreated={() => {
               setCreating(null);

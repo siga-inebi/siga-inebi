@@ -66,6 +66,8 @@ export const enrolmentsService = {
     apiClient.get(withQuery(`${ROOT}/movements/`, params)),
 
   create: (payload) => apiClient.post(`${ROOT}/`, payload),
+  /** Alta individual: el servidor decide matrícula o reinscripción (M6). */
+  register: (payload) => apiClient.post(`${ROOT}/registrations/`, payload),
   transferIn: (payload) => apiClient.post(`${ROOT}/transfers/in/`, payload),
   transferOut: (enrolmentId, payload) =>
     apiClient.post(`${ROOT}/${enrolmentId}/transfer-out/`, payload),
