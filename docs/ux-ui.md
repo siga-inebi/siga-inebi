@@ -417,7 +417,7 @@ Modelo del backend, para entender las propuestas: una **cuenta** (`UserAccount`)
 
 Todas las reglas que el código no cerraba quedan decididas aquí. D1–D5 las definió el responsable del proyecto. D6–D10 se tomaron con el criterio de mínima sorpresa para la persona usuaria, menor riesgo para la integridad académica y consistencia con el alcance vigente ([functional-scope.md](requirements/functional-scope.md)).
 
-Como cambian reglas del dominio, cada una debe registrarse como ADR en [docs/decisions](decisions/) (el siguiente número libre es `ADR-0011`). Las que tocan un requerimiento deben actualizar también el [catálogo de requerimientos](requirements/requirements-catalogue.md) y la [matriz de trazabilidad](requirements/traceability-matrix.md) (AGENTS.md, reglas 3 y 10).
+Como cambian reglas del dominio, cada una debe registrarse como ADR en [docs/decisions](decisions/) ([ADR-0011](decisions/ADR-0011-decisiones-ux-ui.md) las consolida; cada responsable agrega su aporte en un archivo `ADR-0011-*.md`). Las que tocan un requerimiento deben actualizar también el [catálogo de requerimientos](requirements/requirements-catalogue.md) y la [matriz de trazabilidad](requirements/traceability-matrix.md) (AGENTS.md, reglas 3 y 10).
 
 | # | Decisión | Qué cambia | Hallazgos |
 |---|---|---|---|
