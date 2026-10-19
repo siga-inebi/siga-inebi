@@ -5,7 +5,10 @@ import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
-import { documentsService } from "@documents/documentsService.js";
+import {
+  documentsService,
+  templateIssuanceUseLabel,
+} from "@documents/documentsService.js";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDateTime } from "@shared/utils/format.js";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
@@ -14,6 +17,11 @@ import { DataTable } from "@ui/table/DataTable.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 
 const VERSION_COLUMNS = [
+  {
+    key: "issuance_use",
+    label: "Se usaba para",
+    render: (row) => templateIssuanceUseLabel(row.issuance_use),
+  },
   {
     key: "sequence",
     label: "Version",

@@ -9,15 +9,26 @@ from apps.identity.scopes import authorized_student_queryset, can_access_student
 from apps.students import queries, services
 from apps.students.api.serializers import (
     EmergencyContactCreateSerializer,
+    EmergencyContactListSerializer,
     EmergencyContactSerializer,
     EmergencyContactUpdateSerializer,
+    GuardianListQuerySerializer,
     GuardianSerializer,
     StudentGuardianRelationEndSerializer,
+    StudentGuardianRelationQuerySerializer,
     StudentGuardianRelationSerializer,
+    StudentGuardianRelationUpdateSerializer,
     StudentHealthNoteCreateSerializer,
+    StudentHealthNoteListSerializer,
     StudentHealthNoteSerializer,
+    StudentHealthNoteUpdateSerializer,
+    StudentListQuerySerializer,
     StudentObservationCreateSerializer,
+    StudentObservationListSerializer,
     StudentObservationSerializer,
+    StudentObservationUpdateSerializer,
+    StudentRecordGuardianRelationSerializer,
+    StudentRecordGuardiansQuerySerializer,
     StudentSerializer,
     SuggestedStudentCodeSerializer,
 )
@@ -54,19 +65,22 @@ class StudentNextCodeView(GenericAPIView):
         return Response(SuggestedStudentCodeSerializer({"student_code": code}).data)
 
 
+@extend_schema_view(get=extend_schema(parameters=[StudentListQuerySerializer]))
 class StudentListCreateView(generics.ListCreateAPIView):
     serializer_class = StudentSerializer
     # Sin esto, el selector de estudiante de cada modal (matricular por lotes,
     # consultar resultado) traia el listado completo paginado solo para poder
     # escribir un nombre en el buscador. `?search=` deja que el backend filtre.
     filter_backends = [filters.SearchFilter]
-    search_fields = ["student_code", "person__first_name", "person__last_name"]
+    search_fields = ["student_code", "person__first_name", "person__last_name", "person__cui"]
 
     def get_queryset(self):
+        params = StudentListQuerySerializer(data=self.request.query_params.dict())
+        params.is_valid(raise_exception=True)
         return authorized_student_queryset(
             user=self.request.user,
             codename="student_view_basic",
-            queryset=queries.students(),
+            queryset=queries.students(**params.validated_data),
         )
 
     def perform_create(self, serializer):
@@ -91,11 +105,39 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
         deactivate_student(student=instance, actor=self.request.user)
 
 
-class GuardianListCreateView(generics.ListCreateAPIView):
-    serializer_class = GuardianSerializer
+class StudentDossierDetailView(StudentDetailView):
+    """Lectura por UUID para la ruta de expediente, sin ampliar sus campos."""
+
+    lookup_field = "public_id"
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "head", "options"]
+
+
+@extend_schema_view(get=extend_schema(parameters=[StudentRecordGuardiansQuerySerializer]))
+class StudentRecordGuardiansView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentRecordGuardianRelationSerializer
 
     def get_queryset(self):
-        return queries.guardians()
+        params = StudentRecordGuardiansQuerySerializer(data=self.request.query_params)
+        params.is_valid(raise_exception=True)
+        return queries.guardian_relations_for_record(
+            actor=self.request.user,
+            student_public_id=self.kwargs["public_id"],
+            **params.validated_data,
+        )
+
+
+@extend_schema_view(get=extend_schema(parameters=[GuardianListQuerySerializer]))
+class GuardianListCreateView(generics.ListCreateAPIView):
+    serializer_class = GuardianSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["person__first_name", "person__last_name", "person__cui"]
+
+    def get_queryset(self):
+        params = GuardianListQuerySerializer(data=self.request.query_params.dict())
+        params.is_valid(raise_exception=True)
+        return queries.guardians(**params.validated_data)
 
 
 class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -108,11 +150,16 @@ class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
         deactivate_guardian(guardian=instance, actor=self.request.user)
 
 
+@extend_schema_view(get=extend_schema(parameters=[StudentGuardianRelationQuerySerializer]))
 class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):
-        return queries.guardian_relations().filter(
+        query = StudentGuardianRelationQuerySerializer(data=self.request.query_params.dict())
+        query.is_valid(raise_exception=True)
+        return queries.guardian_relations(
+            student_public_id=query.validated_data.get("student_id")
+        ).filter(
             student__in=authorized_student_queryset(
                 user=self.request.user,
                 codename="student_view_basic",
@@ -131,18 +178,32 @@ class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
 
 
 class StudentGuardianRelationDetailView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentGuardianRelationSerializer
+
+    @extend_schema(request=StudentGuardianRelationUpdateSerializer)
+    def patch(self, request, pk):
+        relation = self.get_object()
+        serializer = StudentGuardianRelationUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated = services.update_student_guardian_relation(
+            relation=relation, actor=request.user, **serializer.validated_data
+        )
+        return Response(self.get_serializer(updated).data)
 
     def get_queryset(self):
         return queries.guardian_relations().filter(
             student__in=authorized_student_queryset(
                 user=self.request.user,
-                codename="student_view_basic",
+                codename=(
+                    "student_edit_basic" if self.request.method == "PATCH" else "student_view_basic"
+                ),
             )
         )
 
 
 class StudentGuardianRelationPrimaryView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):
@@ -160,6 +221,7 @@ class StudentGuardianRelationPrimaryView(GenericAPIView):
 
 
 class StudentGuardianRelationEndView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentGuardianRelationEndSerializer
 
     def get_queryset(self):
@@ -204,6 +266,7 @@ class StudentRecordView(GenericAPIView):
 class StudentRecordListCreateView(StudentRecordView):
     list_serializer = None
     create_serializer = None
+    create_response_serializer = None
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -217,7 +280,8 @@ class StudentRecordListCreateView(StudentRecordView):
     def post(self, request, **kwargs):
         payload = self.validated(self.create_serializer, request)
         created = self.create(request, payload, **kwargs)
-        return Response(self.list_serializer(created).data, status=status.HTTP_201_CREATED)
+        response_serializer = self.create_response_serializer or self.list_serializer
+        return Response(response_serializer(created).data, status=status.HTTP_201_CREATED)
 
 
 class StudentRecordDetailView(StudentRecordView):
@@ -258,7 +322,7 @@ class DeactivateMixin:
         # `StudentRecordListCreateView.get` pagina dentro del handler, algo que
         # drf-spectacular no puede inferir desde `get_serializer_class`: sin esta
         # anotacion documenta un objeto suelto en vez del sobre paginado.
-        responses={200: EmergencyContactSerializer(many=True)},
+        responses={200: EmergencyContactListSerializer(many=True)},
     ),
     post=extend_schema(
         summary="Registrar contacto de emergencia",
@@ -268,8 +332,9 @@ class DeactivateMixin:
     ),
 )
 class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
-    list_serializer = EmergencyContactSerializer
+    list_serializer = EmergencyContactListSerializer
     create_serializer = EmergencyContactCreateSerializer
+    create_response_serializer = EmergencyContactSerializer
 
     def _student(self, request, public_id, *, write=False):
         student = queries.student_or_404(public_id)
@@ -294,7 +359,11 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
             resource_identifier=str(student.pk),
             student=student,
         )
-        return queries.emergency_contacts(student, include_inactive=_include_inactive(request))
+        return queries.with_student_record_actions(
+            queries.emergency_contacts(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
@@ -340,9 +409,16 @@ class EmergencyContactDetailView(
         )
 
 
+@extend_schema_view(
+    get=extend_schema(responses={200: StudentHealthNoteListSerializer(many=True)}),
+    post=extend_schema(
+        request=StudentHealthNoteCreateSerializer, responses={201: StudentHealthNoteSerializer}
+    ),
+)
 class StudentHealthNoteListCreateView(StudentRecordListCreateView):
-    list_serializer = StudentHealthNoteSerializer
+    list_serializer = StudentHealthNoteListSerializer
     create_serializer = StudentHealthNoteCreateSerializer
+    create_response_serializer = StudentHealthNoteSerializer
 
     def _student(self, request, public_id, *, write=False):
         student = queries.student_or_404(public_id)
@@ -366,15 +442,27 @@ class StudentHealthNoteListCreateView(StudentRecordListCreateView):
             student,
             student_id=student.pk,
         )
-        return queries.health_notes(student, include_inactive=_include_inactive(request))
+        return queries.with_student_record_actions(
+            queries.health_notes(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
         return services.create_student_health_note(student=student, actor=request.user, **payload)
 
 
-class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordDetailView):
+@extend_schema_view(
+    patch=extend_schema(
+        request=StudentHealthNoteUpdateSerializer, responses={200: StudentHealthNoteSerializer}
+    ),
+)
+class StudentHealthNoteDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
     detail_serializer = StudentHealthNoteSerializer
+    update_serializer = StudentHealthNoteUpdateSerializer
 
     def get_object(self, public_id):
         note = queries.health_note_or_404(public_id)
@@ -401,10 +489,24 @@ class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordD
             )
         services.deactivate_student_health_note(health_note=health_note, actor=request.user)
 
+    def update(self, request, health_note, payload):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": health_note.student}
+        ):
+            raise AuthorizationError("Actor lacks student edit permission or scope.")
+        services.update_student_health_note(health_note=health_note, actor=request.user, **payload)
 
+
+@extend_schema_view(
+    get=extend_schema(responses={200: StudentObservationListSerializer(many=True)}),
+    post=extend_schema(
+        request=StudentObservationCreateSerializer, responses={201: StudentObservationSerializer}
+    ),
+)
 class StudentObservationListCreateView(StudentRecordListCreateView):
-    list_serializer = StudentObservationSerializer
+    list_serializer = StudentObservationListSerializer
     create_serializer = StudentObservationCreateSerializer
+    create_response_serializer = StudentObservationSerializer
 
     def _student(self, request, public_id, *, write=False):
         student = queries.student_or_404(public_id)
@@ -428,15 +530,27 @@ class StudentObservationListCreateView(StudentRecordListCreateView):
             student,
             student_id=student.pk,
         )
-        return queries.observations(student, include_inactive=_include_inactive(request))
+        return queries.with_student_record_actions(
+            queries.observations(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
         return services.create_student_observation(student=student, actor=request.user, **payload)
 
 
-class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecordDetailView):
+@extend_schema_view(
+    patch=extend_schema(
+        request=StudentObservationUpdateSerializer, responses={200: StudentObservationSerializer}
+    ),
+)
+class StudentObservationDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
     detail_serializer = StudentObservationSerializer
+    update_serializer = StudentObservationUpdateSerializer
 
     def get_object(self, public_id):
         observation = queries.observation_or_404(public_id)
@@ -462,3 +576,10 @@ class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecord
                 "El actor no tiene permiso o alcance para editar al estudiante."
             )
         services.deactivate_student_observation(observation=observation, actor=request.user)
+
+    def update(self, request, observation, payload):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": observation.student}
+        ):
+            raise AuthorizationError("Actor lacks student edit permission or scope.")
+        services.update_student_observation(observation=observation, actor=request.user, **payload)

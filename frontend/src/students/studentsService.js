@@ -3,6 +3,15 @@ import { collectAllPages } from "@shared/api/pages.js";
 import { withQuery } from "@shared/api/query.js";
 
 export const studentsService = {
+  getRecord: (id) => apiClient.get(`/students/records/${id}/`),
+  listRecordGuardians: (id, params) =>
+    apiClient.get(withQuery(`/students/records/${id}/guardians/`, params)),
+  listHealthNotesPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/health-notes/`, params)),
+  listObservationsPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/observations/`, params)),
+  listEmergencyContactsPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/emergency-contacts/`, params)),
   /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
   listPage: (params) => apiClient.get(withQuery("/students/", params)),
   // AlumnosPage pagina, busca y exporta del lado del cliente, asi que necesita
@@ -19,28 +28,51 @@ export const studentsService = {
    */
   nextCode: () =>
     apiClient.get("/students/next-code/").then((body) => body.student_code),
-  listHealthNotes: (studentPublicId) =>
-    apiClient
-      .get(`/students/${studentPublicId}/health-notes/`)
-      .then((page) => page.results),
+  // Registros del expediente: una sola pagina del estudiante pedido, con su
+  // sobre paginado completo (#634). Nunca la primera pagina global recortada.
+  listHealthNotes: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/health-notes/`, params)
+    ),
   createHealthNote: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/health-notes/`, data),
-  listObservations: (studentPublicId) =>
-    apiClient
-      .get(`/students/${studentPublicId}/observations/`)
-      .then((page) => page.results),
+  updateHealthNote: (id, data) =>
+    apiClient.patch(`/students/health-notes/${id}/`, data),
+  deactivateHealthNote: (id) => apiClient.del(`/students/health-notes/${id}/`),
+  listObservations: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/observations/`, params)
+    ),
   createObservation: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/observations/`, data),
-  listEmergencyContacts: (studentPublicId) =>
-    apiClient
-      .get(`/students/${studentPublicId}/emergency-contacts/`)
-      .then((page) => page.results),
+  updateObservation: (id, data) =>
+    apiClient.patch(`/students/observations/${id}/`, data),
+  deactivateObservation: (id) => apiClient.del(`/students/observations/${id}/`),
+  listEmergencyContacts: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/emergency-contacts/`, params)
+    ),
   createEmergencyContact: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/emergency-contacts/`, data),
-  listGuardianRelations: () =>
-    apiClient.get("/students/guardian-relations/").then((page) => page.results),
+  updateEmergencyContact: (id, data) =>
+    apiClient.patch(`/students/emergency-contacts/${id}/`, data),
+  deactivateEmergencyContact: (id) =>
+    apiClient.del(`/students/emergency-contacts/${id}/`),
+  listGuardianRelations: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery("/students/guardian-relations/", {
+        ...params,
+        student_id: studentPublicId,
+      })
+    ),
   createGuardianRelation: (data) =>
     apiClient.post("/students/guardian-relations/", data),
+  updateGuardianRelation: (id, data) =>
+    apiClient.patch(`/students/guardian-relations/${id}/`, data),
+  makeGuardianRelationPrimary: (id) =>
+    apiClient.post(`/students/guardian-relations/${id}/make-primary/`, {}),
+  endGuardianRelation: (id, data) =>
+    apiClient.post(`/students/guardian-relations/${id}/end/`, data),
   create: async ({ photo, ...data }) => {
     const created = await apiClient.post("/students/", data);
     if (!photo) {

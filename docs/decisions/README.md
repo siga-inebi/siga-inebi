@@ -17,4 +17,5 @@ Registrar decisiones base y condiciones para revisarlas cuando requerimientos ca
 - [ADR-0009 Deferred Background Processing](ADR-0009-deferred-background-processing.md)
 - [ADR-0010 Cloud QA](ADR-0010-cloud-qa.md)
 - [ADR-0011 Decisiones del reporte UX/UI (D1–D10) y contratos de identidad](ADR-0011-decisiones-ux-ui.md)
+- [ADR-0011 Aporte D7: uso explícito de plantillas](ADR-0011-template-issuance-use.md)
 - [Pending Decisions](pending-decisions.md)

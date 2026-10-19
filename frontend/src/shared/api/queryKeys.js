@@ -30,6 +30,10 @@ export const CATALOG = Object.freeze({
 
 export const queryKeys = {
   catalog: (name, ...params) => ["catalog", name, ...params],
+  enrolments: {
+    all: ["enrolments"],
+    occupancy: (params) => ["enrolments", "occupancy", params],
+  },
   /** Busqueda server-side generica, para pickers de cualquier entidad. */
   search: (name, term) => ["search", name, term],
   /** Listado paginado en servidor (`useServerList`). */

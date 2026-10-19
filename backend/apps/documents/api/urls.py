@@ -1,5 +1,7 @@
 from django.urls import path
 
+from apps.documents.api.views import StudentDocumentRecordListView
+
 from .views import (
     DocumentBatchCompileView,
     DocumentDeliveryReceiptCreateView,
@@ -24,9 +26,20 @@ from .views import (
     ScannedDocumentUploadView,
     StorageConsumptionView,
     TeacherDocumentRecordListCreateView,
+    TemplateIssuanceUseListView,
 )
 
 urlpatterns = [
+    path(
+        "students/<uuid:student_id>/records/",
+        StudentDocumentRecordListView.as_view(),
+        name="student-document-record-list",
+    ),
+    path(
+        "templates/issuance-uses/",
+        TemplateIssuanceUseListView.as_view(),
+        name="template-issuance-use-list",
+    ),
     path(
         "templates/", DocumentTemplateListCreateView.as_view(), name="document-template-list-create"
     ),

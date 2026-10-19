@@ -13,8 +13,20 @@ from apps.students.services import (
     create_guardian,
     create_student,
     create_student_guardian_relation,
+    guardian_relation_actions,
+    student_record_actions,
     update_student,
 )
+
+
+class StudentListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(default=False)
+    status = serializers.ChoiceField(choices=Student.StudentStatus.choices, required=False)
+
+
+class GuardianListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(default=False)
+
 
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a parent record
@@ -110,6 +122,10 @@ class GuardianSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class StudentGuardianRelationQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(required=False)
+
+
 class StudentGuardianRelationSerializer(serializers.ModelSerializer):
     guardian_detail = GuardianSerializer(source="guardian", read_only=True)
 
@@ -140,6 +156,31 @@ class StudentGuardianRelationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         actor = getattr(self.context.get("request"), "user", None)
         return create_student_guardian_relation(actor=actor, **validated_data)
+
+
+class StudentRecordGuardianRelationSerializer(StudentGuardianRelationSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(StudentGuardianRelationSerializer.Meta):
+        fields = [*StudentGuardianRelationSerializer.Meta.fields, "actions"]
+
+    def get_actions(self, instance) -> dict[str, bool]:
+        return guardian_relation_actions(relation=instance, can_manage=instance.record_can_manage)
+
+
+class StudentRecordGuardiansQuerySerializer(serializers.Serializer):
+    replacement_for = serializers.IntegerField(min_value=1, required=False)
+
+
+class StudentGuardianRelationUpdateSerializer(serializers.Serializer):
+    relationship_label = serializers.CharField(max_length=100)
+
+    def validate(self, attrs):
+        if set(self.initial_data) - {"relationship_label"}:
+            raise serializers.ValidationError(
+                "Solo se puede editar el parentesco o responsabilidad."
+            )
+        return attrs
 
 
 class StudentGuardianRelationEndSerializer(serializers.Serializer):
@@ -228,3 +269,46 @@ class StudentObservationSerializer(serializers.ModelSerializer):
 class StudentObservationCreateSerializer(serializers.Serializer):
     description = serializers.CharField()
     observed_on = serializers.DateField(required=False)
+
+
+class StudentRecordContentUpdateSerializer(serializers.Serializer):
+    """Corrections may not rewrite author, dates, owner or active state."""
+
+    def validate(self, attrs):
+        if set(self.initial_data) - set(self.fields):
+            raise serializers.ValidationError("Solo se puede corregir el contenido del registro.")
+        return attrs
+
+
+class StudentHealthNoteUpdateSerializer(StudentRecordContentUpdateSerializer):
+    content = serializers.CharField()
+
+
+class StudentObservationUpdateSerializer(StudentRecordContentUpdateSerializer):
+    description = serializers.CharField()
+
+
+class StudentRecordActionsMixin:
+    def get_actions(self, instance) -> dict[str, bool]:
+        return student_record_actions(record=instance, can_manage=instance.record_can_manage)
+
+
+class StudentHealthNoteListSerializer(StudentRecordActionsMixin, StudentHealthNoteSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(StudentHealthNoteSerializer.Meta):
+        fields = [*StudentHealthNoteSerializer.Meta.fields, "actions"]
+
+
+class StudentObservationListSerializer(StudentRecordActionsMixin, StudentObservationSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(StudentObservationSerializer.Meta):
+        fields = [*StudentObservationSerializer.Meta.fields, "actions"]
+
+
+class EmergencyContactListSerializer(StudentRecordActionsMixin, EmergencyContactSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(EmergencyContactSerializer.Meta):
+        fields = [*EmergencyContactSerializer.Meta.fields, "actions"]

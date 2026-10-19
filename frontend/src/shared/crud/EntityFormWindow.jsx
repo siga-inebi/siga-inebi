@@ -59,8 +59,12 @@ import { FormTextField } from "@ui/forms/FormTextField.jsx";
  * (`useFormDraft`): se ofrece recuperarlo al abrir, se borra al guardar y al
  * cancelar se confirma antes de descartar. Los campos `password` y los que
  * parecen secretos nunca se guardan. Sin `draftKey`, nada cambia.
+ *
+ * `children` puede ser contenido o `(values, {submitting}) => contenido` para
+ * mostrar información contextual bajo los campos sin duplicar el formulario.
  */
 export function EntityFormWindow({
+  children,
   description,
   fields,
   initialValues,
@@ -243,6 +247,13 @@ export function EntityFormWindow({
             </Box>
           ))}
         </Box>
+        {children ? (
+          <Box sx={{ mt: 2.5 }}>
+            {typeof children === "function"
+              ? children(values, { submitting })
+              : children}
+          </Box>
+        ) : null}
       </Box>
     </FloatingWindow>
   );

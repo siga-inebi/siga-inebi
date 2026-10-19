@@ -20,8 +20,11 @@ def jornada_parameters():
     return JornadaParameters.objects.select_related("shift", "academic_cycle").all()
 
 
-def attendance_events(*, students):
-    return AttendanceEvent.objects.filter(student__in=students).select_related("student", "shift")
+def attendance_events(*, students, student_id=None):
+    rows = AttendanceEvent.objects.filter(student__in=students)
+    if student_id:
+        rows = rows.filter(student__public_id=student_id)
+    return rows.select_related("student", "shift").order_by("-captured_at", "-pk")
 
 
 def attendance_alerts(*, students):

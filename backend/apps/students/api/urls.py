@@ -5,6 +5,7 @@ from apps.students.api.views import (
     GuardianDetailView,
     GuardianListCreateView,
     StudentDetailView,
+    StudentDossierDetailView,
     StudentEmergencyContactListCreateView,
     StudentGuardianRelationDetailView,
     StudentGuardianRelationEndView,
@@ -16,9 +17,20 @@ from apps.students.api.views import (
     StudentNextCodeView,
     StudentObservationDetailView,
     StudentObservationListCreateView,
+    StudentRecordGuardiansView,
 )
 
 urlpatterns = [
+    path(
+        "records/<uuid:public_id>/",
+        StudentDossierDetailView.as_view(),
+        name="student-record-detail",
+    ),
+    path(
+        "records/<uuid:public_id>/guardians/",
+        StudentRecordGuardiansView.as_view(),
+        name="student-record-guardians",
+    ),
     path("", StudentListCreateView.as_view(), name="student-list"),
     path("next-code/", StudentNextCodeView.as_view(), name="student-next-code"),
     path("<int:pk>/", StudentDetailView.as_view(), name="student-detail"),
