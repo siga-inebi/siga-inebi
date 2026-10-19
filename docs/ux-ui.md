@@ -251,7 +251,7 @@ Matrículas. Evidencia y límites: [consulta de promoción](architecture/enrolme
 | M4 | **P1 · Sin UI** | **Promoción** (`/<id>/promotion/`) y **reinscripción masiva** (`/re-enrolments/bulk/`). |
 | M5 | **P1 · Clics** | "Vigentes" solo filtra por estudiante (con un desplegable sin búsqueda de todo el padrón). Faltan filtros por ciclo, grado y sección, que es como trabaja secretaría. **Seguimiento #632:** filtros académicos de servidor, reinicio de página y secciones paginadas en [M5](architecture/enrolment-filters-ui.md); búsqueda remota de estudiante en PR #636. Integración/aceptación pendientes; base común de URL y `useServerList` en #630. |
 | M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. |
-| M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). |
+| M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). **Seguimiento #632:** [cupo contextual](architecture/enrolment-capacity-ui.md) en nueva matrícula, reinscripción individual y lote inicial; distingue sin límite, lleno y error, y actualiza al terminar envíos. Conserva la validación de servidor. Integración y aceptación pendientes. |
 
 Seguimiento del bloque de matrículas #632: la interfaz de reinscripción masiva,
 los candidatos paginados y el alcance parcial de M2/M4/M5 están documentados en

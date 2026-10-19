@@ -8,6 +8,7 @@ import {
   useStudentCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { SectionOccupancyNotice } from "./SectionOccupancyNotice.jsx";
 
 const EMPTY_ENROLMENT = {
   student_id: "",
@@ -104,6 +105,14 @@ export function EnrolmentCreateWindow({ creating, onCancel, onCreated }) {
       title={
         creating === "reenrol" ? "Reinscribir estudiante" : "Nueva matricula"
       }
-    />
+    >
+      {(values, { submitting }) => (
+        <SectionOccupancyNotice
+          busy={submitting}
+          cycleId={values.academic_cycle_id}
+          sectionId={values.section_id}
+        />
+      )}
+    </EntityFormWindow>
   );
 }

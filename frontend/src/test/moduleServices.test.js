@@ -119,6 +119,16 @@ describe("servicios de los modulos", () => {
       );
     });
 
+    test("consulta ocupación solo de la sección y ciclo elegidos", async () => {
+      await enrolmentsService.listSectionOccupancy({
+        academic_cycle_id: CYCLE,
+        section_id: "section-1",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/sections/occupancy/?academic_cycle_id=${CYCLE}&section_id=section-1`
+      );
+    });
+
     test("movimientos usan los endpoints existentes y el identificador correspondiente", async () => {
       await enrolmentsService.changeSection(ENROLMENT, {
         new_section_id: "section",

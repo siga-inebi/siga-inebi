@@ -87,7 +87,7 @@ integración y aceptación institucional permanecen pendientes.
 | RF-EST-005 | Plan de estudios por grado y ciclo | Debe | institutional-structure | Not implemented | #169 | TBD | Nucleo academico |
 | RF-EST-006 | Carga horaria de la subarea | Deberia | institutional-structure | Implemented | #170 | backend/tests/api/test_academics_catalog_api.py | Cruza horario |
 | RF-EST-007 | Secciones | Debe | institutional-structure | Not implemented | #171 | TBD | Nucleo fundacional |
-| RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Not implemented | #172 | TBD | Afecta matricula |
+| RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Implemented | #172; #632 (M7) | frontend/src/test/{SectionOccupancyNotice.test.jsx,newModulePages.test.jsx,moduleServices.test.js}; backend/tests/api/test_enrolment_capacity_ui_contract.py; evidencia previa en la matriz | Estado alineado con la matriz existente; M7 expone la consulta por seccion al matricular sin cambiar reglas. Integracion y aceptacion pendientes; docs/architecture/enrolment-capacity-ui.md |
 | RF-EST-009 | Asignacion de docentes a subareas de seccion | Debe | institutional-structure | Implemented | #173 | backend/tests/{unit/test_teaching_assignment_services.py,api/test_teaching_assignments_api.py} | Ya implementado por RF-ALC-003/RF-CIC-002 |
 | RF-EST-010 | Cobertura completa para la activacion del ciclo | Deberia | school-cycle | Not implemented | #174 | TBD | Regla de activacion |
 | RF-EST-011 | Mutabilidad de la estructura segun el estado del ciclo | Debe | school-cycle | Not implemented | #175 | TBD | Regla transversal |

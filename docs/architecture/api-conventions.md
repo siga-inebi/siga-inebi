@@ -386,6 +386,18 @@ Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad edu
 - La respuesta es paginada y se ordena desde la vigencia más reciente hacia la más antigua.
   Los estados y fechas se conservan para mantener la trazabilidad histórica.
 
+## Cupo contextual al matricular
+
+- La UI de M7 consume `GET /api/v1/enrolments/sections/occupancy/` con
+  `academic_cycle_id` y `section_id` para una sola seccion. No cambia el endpoint.
+- Se conservan `capacity`, `occupied_seats` y `available_seats`:
+  `capacity=0` / `available_seats=null` indica sin limite declarado;
+  `available_seats=0` indica ausencia de vacantes.
+- Consultar no reserva cupo ni garantiza una inscripcion posterior. La escritura
+  mantiene la validacion transaccional y puede rechazar un cupo que se lleno
+  despues de consultar. La UI relee al terminar un envio que deja la ventana
+  abierta. Detalle y pruebas en [M7](enrolment-capacity-ui.md).
+
 ## Matricula masiva del ciclo siguiente
 
 - `GET /api/v1/enrolments/re-enrolments/candidates/` consulta el ciclo de origen
