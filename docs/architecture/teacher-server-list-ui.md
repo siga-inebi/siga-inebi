@@ -98,7 +98,9 @@ reinicia página, filtro Administrativo y actividad optativa, formulario con pue
 CSV generado de 1.001 filas/11 páginas: se inspeccionó su Blob; la escritura del archivo por
 Chrome no quedó comprobada. La tabla usa su desplazamiento horizontal sin desbordar la página.
 Vista local: `http://127.0.0.1:5191/app/docentes?search=TEACH-DEMO&position=Docente+Titulado`.
-No se versionan datos, sesiones, capturas ni descargas. La evidencia CI se registra en el PR.
+No se versionan datos, sesiones, capturas ni descargas. Entrega y evidencia CI:
+[PR #654](https://github.com/siga-inebi/siga-inebi/pull/654), desde
+`feat/632-teacher-server-list` hacia `develop`.
 
 Sin variables nuevas ni migraciones. Revertir el PR restaura la pantalla y retira el endpoint
 aditivo; no requiere cambiar datos ni historial.
