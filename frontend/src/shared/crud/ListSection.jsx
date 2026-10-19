@@ -15,7 +15,7 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
  * cuatro veces la misma composicion de card, switch, alertas y paginador.
  *
  * @param {object}   props
- * @param {object}   props.list     Resultado de `usePaginatedList`.
+ * @param {object}   props.list     Resultado de `useServerList` (o del heredado `usePaginatedList`).
  * @param {Array}    props.columns       Columnas de `DataTable` ({key,label,align,render}).
  * @param {Function} props.getRowKey
  * @param {string}   props.title
@@ -27,6 +27,7 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
  * @param {boolean} [props.showInactiveToggle=true]
  * @param {boolean} [props.fillHeight]
  * @param {ReactNode}[props.filters] Barra de filtros; se renderiza sobre la tabla.
+ * @param {Function}[props.onRowClick] Fila clicable (abre la ficha).
  */
 export function ListSection({
   action,
@@ -37,6 +38,7 @@ export function ListSection({
   fillHeight = false,
   filters,
   getRowKey,
+  onRowClick,
   renderActions,
   showInactiveToggle = true,
   subtitle,
@@ -110,6 +112,7 @@ export function ListSection({
           fillHeight={fillHeight}
           getRowKey={getRowKey}
           loading={list.loading}
+          onRowClick={onRowClick}
           pagination={list.pagination}
           rows={list.items}
         />

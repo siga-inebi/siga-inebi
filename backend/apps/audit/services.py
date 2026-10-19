@@ -70,10 +70,12 @@ def record_event(
 
 def list_audit_events(
     *,
-    actor_id=None,
+    actor_public_id=None,
+    actor_username=None,
     resource=None,
     resource_identifier=None,
     action=None,
+    action_prefix=None,
     date_from=None,
     date_to=None,
 ):
@@ -86,15 +88,21 @@ def list_audit_events(
     emitio a este estudiante": ``_record_document_issue`` already stamps it
     with the student's pk on every ``documents.document.issued`` event.
     """
-    queryset = AuditEvent.objects.all()
-    if actor_id is not None:
-        queryset = queryset.filter(actor_id=actor_id)
+    queryset = AuditEvent.objects.select_related("actor")
+    if actor_public_id is not None:
+        queryset = queryset.filter(actor__public_id=actor_public_id)
+    if actor_username:
+        # `actor_label` conserva el usuario aunque la cuenta cambie o desaparezca
+        # (RF-BIT-007), asi que la busqueda por usuario no depende del FK.
+        queryset = queryset.filter(actor_label__icontains=actor_username)
     if resource:
         queryset = queryset.filter(resource=resource)
     if resource_identifier:
         queryset = queryset.filter(resource_identifier=resource_identifier)
     if action:
         queryset = queryset.filter(action=action)
+    if action_prefix:
+        queryset = queryset.filter(action__startswith=action_prefix)
     if date_from:
         queryset = queryset.filter(created_at__date__gte=date_from)
     if date_to:
@@ -124,9 +132,9 @@ def declare_data_retention(*, actor, category, period_days, legal_basis, applies
     yet finalized, so automated deletion is out of scope until it is.
     """
     if period_days <= 0:
-        raise DomainError("El plazo de retencion debe ser un numero de dias mayor a cero.")
+        raise DomainError("El plazo de retención debe ser un número de días mayor a cero.")
     if not legal_basis:
-        raise DomainError("Debe declararse un fundamento legal para el plazo de retencion.")
+        raise DomainError("Debe declararse un fundamento legal para el plazo de retención.")
 
     return record_event(
         actor=actor,

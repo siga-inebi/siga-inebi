@@ -13,16 +13,16 @@ def _payload_get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except (queryset.model.DoesNotExist, ValueError, TypeError) as exc:
-        raise DomainError(f"No se encontro {label}.") from exc
+        raise DomainError(f"No se encontró {label}.") from exc
 
 
 def shift_for_payload(public_id):
-    return _payload_get(Shift.objects.all(), public_id, "Shift")
+    return _payload_get(Shift.objects.all(), public_id, "la jornada")
 
 
 def academic_cycle_for_payload(public_id):
-    return _payload_get(AcademicCycle.objects.all(), public_id, "Academic cycle")
+    return _payload_get(AcademicCycle.objects.all(), public_id, "el ciclo escolar")
 
 
 def alert_for_payload(public_id):
-    return _payload_get(Alert.objects.select_related("student"), public_id, "Alert")
+    return _payload_get(Alert.objects.select_related("student"), public_id, "la alerta")

@@ -40,7 +40,7 @@ export function PublicShell({ children }) {
           >
             <ColorModeToggle />
             <Button component={RouterLink} to="/login" variant="contained">
-              Iniciar sesion
+              Iniciar sesión
             </Button>
           </Box>
         </Toolbar>

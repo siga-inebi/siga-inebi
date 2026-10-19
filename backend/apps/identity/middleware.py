@@ -5,7 +5,11 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from apps.audit.services import record_event
-from apps.identity.services import effective_session_idle_timeout_minutes, refresh_session_activity
+from apps.identity.services import (
+    effective_session_idle_timeout_minutes,
+    record_session_expired,
+    refresh_session_activity,
+)
 
 
 class SessionIdleTimeoutMiddleware:
@@ -35,6 +39,7 @@ class SessionIdleTimeoutMiddleware:
                 resource_identifier=str(user.pk),
                 context={"timeout_minutes": timeout_minutes, "result": "success"},
             )
+            record_session_expired(session_key=request.session.session_key)
             request.session.flush()
             response = JsonResponse(
                 {"error": {"detail": "La sesión expiró por inactividad."}},

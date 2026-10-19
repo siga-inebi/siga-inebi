@@ -31,21 +31,21 @@ import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
+import ManageAccountsOutlinedIcon from "@mui/icons-material/ManageAccountsOutlined";
+import HistoryEduOutlinedIcon from "@mui/icons-material/HistoryEduOutlined";
+import MonitorHeartOutlinedIcon from "@mui/icons-material/MonitorHeartOutlined";
 
 import {
-  canViewAlumnos,
-  canViewCursos,
-  canViewDocentes,
-  canViewNiveles,
-  canViewPadres,
-  canViewSedes,
+  ACCOUNT_ADMIN_PERMISSIONS,
+  MODULE_PERMISSIONS,
+  canAccessModule,
 } from "@auth/permissions.js";
 
 /** Panel principal. Va suelto arriba, sin grupo: es el destino por defecto. */
 export const HOME_ITEM = {
   key: "panel",
   label: "Panel",
-  description: "Resumen del establecimiento y accesos rapidos.",
+  description: "Resumen del establecimiento y accesos rápidos.",
   path: "/app",
   end: true,
   icon: DashboardOutlinedIcon,
@@ -59,9 +59,11 @@ export const HOME_ITEM = {
  * gente, despues como se organiza el ano, despues la operacion diaria, y al
  * final lo que se emite y se vigila.
  *
- * `canView` recibe el usuario de sesion. La UI degrada por permiso, no por
- * error: un modulo que el usuario no puede ver simplemente no aparece, en vez
- * de aparecer y fallar al entrar.
+ * `permissions` lista los permisos atomicos que habilitan el modulo (basta con
+ * uno; ver `MODULE_PERMISSIONS`). La UI degrada por permiso, no por error: un
+ * modulo que la cuenta no puede usar no aparece en el menu, y su ruta muestra
+ * "sin acceso" en vez de fallar con un 403 al entrar (docs/ux-ui.md 1.4). El
+ * backend sigue autorizando cada operacion.
  */
 export const NAV_GROUPS = [
   {
@@ -74,7 +76,7 @@ export const NAV_GROUPS = [
         description: "Listado y expediente de estudiantes.",
         path: "/app/alumnos",
         icon: SchoolOutlinedIcon,
-        canView: canViewAlumnos,
+        permissions: MODULE_PERMISSIONS.alumnos,
         countable: true,
         load: () => import("@students/AlumnosPage.jsx"),
       },
@@ -84,38 +86,28 @@ export const NAV_GROUPS = [
         description: "Personal docente y administrativo.",
         path: "/app/docentes",
         icon: CoPresentOutlinedIcon,
-        canView: canViewDocentes,
         countable: true,
         load: () => import("@teachers/DocentesPage.jsx"),
       },
       {
         key: "padres",
         label: "Padres de familia",
-        description: "Encargados y su vinculo con estudiantes.",
+        description: "Encargados y su vínculo con estudiantes.",
         path: "/app/padres-de-familia",
         icon: FamilyRestroomOutlinedIcon,
-        canView: canViewPadres,
         countable: true,
         load: () => import("@guardians/GuardiansPage.jsx"),
-      },
-      {
-        key: "personas",
-        label: "Personas",
-        description: "Registro base de identidad institucional.",
-        path: "/app/personas",
-        icon: BadgeOutlinedIcon,
-        load: () => import("@people/PersonasPage.jsx"),
       },
     ],
   },
   {
     key: "academico",
-    label: "Estructura academica",
+    label: "Estructura académica",
     items: [
       {
         key: "ciclos",
         label: "Ciclo escolar",
-        description: "Registro, activacion y clonado de ciclos.",
+        description: "Registro, activación y clonado de ciclos.",
         path: "/app/ciclos",
         icon: CalendarMonthOutlinedIcon,
         load: () => import("@cycles/CyclesPage.jsx"),
@@ -126,7 +118,6 @@ export const NAV_GROUPS = [
         description: "Sedes del establecimiento y sus jornadas.",
         path: "/app/sedes",
         icon: ApartmentOutlinedIcon,
-        canView: canViewSedes,
         load: () => import("@academics/CampusesPage.jsx"),
       },
       {
@@ -135,7 +126,6 @@ export const NAV_GROUPS = [
         description: "Aulas, laboratorios y espacios de aprendizaje.",
         path: "/app/aulas",
         icon: MeetingRoomOutlinedIcon,
-        canView: canViewSedes,
         load: () => import("@academics/RoomsPage.jsx"),
       },
       {
@@ -144,57 +134,55 @@ export const NAV_GROUPS = [
         description: "Niveles, grados y plan de estudios.",
         path: "/app/niveles",
         icon: AccountTreeOutlinedIcon,
-        canView: canViewNiveles,
         load: () => import("@academics/LevelsPage.jsx"),
       },
       {
         key: "cursos",
         label: "Cursos",
-        description: "Catalogo de cursos de la institucion.",
+        description: "Catálogo de cursos de la institución.",
         path: "/app/cursos",
         icon: MenuBookOutlinedIcon,
-        canView: canViewCursos,
         load: () => import("@academics/SubjectsPage.jsx"),
       },
       {
         key: "asignaciones",
         label: "Asignaciones docentes",
-        description: "Que docente da que curso en que seccion.",
+        description: "Qué docente da qué curso en qué sección.",
         path: "/app/asignaciones",
         icon: AssignmentIndOutlinedIcon,
-        canView: canViewDocentes,
         load: () => import("@academics/TeachingAssignmentsPage.jsx"),
       },
     ],
   },
   {
     key: "operacion",
-    label: "Operacion diaria",
+    label: "Operación diaria",
     items: [
       {
         key: "matriculas",
-        label: "Matriculas",
-        description: "Matricula, reinscripcion e historial por estudiante.",
+        label: "Matrículas",
+        description: "Matrícula, reinscripción e historial por estudiante.",
         path: "/app/matriculas",
         icon: HowToRegOutlinedIcon,
-        canView: canViewAlumnos,
+        permissions: MODULE_PERMISSIONS.matriculas,
         load: () => import("@enrolments/EnrolmentsPage.jsx"),
       },
       {
         key: "asistencia",
         label: "Asistencia",
-        description: "Movimientos de jornada y estado del dia.",
+        description: "Movimientos de jornada y estado del día.",
         path: "/app/asistencia",
         icon: FactCheckOutlinedIcon,
-        canView: canViewAlumnos,
+        permissions: MODULE_PERMISSIONS.asistencia,
         load: () => import("@attendance/AttendancePage.jsx"),
       },
       {
         key: "evaluacion",
-        label: "Evaluacion",
-        description: "Unidades, ventanas de captura y recuperacion.",
+        label: "Evaluación",
+        description: "Unidades, ventanas de captura y recuperación.",
         path: "/app/evaluacion",
         icon: GradingOutlinedIcon,
+        permissions: MODULE_PERMISSIONS.evaluacion,
         load: () => import("@evaluation/EvaluationPage.jsx"),
       },
     ],
@@ -212,36 +200,97 @@ export const NAV_GROUPS = [
         load: () => import("@documents/TemplatesPage.jsx"),
       },
       {
-        key: "tipos-documento",
-        label: "Tipos de documento",
-        description: "Catalogo de tipos de documento de la institucion.",
-        path: "/app/tipos-documento",
-        icon: CategoryOutlinedIcon,
-        load: () => import("@documents/DocumentTypesPage.jsx"),
-      },
-      {
         key: "alertas",
         label: "Alertas",
-        description: "Alertas de asistencia y su atencion.",
+        description: "Alertas de asistencia y su atención.",
         path: "/app/alertas",
         icon: NotificationsActiveOutlinedIcon,
+        permissions: MODULE_PERMISSIONS.alertas,
         load: () => import("@reporting/AlertsPage.jsx"),
       },
     ],
   },
   {
-    key: "seguridad",
-    label: "Seguridad",
+    // 2.17.6: un solo grupo para la administracion del sistema. Solo lo ve
+    // quien tiene alguno de esos permisos.
+    key: "administracion",
+    label: "Administración",
     items: [
       {
         key: "cuentas",
         label: "Cuentas",
-        description: "Gestion de cuentas, estados y desactivacion.",
+        description: "Acceso al sistema: cuentas, estados, sesiones y roles.",
         path: "/app/cuentas",
         icon: AdminPanelSettingsOutlinedIcon,
+        permissions: MODULE_PERMISSIONS.cuentas,
         load: () => import("@auth/AccountsPage.jsx"),
       },
+      {
+        key: "roles",
+        label: "Roles",
+        description: "Roles, permisos agrupados y quién los tiene.",
+        path: "/app/roles",
+        icon: ManageAccountsOutlinedIcon,
+        permissions: MODULE_PERMISSIONS.roles,
+        load: () => import("@auth/RolesPage.jsx"),
+      },
+      {
+        key: "personas",
+        label: "Personas",
+        description: "Registro base de las personas de la institución.",
+        path: "/app/personas",
+        icon: BadgeOutlinedIcon,
+        permissions: MODULE_PERMISSIONS.personas,
+        load: () => import("@people/PersonasPage.jsx"),
+      },
+      {
+        key: "tipos-documento",
+        label: "Tipos de documento",
+        description: "Catálogo de tipos de documento de la institución.",
+        path: "/app/tipos-documento",
+        icon: CategoryOutlinedIcon,
+        permissions: MODULE_PERMISSIONS["tipos-documento"],
+        load: () => import("@documents/DocumentTypesPage.jsx"),
+      },
+      {
+        key: "auditoria",
+        label: "Auditoría",
+        description: "Bitácora de operaciones y plazos de retención.",
+        path: "/app/auditoria",
+        icon: HistoryEduOutlinedIcon,
+        permissions: MODULE_PERMISSIONS.auditoria,
+        load: () => import("@audit/AuditPage.jsx"),
+      },
+      {
+        key: "plataforma",
+        label: "Plataforma",
+        description: "Tareas programadas y respaldos.",
+        path: "/app/plataforma",
+        icon: MonitorHeartOutlinedIcon,
+        permissions: MODULE_PERMISSIONS.plataforma,
+        load: () => import("@platform/PlatformPage.jsx"),
+      },
     ],
+  },
+];
+
+/**
+ * Rutas privadas que no son items del menu: la ficha de una cuenta y "Mi
+ * cuenta" (se entra desde el menu de usuario).
+ */
+export const EXTRA_ROUTES = [
+  {
+    key: "cuenta-detalle",
+    label: "Ficha de la cuenta",
+    path: "/app/cuentas/:accountId",
+    permissions: ACCOUNT_ADMIN_PERMISSIONS,
+    load: () => import("@auth/AccountDetailPage.jsx"),
+  },
+  {
+    key: "mi-cuenta",
+    label: "Mi cuenta",
+    path: "/app/mi-cuenta",
+    load: () => import("@auth/MyAccountPage.jsx"),
   },
 ];
 
@@ -251,11 +300,16 @@ export const ALL_MODULES = [
   ...NAV_GROUPS.flatMap((group) => group.items),
 ];
 
+/** ¿Puede la cuenta usar este modulo? Sin `permissions`, basta la sesion. */
+export function canViewModule(user, item) {
+  return Boolean(user) && canAccessModule(user, item);
+}
+
 /** Grupos con sus items filtrados por permiso; se omiten los que quedan vacios. */
 export function visibleGroups(user) {
   return NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !item.canView || item.canView(user)),
+    items: group.items.filter((item) => canViewModule(user, item)),
   })).filter((group) => group.items.length > 0);
 }
 

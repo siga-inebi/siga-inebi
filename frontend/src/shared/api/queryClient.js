@@ -1,5 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 
+import { registerMutationInvalidation } from "./invalidation.js";
+
 /**
  * Instancia unica de cache compartida por toda la app.
  *
@@ -20,3 +22,10 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Toda escritura exitosa invalida lo que pudo cambiar (ux-ui 1.2.3). Por eso el
+ * `staleTime` de un minuto ya no deja datos viejos en pantalla despues de
+ * guardar: la frescura la garantiza la invalidacion, no el reloj.
+ */
+registerMutationInvalidation(queryClient);

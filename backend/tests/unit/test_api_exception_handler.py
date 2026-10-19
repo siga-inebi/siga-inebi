@@ -22,13 +22,13 @@ def test_domain_error_uses_the_standard_bad_request_envelope():
 
 @pytest.mark.unit
 def test_resource_not_found_preserves_drf_detail_shape():
-    response = api_exception_handler(ResourceNotFoundError("Student not found."), {})
+    response = api_exception_handler(ResourceNotFoundError("No se encontró el estudiante."), {})
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.data == {
         "error": {
             "status_code": status.HTTP_404_NOT_FOUND,
-            "detail": {"detail": "Student not found."},
+            "detail": {"detail": "No se encontró el estudiante."},
         }
     }
 

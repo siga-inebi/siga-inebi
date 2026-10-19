@@ -7,6 +7,7 @@ import { studentsService } from "@students/studentsService.js";
 import { teachersService } from "@teachers/teachersService.js";
 
 import { collectAllPages } from "@shared/api/pages.js";
+import { CATALOG } from "@shared/api/queryKeys.js";
 
 import { useCatalogOptions } from "./useCatalogOptions.js";
 
@@ -19,8 +20,9 @@ import { useCatalogOptions } from "./useCatalogOptions.js";
  * traen el catalogo y devuelven `{value,label}` con el nombre que la persona SI
  * reconoce, dejando el UUID como detalle interno del formulario.
  *
- * Cada `load` se define a nivel de modulo para que sea estable entre renders:
- * `useCatalogOptions` la usa como dependencia de su efecto.
+ * Cada `load` se define a nivel de modulo para que sea estable entre renders, y
+ * cada hook declara su nombre de cache explicito (`CATALOG.*`): nunca se deriva
+ * de `load.name`, que el build de produccion minifica (ux-ui 1.2.4).
  */
 
 /** Ordena por etiqueta para que el desplegable no cambie de orden entre cargas. */
@@ -48,6 +50,7 @@ async function loadCycles() {
       name: cycle.name,
       year: cycle.year,
       startsOn: cycle.starts_on,
+      endsOn: cycle.ends_on,
     }));
 }
 
@@ -171,27 +174,39 @@ async function loadSections() {
 }
 
 export function useCycleCatalog(reloadToken) {
-  return useCatalogOptions(loadCycles, reloadToken);
+  return useCatalogOptions(loadCycles, reloadToken, {
+    key: CATALOG.cycles,
+  });
 }
 
 export function useSubjectCatalog(reloadToken) {
-  return useCatalogOptions(loadSubjects, reloadToken);
+  return useCatalogOptions(loadSubjects, reloadToken, {
+    key: CATALOG.subjects,
+  });
 }
 
 export function useTeacherCatalog(reloadToken) {
-  return useCatalogOptions(loadTeachers, reloadToken);
+  return useCatalogOptions(loadTeachers, reloadToken, {
+    key: CATALOG.teachers,
+  });
 }
 
 export function useStudentCatalog(reloadToken) {
-  return useCatalogOptions(loadStudents, reloadToken);
+  return useCatalogOptions(loadStudents, reloadToken, {
+    key: CATALOG.students,
+  });
 }
 
 export function useShiftCatalog(reloadToken) {
-  return useCatalogOptions(loadShifts, reloadToken);
+  return useCatalogOptions(loadShifts, reloadToken, {
+    key: CATALOG.shifts,
+  });
 }
 
 export function useGradeCatalog(reloadToken) {
-  return useCatalogOptions(loadGrades, reloadToken);
+  return useCatalogOptions(loadGrades, reloadToken, {
+    key: CATALOG.grades,
+  });
 }
 
 /**
@@ -202,7 +217,9 @@ export function useGradeCatalog(reloadToken) {
  * jornada sin una segunda peticion ni un campo mas que llenar.
  */
 export function useSectionCatalog(reloadToken) {
-  const catalog = useCatalogOptions(loadSections, reloadToken);
+  const catalog = useCatalogOptions(loadSections, reloadToken, {
+    key: CATALOG.sections,
+  });
 
   const options = useMemo(() => {
     // La jornada entra en la etiqueta solo cuando hay secciones homonimas en
@@ -290,7 +307,9 @@ async function loadEnrolments() {
 }
 
 export function useEnrolmentCatalog(reloadToken) {
-  return useCatalogOptions(loadEnrolments, reloadToken);
+  return useCatalogOptions(loadEnrolments, reloadToken, {
+    key: CATALOG.enrolments,
+  });
 }
 
 /** Indice `value -> label` para pintar un id como el nombre que representa. */

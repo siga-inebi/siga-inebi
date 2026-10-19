@@ -13,14 +13,14 @@ export function NotFoundPage() {
       <Stack alignItems="center" gap={1.5} sx={{ px: 3, py: 5 }}>
         <SearchOffIcon sx={{ fontSize: "3rem", color: "text.disabled" }} />
         <Typography fontWeight={600} variant="h6">
-          Pagina no encontrada
+          Página no encontrada
         </Typography>
         <Typography
           color="text.secondary"
           sx={{ textAlign: "center" }}
           variant="body2"
         >
-          La direccion que abriste no corresponde a ninguna seccion del sistema.
+          La dirección que abrió no corresponde a ninguna sección del sistema.
         </Typography>
         <Button
           component={RouterLink}

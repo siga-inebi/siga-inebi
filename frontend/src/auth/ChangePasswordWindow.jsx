@@ -8,12 +8,18 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { authService } from "@auth/authService.js";
-import { FormTextField } from "@ui/forms/FormTextField.jsx";
+import { fieldErrors } from "@auth/passwordPolicy.js";
+import { PasswordField } from "@ui/forms/PasswordField.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 
+import { PasswordRules } from "./PasswordRules.jsx";
+
 /**
  * Ventana modal para que el usuario autenticado actualice su contraseña personal (RF-AUT-006).
+ *
+ * Muestra las reglas reales del backend y el error de cada regla junto al
+ * campo que la incumple (docs/ux-ui.md MC2), no un "Verifique los datos".
  *
  * @param {object}   props
  * @param {boolean}  props.open
@@ -25,6 +31,7 @@ export function ChangePasswordWindow({ onClose, onSuccess, open }) {
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrorMap, setFieldErrorMap] = useState({});
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const closeTimerRef = useRef(null);
@@ -43,6 +50,7 @@ export function ChangePasswordWindow({ onClose, onSuccess, open }) {
     setNewPassword("");
     setNewPasswordConfirm("");
     setError("");
+    setFieldErrorMap({});
     setSuccess(false);
     setSubmitting(false);
   };
@@ -55,6 +63,7 @@ export function ChangePasswordWindow({ onClose, onSuccess, open }) {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
+    setFieldErrorMap({});
 
     if (!currentPassword || !newPassword || !newPasswordConfirm) {
       setError("Todos los campos son obligatorios.");
@@ -84,9 +93,20 @@ export function ChangePasswordWindow({ onClose, onSuccess, open }) {
         handleClose();
       }, 1200);
     } catch (err) {
+      const perField = {
+        current_password: fieldErrors(err, "current_password"),
+        new_password: fieldErrors(err, "new_password"),
+        new_password_confirm: fieldErrors(err, "new_password_confirm"),
+      };
+      const hasFieldErrors = Object.values(perField).some(
+        (messages) => messages.length > 0
+      );
+      setFieldErrorMap(perField);
       setError(
-        err?.message ||
-          "Ocurrió un error al intentar cambiar la contraseña. Verifique los datos."
+        hasFieldErrors
+          ? ""
+          : err?.message ||
+              "No se pudo cambiar la contraseña. Intente de nuevo."
       );
     } finally {
       setSubmitting(false);
@@ -95,7 +115,7 @@ export function ChangePasswordWindow({ onClose, onSuccess, open }) {
 
   return (
     <FloatingWindow
-      description="Por seguridad, ingresar su contraseña actual para establecer una nueva clave."
+      description="Por seguridad, escriba su contraseña actual para definir una nueva."
       onClose={handleClose}
       open={open}
       title="Cambiar contraseña"
@@ -115,39 +135,40 @@ export function ChangePasswordWindow({ onClose, onSuccess, open }) {
             </Alert>
           ) : null}
 
-          <FormTextField
+          <PasswordField
             autoComplete="current-password"
             disabled={submitting || success}
+            errors={fieldErrorMap.current_password}
             label="Contraseña actual"
             name="currentPassword"
             onChange={(event) => setCurrentPassword(event.target.value)}
             required
-            type="password"
             value={currentPassword}
           />
 
-          <FormTextField
+          <PasswordField
             autoComplete="new-password"
             disabled={submitting || success}
-            helperText="Debe contener al menos 8 caracteres."
+            errors={fieldErrorMap.new_password}
             label="Nueva contraseña"
             name="newPassword"
             onChange={(event) => setNewPassword(event.target.value)}
             required
-            type="password"
             value={newPassword}
           />
 
-          <FormTextField
+          <PasswordField
             autoComplete="new-password"
             disabled={submitting || success}
+            errors={fieldErrorMap.new_password_confirm}
             label="Confirmar nueva contraseña"
             name="newPasswordConfirm"
             onChange={(event) => setNewPasswordConfirm(event.target.value)}
             required
-            type="password"
             value={newPasswordConfirm}
           />
+
+          <PasswordRules />
 
           <Typography color="text.secondary" variant="caption">
             Al cambiar su contraseña, se cerrarán las sesiones abiertas en otros

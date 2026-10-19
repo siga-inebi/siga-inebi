@@ -1,58 +1,40 @@
-import { useEffect, useState } from "react";
-
+import { useModuleCountsState } from "@app/useModuleCounts.js";
 import { apiClient } from "@shared/api/apiClient.js";
-import { guardiansService } from "@guardians/guardiansService.js";
-import { studentsService } from "@students/studentsService.js";
-import { teachersService } from "@teachers/teachersService.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 
 /**
  * Datos agregados del panel: conteos por dominio y salud del servicio.
  *
- * El panel es la unica pantalla que legitimamente lee de varios dominios a la
- * vez — es su razon de existir. Cada conteo se resuelve por separado y un fallo
- * deja ese indicador en `null` sin tumbar los demas: media pantalla con datos es
- * mejor que una pantalla en blanco porque un endpoint respondio 500.
+ * Los conteos NO descargan padrones (docs/ux-ui.md 1.7). Antes este hook
+ * recorria todos los estudiantes, docentes y encargados para hacer
+ * `records.length`, con el tope de 1 000 de por medio. Ahora reutiliza
+ * `useModuleCounts`, la misma fuente (y la misma cache) que los badges del
+ * menu lateral: una peticion de una fila por modulo, usando `count`.
+ *
+ * Un conteo que falla o que la cuenta no puede ver queda en `null` sin tumbar
+ * los demas.
+ *
+ * @param {object} user Usuario de sesion.
  */
-export function useDashboardSummary() {
-  const [counts, setCounts] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [health, setHealth] = useState({ data: null, error: "" });
+export function useDashboardSummary(user) {
+  const { counts: moduleCounts, loading } = useModuleCountsState(
+    Boolean(user),
+    user
+  );
+  const health = useResourceQuery(queryKeys.dashboard.health(), () =>
+    apiClient.get("/health/")
+  );
 
-  useEffect(() => {
-    let active = true;
+  const counts = {
+    students: moduleCounts.alumnos,
+    teachers: moduleCounts.docentes,
+    guardians: moduleCounts.padres,
+  };
 
-    const sources = [
-      ["students", studentsService],
-      ["teachers", teachersService],
-      ["guardians", guardiansService],
-    ];
-
-    Promise.all(
-      sources.map(([key, service]) =>
-        service
-          .list()
-          .then((records) => [key, records.length])
-          .catch(() => [key, null])
-      )
-    ).then((entries) => {
-      if (!active) return;
-      setCounts(Object.fromEntries(entries));
-      setLoading(false);
-    });
-
-    apiClient
-      .get("/health/")
-      .then((data) => {
-        if (active) setHealth({ data, error: "" });
-      })
-      .catch((requestError) => {
-        if (active) setHealth({ data: null, error: requestError.message });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  return { counts, health, loading };
+  return {
+    counts,
+    health: { data: health.data, error: health.error },
+    loading,
+  };
 }

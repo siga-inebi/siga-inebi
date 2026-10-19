@@ -79,12 +79,12 @@ def test_account_can_receive_multiple_roles_and_revocation_applies_immediately(c
     second = RoleFactory(permissions=[PermissionFactory(codename="audit_read")])
 
     first_response = client.post(
-        reverse("identity-role-assignment-create", args=[target.pk]),
+        reverse("identity-role-assignment-create", args=[target.public_id]),
         {"role": str(first.public_id), "scope": {"module_key": "identity"}},
         content_type="application/json",
     )
     second_response = client.post(
-        reverse("identity-role-assignment-create", args=[target.pk]),
+        reverse("identity-role-assignment-create", args=[target.public_id]),
         {"role": str(second.public_id), "scope": {"module_key": "identity"}},
         content_type="application/json",
     )

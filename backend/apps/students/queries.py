@@ -12,13 +12,13 @@ def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
     except queryset.model.DoesNotExist as exc:
-        raise ResourceNotFoundError(f"{label} not found.") from exc
+        raise ResourceNotFoundError(f"No se encontró {label}.") from exc
     except (ValueError, TypeError) as exc:
-        raise ResourceNotFoundError(f"{label} not found.") from exc
+        raise ResourceNotFoundError(f"No se encontró {label}.") from exc
 
 
 def student_or_404(public_id):
-    return _get(Student.objects.all(), public_id, "Student")
+    return _get(Student.objects.all(), public_id, "el estudiante")
 
 
 def students(*, include_inactive=True, status=None):
@@ -75,7 +75,7 @@ def guardian_relations_for_record(*, actor, student_public_id, replacement_for=N
     queryset = guardian_relations().filter(student=student)
     if replacement_for is not None:
         if not queryset.filter(pk=replacement_for).exists():
-            raise ResourceNotFoundError("Student guardian relation not found.")
+            raise ResourceNotFoundError("No se encontró la relación con el encargado.")
         queryset = queryset.filter(
             ends_at__isnull=True, is_active=True, starts_at__lte=timezone.localdate()
         ).exclude(pk=replacement_for)
@@ -115,7 +115,9 @@ def student_record_can_manage(*, actor, student):
 
 def emergency_contact_or_404(public_id):
     return _get(
-        EmergencyContact.objects.select_related("student").all(), public_id, "EmergencyContact"
+        EmergencyContact.objects.select_related("student").all(),
+        public_id,
+        "el contacto de emergencia",
     )
 
 
@@ -130,7 +132,7 @@ def health_note_or_404(public_id):
     return _get(
         StudentHealthNote.objects.select_related("student", "author").all(),
         public_id,
-        "Student health note",
+        "la nota de salud",
     )
 
 
@@ -145,5 +147,5 @@ def observation_or_404(public_id):
     return _get(
         StudentObservation.objects.select_related("student", "author"),
         public_id,
-        "Student observation",
+        "la observación",
     )

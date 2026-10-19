@@ -26,7 +26,7 @@ const DEFAULT_DEBOUNCE_MS = 400;
 export function SearchField({
   debounceMs = DEFAULT_DEBOUNCE_MS,
   onChange,
-  placeholder = "Buscar...",
+  placeholder = "Buscar…",
   value,
   ...rest
 }) {
@@ -59,7 +59,7 @@ export function SearchField({
           endAdornment: text ? (
             <InputAdornment position="end">
               <IconButton
-                aria-label="Limpiar busqueda"
+                aria-label="Limpiar búsqueda"
                 edge="end"
                 onClick={() => {
                   setText("");

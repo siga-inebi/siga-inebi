@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
@@ -10,11 +11,19 @@ import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import LockResetIcon from "@mui/icons-material/LockReset";
+import AccountCircleOutlinedIcon from "@mui/icons-material/AccountCircleOutlined";
 import LogoutIcon from "@mui/icons-material/Logout";
 
-import { ChangePasswordWindow } from "@auth/ChangePasswordWindow.jsx";
 import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
 import { formatFullName } from "@shared/utils/format.js";
+
+// Se carga al abrirla: con sus reglas de contraseña y su formulario no tiene
+// por que viajar en el chunk inicial de todas las pantallas.
+const ChangePasswordWindow = lazy(() =>
+  import("@auth/ChangePasswordWindow.jsx").then((module) => ({
+    default: module.ChangePasswordWindow,
+  }))
+);
 
 /** Iniciales para el avatar cuando no hay foto. */
 function initials(name) {
@@ -36,6 +45,7 @@ function initials(name) {
  * @param {Function} props.onLogoutAll
  */
 export function UserMenu({ onLogout, onLogoutAll, user }) {
+  const navigate = useNavigate();
   const [anchor, setAnchor] = useState(null);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [logoutAllOpen, setLogoutAllOpen] = useState(false);
@@ -44,7 +54,7 @@ export function UserMenu({ onLogout, onLogoutAll, user }) {
   const displayName =
     formatFullName(user?.person) !== "—"
       ? formatFullName(user.person)
-      : (user?.username ?? "Sesion");
+      : (user?.username ?? "Sesión");
 
   const closeAllSessions = async () => {
     setClosingAll(true);
@@ -122,13 +132,24 @@ export function UserMenu({ onLogout, onLogoutAll, user }) {
         <MenuItem
           onClick={() => {
             setAnchor(null);
+            navigate("/app/mi-cuenta");
+          }}
+        >
+          <ListItemIcon>
+            <AccountCircleOutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          Mi cuenta
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchor(null);
             setChangePasswordOpen(true);
           }}
         >
           <ListItemIcon>
             <LockResetIcon fontSize="small" />
           </ListItemIcon>
-          Cambiar contrasena
+          Cambiar contraseña
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -150,14 +171,18 @@ export function UserMenu({ onLogout, onLogoutAll, user }) {
           <ListItemIcon>
             <LogoutIcon fontSize="small" />
           </ListItemIcon>
-          Cerrar sesion
+          Cerrar sesión
         </MenuItem>
       </Menu>
 
-      <ChangePasswordWindow
-        onClose={() => setChangePasswordOpen(false)}
-        open={changePasswordOpen}
-      />
+      {changePasswordOpen ? (
+        <Suspense fallback={null}>
+          <ChangePasswordWindow
+            onClose={() => setChangePasswordOpen(false)}
+            open
+          />
+        </Suspense>
+      ) : null}
       <ConfirmDialog
         busy={closingAll}
         confirmColor="error"

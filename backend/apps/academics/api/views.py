@@ -147,7 +147,9 @@ class CatalogueView(GenericAPIView):
         if not self.request.user.has_scoped_permission(
             "scope_assign", scope={"institution": self.institution}
         ):
-            raise AuthorizationError("Actor lacks the required permission or institution scope.")
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre la institución."
+            )
 
     def require_reopen_scope(self):
         # No "academic_cycle" key in the scope: scope_matches() would deny a
@@ -158,7 +160,9 @@ class CatalogueView(GenericAPIView):
         if not self.request.user.has_scoped_permission(
             "academic_cycle_reopen", scope={"institution": self.institution}
         ):
-            raise AuthorizationError("Actor lacks the required permission or institution scope.")
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre la institución."
+            )
 
 
 class CatalogueListCreateView(CatalogueView):
@@ -1551,7 +1555,7 @@ class FrozenSubjectResultCorrectionView(GenericAPIView):
     )
     def post(self, request, cycle_public_id, enrolment_id, subject_id):
         if not request.user.has_atomic_permission("grade_correct"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
 
         enrolment, subject = _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id)
         current = queries.latest_frozen_subject_result(enrolment=enrolment, subject=subject)
@@ -1599,7 +1603,7 @@ class FrozenPromotionResultView(GenericAPIView):
             cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
         )
         if enrolment is None:
-            raise ResourceNotFoundError("Enrolment not found.")
+            raise ResourceNotFoundError("No se encontró la matrícula.")
         result = queries.latest_frozen_promotion_result(enrolment=enrolment)
         if result is None:
             raise ResourceNotFoundError(
@@ -1616,11 +1620,11 @@ def _resolve_enrolment_subject(cycle_public_id, enrolment_id, subject_id):
         cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
     )
     if enrolment is None:
-        raise ResourceNotFoundError("Enrolment not found.")
+        raise ResourceNotFoundError("No se encontró la matrícula.")
 
     subject = evaluation_queries.subject_or_none(subject_id)
     if subject is None:
-        raise ResourceNotFoundError("Subject not found.")
+        raise ResourceNotFoundError("No se encontró el curso.")
 
     return enrolment, subject
 

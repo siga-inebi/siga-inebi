@@ -35,7 +35,7 @@ class TaskRun(TimeStampedModel):
     """
 
     class Status(models.TextChoices):
-        RUNNING = "running", "En ejecucion"
+        RUNNING = "running", "En ejecución"
         SUCCEEDED = "succeeded", "Finalizada"
         FAILED = "failed", "Fallida"
 

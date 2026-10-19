@@ -18,6 +18,8 @@ vi.mock("@guardians/guardiansService.js", () => ({
 
 import { useModuleCounts } from "@app/useModuleCounts.js";
 
+const USER = { permissions: ["student.view_basic"] };
+
 function wrapperFor(client) {
   return ({ children }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -36,7 +38,7 @@ describe("useModuleCounts", () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    const { result } = renderHook(() => useModuleCounts(true), {
+    const { result } = renderHook(() => useModuleCounts(true, USER), {
       wrapper: wrapperFor(client),
     });
 
@@ -50,7 +52,9 @@ describe("useModuleCounts", () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    renderHook(() => useModuleCounts(false), { wrapper: wrapperFor(client) });
+    renderHook(() => useModuleCounts(false, USER), {
+      wrapper: wrapperFor(client),
+    });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(studentsServiceMock.listPage).not.toHaveBeenCalled();
@@ -67,7 +71,7 @@ describe("useModuleCounts", () => {
     });
     const wrapper = wrapperFor(client);
 
-    const first = renderHook(() => useModuleCounts(true), { wrapper });
+    const first = renderHook(() => useModuleCounts(true, USER), { wrapper });
     await waitFor(() =>
       expect(first.result.current).toEqual({
         alumnos: 100,
@@ -77,7 +81,7 @@ describe("useModuleCounts", () => {
     );
     first.unmount();
 
-    const second = renderHook(() => useModuleCounts(true), { wrapper });
+    const second = renderHook(() => useModuleCounts(true, USER), { wrapper });
     await waitFor(() =>
       expect(second.result.current).toEqual({
         alumnos: 100,
@@ -89,5 +93,36 @@ describe("useModuleCounts", () => {
     expect(studentsServiceMock.listPage).toHaveBeenCalledTimes(1);
     expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(1);
     expect(guardiansServiceMock.listPage).toHaveBeenCalledTimes(1);
+  });
+
+  test("pide una sola fila: solo importa el conteo", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    renderHook(() => useModuleCounts(true, USER), {
+      wrapper: wrapperFor(client),
+    });
+
+    await waitFor(() =>
+      expect(studentsServiceMock.listPage).toHaveBeenCalledWith({
+        page_size: 1,
+      })
+    );
+  });
+
+  test("sin permiso de estudiantes no pide su conteo (evita 403 y denegaciones)", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const { result } = renderHook(
+      () => useModuleCounts(true, { permissions: [] }),
+      { wrapper: wrapperFor(client) }
+    );
+
+    await waitFor(() => expect(result.current.docentes).toBe(12));
+    expect(result.current.alumnos).toBeNull();
+    expect(studentsServiceMock.listPage).not.toHaveBeenCalled();
   });
 });

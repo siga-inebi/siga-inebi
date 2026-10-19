@@ -53,7 +53,7 @@ class EnrolmentCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -198,7 +198,7 @@ class StudentMovementAnnulmentCreateView(GenericAPIView):
     )
     def post(self, request, movement_id):
         if not request.user.has_atomic_permission("enrollment_update"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -238,7 +238,7 @@ class MatriculationCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -273,7 +273,7 @@ class ReenrolmentCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -309,7 +309,7 @@ class UnifiedMatriculationCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
@@ -368,7 +368,7 @@ class BulkReenrolmentCreateView(GenericAPIView):
     )
     def post(self, request):
         if not request.user.has_atomic_permission("enrollment_create"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         result = services.bulk_reenrol_students(actor=request.user, **serializer.validated_data)
@@ -391,7 +391,7 @@ class SectionChangeCreateView(GenericAPIView):
     )
     def post(self, request, enrolment_id):
         if not request.user.has_atomic_permission("enrollment_update"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -428,7 +428,7 @@ class StudentWithdrawalCreateView(GenericAPIView):
     )
     def post(self, request, enrolment_id):
         if not request.user.has_atomic_permission("enrollment_update"):
-            raise AuthorizationError("Actor lacks the required permission.")
+            raise AuthorizationError("El actor no tiene el permiso requerido.")
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -467,7 +467,7 @@ class StudentTransferInCreateView(GenericAPIView):
             scope={"section": section, "module_key": "enrolments"},
         )
         if not has_scope:
-            raise AuthorizationError("Actor lacks the required permission or scope.")
+            raise AuthorizationError("El actor no tiene el permiso o el alcance requerido.")
         movement = services.transfer_student_in(
             student=student,
             academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
@@ -495,7 +495,7 @@ class StudentTransferOutCreateView(GenericAPIView):
         if not request.user.has_scoped_permission(
             "enrollment_update", scope={"student": enrolment.student}
         ):
-            raise AuthorizationError("Actor lacks the required permission or scope.")
+            raise AuthorizationError("El actor no tiene el permiso o el alcance requerido.")
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         movement = services.transfer_student_out(
@@ -583,4 +583,4 @@ def _ensure_enrolment_permission(request, codenames=_ENROLMENT_WRITE_PERMISSIONS
     # create and the update permission are legitimate. The catalogue has no read-only
     # enrolment permission yet, so the listing accepts the same pair.
     if not any(request.user.has_atomic_permission(codename) for codename in codenames):
-        raise AuthorizationError("Actor lacks the required permission.")
+        raise AuthorizationError("El actor no tiene el permiso requerido.")

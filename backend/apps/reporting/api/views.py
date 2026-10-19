@@ -39,7 +39,7 @@ STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise AuthorizationError("Actor lacks the required permission.")
+        raise AuthorizationError("El actor no tiene el permiso requerido.")
 
 
 TAGS = ["reporting: alerts"]
@@ -163,7 +163,9 @@ class ReportingAlertAcknowledgeView(GenericAPIView):
         if not can_access_student(
             user=request.user, codename=STUDENT_VIEW_PERMISSION, student=alert.student
         ):
-            raise AuthorizationError("Actor lacks the required permission or student scope.")
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
         alert = services.acknowledge_alert(alert=alert, actor=request.user)
         return Response(ReportingAlertSerializer(alert).data)
 

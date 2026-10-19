@@ -34,18 +34,18 @@ def test_administrator_provisions_pending_account_and_receives_code_once(client)
 
     response = client.post(
         reverse("identity-account-provision"),
-        {"person": person.pk, "username": "new.user"},
+        {"person_public_id": str(person.public_id), "username": "new.user"},
     )
 
     assert response.status_code == 201
     assert response["Cache-Control"] == "no-store"
     payload = response.json()
     assert payload["status"] == "pending"
-    assert payload["person"] == person.pk
+    assert payload["person_public_id"] == str(person.public_id)
     assert payload["activation_code"].isdigit()
     assert len(payload["activation_code"]) == 8
 
-    challenge = ActivationChallenge.objects.get(account_id=payload["id"])
+    challenge = ActivationChallenge.objects.get(account__public_id=payload["public_id"])
     assert challenge.token_digest != payload["activation_code"]
     assert len(challenge.token_digest) == 64
     assert challenge.failed_attempts == 0
@@ -66,7 +66,7 @@ def test_account_provisioning_requires_account_create_permission(client):
 
     response = client.post(
         reverse("identity-account-provision"),
-        {"person": person.pk, "username": "not-created"},
+        {"person_public_id": str(person.public_id), "username": "not-created"},
     )
 
     assert response.status_code == 403
@@ -83,7 +83,7 @@ def test_account_provisioning_requires_authentication(client):
 
     response = client.post(
         reverse("identity-account-provision"),
-        {"person": person.pk, "username": "anonymous-account"},
+        {"person_public_id": str(person.public_id), "username": "anonymous-account"},
     )
 
     assert response.status_code == 403
@@ -97,7 +97,7 @@ def test_public_self_registration_route_does_not_exist(client):
 
     response = client.post(
         "/api/v1/auth/register/",
-        {"person": person.pk, "username": "self-registered"},
+        {"person_public_id": str(person.public_id), "username": "self-registered"},
     )
 
     assert response.status_code == 404
@@ -114,11 +114,11 @@ def test_authorized_administrator_reissues_and_revokes_previous_challenge(client
     client.force_login(creator)
     initial_response = client.post(
         reverse("identity-account-provision"),
-        {"person": person.pk, "username": "pending-account"},
+        {"person_public_id": str(person.public_id), "username": "pending-account"},
     )
-    account_id = initial_response.json()["id"]
+    account_id = initial_response.json()["public_id"]
     old_code = initial_response.json()["activation_code"]
-    previous = ActivationChallenge.objects.get(account_id=account_id)
+    previous = ActivationChallenge.objects.get(account__public_id=account_id)
 
     actor = UserFactory()
     grant_permission(actor, "account_activate")
@@ -135,7 +135,7 @@ def test_authorized_administrator_reissues_and_revokes_previous_challenge(client
     assert previous.is_active is False
     assert previous.revoked_at is not None
     assert previous.is_usable() is False
-    assert ActivationChallenge.objects.filter(account_id=account_id).count() == 2
+    assert ActivationChallenge.objects.filter(account__public_id=account_id).count() == 2
 
 
 @pytest.mark.api
@@ -147,7 +147,7 @@ def test_reissue_requires_account_activate_permission(client):
     client.force_login(actor)
 
     response = client.post(
-        reverse("identity-activation-challenge-reissue", args=[account.pk]),
+        reverse("identity-activation-challenge-reissue", args=[account.public_id]),
     )
 
     assert response.status_code == 403
@@ -173,7 +173,7 @@ def provision_pending_account(client, *, username="account-to-activate"):
     client.force_login(UserFactory(is_superuser=True))
     response = client.post(
         reverse("identity-account-provision"),
-        {"person": PersonFactory().pk, "username": username},
+        {"person_public_id": str(PersonFactory().public_id), "username": username},
     )
     assert response.status_code == 201
     client.logout()
@@ -198,7 +198,7 @@ def test_account_holder_redeems_code_sets_password_and_activates_account(client)
 
     assert response.status_code == 200
     assert response.json()["status"] == "active"
-    account = UserFactory._meta.model.objects.get(pk=provisioned["id"])
+    account = UserFactory._meta.model.objects.get(public_id=provisioned["public_id"])
     assert account.is_active is True
     assert account.check_password("long-password-not-common-427")
     challenge = ActivationChallenge.objects.get(account=account)
@@ -226,7 +226,7 @@ def test_redeemed_code_cannot_be_used_again(client):
     response = client.post(reverse("identity-account-activate"), payload)
 
     assert response.status_code == 400
-    account = UserFactory._meta.model.objects.get(pk=provisioned["id"])
+    account = UserFactory._meta.model.objects.get(public_id=provisioned["public_id"])
     assert account.check_password("first-long-password-427")
     assert not account.check_password("second-long-password-427")
 
@@ -248,7 +248,7 @@ def test_three_invalid_codes_exhaust_challenge_and_attempts_are_audited(client):
     for expected_attempts in range(1, 4):
         response = client.post(url, invalid_payload)
         assert response.status_code == 400
-        challenge = ActivationChallenge.objects.get(account_id=provisioned["id"])
+        challenge = ActivationChallenge.objects.get(account__public_id=provisioned["public_id"])
         assert challenge.failed_attempts == expected_attempts
 
     valid_response = client.post(
@@ -256,7 +256,7 @@ def test_three_invalid_codes_exhaust_challenge_and_attempts_are_audited(client):
         {**invalid_payload, "activation_code": provisioned["activation_code"]},
     )
     assert valid_response.status_code == 400
-    account = UserFactory._meta.model.objects.get(pk=provisioned["id"])
+    account = UserFactory._meta.model.objects.get(public_id=provisioned["public_id"])
     assert account.status == "pending"
     assert account.is_active is False
     assert (
@@ -273,7 +273,7 @@ def test_three_invalid_codes_exhaust_challenge_and_attempts_are_audited(client):
 @pytest.mark.django_db
 def test_expired_code_does_not_activate_account(client):
     provisioned = provision_pending_account(client, username="expired-code-account")
-    challenge = ActivationChallenge.objects.get(account_id=provisioned["id"])
+    challenge = ActivationChallenge.objects.get(account__public_id=provisioned["public_id"])
     challenge.expires_at = timezone.now() - timedelta(seconds=1)
     challenge.save(update_fields=["expires_at"])
 
@@ -309,10 +309,10 @@ def test_password_policy_rejection_preserves_usable_challenge(client):
     )
 
     assert response.status_code == 400
-    challenge = ActivationChallenge.objects.get(account_id=provisioned["id"])
+    challenge = ActivationChallenge.objects.get(account__public_id=provisioned["public_id"])
     assert challenge.is_usable()
     assert challenge.failed_attempts == 0
-    account = UserFactory._meta.model.objects.get(pk=provisioned["id"])
+    account = UserFactory._meta.model.objects.get(public_id=provisioned["public_id"])
     assert account.status == "pending"
     assert account.is_active is False
     event = AuditEvent.objects.filter(action="identity.activation_challenge.denied").latest(
@@ -356,7 +356,7 @@ def test_rf_cta_005_administrator_issues_and_user_consumes_a_one_use_password_re
     account = UserFactory(password="previous-long-password-427")
     client.force_login(administrator)
 
-    issue_response = client.post(f"/api/v1/identity/accounts/{account.pk}/password-resets/")
+    issue_response = client.post(f"/api/v1/identity/accounts/{account.public_id}/password-resets/")
 
     assert issue_response.status_code == 201
     assert issue_response["Cache-Control"] == "no-store"

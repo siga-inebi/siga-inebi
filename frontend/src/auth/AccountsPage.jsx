@@ -1,258 +1,270 @@
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-import Alert from "@mui/material/Alert";
-import AlertTitle from "@mui/material/AlertTitle";
 import Button from "@mui/material/Button";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
-import List from "@mui/material/List";
-import ListItem from "@mui/material/ListItem";
-import ListItemText from "@mui/material/ListItemText";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import Stack from "@mui/material/Stack";
+import Switch from "@mui/material/Switch";
+import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined";
 
+import {
+  ACCOUNT_STATUS_OPTIONS,
+  ACCOUNT_STATUS_VARIANT,
+  accountStatusLabel,
+} from "@auth/accountLabels.js";
 import { accountsService } from "@auth/accountsService.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { rolesService } from "@auth/rolesService.js";
+import { usePermissions } from "@auth/usePermissions.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
+import { formatDateTime } from "@shared/utils/format.js";
+import { RowActionsMenu } from "@ui/buttons/RowActionsMenu.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
-import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
-import { MutedCell } from "@ui/table/cells.jsx";
+import { FilterBar } from "@ui/filters/FilterBar.jsx";
+import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
+import { SearchField } from "@ui/filters/SearchField.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
+import { MutedCell } from "@ui/table/cells.jsx";
 
-const STATUS_VARIANT = {
-  active: "success",
-  pending: "warning",
-  disabled: "neutral",
-  blocked: "error",
-};
+import { useAccountActions } from "./useAccountActions.jsx";
 
-const STATUS_LABEL = {
-  active: "Activo",
-  pending: "Pendiente",
-  disabled: "Desactivado",
-  blocked: "Bloqueado",
-};
+// RA5: el aviso de vencimientos solo pesa para quien administra roles.
+const ExpiringAssignmentsAlert = lazy(() =>
+  import("./ExpiringAssignmentsAlert.jsx").then((module) => ({
+    default: module.ExpiringAssignmentsAlert,
+  }))
+);
 
-const COLUMNS = [
-  {
-    key: "person_name",
-    label: "Persona",
-    render: (row) => row.person_name || <MutedCell>Sin vincular</MutedCell>,
-  },
-  { key: "username", label: "Usuario" },
-  {
-    key: "status",
-    label: "Estado",
-    render: (row) => (
+// "Dar acceso" se descarga al abrirlo (buscador remoto y entrega del codigo).
+const GrantAccessWindow = lazy(() =>
+  import("./GrantAccessWindow.jsx").then((module) => ({
+    default: module.GrantAccessWindow,
+  }))
+);
+import { TextLink } from "@ui/display/TextLink.jsx";
+
+function RolesCell({ roles }) {
+  if (!roles?.length) return <MutedCell>Sin roles vigentes</MutedCell>;
+  return (
+    <Stack direction="row" flexWrap="wrap" gap={0.5}>
+      {roles.map((role) => (
+        <StatusChip key={role.public_id} label={role.name} variant="primary" />
+      ))}
+    </Stack>
+  );
+}
+
+function StatusCell({ account }) {
+  return (
+    <Stack direction="row" flexWrap="wrap" gap={0.5}>
       <StatusChip
-        label={STATUS_LABEL[row.status] ?? row.status}
-        variant={STATUS_VARIANT[row.status] ?? "neutral"}
+        label={accountStatusLabel(account)}
+        variant={ACCOUNT_STATUS_VARIANT[account.status] ?? "neutral"}
       />
-    ),
-  },
-];
+      {account.is_locked ? (
+        <StatusChip
+          label={`Bloqueada hasta ${formatDateTime(account.locked_until)}`}
+          variant="danger"
+        />
+      ) : null}
+    </Stack>
+  );
+}
 
 /**
- * RF-CTA-006: Pagina de administracion de cuentas.
+ * Administracion de cuentas (docs/ux-ui.md 2.17.3).
  *
- * Lista cuentas con filtro por estado y busqueda. Permite desactivar
- * cuentas con verificacion de dependencias (asignaciones docentes vigentes).
+ * Listado paginado en el servidor con buscador (usuario, nombre, correo),
+ * filtros por estado, rol y bloqueo temporal, columnas de correo, roles,
+ * ultimo acceso y bloqueo (U4); acciones en un menu por fila (U9); "Dar
+ * acceso al sistema" (U1) y aviso de asignaciones por vencer (RA5).
  */
 export function AccountsPage() {
-  const loadAccounts = useCallback(
-    (params) => accountsService.list(params),
-    []
+  const navigate = useNavigate();
+  const { can } = usePermissions();
+  const [granting, setGranting] = useState(false);
+
+  const list = useServerList({
+    queryKey: [...queryKeys.identity.all, "accounts"],
+    fetchPage: accountsService.list,
+    defaultFilters: { status: "", role: "", locked: "" },
+  });
+
+  const canSeeRoles = can(PERMISSION.ROLE_ASSIGN);
+  const { data: roles } = useResourceQuery(
+    queryKeys.identity.roles({ scope: "filter" }),
+    () => rolesService.listAll(),
+    { enabled: canSeeRoles, defaultData: [] }
   );
-  const list = usePaginatedList(loadAccounts);
 
-  const [disabling, setDisabling] = useState(null);
-  const [warnings, setWarnings] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState("");
-  const [sessionTarget, setSessionTarget] = useState(null);
-  const [resetLink, setResetLink] = useState("");
+  const openAccount = (account) =>
+    navigate(`/app/cuentas/${account.public_id}`);
+  const { actionsFor, dialogs } = useAccountActions({
+    onChanged: list.refresh,
+    onView: openAccount,
+  });
 
-  const handleDisableClick = async (account) => {
-    setActionError("");
-    setBusy(true);
-    try {
-      const result = await accountsService.disable(account.id);
-      if (result.disabled === false) {
-        setWarnings(result.warnings);
-        setDisabling(account);
-      } else {
-        list.refresh();
-      }
-    } catch (err) {
-      setActionError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const columns = [
+    {
+      key: "person_name",
+      label: "Persona",
+      render: (row) =>
+        row.person_name ? (
+          <TextLink
+            onClick={(event) => event.stopPropagation()}
+            to={`/app/cuentas/${row.public_id}`}
+          >
+            {row.person_name}
+          </TextLink>
+        ) : (
+          <MutedCell>Sin vincular</MutedCell>
+        ),
+    },
+    { key: "username", label: "Usuario" },
+    {
+      key: "email",
+      label: "Correo",
+      render: (row) => row.email || <MutedCell>Sin correo</MutedCell>,
+    },
+    {
+      key: "roles",
+      label: "Roles",
+      render: (row) => <RolesCell roles={row.roles} />,
+    },
+    {
+      key: "status",
+      label: "Estado",
+      render: (row) => <StatusCell account={row} />,
+    },
+    {
+      key: "last_login",
+      label: "Último acceso",
+      render: (row) =>
+        row.last_login ? (
+          formatDateTime(row.last_login)
+        ) : (
+          <MutedCell>Nunca</MutedCell>
+        ),
+    },
+  ];
 
-  const handleForceDisable = async () => {
-    setBusy(true);
-    setActionError("");
-    try {
-      await accountsService.disable(disabling.id, { force: true });
-      setDisabling(null);
-      setWarnings(null);
-      list.refresh();
-    } catch (err) {
-      setActionError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const closeDialog = () => {
-    setDisabling(null);
-    setWarnings(null);
-  };
-
-  const closeAccountSessions = async () => {
-    setBusy(true);
-    setActionError("");
-    try {
-      await accountsService.closeSessions(sessionTarget.id);
-      setSessionTarget(null);
-    } catch (err) {
-      setActionError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const issuePasswordReset = async (account) => {
-    setBusy(true);
-    setActionError("");
-    try {
-      const result = await accountsService.issuePasswordReset(account.id);
-      setResetLink(result.token);
-    } catch (err) {
-      setActionError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const hasFilters = Boolean(
+    list.search ||
+    list.filters.status ||
+    list.filters.role ||
+    list.filters.locked
+  );
 
   return (
     <>
       <PageHeader
-        breadcrumb="Administracion"
-        subtitle="Gestion de cuentas de usuario, estados y desactivacion."
-        title="Seguridad y cuentas"
-      />
-
-      <ListSection
-        actionError={actionError}
-        columns={COLUMNS}
-        emptyMessage="No hay cuentas registradas."
-        fillHeight
-        getRowKey={(account) => account.id}
-        list={list}
-        renderActions={(account) =>
-          account.status !== "disabled" ? (
-            <Stack direction="row" spacing={0.5}>
-              <Button
-                disabled={busy}
-                onClick={() => issuePasswordReset(account)}
-                size="small"
-                variant="text"
-              >
-                Restablecer acceso
-              </Button>
-              <Button
-                disabled={busy}
-                onClick={() => setSessionTarget(account)}
-                size="small"
-                variant="text"
-              >
-                Cerrar sesiones
-              </Button>
-              <Button
-                color="error"
-                disabled={busy}
-                onClick={() => handleDisableClick(account)}
-                size="small"
-                variant="text"
-              >
-                Desactivar
-              </Button>
-            </Stack>
+        action={
+          can(PERMISSION.ACCOUNT_CREATE) ? (
+            <Button
+              onClick={() => setGranting(true)}
+              startIcon={<PersonAddAlt1OutlinedIcon fontSize="small" />}
+              variant="contained"
+            >
+              Dar acceso al sistema
+            </Button>
           ) : null
         }
-        subtitle="Cuentas de usuario"
+        breadcrumb="Administración"
+        subtitle="Quién puede entrar al sistema, con qué roles y en qué estado está cada cuenta."
+        title="Cuentas"
+      />
+
+      {canSeeRoles ? (
+        <Suspense fallback={null}>
+          <ExpiringAssignmentsAlert />
+        </Suspense>
+      ) : null}
+      {dialogs}
+
+      <ListSection
+        columns={columns}
+        emptyMessage={
+          hasFilters
+            ? "Sin cuentas para los filtros seleccionados."
+            : "No hay cuentas registradas."
+        }
+        fillHeight
+        filters={
+          <FilterBar
+            onClear={
+              hasFilters
+                ? () => {
+                    list.setSearch("");
+                    list.setFilters({ status: "", role: "", locked: "" });
+                  }
+                : undefined
+            }
+          >
+            <SearchField
+              debounceMs={0}
+              onChange={list.setSearch}
+              placeholder="Buscar por usuario, nombre o correo"
+              value={list.search}
+            />
+            <FilterSelect
+              emptyLabel="Todos los estados"
+              label="Estado"
+              onChange={(value) => list.setFilter("status", value)}
+              options={ACCOUNT_STATUS_OPTIONS}
+              value={list.filters.status}
+            />
+            {canSeeRoles ? (
+              <FilterSelect
+                emptyLabel="Todos los roles"
+                label="Rol"
+                onChange={(value) => list.setFilter("role", value)}
+                options={roles.map((role) => ({
+                  value: role.public_id,
+                  label: role.name,
+                }))}
+                value={list.filters.role}
+              />
+            ) : null}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={list.filters.locked === "true"}
+                  onChange={(event) =>
+                    list.setFilter("locked", event.target.checked ? "true" : "")
+                  }
+                  size="small"
+                />
+              }
+              label="Solo bloqueadas temporalmente"
+            />
+          </FilterBar>
+        }
+        getRowKey={(account) => account.public_id}
+        list={list}
+        onRowClick={openAccount}
+        renderActions={(account) => (
+          <RowActionsMenu
+            actions={actionsFor(account)}
+            label={account.username}
+          />
+        )}
+        showInactiveToggle={false}
+        subtitle="Clic en una fila para abrir la ficha de la cuenta."
         title="Cuentas registradas"
       />
 
-      <Dialog maxWidth="sm" fullWidth onClose={closeDialog} open={!!warnings}>
-        <DialogTitle>Advertencia de dependencias</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <AlertTitle>Asignaciones vigentes</AlertTitle>
-            La cuenta de {disabling?.person_name || disabling?.username} tiene
-            asignaciones docentes activas que quedarian sin responsable.
-          </Alert>
-          <List dense>
-            {warnings?.teaching_assignments?.map((a) => (
-              <ListItem key={a.id}>
-                <ListItemText
-                  primary={`${a.subject__name} — Seccion ${a.section__name}`}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeDialog}>Cancelar</Button>
-          <Button
-            color="error"
-            disabled={busy}
-            onClick={handleForceDisable}
-            variant="contained"
-          >
-            {busy ? "Desactivando…" : "Desactivar de todos modos"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <ConfirmDialog
-        busy={busy}
-        confirmColor="error"
-        confirmText="Cerrar sesiones"
-        errorText={actionError}
-        message={`Se cerrarán todas las sesiones activas de ${sessionTarget?.person_name || sessionTarget?.username || "esta cuenta"}. Esta acción no desactiva la cuenta.`}
-        onClose={() => setSessionTarget(null)}
-        onConfirm={closeAccountSessions}
-        open={Boolean(sessionTarget)}
-        title="Cerrar sesiones activas"
-      />
-      <Dialog
-        maxWidth="sm"
-        fullWidth
-        onClose={() => setResetLink("")}
-        open={Boolean(resetLink)}
-      >
-        <DialogTitle>Enlace temporal de restablecimiento</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning">
-            Comparta esta clave temporal solo con la persona titular. Se muestra
-            una sola vez y no revela ninguna contraseña.
-          </Alert>
-          <List dense>
-            <ListItem>
-              <ListItemText
-                primary={resetLink}
-                sx={{ overflowWrap: "anywhere" }}
-              />
-            </ListItem>
-          </List>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setResetLink("")}>Cerrar</Button>
-        </DialogActions>
-      </Dialog>
+      {granting ? (
+        <Suspense fallback={null}>
+          <GrantAccessWindow
+            onClose={() => setGranting(false)}
+            onCreated={() => list.refresh()}
+            open
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

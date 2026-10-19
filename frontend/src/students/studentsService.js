@@ -29,36 +29,43 @@ export const studentsService = {
    */
   nextCode: () =>
     apiClient.get("/students/next-code/").then((body) => body.student_code),
-  listHealthNotes: (studentPublicId) =>
-    apiClient
-      .get(`/students/${studentPublicId}/health-notes/`)
-      .then((page) => page.results),
+  // Registros del expediente: una sola pagina del estudiante pedido, con su
+  // sobre paginado completo (#634). Nunca la primera pagina global recortada.
+  listHealthNotes: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/health-notes/`, params)
+    ),
   createHealthNote: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/health-notes/`, data),
   updateHealthNote: (id, data) =>
     apiClient.patch(`/students/health-notes/${id}/`, data),
   deactivateHealthNote: (id) => apiClient.del(`/students/health-notes/${id}/`),
-  listObservations: (studentPublicId) =>
-    apiClient
-      .get(`/students/${studentPublicId}/observations/`)
-      .then((page) => page.results),
+  listObservations: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/observations/`, params)
+    ),
   createObservation: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/observations/`, data),
   updateObservation: (id, data) =>
     apiClient.patch(`/students/observations/${id}/`, data),
   deactivateObservation: (id) => apiClient.del(`/students/observations/${id}/`),
-  listEmergencyContacts: (studentPublicId) =>
-    apiClient
-      .get(`/students/${studentPublicId}/emergency-contacts/`)
-      .then((page) => page.results),
+  listEmergencyContacts: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/emergency-contacts/`, params)
+    ),
   createEmergencyContact: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/emergency-contacts/`, data),
   updateEmergencyContact: (id, data) =>
     apiClient.patch(`/students/emergency-contacts/${id}/`, data),
   deactivateEmergencyContact: (id) =>
     apiClient.del(`/students/emergency-contacts/${id}/`),
-  listGuardianRelations: () =>
-    apiClient.get("/students/guardian-relations/").then((page) => page.results),
+  listGuardianRelations: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery("/students/guardian-relations/", {
+        ...params,
+        student_id: studentPublicId,
+      })
+    ),
   createGuardianRelation: (data) =>
     apiClient.post("/students/guardian-relations/", data),
   updateGuardianRelation: (id, data) =>

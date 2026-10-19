@@ -15,6 +15,19 @@
 - Interpretacion de fecha efectiva y eventos en zona horaria local del establecimiento.
 - Errores consistentes con codigo, mensaje y detalles validables.
 
+## Paginacion y listados (docs/ux-ui.md 1.1)
+
+- `apps.common.pagination.StandardPagination` es la clase por defecto
+  (`DEFAULT_PAGINATION_CLASS`): `page_size = 25`, `page_size_query_param = "page_size"`,
+  `max_page_size = 100`. Todo listado paginado responde `count`, `next`, `previous` y
+  `results` y acepta `page` y `page_size`; un `page_size` invalido usa el valor por defecto
+  y uno mayor a 100 se acota.
+- Parametros uniformes de listado: `page`, `page_size`, `search`, `ordering`,
+  `include_inactive` y los filtros propios del dominio. Cada dominio adopta `search`,
+  `ordering` e `include_inactive` en sus listados al migrar sus pantallas.
+- Una exportacion completa recorre paginas de 100 o usa un endpoint `/export/` del
+  backend (por ejemplo `GET /api/v1/audit/events/export/`), nunca un tope silencioso.
+
 ## Limites de capa y errores
 
 Cada dominio separa las responsabilidades de lectura, caso de uso y transporte HTTP:
@@ -28,6 +41,10 @@ Cada dominio separa las responsabilidades de lectura, caso de uso y transporte H
 - Las excepciones de aplicacion viven en `apps.common.exceptions`: `DomainError` representa una
   regla de negocio (HTTP 400), `ResourceNotFoundError` un recurso inexistente (HTTP 404) y
   `AuthorizationError` una denegacion de permiso o alcance (HTTP 403).
+
+`FieldValidationError` (subclase de `DomainError`) es el rechazo de reglas sobre campos concretos:
+responde HTTP 400 con `error.detail` igual a `{"campo": ["mensaje", ...]}`, la misma forma que
+los errores de serializador de DRF (por ejemplo, cada regla de contraseña incumplida).
 
 `config.api.exception_handler.api_exception_handler` es el unico punto que serializa estas
 excepciones. El sobre de error se conserva como `error.status_code` y `error.detail`. Para errores
@@ -171,9 +188,10 @@ Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad edu
 
 ## Provision administrativa de cuentas
 
-- `POST /api/v1/identity/accounts/` provisiona una cuenta pendiente vinculada a una persona.
+- `POST /api/v1/identity/accounts/` provisiona una cuenta pendiente vinculada a una persona,
+  identificada por `person_public_id` (ADR-0011).
 - La respuesta incluye el codigo de activacion inicial una sola vez y no debe almacenarse en cache.
-- `POST /api/v1/identity/accounts/{account_id}/activation-challenges/` revoca el desafio anterior y
+- `POST /api/v1/identity/accounts/{public_id}/activation-challenges/` revoca el desafio anterior y
   emite uno nuevo.
 - Ambos endpoints requieren sesion; los servicios de dominio exigen respectivamente
   `account.create` y `account.activate`.
@@ -484,7 +502,8 @@ de presentacion y conservan POST y sus respuestas anteriores. Ver
 - `POST /api/v1/identity/roles/` crea un rol configurable.
 - `PATCH /api/v1/identity/roles/{role_id}/` modifica nombre, descripcion o permisos; el `slug`
   permanece estable despues de crear el rol.
-- `POST /api/v1/identity/accounts/{account_id}/role-assignments/` asigna un rol con vigencia.
+- `POST /api/v1/identity/accounts/{public_id}/role-assignments/` asigna un rol con vigencia;
+  `GET` en la misma ruta lista todas las asignaciones de la cuenta, vigentes e historicas.
 - `DELETE /api/v1/identity/role-assignments/{assignment_id}/` finaliza la vigencia sin borrar
   historial.
 - Todos requieren sesion y `role.assign`, o condicion de superusuario.
@@ -492,7 +511,8 @@ de presentacion y conservan POST y sus respuestas anteriores. Ver
 - Cambios de composicion y vigencia generan eventos auditables y aplican en la siguiente
   evaluacion de permisos de cualquier sesion activa.
 - Crear una asignacion requiere el objeto `scope` con al menos una dimension soportada:
-  institucion, ciclo, grado, seccion, curso, asignacion docente, estudiante o modulo.
+  institucion, ciclo, grado, seccion, curso, asignacion docente, estudiante (todas por
+  `public_id`), modulo (`module_key` de una lista cerrada) o `teaching_assignments: true`.
 - Una invocacion directa sin permiso o scope devuelve HTTP 403 y genera auditoria.
 
 ## Credencial estudiantil
@@ -580,6 +600,65 @@ de presentacion y conservan POST y sus respuestas anteriores. Ver
 - La cuenta vinculada al estudiante no se deshabilita: mientras el expediente no este `active`,
   sus permisos dejan de ser efectivos. Un encargado conserva su cuenta y otros estudiantes
   vigentes, pero pierde el alcance derivado sobre el estudiante retirado.
+
+## Cambios de contrato de cuentas y alcances (ADR-0011)
+
+Cambios incompatibles introducidos para que ningun contrato publico de identidad exponga ni
+pida ids internos (docs/ux-ui.md U1, RA1). El unico cliente (frontend del monorepo) se
+actualizo en el mismo cambio.
+
+| Endpoint | Antes | Ahora |
+| --- | --- | --- |
+| `GET /api/v1/auth/me/` | `user.id`, `user.person.id` | `user.public_id`, `user.person.public_id`; agrega `status_display`, `is_superuser`, `permissions` (codigos efectivos con punto), `roles` (`public_id`, `name`, `slug`) y `session_idle_timeout_minutes` |
+| `POST /api/v1/auth/login/` bloqueado | `non_field_errors: ["Cuenta temporalmente bloqueada."]` | mensaje con la hora de desbloqueo, `code: ["account_locked"]`, `locked_until: [iso]` |
+| `POST /api/v1/identity/accounts/` | `person` (entero); respuesta `id`, `person` | `person_public_id`; respuesta `public_id`, `person_public_id`, `status_display` |
+| Rutas `identity/accounts/<int:account_id>/...` | id entero | `identity/accounts/<uuid:public_id>/...` |
+| `POST /api/v1/identity/accounts/activate/` | respuesta `id`, `username`, `status`; error de contraseña como texto | respuesta `username`, `status`; error `{"password": [...]}` |
+| `POST /api/v1/identity/password-resets/consume/` | error de contraseña sin manejar | error `{"password": [...]}` |
+| `ScopeGrantWrite` (`scope` de una asignacion) | ids enteros; `module_key` libre | `public_id`; `module_key` en `identity`, `students`, `teachers`, `enrolments`, `teaching_assignments`; `teaching_assignments: true` |
+| `RoleAssignment` (respuesta) | `user` (entero) | `account` (UUID), `role_name`, `status`, `status_display`, `scopes[].dimensions[]` con `public_id` y etiqueta |
+| `AccountList` (respuesta) | `id`, `username`, `status`, `is_active`, `person_name` | `public_id`, `email`, `status_display`, `person` (`public_id`, `full_name`, `email`, `is_teacher`), `roles`, `last_login`, `locked_until`, `is_locked` |
+| `POST .../disable/` con dependencias | `teaching_assignments[].id` | `teaching_assignments[].public_id` |
+| `GET /api/v1/identity/permissions/` | `name` del modelo (ingles) | `name` y `description` en espanol, `group`, `group_label`; incluye `academic_cycle.revert`, `retention_policy.declare`, `account.update`, `person.view`, `person.edit` y `document_type.manage` |
+| `PATCH /api/v1/identity/accounts/{public_id}/` | `account.create` | `account.update`; la cuenta propia se rechaza (403). Los roles con `account.create` reciben `account.update` al migrar (`identity/0017`); revisar y retirar donde no corresponda |
+| `GET /api/v1/audit/events/` (y `export/`) | campo y filtro `actor_id` | sin `actor_id`; usar `actor_public_id` |
+| `sessions[]` en ficha y Mi cuenta | `last_activity_at`, `expires_at`, `is_current` | agrega `public_id`, `started_at`, `ip_address`, `device`; `expires_at` admite nulo |
+
+Endpoints nuevos (todos con sesion salvo los marcados publicos):
+
+- `GET /identity/accounts/list/?search=&status=&role=&locked=&ordering=`: busca tambien por
+  correo; filtra por rol vigente (`public_id`) y por bloqueo temporal; ordena por `username`,
+  `last_login` o `person`. Cualquiera de `account.create`, `account.activate` o
+  `account.disable` sobre `identity`.
+- `GET|PATCH /identity/accounts/{public_id}/`: ficha (incluye `sessions`, `recent_activity`,
+  `activation_expires_at`) y edicion de `username` y `email` (`account.update`, auditada con
+  valor anterior y nuevo; nadie edita su propia cuenta por esta ruta).
+- `POST /identity/accounts/{public_id}/reactivate/` y `.../unlock/` con `{reason}`
+  (`account.activate`, D8).
+- `GET /identity/accounts/candidates/?search=`: personas sin cuenta por nombre, CUI exacto o
+  correo; devuelve `cui_hint` (ultimos 4 digitos) y perfiles (`account.create`).
+- `GET /identity/accounts/username-suggestion/?person={public_id}` (`account.create`).
+- `GET /identity/role-assignments/expiring/?days=15`: por vencer y vencidas en 30 dias.
+- `GET /identity/roles/?include_inactive=`, `GET /identity/roles/{public_id}/`,
+  `GET .../holders/`, `POST .../deactivate/` y `.../reactivate/` con `{reason}`;
+  `slug` opcional al crear (se deriva del nombre); `active_account_count` e `is_active` en la
+  respuesta.
+- `GET /identity/permissions/{code}/holders/`.
+- `GET /identity/scope-options/`: modulos de alcance y la institucion (`public_id`).
+- `GET /identity/me/account/`: datos, roles con alcances, sesiones y permisos propios.
+- `GET /identity/password-policy/` (**publico**): reglas reales de contrasena.
+- `GET /audit/events/` y `GET /audit/events/export/` filtran por `actor_public_id`,
+  `actor_username` y `action_prefix`, y la respuesta devuelve `actor_public_id`.
+  **Retirado (incompatible):** el campo `actor_id` y el filtro `?actor_id=`.
+- `POST /auth/session/keep-alive/` (sesion): solo renueva la actividad de la sesion; responde 204.
+- `POST /identity/me/sessions/{public_id}/close/`: la persona cierra una de sus sesiones.
+- `POST /identity/accounts/{public_id}/sessions/{session_id}/close/`: administracion cierra una
+  sesion concreta (`account.disable`).
+- Elementos de `sessions` (ficha y Mi cuenta): `public_id`, `started_at`, `last_activity_at`,
+  `expires_at` (nulo si la sesion de Django ya no existe), `ip_address`, `device` (resumen del
+  agente de usuario) e `is_current`. Nunca se expone la clave de sesion.
+- `POST /identity/accounts/{public_id}/role-assignments/` sobre una cuenta desactivada responde
+  400 "Reactive la cuenta antes de asignarle roles."
 
 ## Expediente del estudiante con pestanas (#632)
 

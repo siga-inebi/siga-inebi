@@ -2,7 +2,12 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
-from apps.common.exceptions import AuthorizationError, DomainError, ResourceNotFoundError
+from apps.common.exceptions import (
+    AuthorizationError,
+    DomainError,
+    FieldValidationError,
+    ResourceNotFoundError,
+)
 
 
 def api_exception_handler(exc, context):
@@ -13,6 +18,17 @@ def api_exception_handler(exc, context):
     business rule violations, so they map to 400 with the rule message as
     detail. Views therefore never need to catch them (AGENTS.md #8).
     """
+    if isinstance(exc, FieldValidationError):
+        return Response(
+            {
+                "error": {
+                    "status_code": status.HTTP_400_BAD_REQUEST,
+                    "detail": exc.errors,
+                }
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     if isinstance(exc, DomainError):
         return Response(
             {

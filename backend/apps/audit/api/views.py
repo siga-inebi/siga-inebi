@@ -43,7 +43,7 @@ TAGS = ["audit: bitacora"]
 
 def _require_permission(request, codename):
     if not request.user.has_atomic_permission(codename):
-        raise AuthorizationError("Actor lacks the required permission.")
+        raise AuthorizationError("El actor no tiene el permiso requerido.")
 
 
 def _query_filters(request):
@@ -177,7 +177,7 @@ class ResultTraceView(GenericAPIView):
         enrolment = enrolment_queries.enrolment_or_404(enrolment_id)
         subject = evaluation_queries.subject_or_none(subject_id)
         if subject is None:
-            raise ResourceNotFoundError("Subject not found.")
+            raise ResourceNotFoundError("No se encontró el curso.")
 
         trace = services.get_result_trace(enrolment=enrolment, subject=subject, actor=request.user)
         return Response(ResultTraceSerializer(trace).data)

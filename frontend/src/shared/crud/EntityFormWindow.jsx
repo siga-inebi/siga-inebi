@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -10,6 +10,9 @@ import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import UploadFileIcon from "@mui/icons-material/UploadFileOutlined";
 
+import { useFormDraft } from "@shared/hooks/useFormDraft.js";
+import { useSessionKeepAlive } from "@shared/hooks/useSessionKeepAlive.js";
+import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DateField } from "@ui/forms/DateField.jsx";
@@ -28,6 +31,12 @@ import { FormTextField } from "@ui/forms/FormTextField.jsx";
  * se muestra deshabilitado y no vacio, porque un select sin opciones se lee
  * como "no hay nada" y esa es otra respuesta.
  *
+ * Los campos `search-select` buscan en el servidor mientras se escribe
+ * (docs/ux-ui.md 1.3): son el tipo por defecto para entidades grandes
+ * (estudiante, docente, matricula, encargado), que con un `select` obligaban a
+ * descargar y recorrer el padron completo. Declaran
+ * `search: { name, fetchPage, mapResult }` y, al editar, `initialOption`.
+ *
  * `fields` tambien puede ser una funcion `(values) => campos` cuando un campo
  * depende de otro (las secciones de un ciclo, por ejemplo). Ese campo declara
  * `resets: ["section_id"]` para limpiar lo que quedo colgando al cambiar: una
@@ -41,6 +50,16 @@ import { FormTextField } from "@ui/forms/FormTextField.jsx";
  * `onSubmit` recibe los valores ya normalizados y puede rechazar: el mensaje del
  * backend se muestra SIN cerrar la ventana, para no perder lo escrito. Cerrar en
  * el error es como se pierde media hora de captura.
+ *
+ * Mientras hay cambios sin guardar, escribir renueva la sesion como maximo una
+ * vez por minuto (`useSessionKeepAlive`): llenar un formulario largo ya no
+ * termina en "sesion vencida" a mitad de la captura.
+ *
+ * `draftKey` (opcional) guarda un borrador local por formulario y por cuenta
+ * (`useFormDraft`): se ofrece recuperarlo al abrir, se borra al guardar y al
+ * cancelar se confirma antes de descartar. Los campos `password` y los que
+ * parecen secretos nunca se guardan. Sin `draftKey`, nada cambia.
+ *
  * `children` puede ser contenido o `(values, {submitting}) => contenido` para
  * mostrar información contextual bajo los campos sin duplicar el formulario.
  */
@@ -55,10 +74,12 @@ export function EntityFormWindow({
   submitLabel = "Guardar",
   title,
   width = WINDOW_WIDTH.medium,
+  draftKey = null,
 }) {
   const [values, setValues] = useState(initialValues);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   // Dos formularios pueden convivir en la pantalla (nivel y grado, por
   // ejemplo); el prefijo evita que compartan el id de un campo homonimo.
@@ -67,6 +88,24 @@ export function EntityFormWindow({
   // Un campo puede depender de otro, asi que la lista se resuelve contra los
   // valores actuales en cada render.
   const resolvedFields = typeof fields === "function" ? fields(values) : fields;
+
+  const dirty = JSON.stringify(values) !== JSON.stringify(initialValues);
+  const keepAlive = useSessionKeepAlive(dirty);
+  const draft = useFormDraft(draftKey, values, {
+    enabled: Boolean(draftKey) && open,
+    secretFields: resolvedFields
+      .filter((field) => field.type === "password")
+      .map((field) => field.name),
+  });
+
+  const requestCancel = () => {
+    if (draftKey && dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    draft.clear();
+    onCancel();
+  };
 
   const setValue = (name, value) =>
     setValues((current) => {
@@ -97,6 +136,7 @@ export function EntityFormWindow({
     setError("");
     try {
       await onSubmit(normalize(resolvedFields, values));
+      draft.clear();
     } catch (submitError) {
       setError(submitError.message);
       setSubmitting(false);
@@ -109,7 +149,7 @@ export function EntityFormWindow({
       description={description}
       footer={
         <>
-          <Button disabled={submitting} onClick={onCancel} variant="text">
+          <Button disabled={submitting} onClick={requestCancel} variant="text">
             Cancelar
           </Button>
           <Button
@@ -123,14 +163,60 @@ export function EntityFormWindow({
           </Button>
         </>
       }
-      onClose={onCancel}
+      onClose={requestCancel}
       open={open}
       title={title}
       width={width}
     >
+      {draft.pending ? (
+        <Alert
+          action={
+            <>
+              <Button
+                color="inherit"
+                onClick={() => {
+                  const restored = draft.accept();
+                  if (restored)
+                    setValues((current) => ({ ...current, ...restored }));
+                }}
+                size="small"
+              >
+                Recuperar
+              </Button>
+              <Button color="inherit" onClick={draft.dismiss} size="small">
+                Descartar
+              </Button>
+            </>
+          }
+          severity="info"
+          sx={{ mb: 2 }}
+        >
+          Hay un borrador sin guardar de este formulario.
+        </Alert>
+      ) : null}
+      <ConfirmDialog
+        confirmColor="error"
+        confirmText="Descartar cambios"
+        message="Los cambios que no guardó se perderán, incluido el borrador."
+        onClose={() => setConfirmDiscard(false)}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          draft.clear();
+          onCancel();
+        }}
+        open={confirmDiscard}
+        title="¿Descartar los cambios?"
+      />
       {/* El submit vive en el pie de la ventana, fuera del <form>: se enlazan
           por el atributo form/id, que es el mecanismo estandar para eso. */}
-      <Box component="form" id={formId} noValidate onSubmit={handleSubmit}>
+      <Box
+        component="form"
+        id={formId}
+        noValidate
+        onInput={keepAlive}
+        onKeyDown={keepAlive}
+        onSubmit={handleSubmit}
+      >
         {error ? (
           <Alert role="alert" severity="error" sx={{ mb: 2 }}>
             {error}
@@ -172,6 +258,13 @@ export function EntityFormWindow({
     </FloatingWindow>
   );
 }
+
+// Solo los formularios con un campo `search-select` descargan el buscador remoto.
+const RemoteSearchSelect = lazy(() =>
+  import("@ui/forms/RemoteSearchSelect.jsx").then((module) => ({
+    default: module.RemoteSearchSelect,
+  }))
+);
 
 /** Campos que nunca se parten a media reja. */
 function isFullWidth(field) {
@@ -225,6 +318,26 @@ function EntityField({ disabled, field, onChange, value }) {
         required={field.required}
         value={value ?? ""}
       />
+    );
+  }
+
+  if (field.type === "search-select") {
+    return (
+      <Suspense fallback={null}>
+        <RemoteSearchSelect
+          disabled={disabled}
+          error={field.optionsError}
+          helperText={field.help}
+          initialOption={field.initialOption}
+          label={field.label}
+          name={field.name}
+          onChange={(event) => onChange(field.name, event.target.value)}
+          placeholder={field.placeholder}
+          required={field.required}
+          search={field.search}
+          value={value ?? ""}
+        />
+      </Suspense>
     );
   }
 

@@ -406,6 +406,11 @@ def test_rf_aut_006_change_password_updates_password_and_invalidates_other_sessi
         session_data=client.session.encode({"_auth_user_id": str(user.pk)}),
         expire_date=timezone.now() + timedelta(days=1),
     )
+    # Riesgo A (ADR-0011): toda sesion abierta por login queda registrada.
+    from apps.identity.models import UserSession
+
+    for key in ("session-device-1", "session-device-2"):
+        UserSession.objects.create(account=user, session_key=key, last_seen_at=timezone.now())
 
     rf = RequestFactory()
     request = rf.post("/api/v1/auth/password/change/")

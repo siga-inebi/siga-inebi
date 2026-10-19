@@ -93,7 +93,7 @@ class LogoutView(GenericAPIView):
 
     @extend_schema(responses={204: OpenApiResponse(description="Session closed")})
     def post(self, request):
-        record_current_session_logout(user=request.user)
+        record_current_session_logout(user=request.user, session_key=request.session.session_key)
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -110,6 +110,21 @@ class LogoutAllSessionsView(GenericAPIView):
             current_session_key=request.session.session_key,
         )
         logout(request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SessionKeepAliveView(GenericAPIView):
+    """
+    Riesgo D (ADR-0011): mantiene viva la sesion mientras la persona escribe en
+    un formulario con cambios sin guardar. No hace nada mas: el middleware de
+    inactividad renueva la actividad en cualquier peticion autenticada.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EmptySerializer
+
+    @extend_schema(request=None, responses={204: OpenApiResponse(description="Sesión renovada")})
+    def post(self, request):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

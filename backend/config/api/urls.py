@@ -9,6 +9,7 @@ from config.api.views import (
     LogoutView,
     MeView,
     PasswordChangeView,
+    SessionKeepAliveView,
 )
 
 urlpatterns = [
@@ -20,6 +21,11 @@ urlpatterns = [
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("auth/logout/all/", LogoutAllSessionsView.as_view(), name="auth-logout-all"),
     path("auth/me/", MeView.as_view(), name="auth-me"),
+    path(
+        "auth/session/keep-alive/",
+        SessionKeepAliveView.as_view(),
+        name="auth-session-keep-alive",
+    ),
     path("auth/password/change/", PasswordChangeView.as_view(), name="auth-password-change"),
     path("platform/", include("apps.common.api.urls")),
     path("audit/", include("apps.audit.api.urls")),

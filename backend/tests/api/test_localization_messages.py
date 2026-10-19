@@ -40,6 +40,12 @@ APPS_ROOT = pathlib.Path(settings.BASE_DIR) / "apps"
 # por no ser un `raise`, y el guardia existe para que eso no vuelva a pasar.
 USER_FACING = {
     "DomainError",
+    "FieldValidationError",
+    # docs/ux-ui.md 1.6: los 404 y 403 tambien se leen en pantalla ("Student not
+    # found.", "Actor lacks the required permission."). Quedaban fuera del
+    # barrido y por eso sobrevivian en ingles.
+    "ResourceNotFoundError",
+    "AuthorizationError",
     "PermissionDenied",
     "NotFound",
     "ValidationError",
@@ -161,7 +167,7 @@ def test_a_domain_rejection_reaches_the_client_in_spanish(auth_client):
     )
 
     assert response.status_code == 400
-    assert response.json()["error"]["detail"] == "No se encontro la jornada."
+    assert response.json()["error"]["detail"] == "No se encontró la jornada."
 
 
 def test_an_authorization_rejection_is_explained_in_spanish(auth_client):

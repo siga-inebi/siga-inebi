@@ -5,6 +5,7 @@ import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
+import { GrantAccessButton } from "@auth/GrantAccessButton.jsx";
 import { peopleService } from "@people/peopleService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
@@ -154,6 +155,7 @@ export function PersonasPage() {
         getRowKey={(person) => person.public_id}
         renderActions={(person) => (
           <Stack direction="row" gap={0.5} justifyContent="flex-end">
+            {person.is_active ? <GrantAccessButton person={person} /> : null}
             <ActionIconButton
               label="Editar"
               onClick={() => setEditing({ mode: "edit", person })}

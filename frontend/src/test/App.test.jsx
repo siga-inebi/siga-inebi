@@ -55,7 +55,7 @@ describe("app shell", () => {
 
     expect(await screen.findByText("SIGA-INEBI")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: /Iniciar sesion/i })
+      screen.getByRole("link", { name: /Iniciar sesión/i })
     ).toBeInTheDocument();
     // Sin sesion no hay modulos que mostrar, asi que no debe haber grupos de nav.
     expect(
@@ -89,7 +89,7 @@ describe("app shell", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Cuenta" }));
-    await user.click(screen.getByRole("menuitem", { name: "Cerrar sesion" }));
+    await user.click(screen.getByRole("menuitem", { name: "Cerrar sesión" }));
 
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
@@ -123,11 +123,15 @@ describe("app shell", () => {
     authServiceMock.me.mockResolvedValueOnce(authenticatedSession);
     renderWithRouter(<App />, { route: "/app" });
 
-    expect(await screen.findByText(/Buen dia, Demo/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Buen día, Demo/i)).toBeInTheDocument();
     act(() => window.dispatchEvent(new Event("siga:session-expired")));
 
     expect(
-      await screen.findByRole("heading", { name: /Iniciar sesion/i })
+      await screen.findByRole("heading", { name: /Iniciar sesión/i })
+    ).toBeInTheDocument();
+    // L4: el login explica por que se cerro la sesion.
+    expect(
+      screen.getByText(/Su sesión se cerró por inactividad/i)
     ).toBeInTheDocument();
   });
 
@@ -135,7 +139,7 @@ describe("app shell", () => {
     renderWithRouter(<App />, { route: "/login" });
 
     expect(
-      await screen.findByRole("heading", { name: /Iniciar sesion/i })
+      await screen.findByRole("heading", { name: /Iniciar sesión/i })
     ).toBeInTheDocument();
     expect(
       screen.getAllByAltText(/Logotipo del INEBI de Salcaja/i)
@@ -172,7 +176,7 @@ describe("app shell", () => {
     );
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
-    await user.type(screen.getByLabelText(/Contrasena/i), "demo-pass-123");
+    await user.type(screen.getByLabelText("Contraseña"), "demo-pass-123");
     await user.click(screen.getByRole("button", { name: /Ingresar/i }));
 
     expect(authServiceMock.csrf).toHaveBeenCalledTimes(1);
@@ -200,7 +204,7 @@ describe("app shell", () => {
     );
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
-    await user.type(screen.getByLabelText(/Contrasena/i), "incorrecta");
+    await user.type(screen.getByLabelText("Contraseña"), "incorrecta");
     await user.click(screen.getByRole("button", { name: /Ingresar/i }));
 
     expect(
@@ -208,15 +212,19 @@ describe("app shell", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/Dashboard listo/i)).not.toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: /Iniciar sesion/i })
+      screen.getByRole("heading", { name: /Iniciar sesión/i })
     ).toBeInTheDocument();
   });
 
   test("shows temporary lockout alert when account is locked", async () => {
     const user = userEvent.setup();
-    authServiceMock.login.mockRejectedValueOnce(
-      new Error("Cuenta temporalmente bloqueada.")
+    const lockedError = new Error(
+      "Cuenta bloqueada temporalmente por intentos fallidos. Podrá intentarlo de nuevo a las 15:45."
     );
+    lockedError.payload = {
+      error: { detail: { code: ["account_locked"] } },
+    };
+    authServiceMock.login.mockRejectedValueOnce(lockedError);
 
     renderWithRouter(
       <AuthProvider>
@@ -229,18 +237,20 @@ describe("app shell", () => {
     );
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
-    await user.type(screen.getByLabelText(/Contrasena/i), "cualquier-pass");
+    await user.type(screen.getByLabelText("Contraseña"), "cualquier-pass");
     await user.click(screen.getByRole("button", { name: /Ingresar/i }));
 
+    // L5: se dice que es un bloqueo temporal y hasta cuando, no "credenciales invalidas".
     expect(
-      await screen.findByText(/Cuenta temporalmente bloqueada./i)
+      await screen.findByText("Cuenta bloqueada temporalmente")
     ).toBeInTheDocument();
+    expect(screen.getByText(/a las 15:45/)).toBeInTheDocument();
     expect(screen.queryByText(/Dashboard listo/i)).not.toBeInTheDocument();
   });
 
   test("renders 404 page", () => {
     renderWithRouter(<NotFoundPage />);
-    expect(screen.getByText(/Pagina no encontrada/i)).toBeInTheDocument();
+    expect(screen.getByText(/Página no encontrada/i)).toBeInTheDocument();
   });
 
   test("private route redirects when session missing", async () => {
@@ -248,7 +258,7 @@ describe("app shell", () => {
     renderWithRouter(<App />, { route: "/app" });
 
     expect(
-      await screen.findByRole("heading", { name: /Iniciar sesion/i })
+      await screen.findByRole("heading", { name: /Iniciar sesión/i })
     ).toBeInTheDocument();
   });
 
@@ -261,7 +271,7 @@ describe("app shell", () => {
 
     renderWithRouter(<App />, { route: "/app" });
 
-    expect(await screen.findByText(/Buen dia, Demo/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Buen día, Demo/i)).toBeInTheDocument();
   });
 
   test("does not store password or session token in localStorage on login", async () => {
@@ -281,7 +291,7 @@ describe("app shell", () => {
     );
 
     await user.type(screen.getByRole("textbox", { name: /Usuario/i }), "admin");
-    await user.type(screen.getByLabelText(/Contrasena/i), "admin");
+    await user.type(screen.getByLabelText("Contraseña"), "admin");
     await user.click(screen.getByRole("button", { name: /Ingresar/i }));
 
     await waitFor(() => expect(authServiceMock.login).toHaveBeenCalled());
