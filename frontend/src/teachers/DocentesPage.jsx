@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
@@ -6,19 +7,19 @@ import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import ButtonBase from "@mui/material/ButtonBase";
 import AddIcon from "@mui/icons-material/Add";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
 import { GrantAccessButton } from "@auth/GrantAccessButton.jsx";
 import { PERMISSION } from "@auth/permissions.js";
 import { usePermissions } from "@auth/usePermissions.js";
-import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
 import { teachersService } from "@teachers/teachersService.js";
-import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { useServerList } from "@shared/crud/useServerList.js";
-import { downloadCsv } from "@shared/utils/csv.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { ExportCsvButton } from "@ui/buttons/ExportCsvButton.jsx";
 import { formatDate } from "@shared/utils/format.js";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
@@ -82,7 +83,7 @@ const TEACHER_FIELDS = [
     name: "position",
     label: "Puesto",
     type: "select",
-    options: POSITION_OPTIONS,
+    options: [],
     required: true,
   },
   {
@@ -93,20 +94,9 @@ const TEACHER_FIELDS = [
   {
     name: "employee_code",
     label: "Código de empleado",
-    help: "Se genera solo. Cambielo si ya figura en contratos o planilla.",
+    help: "Se genera automáticamente. Cámbielo si ya figura en contratos o planilla.",
   },
   { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
-];
-
-const ALL_POSITIONS = "";
-
-const TEACHER_EDIT_FIELDS = TEACHER_FIELDS.filter(
-  (field) => field.name !== "cui" && field.name !== "birth_date"
-);
-
-const POSITION_FILTER_OPTIONS = [
-  { value: ALL_POSITIONS, label: "Todos los puestos" },
-  ...POSITION_OPTIONS.map((option) => ({ value: option, label: option })),
 ];
 
 function fullName(teacher) {
@@ -132,15 +122,39 @@ const personPayload = (values) => ({
 });
 
 export function DocentesPage() {
-  // Solo la pagina visible: la busqueda (nombre, codigo o CUI), el puesto y
-  // la paginacion los resuelve el backend, no el navegador.
   const list = useServerList({
-    queryKey: queryKeys.teachers.all,
+    queryKey: [...queryKeys.teachers.all, "list"],
     fetchPage: teachersService.listPage,
-    defaultFilters: { position: ALL_POSITIONS },
+    defaultFilters: { position: "" },
+    canIncludeInactive: true,
   });
-  const positionFilter = list.filters.position;
-  const setPositionFilter = (value) => list.setFilter("position", value);
+  const positions = useQuery({
+    queryKey: [...queryKeys.teachers.all, "positions"],
+    queryFn: teachersService.listPositions,
+  });
+  const positionOptions = positions.data ?? [];
+  // Conserva visible un filtro de URL mientras llega el catálogo o si deja
+  // de estar publicado. La API valida el valor; no se ofrece en los formularios.
+  const filterPositionOptions =
+    list.filters.position &&
+    !positionOptions.some((option) => option.value === list.filters.position)
+      ? [
+          ...positionOptions,
+          { value: list.filters.position, label: list.filters.position },
+        ]
+      : positionOptions;
+  const positionsReady =
+    !positions.isPending && !positions.isError && positionOptions.length > 0;
+  const fields = TEACHER_FIELDS.map((field) =>
+    field.name === "position" ? { ...field, options: positionOptions } : field
+  );
+  const editFields = fields.filter(
+    (field) => field.name !== "cui" && field.name !== "birth_date"
+  );
+  const searchPending = list.search.trim() !== (list.params.search ?? "");
+  const updating = list.loading || list.fetching || searchPending;
+  const positionLabel = (value) =>
+    positionOptions.find((option) => option.value === value)?.label ?? value;
 
   const [selected, setSelected] = useState(null);
   // "Qué imparte" consulta un listado que exige administrar asignaciones.
@@ -151,32 +165,6 @@ export function DocentesPage() {
   const [creating, setCreating] = useState(null);
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [documentsFor, setDocumentsFor] = useState(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState("");
-
-  // La exportacion si recorre todas las paginas, con la busqueda y el puesto
-  // vigentes.
-  const handleExport = async () => {
-    setExporting(true);
-    setExportError("");
-    try {
-      const rows = await teachersService.list(list.exportParams);
-      downloadCsv(
-        "docentes.csv",
-        [
-          { label: "Nombre", value: fullName },
-          { label: "Especialidad", value: (item) => item.specialty },
-          { label: "Puesto", value: (item) => item.position },
-          { label: "Codigo Empleado", value: (item) => item.employee_code },
-        ],
-        rows
-      );
-    } catch (requestError) {
-      setExportError(requestError.message);
-    } finally {
-      setExporting(false);
-    }
-  };
 
   const buildPayload = (values) => ({
     person: personPayload(values),
@@ -240,11 +228,13 @@ export function DocentesPage() {
     {
       key: "puesto",
       label: "Puesto",
-      render: (item) => <StatusChip label={item.position} variant="primary" />,
+      render: (item) => (
+        <StatusChip label={positionLabel(item.position)} variant="primary" />
+      ),
     },
     {
       key: "codigo",
-      label: "Codigo empleado",
+      label: "Código de empleado",
       render: (item) => item.employee_code,
     },
     {
@@ -265,6 +255,7 @@ export function DocentesPage() {
       <PageHeader
         action={
           <Button
+            disabled={!positionsReady}
             onClick={async () =>
               setCreating({
                 ...EMPTY_TEACHER,
@@ -278,72 +269,116 @@ export function DocentesPage() {
           </Button>
         }
         breadcrumb="Comunidad educativa"
-        subtitle={`${list.count} registros de personal docente y administrativo.`}
+        subtitle={
+          list.error
+            ? "No se pudo consultar el listado."
+            : updating
+              ? "Consultando personal docente y administrativo\u2026"
+              : `${list.count} registros de personal docente y administrativo.`
+        }
         title="Docentes y administrativos"
       />
 
       <SectionCard fillHeight>
         <FilterBar
           actions={
-            <Button
-              disabled={exporting}
-              onClick={handleExport}
-              size="small"
-              startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              {exporting ? "Exportando…" : "Exportar CSV"}
-            </Button>
+            <ExportCsvButton
+              fetchPage={teachersService.listPage}
+              params={list.exportParams}
+              columns={[
+                { label: "Nombre", value: fullName },
+                { label: "Especialidad", value: (item) => item.specialty },
+                {
+                  label: "Puesto",
+                  value: (item) => positionLabel(item.position),
+                },
+                {
+                  label: "C\u00f3digo de empleado",
+                  value: (item) => item.employee_code,
+                },
+              ]}
+              filename="docentes.csv"
+              disabled={updating || Boolean(list.error)}
+            />
           }
           onClear={
-            list.search || positionFilter
+            list.search || list.filters.position || list.includeInactive
               ? () => {
                   list.setSearch("");
-                  setPositionFilter(ALL_POSITIONS);
+                  list.setFilters({ position: "", include_inactive: "" });
                 }
               : undefined
           }
         >
           <SearchField
+            debounceMs={0}
             onChange={list.setSearch}
-            placeholder="Buscar por nombre, codigo o CUI…"
+            placeholder="Buscar por nombre, código o CUI…"
             value={list.search}
           />
           <FilterSelect
             label="Filtrar por puesto"
             minWidth={190}
-            onChange={setPositionFilter}
-            options={POSITION_FILTER_OPTIONS}
-            value={positionFilter}
+            emptyLabel="Todos los puestos"
+            loading={positions.isPending}
+            onChange={(value) => list.setFilter("position", value)}
+            options={filterPositionOptions}
+            value={list.filters.position}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={list.includeInactive}
+                onChange={(event) =>
+                  list.setIncludeInactive(event.target.checked)
+                }
+              />
+            }
+            label="Mostrar desactivados"
           />
         </FilterBar>
 
-        {list.error || exportError ? (
+        {list.error ? (
           <Alert
             role="alert"
             severity="error"
             sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
           >
-            {list.error || exportError}
+            {list.error}
+            <Button onClick={list.refresh}>Reintentar listado</Button>
           </Alert>
         ) : null}
 
-        <SectionTableArea>
-          <DataTable
-            columns={columns}
-            emptyMessage={
-              list.search || positionFilter
-                ? "Sin datos para los filtros seleccionados."
-                : "Todavia no hay personal registrado."
-            }
-            fillHeight
-            loading={list.loading}
-            onRowClick={setSelected}
-            pagination={list.pagination}
-            rows={list.items}
-          />
-        </SectionTableArea>
+        {!list.error ? (
+          <SectionTableArea>
+            <DataTable
+              columns={columns}
+              emptyMessage={
+                list.search || list.filters.position || list.includeInactive
+                  ? "Sin datos para los filtros seleccionados."
+                  : "No hay personal registrado."
+              }
+              fillHeight
+              loading={updating}
+              onRowClick={setSelected}
+              pagination={list.pagination}
+              rows={list.items}
+            />
+          </SectionTableArea>
+        ) : null}
       </SectionCard>
+
+      {positions.isError ||
+      (!positions.isPending && positionOptions.length === 0) ? (
+        <Alert severity="error" role="alert" sx={{ mt: 2 }}>
+          No se pudo cargar el catálogo de puestos. Reintente para crear o
+          editar un registro.
+          <Button onClick={() => positions.refetch()}>
+            Reintentar puestos
+          </Button>
+        </Alert>
+      ) : null}
 
       <DetailWindow
         actions={
@@ -353,7 +388,11 @@ export function DocentesPage() {
               <Button onClick={() => setDocumentsFor(selected)} variant="text">
                 Documentos
               </Button>
-              <Button onClick={() => setEditing(selected)} variant="contained">
+              <Button
+                disabled={!positionsReady}
+                onClick={() => setEditing(selected)}
+                variant="contained"
+              >
                 Editar
               </Button>
             </>
@@ -367,7 +406,10 @@ export function DocentesPage() {
                 {
                   label: "Puesto",
                   value: (
-                    <StatusChip label={selected.position} variant="primary" />
+                    <StatusChip
+                      label={positionLabel(selected.position)}
+                      variant="primary"
+                    />
                   ),
                 },
                 { label: "Código de empleado", value: selected.employee_code },
@@ -428,7 +470,7 @@ export function DocentesPage() {
       </DetailWindow>
 
       {documentsFor ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<p role="status">Cargando documentos…</p>}>
           <TeacherDocumentsWindow
             key={documentsFor.public_id}
             onClose={() => setDocumentsFor(null)}
@@ -448,8 +490,8 @@ export function DocentesPage() {
 
       {creating ? (
         <EntityFormWindow
-          description="El codigo de empleado se emite solo; el resto es lo que hay que capturar."
-          fields={TEACHER_FIELDS}
+          description="El código de empleado se genera automáticamente. Complete los datos del registro."
+          fields={fields}
           initialValues={creating}
           onCancel={() => setCreating(null)}
           onSubmit={handleCreate}
@@ -461,7 +503,7 @@ export function DocentesPage() {
 
       {editing ? (
         <EntityFormWindow
-          fields={TEACHER_EDIT_FIELDS}
+          fields={editFields}
           initialValues={{
             first_name: editing.person.first_name,
             last_name: editing.person.last_name,

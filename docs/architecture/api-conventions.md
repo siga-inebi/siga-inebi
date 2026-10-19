@@ -1024,6 +1024,22 @@ Decisión y evidencia: [ADR-0011, aporte D7](../decisions/ADR-0011-template-issu
   y las pruebas `AlumnosPage.test.jsx`, `DocentesPage.test.jsx` y `GuardiansPage.test.jsx`.
 
 
+## Puestos de docentes y administrativos (#632, T4)
+
+`GET /api/v1/teachers/positions/` exige sesión y devuelve un arreglo sin paginar
+de objetos `{value, label}` derivados de `Teacher.Position.choices`. No acepta
+escrituras ni devuelve personas. Ejemplo de un elemento:
+
+```json
+{"value": "Docente Titulado", "label": "Docente Titulado"}
+```
+
+Alimenta filtros, alta y edición sin duplicar opciones en el frontend; los valores
+de `position` y las validaciones de escritura existentes se conservan.
+`GET /teachers/` mantiene búsqueda, puesto y actividad antes de paginar, con
+`page_size` inicial 25 y máximo 100. Contratos, autorización existente y límites
+de exportación en [T2/T4](teacher-server-list-ui.md).
+
 ## Desactivacion del estudiante desde el expediente (E7)
 
 GET/HEAD `/students/records/{public_id}/` agrega `actions.deactivate`, calculada

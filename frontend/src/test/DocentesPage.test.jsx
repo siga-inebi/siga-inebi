@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
+import { useLocation } from "react-router-dom";
 
 import { DocentesPage } from "@teachers/DocentesPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
@@ -16,6 +17,7 @@ import {
 const teachersServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
   listPage: vi.fn(),
+  listPositions: vi.fn(),
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
@@ -29,21 +31,41 @@ vi.mock("@teachers/teachersService.js", () => ({
   teachersService: teachersServiceMock,
 }));
 
+const documentsServiceMock = vi.hoisted(() => ({
+  listTeacherRecords: vi.fn(),
+}));
+vi.mock("@documents/documentsService.js", () => ({
+  documentsService: documentsServiceMock,
+}));
+
 const downloadCsvMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@shared/utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
+vi.mock("@shared/utils/csv.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  triggerCsvDownload: downloadCsvMock,
+}));
 
-/** Sobre paginado de DRF: la pantalla solo pide la pagina visible. */
-const page = (rows, count = rows.length) => ({
+const paged = (results, count = results.length, next = null) => ({
+  results,
   count,
-  next: null,
+  next,
   previous: null,
-  results: rows,
 });
+const POSITIONS = [
+  "Docente Titulado",
+  "Docente Interino",
+  "Orientador/a",
+  "Administrativo",
+].map((value) => ({ value, label: value }));
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.search}</output>;
+}
 
 const SAMPLE = [
   {
     id: 1,
+    public_id: "teacher-1",
     person: {
       ...visibleInstitutionalPerson,
       public_id: "person-21",
@@ -60,6 +82,7 @@ const SAMPLE = [
   },
   {
     id: 2,
+    public_id: "teacher-2",
     person: {
       public_id: "person-22",
       first_name: "Karen Yesenia",
@@ -78,35 +101,18 @@ const SAMPLE = [
 describe("DocentesPage", () => {
   beforeEach(() => {
     teachersServiceMock.list.mockReset();
-    teachersServiceMock.listPage.mockReset();
+    teachersServiceMock.listPage.mockReset().mockResolvedValue(paged(SAMPLE));
+    teachersServiceMock.listPositions.mockReset().mockResolvedValue(POSITIONS);
     teachersServiceMock.create.mockReset();
     teachersServiceMock.update.mockReset();
     downloadCsvMock.mockReset();
+    documentsServiceMock.listTeacherRecords
+      .mockReset()
+      .mockResolvedValue(paged([]));
   });
 
-  test("exports every page of the current search and puesto as CSV", async () => {
-    teachersServiceMock.listPage.mockResolvedValue(page(SAMPLE));
-    teachersServiceMock.list.mockResolvedValue(SAMPLE);
-    const user = userEvent.setup();
-    renderWithRouter(<DocentesPage />, {
-      route: "/?search=Lopez&position=Docente+Titulado",
-    });
-
-    await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
-
-    await waitFor(() => expect(downloadCsvMock).toHaveBeenCalledTimes(1));
-    expect(teachersServiceMock.list).toHaveBeenCalledWith({
-      search: "Lopez",
-      position: "Docente Titulado",
-    });
-    const [filename, , rows] = downloadCsvMock.mock.calls[0];
-    expect(filename).toBe("docentes.csv");
-    expect(rows).toEqual(SAMPLE);
-  });
-
-  test("asks the server only for the visible page and shows its total", async () => {
-    teachersServiceMock.listPage.mockResolvedValue(page(SAMPLE, 100));
+  test("renders the list once loaded", async () => {
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     renderWithRouter(<DocentesPage />);
 
     expect(
@@ -115,76 +121,197 @@ describe("DocentesPage", () => {
     expect(
       within(screen.getByRole("table")).getByText("EMP-0142")
     ).toBeInTheDocument();
-    expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(1);
-    expect(teachersServiceMock.listPage).toHaveBeenCalledWith({
-      page: 1,
-      page_size: 25,
-    });
-    expect(teachersServiceMock.list).not.toHaveBeenCalled();
-    expect(
-      screen.getByText("100 registros de personal docente y administrativo.")
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 1–2 de 2/)).toBeInTheDocument();
   });
 
-  test("sends the search to the server and shows its empty state", async () => {
-    teachersServiceMock.listPage.mockImplementation(async (params) =>
-      params.search ? page([]) : page(SAMPLE)
+  test("recupera filtros, actividad y página desde URL sin descargar todo el padrón", async () => {
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE, 2500));
+    renderWithRouter(<DocentesPage />, {
+      route:
+        "/app/docentes?page=2&page_size=50&search=EMP&position=Orientador%2Fa&include_inactive=1",
+    });
+    await screen.findByText("Marvin Estuardo Lopez Cifuentes");
+    expect(teachersServiceMock.listPage).toHaveBeenCalledExactlyOnceWith({
+      page: 2,
+      page_size: 50,
+      search: "EMP",
+      position: "Orientador/a",
+      include_inactive: true,
+    });
+    expect(teachersServiceMock.listPositions).toHaveBeenCalledTimes(1);
+    expect(teachersServiceMock.list).not.toHaveBeenCalled();
+    expect(screen.getByText(/2500 registros de personal/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: "Mostrar desactivados" })
+    ).toBeChecked();
+  });
+
+  test("pagina, cambia tamaño y limpia filtros conservando la búsqueda del servidor", async () => {
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE, 2500));
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <DocentesPage />
+        <LocationProbe />
+      </>,
+      { route: "/app/docentes?position=Orientador%2Fa&include_inactive=1" }
     );
+    await screen.findByText("Marvin Estuardo Lopez Cifuentes");
+    await user.click(screen.getByRole("button", { name: "Siguiente" }));
+    await waitFor(() =>
+      expect(teachersServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 2,
+        page_size: 25,
+        position: "Orientador/a",
+        include_inactive: true,
+      })
+    );
+    await selectOption(user, /Filas por página/, "50");
+    await waitFor(() =>
+      expect(teachersServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 50,
+        position: "Orientador/a",
+        include_inactive: true,
+      })
+    );
+    await user.type(
+      screen.getByPlaceholderText(/Buscar por nombre/),
+      "EMP-0142"
+    );
+    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
+    await waitFor(() =>
+      expect(teachersServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 50,
+        position: "Orientador/a",
+        include_inactive: true,
+        search: "EMP-0142",
+      })
+    );
+    expect(screen.getByPlaceholderText(/Buscar por nombre/)).toHaveValue(
+      "EMP-0142"
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Limpiar", exact: true })
+    );
+    await waitFor(() =>
+      expect(teachersServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 50,
+      })
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("?page_size=50");
+    expect(teachersServiceMock.list).not.toHaveBeenCalled();
+  });
+
+  test("exporta más de mil filas con los filtros de servidor desde la primera página", async () => {
+    const rows = Array.from({ length: 1001 }, (_, index) => ({
+      ...SAMPLE[0],
+      id: index + 1,
+      employee_code: `DOC-DEMO-${index + 1}`,
+    }));
+    teachersServiceMock.listPage.mockImplementation(
+      async ({ page, page_size }) =>
+        paged(
+          rows.slice((page - 1) * page_size, page * page_size),
+          rows.length,
+          page * page_size < rows.length ? "next" : null
+        )
+    );
+    const user = userEvent.setup();
+    renderWithRouter(<DocentesPage />, {
+      route:
+        "/app/docentes?page=2&search=DOC-DEMO&position=Docente+Titulado&include_inactive=1",
+    });
+    await screen.findByText("DOC-DEMO-26");
+    expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(1);
+    expect(downloadCsvMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    await waitFor(() => expect(downloadCsvMock).toHaveBeenCalledTimes(1));
+    const [filename, csv] = downloadCsvMock.mock.calls[0];
+    expect(filename).toBe("docentes.csv");
+    expect(csv).toContain("DOC-DEMO-1001");
+    expect(csv.trim().split(/\r?\n/)).toHaveLength(1002);
+    const calls = teachersServiceMock.listPage.mock.calls.slice(1);
+    expect(calls).toHaveLength(11);
+    calls.forEach(([params], index) =>
+      expect(params).toEqual({
+        search: "DOC-DEMO",
+        position: "Docente Titulado",
+        include_inactive: true,
+        page: index + 1,
+        page_size: 100,
+      })
+    );
+  });
+
+  test("un catálogo fallido permite seguir consultando y reintentar sin inventar puestos", async () => {
+    teachersServiceMock.listPositions.mockRejectedValue(
+      new Error("Catálogo no disponible")
+    );
+    const user = userEvent.setup();
+    renderWithRouter(<DocentesPage />);
+    await screen.findByText(/No se pudo cargar el catálogo de puestos/);
+    expect(
+      screen.getByText("Marvin Estuardo Lopez Cifuentes")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Nuevo registro/ })
+    ).toBeDisabled();
+    teachersServiceMock.listPositions.mockResolvedValue([
+      { value: "puesto-servidor", label: "Puesto del servidor" },
+    ]);
+    await user.click(
+      screen.getByRole("button", { name: "Reintentar puestos" })
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Nuevo registro/ })
+      ).toBeEnabled()
+    );
+    await user.click(screen.getByRole("button", { name: /Nuevo registro/ }));
+    await selectOption(user, /^Puesto/, "Puesto del servidor");
+    expect(screen.getByRole("combobox", { name: /^Puesto/ })).toHaveTextContent(
+      "Puesto del servidor"
+    );
+  });
+
+  test("shows an empty state when the search does not match", async () => {
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.type(
-      screen.getByPlaceholderText("Buscar por nombre, codigo o CUI…"),
-      "Nadie"
-    );
+    teachersServiceMock.listPage.mockResolvedValue(paged([]));
+    await user.type(screen.getByPlaceholderText(/Buscar por nombre/), "Nadie");
 
     expect(
       await screen.findByText("Sin datos para los filtros seleccionados.")
     ).toBeInTheDocument();
-    expect(teachersServiceMock.listPage).toHaveBeenLastCalledWith({
-      page: 1,
-      page_size: 25,
-      search: "Nadie",
-    });
   });
 
-  test("sends the puesto filter to the server and clears it", async () => {
-    teachersServiceMock.listPage.mockImplementation(async (params) =>
-      page(
-        params.position
-          ? SAMPLE.filter((teacher) => teacher.position === params.position)
-          : SAMPLE
-      )
-    );
+  test("filters by puesto", async () => {
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
+    teachersServiceMock.listPage.mockResolvedValue(paged([SAMPLE[1]]));
     await selectOption(user, /^Filtrar por puesto/, "Orientador/a");
-
     await waitFor(() =>
-      expect(
-        screen.queryByText("Marvin Estuardo Lopez Cifuentes")
-      ).not.toBeInTheDocument()
+      expect(teachersServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 25,
+        position: "Orientador/a",
+      })
     );
-    expect(screen.getByText("Karen Yesenia Vasquez Us")).toBeInTheDocument();
-    expect(teachersServiceMock.listPage).toHaveBeenLastCalledWith({
-      page: 1,
-      page_size: 25,
-      position: "Orientador/a",
-    });
-
-    await user.click(screen.getByRole("button", { name: /Limpiar/ }));
+    await screen.findByText("Karen Yesenia Vasquez Us");
 
     expect(
-      await screen.findByText("Marvin Estuardo Lopez Cifuentes")
-    ).toBeInTheDocument();
-    // La pagina sin filtro sale de la cache de la primera carga; lo que importa
-    // es que el puesto dejo de viajar y que no queda nada por limpiar.
-    expect(
-      screen.queryByRole("button", { name: /Limpiar/ })
+      screen.queryByText("Marvin Estuardo Lopez Cifuentes")
     ).not.toBeInTheDocument();
+    expect(screen.getByText("Karen Yesenia Vasquez Us")).toBeInTheDocument();
   });
 
   test("shows the service error instead of the table", async () => {
@@ -196,10 +323,18 @@ describe("DocentesPage", () => {
     expect(
       await screen.findByText("Solicitud no completada.")
     ).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Reintentar listado" }));
+    expect(
+      await screen.findByText("Marvin Estuardo Lopez Cifuentes")
+    ).toBeInTheDocument();
   });
 
   test("opens the detail panel for a row", async () => {
-    teachersServiceMock.listPage.mockResolvedValue(page(SAMPLE));
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);
 
@@ -212,8 +347,68 @@ describe("DocentesPage", () => {
     expect(screen.getByText("marvin@example.test")).toBeInTheDocument();
   });
 
+  test("carga el expediente documental únicamente al solicitarlo", async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<DocentesPage />);
+    await screen.findByText("Marvin Estuardo Lopez Cifuentes");
+    expect(documentsServiceMock.listTeacherRecords).not.toHaveBeenCalled();
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
+    expect(documentsServiceMock.listTeacherRecords).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole("button", { name: "Documentos", exact: true })
+    );
+    expect(
+      await screen.findByRole("heading", {
+        name: "Expediente documental del docente",
+      })
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(documentsServiceMock.listTeacherRecords).toHaveBeenCalledWith(
+        "teacher-1",
+        expect.objectContaining({ page: 1 })
+      )
+    );
+  });
+
+  test("editar el puesto recarga la página filtrada sin mantener filas fuera del filtro", async () => {
+    const updated = { ...SAMPLE[0], position: "Orientador/a" };
+    teachersServiceMock.listPage
+      .mockResolvedValueOnce(paged([SAMPLE[0]]))
+      .mockResolvedValue(paged([]));
+    teachersServiceMock.update.mockResolvedValue(updated);
+    const user = userEvent.setup();
+    renderWithRouter(<DocentesPage />, {
+      route: "/app/docentes?position=Docente+Titulado&page_size=50",
+    });
+    await screen.findByText("Marvin Estuardo Lopez Cifuentes");
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
+    await user.click(
+      screen.getByRole("button", { name: "Editar", exact: true })
+    );
+    await selectOption(user, /^Puesto/, "Orientador/a");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() =>
+      expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(2)
+    );
+    expect(teachersServiceMock.listPage).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 50,
+      position: "Docente Titulado",
+    });
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("table", { hidden: true })).queryByText(
+          "Marvin Estuardo Lopez Cifuentes"
+        )
+      ).not.toBeInTheDocument()
+    );
+    expect(
+      screen.getByRole("heading", { name: "Marvin Estuardo Lopez Cifuentes" })
+    ).toBeInTheDocument();
+  });
+
   test("opens and closes the photo lightbox from the detail panel", async () => {
-    teachersServiceMock.listPage.mockResolvedValue(page(SAMPLE));
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);
 
@@ -255,7 +450,9 @@ describe("DocentesPage", () => {
   });
 
   test("submits the create form against the mock service", async () => {
-    const createdTeacher = {
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
+    teachersServiceMock.nextCode.mockResolvedValue("DOC-013");
+    const created = {
       id: 3,
       person: {
         public_id: "person-23",
@@ -270,14 +467,11 @@ describe("DocentesPage", () => {
       appointment_date: null,
       photo: "",
     };
+    teachersServiceMock.create.mockResolvedValue(created);
     teachersServiceMock.listPage
-      .mockResolvedValueOnce(page(SAMPLE))
-      .mockResolvedValueOnce(page([...SAMPLE, createdTeacher]));
-    teachersServiceMock.nextCode.mockResolvedValue("DOC-013");
-    teachersServiceMock.create.mockResolvedValue(createdTeacher);
-    // Sin pausa entre pulsaciones: lo que se prueba es el envío del formulario,
-    // no el tecleo, y con pausa son más de treinta vueltas del bucle de eventos.
-    const user = userEvent.setup({ delay: null });
+      .mockResolvedValueOnce(paged(SAMPLE))
+      .mockResolvedValue(paged([...SAMPLE, created]));
+    const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
@@ -310,17 +504,14 @@ describe("DocentesPage", () => {
         employee_code: "EMP-0300",
       })
     );
-    await waitFor(() =>
-      expect(teachersServiceMock.listPage).toHaveBeenCalledTimes(2)
-    );
     expect(await screen.findByText("Nueva Docente")).toBeInTheDocument();
-    // 30 s y no los 15 globales: con la suite completa en paralelo el tecleo
-    // del formulario ya rondaba los 14 s, y la recarga posterior al alta
-    // dejaba la prueba al borde del limite.
-  }, 30000);
+    // 15s y no los 5 por omision: son mas de treinta pulsaciones a traves de
+    // `userEvent`, y con la instrumentacion de cobertura del CI no caben en el
+    // presupuesto normal. Misma convencion que AttendancePage.test.jsx.
+  }, 15000);
 
   test("previews a newly selected photo in the create form", async () => {
-    teachersServiceMock.listPage.mockResolvedValue(page(SAMPLE));
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);
 
@@ -341,7 +532,7 @@ describe("DocentesPage", () => {
   });
 
   test("edits a teacher via the detail panel", async () => {
-    teachersServiceMock.listPage.mockResolvedValue(page(SAMPLE));
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     teachersServiceMock.update.mockResolvedValue({
       id: 1,
       person: {
@@ -402,10 +593,10 @@ describe("DocentesPage", () => {
         name: "Marvin Estuardo Lopez Mendez",
       })
     ).toBeInTheDocument();
-  }, 15000);
+  });
 
   test("requires the mandatory fields before submitting", async () => {
-    teachersServiceMock.listPage.mockResolvedValue(page(SAMPLE));
+    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);
 
