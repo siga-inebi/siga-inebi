@@ -1,6 +1,7 @@
 """Read-side queries for the academic-structure domain."""
 
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, OuterRef, Prefetch, Q, Subquery
+from django.utils import timezone
 
 from apps.academics.models import (
     AcademicCycle,
@@ -17,6 +18,7 @@ from apps.academics.models import (
     Institution,
     Level,
     LevelSubject,
+    NonComputableDay,
     Section,
     Shift,
     Subject,
@@ -247,16 +249,41 @@ _CLASS_SESSION_RELATED = (
 )
 
 
+def _with_current_teacher(queryset):
+    """
+    S3: the current teacher of every session (RF-HOR-004) as annotations, so a
+    page of sessions does not run ``ClassSession.current_teacher`` once per row.
+    Same rule as that property: the section's current assignment for the subject.
+    """
+    current = TeachingAssignment.objects.filter(
+        academic_cycle=OuterRef("academic_cycle"),
+        section=OuterRef("section"),
+        subject=OuterRef("subject"),
+        ends_on__isnull=True,
+    ).order_by("-starts_on")
+    return queryset.annotate(
+        _current_teacher_public_id=Subquery(
+            current.values("teacher__teacher_profile__public_id")[:1]
+        ),
+        _current_teacher_first_name=Subquery(current.values("teacher__first_name")[:1]),
+        _current_teacher_last_name=Subquery(current.values("teacher__last_name")[:1]),
+    )
+
+
 def class_sessions(section, *, include_inactive=False):
-    queryset = ClassSession.objects.filter(section=section).select_related(*_CLASS_SESSION_RELATED)
+    queryset = _with_current_teacher(
+        ClassSession.objects.filter(section=section).select_related(*_CLASS_SESSION_RELATED)
+    )
     return _filter_active(queryset, include_inactive=include_inactive)
 
 
 def class_session_or_404(institution, public_id):
     return _get(
-        ClassSession.objects.filter(
-            section__offering__academic_cycle__institution=institution
-        ).select_related(*_CLASS_SESSION_RELATED),
+        _with_current_teacher(
+            ClassSession.objects.filter(
+                section__offering__academic_cycle__institution=institution
+            ).select_related(*_CLASS_SESSION_RELATED)
+        ),
         public_id,
         "Class session",
     )
@@ -331,15 +358,191 @@ def curriculum_plan_or_404(institution, public_id):
     )
 
 
+# Everything ``TeachingAssignmentSerializer`` reads, so a page costs one query.
+_TEACHING_ASSIGNMENT_RELATED = (
+    "academic_cycle",
+    "section__offering__grade",
+    "subject",
+    "teacher__teacher_profile",
+)
+
+
 def teaching_assignment_history(institution, *, teacher=None, academic_cycle=None):
     queryset = TeachingAssignment.objects.filter(
         academic_cycle__institution=institution
-    ).select_related("academic_cycle", "section", "subject", "teacher__teacher_profile")
+    ).select_related(*_TEACHING_ASSIGNMENT_RELATED)
     if teacher is not None:
         queryset = queryset.filter(teacher=teacher)
     if academic_cycle is not None:
         queryset = queryset.filter(academic_cycle=academic_cycle)
     return queryset.order_by("-academic_cycle__starts_on", "-starts_on", "-created_at")
+
+
+def teaching_assignments(
+    institution,
+    *,
+    academic_cycle=None,
+    section=None,
+    subject=None,
+    teacher=None,
+    current=None,
+):
+    """
+    AD2/AD4: teaching assignments filtered on the server, in the order a
+    timetable is read (grade, section, subject, then the most recent period).
+
+    ``current=True`` keeps only the assignments in force (``ends_on`` null),
+    ``current=False`` only the finished ones; ``None`` keeps both.
+    """
+    queryset = TeachingAssignment.objects.filter(
+        academic_cycle__institution=institution
+    ).select_related(*_TEACHING_ASSIGNMENT_RELATED)
+    if academic_cycle is not None:
+        queryset = queryset.filter(academic_cycle=academic_cycle)
+    if section is not None:
+        queryset = queryset.filter(section=section)
+    if subject is not None:
+        queryset = queryset.filter(subject=subject)
+    if teacher is not None:
+        queryset = queryset.filter(teacher=teacher)
+    if current is not None:
+        queryset = queryset.filter(ends_on__isnull=current)
+    return queryset.order_by(
+        "-academic_cycle__starts_on",
+        "section__offering__grade__level__sequence",
+        "section__offering__grade__sequence",
+        "section__name",
+        "subject__name",
+        "-starts_on",
+        "pk",
+    )
+
+
+def assignment_matrix_sections(academic_cycle, *, grade=None):
+    """AD3: active sections of the cycle, one matrix row each, in pedagogical order."""
+    queryset = Section.objects.filter(
+        offering__academic_cycle=academic_cycle, is_active=True
+    ).select_related("offering__grade__level", "offering__shift")
+    if grade is not None:
+        queryset = queryset.filter(offering__grade=grade)
+    return queryset.order_by(
+        "offering__grade__level__sequence",
+        "offering__grade__sequence",
+        "offering__shift__name",
+        "name",
+        "pk",
+    )
+
+
+def assignment_matrix_rows(academic_cycle, sections):
+    """
+    AD3: section x subject cells for ``sections`` (usually one page of
+    ``assignment_matrix_sections``). The columns of a row are the subjects of
+    the cycle's curriculum plan for that section's grade; a cell carries the
+    current assignment or ``None`` — exactly what activation demands
+    (``academic_cycle_opening_gaps``). Three queries whatever the page size.
+    """
+    sections = list(sections)
+    grade_ids = {section.offering.grade_id for section in sections}
+    subjects_by_grade = {}
+    for plan in (
+        CurriculumPlan.objects.filter(
+            academic_cycle=academic_cycle, grade_id__in=grade_ids, is_active=True
+        )
+        .select_related("subject")
+        .order_by("subject__name", "pk")
+    ):
+        subjects_by_grade.setdefault(plan.grade_id, []).append(plan.subject)
+
+    current = {
+        (assignment.section_id, assignment.subject_id): assignment
+        for assignment in TeachingAssignment.objects.filter(
+            academic_cycle=academic_cycle, section__in=sections, ends_on__isnull=True
+        ).select_related("teacher__teacher_profile")
+    }
+    return [
+        {
+            "section": section,
+            "cells": [
+                {"subject": subject, "assignment": current.get((section.id, subject.id))}
+                for subject in subjects_by_grade.get(section.offering.grade_id, [])
+            ],
+        }
+        for section in sections
+    ]
+
+
+def _section_match_key(section):
+    """A section is the same across cycles by grade + shift + name, never by id."""
+    return (section.offering.grade_id, section.offering.shift_id, section.name)
+
+
+def teaching_assignment_clone_preview(*, source_cycle, target_cycle):
+    """
+    AD2: what cloning the current assignments of ``source_cycle`` into
+    ``target_cycle`` would do, row by row, without writing anything.
+
+    Sections are matched by grade, shift and name: cloning the structure gives
+    every section a new identifier, but "Primero Básico A, matutina" still
+    means the same group. Each row is ``pending`` (can be created),
+    ``already_assigned`` (the target already has a current teacher for that
+    section and subject) or ``unmatched`` (no equivalent active section).
+    """
+    target_sections = {
+        _section_match_key(section): section
+        for section in Section.objects.filter(
+            offering__academic_cycle=target_cycle, is_active=True
+        ).select_related("offering__grade", "offering__shift")
+    }
+    already_assigned = set(
+        target_cycle.teaching_assignments.filter(ends_on__isnull=True).values_list(
+            "section_id", "subject_id"
+        )
+    )
+    rows = []
+    for assignment in (
+        source_cycle.teaching_assignments.filter(ends_on__isnull=True)
+        .select_related(
+            "section__offering__grade__level",
+            "section__offering__shift",
+            "subject",
+            "teacher__teacher_profile",
+        )
+        .order_by(
+            "section__offering__grade__level__sequence",
+            "section__offering__grade__sequence",
+            "section__name",
+            "subject__name",
+            "pk",
+        )
+    ):
+        target_section = target_sections.get(_section_match_key(assignment.section))
+        if target_section is None:
+            status = "unmatched"
+        elif (target_section.id, assignment.subject_id) in already_assigned:
+            status = "already_assigned"
+        else:
+            status = "pending"
+        rows.append(
+            {
+                "source_assignment": assignment,
+                "section": assignment.section,
+                "subject": assignment.subject,
+                "teacher": assignment.teacher,
+                "target_section": target_section,
+                "status": status,
+            }
+        )
+    summary = {"total": len(rows), "pending": 0, "already_assigned": 0, "unmatched": 0}
+    for row in rows:
+        summary[row["status"]] += 1
+    return {
+        "source_cycle": source_cycle,
+        "target_cycle": target_cycle,
+        "suggested_starts_on": target_cycle.starts_on,
+        "summary": summary,
+        "rows": rows,
+    }
 
 
 def teaching_assignment_or_404(public_id):
@@ -373,7 +576,7 @@ def historical_cycle_or_404(institution, public_id):
             Prefetch(
                 "teaching_assignments",
                 queryset=TeachingAssignment.objects.select_related(
-                    "section", "subject", "teacher__teacher_profile"
+                    *_TEACHING_ASSIGNMENT_RELATED
                 ).order_by("starts_on", "created_at"),
             ),
         )
@@ -463,3 +666,292 @@ def class_schedule_publication(academic_cycle):
     return ClassSchedulePublication.objects.filter(
         academic_cycle=academic_cycle
     ).first() or ClassSchedulePublication(academic_cycle=academic_cycle)
+
+
+# --------------------------------------------------------------------------- #
+# current teaching assignment
+# --------------------------------------------------------------------------- #
+
+
+def current_teaching_assignment(*, academic_cycle, section, subject):
+    """
+    The current (``ends_on`` is null) assignment for a section and subject, or
+    ``None`` when nobody teaches it yet. The exclusion constraint guarantees at
+    most one current row per (cycle, section, subject).
+    """
+    return (
+        TeachingAssignment.objects.filter(
+            academic_cycle=academic_cycle,
+            section=section,
+            subject=subject,
+            ends_on__isnull=True,
+        )
+        .select_related("teacher")
+        .first()
+    )
+
+
+# --------------------------------------------------------------------------- #
+# cycle readiness: activation, closure and revert-to-draft (C7, D1, D3, D6)
+# --------------------------------------------------------------------------- #
+
+
+def _gap(code, message, *, grade=None, section=None, subject=None):
+    return {
+        "code": code,
+        "message": message,
+        "grade": grade,
+        "section": section,
+        "subject": subject,
+    }
+
+
+def academic_cycle_opening_gaps(cycle):
+    """
+    What still blocks activating ``cycle`` (RF-CIC-003, RF-EST-010).
+
+    Each gap is ``{code, message, grade, section, subject}`` so the activation
+    checklist can link every item to the screen that solves it. The messages
+    are full sentences; ``activate_academic_cycle`` joins them into its error.
+    """
+    offerings = list(
+        cycle.grade_offerings.filter(is_active=True)
+        .select_related("grade", "shift")
+        .prefetch_related("sections")
+        .order_by("grade__level__sequence", "grade__sequence", "shift__name", "pk")
+    )
+    if not offerings:
+        return [_gap("no_grade_offerings", "Falta al menos una oferta de grado.")]
+
+    gaps = []
+    subjects_by_grade = {}
+    for plan in (
+        cycle.curriculum_plans.filter(is_active=True)
+        .select_related("subject")
+        .order_by("subject__name", "pk")
+    ):
+        subjects_by_grade.setdefault(plan.grade_id, []).append(plan.subject)
+
+    # Current (ends_on is null) teaching assignments, keyed by the pair every
+    # subarea of a section must clear (RF-EST-010): no partial credit for a
+    # closed, superseded assignment.
+    assigned_pairs = set(
+        cycle.teaching_assignments.filter(ends_on__isnull=True).values_list(
+            "section_id", "subject_id"
+        )
+    )
+
+    reported_plan_gaps = set()
+    for offering in offerings:
+        grade = offering.grade
+        active_sections = [section for section in offering.sections.all() if section.is_active]
+        if not active_sections:
+            gaps.append(
+                _gap(
+                    "missing_sections",
+                    f"Faltan secciones del grado '{grade.name}' en la jornada "
+                    f"'{offering.shift.name}'.",
+                    grade=grade,
+                )
+            )
+        subjects = subjects_by_grade.get(offering.grade_id)
+        if subjects is None:
+            if offering.grade_id not in reported_plan_gaps:
+                gaps.append(
+                    _gap(
+                        "missing_curriculum_plan",
+                        f"Falta el plan de estudios del grado '{grade.name}'.",
+                        grade=grade,
+                    )
+                )
+                reported_plan_gaps.add(offering.grade_id)
+            continue
+        for section in active_sections:
+            for subject in subjects:
+                if (section.id, subject.id) not in assigned_pairs:
+                    gaps.append(
+                        _gap(
+                            "missing_teacher",
+                            f"Falta asignar docente para '{subject.name}' en la sección "
+                            f"'{section.name}' del grado '{grade.name}'.",
+                            grade=grade,
+                            section=section,
+                            subject=subject,
+                        )
+                    )
+    return gaps
+
+
+def academic_cycle_closure_gaps(cycle):
+    """
+    Evaluation units that block closing the cycle (RF-CIC-004): still open, or
+    closed with a recovery window that has not expired yet.
+
+    Read through the reverse relation only (``cycle.evaluation_units``), the
+    same way ``Section.active_enrolment_count`` reads ``enrolments`` without
+    importing that domain's models — ``evaluation`` depends on ``academics``,
+    not the other way around (domain-map.md).
+    """
+    today = timezone.localdate()
+    gaps = []
+    for unit in cycle.evaluation_units.order_by("number"):
+        if unit.status != "closed":
+            gaps.append(
+                {
+                    "code": "evaluation_unit_open",
+                    "message": f"La unidad de evaluación '{unit.name}' sigue abierta.",
+                }
+            )
+        elif unit.recovery_ends_on is not None and today <= unit.recovery_ends_on:
+            gaps.append(
+                {
+                    "code": "recovery_window_open",
+                    "message": (
+                        f"La ventana de recuperación de la unidad '{unit.name}' aún no vence."
+                    ),
+                }
+            )
+    return gaps
+
+
+def _plural(count, singular, plural):
+    return singular if count == 1 else plural
+
+
+def academic_cycle_revert_blockers(cycle):
+    """
+    Activity that forbids sending ``cycle`` back to draft (D3, D6, RF-CIC-008).
+
+    D6 lists five kinds of activity: enrolments, grades, attendance movements,
+    closed evaluation units and issued documents. ``academics`` sits below all
+    of those domains (domain-map.md), so none of their modules is imported
+    here: every count walks a reverse relation by name, the mechanism
+    ``academic_cycle_closure_gaps`` already uses for ``evaluation_units``.
+
+    Attendance events carry no cycle: like
+    ``attendance.services.resolve_academic_cycle_for``, an event belongs to the
+    cycle of its shift's institution whose dates cover ``event_date``. Cycles of
+    one institution never overlap (``academic_cycle_no_overlapping_dates``), so
+    that mapping is exact.
+
+    Returns ``[{code, count, message}]``, empty when the cycle has no activity.
+    """
+    enrolments = cycle.enrolments.all()
+    counts = [
+        (
+            "enrolments",
+            enrolments.count(),
+            ("matrícula", "matrículas"),
+        ),
+        (
+            "grades",
+            (enrolments.aggregate(total=Count("grades"))["total"] or 0)
+            + (enrolments.aggregate(total=Count("recovery_grades"))["total"] or 0),
+            ("nota registrada", "notas registradas"),
+        ),
+        (
+            "attendance_events",
+            Shift.objects.filter(campus__institution_id=cycle.institution_id).aggregate(
+                total=Count(
+                    "attendance_events",
+                    filter=Q(
+                        attendance_events__event_date__gte=cycle.starts_on,
+                        attendance_events__event_date__lte=cycle.ends_on,
+                    ),
+                )
+            )["total"]
+            or 0,
+            ("movimiento de asistencia", "movimientos de asistencia"),
+        ),
+        (
+            "closed_evaluation_units",
+            cycle.evaluation_units.filter(status="closed").count(),
+            ("unidad de evaluación cerrada", "unidades de evaluación cerradas"),
+        ),
+        (
+            "issued_documents",
+            enrolments.aggregate(total=Count("document_issuances"))["total"] or 0,
+            ("documento emitido", "documentos emitidos"),
+        ),
+    ]
+    return [
+        {"code": code, "count": count, "message": f"Tiene {count} {_plural(count, *nouns)}."}
+        for code, count, nouns in counts
+        if count
+    ]
+
+
+def other_active_cycle(cycle):
+    """The institution's ACTIVE cycle when it is not ``cycle`` itself (D1)."""
+    return (
+        AcademicCycle.objects.filter(
+            institution_id=cycle.institution_id, status=AcademicCycle.CycleStatus.ACTIVE
+        )
+        .exclude(pk=cycle.pk)
+        .first()
+    )
+
+
+def academic_cycle_readiness(cycle):
+    """
+    Everything the cycle screen needs to explain its enabled and disabled
+    actions without trying them first (C7, D1, D6): activation checklist,
+    revert-to-draft blockers, closure gaps and the other active cycle.
+    """
+    status = AcademicCycle.CycleStatus
+    active_cycle = other_active_cycle(cycle)
+
+    if cycle.status == status.DRAFT:
+        activation_gaps = []
+        if active_cycle is not None:
+            activation_gaps.append(
+                _gap(
+                    "active_cycle_exists",
+                    f"Hay que cerrar el ciclo activo '{active_cycle.name}' antes de activar otro.",
+                )
+            )
+        activation_gaps.extend(academic_cycle_opening_gaps(cycle))
+    else:
+        activation_gaps = [
+            _gap("invalid_status", "Solo se puede activar un ciclo escolar en preparación.")
+        ]
+
+    if cycle.status == status.ACTIVE:
+        revert_blockers = academic_cycle_revert_blockers(cycle)
+        close_gaps = academic_cycle_closure_gaps(cycle)
+    else:
+        revert_blockers = [
+            {
+                "code": "invalid_status",
+                "count": None,
+                "message": "Solo se puede volver a borrador un ciclo escolar activo.",
+            }
+        ]
+        close_gaps = [
+            {
+                "code": "invalid_status",
+                "message": "Solo se puede cerrar un ciclo escolar activo.",
+            }
+        ]
+
+    return {
+        "activation": {"ready": not activation_gaps, "gaps": activation_gaps},
+        "revert": {"allowed": not revert_blockers, "blockers": revert_blockers},
+        "close": {"ready": not close_gaps, "gaps": close_gaps},
+        "active_cycle": active_cycle,
+    }
+
+
+def non_computable_days(academic_cycle):
+    """Active non-computable days of the cycle, by date (RF-JOR-010)."""
+    return academic_cycle.non_computable_days.filter(is_active=True).order_by("day")
+
+
+def non_computable_day_or_404(institution, public_id):
+    return _get(
+        NonComputableDay.objects.filter(
+            academic_cycle__institution=institution, is_active=True
+        ).select_related("academic_cycle"),
+        public_id,
+        "el día no computable",
+    )

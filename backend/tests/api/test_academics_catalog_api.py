@@ -446,7 +446,8 @@ def test_list_levels_sends_cache_control_and_etag(admin_client, institution):
 
     response = admin_client.get(reverse("level-list-create"))
 
-    assert "max-age=" in response.headers["Cache-Control"]
+    # #631 (1.2.1, N1): revalidar siempre; antes era max-age=300.
+    assert "max-age=0" in response.headers["Cache-Control"]
     assert "private" in response.headers["Cache-Control"]
     assert response.headers["ETag"]
 
