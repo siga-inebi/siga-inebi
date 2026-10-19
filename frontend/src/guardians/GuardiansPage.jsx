@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -20,6 +20,12 @@ import { MutedCell } from "@ui/table/cells.jsx";
 import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
+
+const GuardianDeactivationDialog = lazy(() =>
+  import("@guardians/GuardianDeactivationDialog.jsx").then((module) => ({
+    default: module.GuardianDeactivationDialog,
+  }))
+);
 
 const GUARDIAN_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
@@ -146,6 +152,8 @@ export function GuardiansPage() {
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [deactivating, setDeactivating] = useState(null);
+  const [deactivationNotice, setDeactivationNotice] = useState("");
 
   const handleCreate = async (values) => {
     await guardiansService.create({
@@ -180,6 +188,7 @@ export function GuardiansPage() {
       <PageHeader
         action={
           <Button
+            disabled={Boolean(deactivating)}
             onClick={() => setCreating(true)}
             startIcon={<AddIcon fontSize="small" />}
             variant="contained"
@@ -197,6 +206,12 @@ export function GuardiansPage() {
         }
         title="Padres de familia"
       />
+
+      {deactivationNotice ? (
+        <Alert role="status" severity="success" sx={{ mb: 2 }}>
+          {deactivationNotice}
+        </Alert>
+      ) : null}
 
       <SectionCard fillHeight>
         <FilterBar
@@ -265,7 +280,9 @@ export function GuardiansPage() {
               }
               fillHeight
               loading={updating}
-              onRowClick={setSelected}
+              onRowClick={(guardian) => {
+                if (!deactivating) setSelected(guardian);
+              }}
               pagination={list.pagination}
               rows={list.items}
             />
@@ -276,9 +293,23 @@ export function GuardiansPage() {
       <DetailWindow
         actions={
           selected ? (
-            <Button onClick={() => setEditing(selected)} variant="contained">
-              Editar
-            </Button>
+            <>
+              {selected.is_active && selected.actions?.deactivate === true ? (
+                <Button
+                  color="error"
+                  variant="outlined"
+                  onClick={() => {
+                    setDeactivating(selected);
+                    setSelected(null);
+                  }}
+                >
+                  Desactivar encargado
+                </Button>
+              ) : null}
+              <Button onClick={() => setEditing(selected)} variant="contained">
+                Editar
+              </Button>
+            </>
           ) : null
         }
         fields={
@@ -295,6 +326,25 @@ export function GuardiansPage() {
         open={Boolean(selected)}
         title={selected ? fullName(selected) : ""}
       />
+
+      {deactivating ? (
+        <Suspense fallback={<p role="status">Preparando confirmación…</p>}>
+          <GuardianDeactivationDialog
+            guardian={deactivating}
+            onCancel={() => {
+              setSelected(deactivating);
+              setDeactivating(null);
+            }}
+            onCompleted={() => {
+              setDeactivating(null);
+              setDeactivationNotice(
+                "Encargado desactivado. El historial se conserva."
+              );
+              list.refresh();
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       <EntityFormWindow
         fields={GUARDIAN_FIELDS}

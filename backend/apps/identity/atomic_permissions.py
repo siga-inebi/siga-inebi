@@ -39,6 +39,12 @@ PERMISSION_CATALOGUE = (
         "Permite desactivar el perfil docente conservando su historial, con alcance teachers.",
         "teachers",
     ),
+    (
+        "guardian.deactivate",
+        "Desactivar encargados",
+        "Permite desactivar el perfil de encargado conservando sus vinculos, con alcance students.",
+        "students",
+    ),
     ("auth.login", "Iniciar sesión", "Permite entrar al sistema con su cuenta.", "accounts"),
     ("auth.logout", "Cerrar sesión", "Permite cerrar su propia sesión.", "accounts"),
     (

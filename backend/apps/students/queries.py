@@ -1,6 +1,7 @@
 """Read-side queries for the student-records domain."""
 
 from apps.common.exceptions import ResourceNotFoundError
+from apps.students.authorization import may_deactivate_guardian
 from apps.students.models import EmergencyContact, Student, StudentHealthNote, StudentObservation
 
 
@@ -224,3 +225,12 @@ def student_status_context(*, student, actor, selected_status=None):
         ),
         "last_change": last_change,
     }
+
+
+def guardian_action_permissions(*, actor):
+    """Resolve module access once per response, including nested guardians."""
+    return {"deactivate": may_deactivate_guardian(actor)}
+
+
+def guardian_actions(*, guardian, permissions):
+    return {"deactivate": bool(guardian.is_active and permissions.get("deactivate", False))}

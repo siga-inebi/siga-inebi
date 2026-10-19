@@ -6,6 +6,7 @@ from apps.common.codes import create_with_generated_code, next_sequential_code
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
 from apps.people.models import Person
+from apps.students.authorization import require_guardian_deactivation
 from apps.students.images import normalize_student_photo
 from apps.students.models import (
     EmergencyContact,
@@ -210,16 +211,24 @@ def student_deactivation_action(*, student, can_manage):
     return {"deactivate": can_manage and student.is_active}
 
 
-def deactivate_guardian(*, guardian, actor=None):
-    guardian.is_active = False
-    guardian.save(update_fields=["is_active", "updated_at"])
-    record_event(
-        actor=actor,
-        action="students.guardian.deactivated",
-        resource="Guardian",
-        resource_identifier=str(guardian.pk),
-        context={"public_id": str(guardian.public_id)},
-    )
+def deactivate_guardian(*, guardian, actor):
+    require_guardian_deactivation(actor=actor, guardian=guardian)
+    with transaction.atomic():
+        guardian = Guardian.objects.select_for_update().get(pk=guardian.pk)
+        if not guardian.is_active:
+            return guardian
+        guardian.is_active = False
+        guardian.save(update_fields=["is_active", "updated_at"])
+        record_event(
+            actor=actor,
+            action="students.guardian.deactivated",
+            resource="Guardian",
+            resource_identifier=str(guardian.pk),
+            context={
+                "public_id": str(guardian.public_id),
+                "is_active": {"old": True, "new": False},
+            },
+        )
     return guardian
 
 

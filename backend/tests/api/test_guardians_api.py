@@ -120,6 +120,12 @@ def test_update_guardian_ignores_nested_person_changes(logged_in_client):
 @pytest.mark.api
 @pytest.mark.django_db
 def test_deactivate_guardian_via_delete_is_soft(logged_in_client):
+    assignment = RoleAssignmentFactory(
+        user=logged_in_client.user,
+        role=RoleFactory(permissions=[PermissionFactory(codename="guardian_deactivate")]),
+        identity_scope=False,
+    )
+    ScopeGrantFactory(assignment=assignment, module_key="students")
     guardian = GuardianFactory()
 
     response = logged_in_client.delete(reverse("guardian-detail", args=[guardian.pk]))

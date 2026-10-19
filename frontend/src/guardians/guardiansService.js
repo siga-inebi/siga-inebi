@@ -18,6 +18,7 @@ export const guardiansService = {
     ),
   get: (id) => apiClient.get(`/students/guardians/${id}/`),
   create: (data) => apiClient.post("/students/guardians/", data),
+  deactivate: (id) => apiClient.del(`/students/guardians/${id}/`),
   // GuardianSerializer intentionally rejects nested `person` writes on update
   // (see backend/apps/students/api/serializers.py), so name/email/phone
   // edits go to /people/<public_id>/ — Guardian has no other own field to patch.
