@@ -245,10 +245,7 @@ def annul_student_movement(*, movement, reason, actor):
     movement = StudentMovement.objects.select_for_update().get(pk=movement.pk)
     if StudentMovementAnnulment.objects.filter(movement=movement).exists():
         raise DomainError("El movimiento ya fue anulado.")
-    if movement.movement_type not in {
-        StudentMovement.MovementType.WITHDRAWAL,
-        StudentMovement.MovementType.SECTION_CHANGE,
-    }:
+    if not movement.supports_annulment:
         raise DomainError("Este tipo de movimiento todavia no admite anulacion segura.")
 
     source = movement.source_enrolment
@@ -371,7 +368,13 @@ def _ensure_section_has_capacity(section):
 def active_enrolments(*, student=None, academic_cycle_id=None, grade_id=None, section_id=None):
     queryset = (
         Enrolment.objects.filter(is_active=True, status=Enrolment.EnrolmentStatus.ACTIVE)
-        .select_related("student", "academic_cycle", "grade", "section")
+        .select_related(
+            "student__person",
+            "academic_cycle",
+            "grade",
+            "section__offering__grade",
+            "section__offering__shift",
+        )
         .order_by("student__student_code", "effective_on", "pk")
     )
     if student is not None:
@@ -389,7 +392,13 @@ def active_enrolments(*, student=None, academic_cycle_id=None, grade_id=None, se
 def enrolment_history(*, student):
     return (
         Enrolment.objects.filter(student=student)
-        .select_related("student", "academic_cycle", "grade", "section")
+        .select_related(
+            "student__person",
+            "academic_cycle",
+            "grade",
+            "section__offering__grade",
+            "section__offering__shift",
+        )
         .order_by("-effective_on", "-created_at", "-pk")
     )
 

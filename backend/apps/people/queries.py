@@ -7,8 +7,9 @@ from apps.people.models import Person
 MINOR_AGE_YEARS = 18
 
 
-def people():
-    return Person.objects.all()
+def people(*, include_inactive=True):
+    queryset = Person.objects.all().order_by("last_name", "first_name", "id")
+    return queryset if include_inactive else queryset.filter(is_active=True)
 
 
 def is_minor(birth_date, *, as_of=None):

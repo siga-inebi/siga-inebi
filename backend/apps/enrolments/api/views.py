@@ -16,6 +16,8 @@ from apps.enrolments.api.serializers import (
     MatriculationCreateSerializer,
     MatriculationSerializer,
     PromotionSerializer,
+    ReenrolmentCandidateQuerySerializer,
+    ReenrolmentCandidateSerializer,
     ReenrolmentCreateSerializer,
     SectionChangeCreateSerializer,
     SectionOccupancyQuerySerializer,
@@ -289,6 +291,24 @@ class ReenrolmentCreateView(GenericAPIView):
         return Response(MatriculationSerializer(enrolment).data, status=status.HTTP_201_CREATED)
 
 
+class ReenrolmentCandidateListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ReenrolmentCandidateQuerySerializer
+
+    @extend_schema(
+        summary="Consultar candidatos a reinscripcion por ciclo de origen",
+        parameters=[ReenrolmentCandidateQuerySerializer],
+        responses={200: ReenrolmentCandidateSerializer(many=True)},
+        tags=["enrolments"],
+    )
+    def get(self, request):
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        rows = queries.reenrolment_candidates(actor=request.user, **query.validated_data)
+        page = self.paginate_queryset(rows)
+        return self.get_paginated_response(ReenrolmentCandidateSerializer(page, many=True).data)
+
+
 class BulkReenrolmentCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = BulkReenrolmentCreateSerializer
@@ -499,12 +519,18 @@ class PromotionDetailView(GenericAPIView):
             "en cada subárea de su plan de estudios, considerando la recuperación cuando "
             "exista. También devuelve el grado elegible y distingue promoción, repitencia "
             "y graduación. No crea la matrícula del ciclo siguiente."
+            " Requiere permiso de matrícula y alcance vigente sobre su sección."
         ),
         responses={200: PromotionSerializer},
         tags=["enrolments"],
     )
     def get(self, request, enrolment_id):
         enrolment = queries.enrolment_or_404(enrolment_id)
+        require_section_scope(
+            actor=request.user,
+            codenames=_ENROLMENT_WRITE_PERMISSIONS,
+            sections=[enrolment.section],
+        )
         result = services.determine_grade_eligibility(enrolment)
         return Response(PromotionSerializer(result).data)
 

@@ -24,8 +24,10 @@ const cyclesServiceMock = vi.hoisted(() => ({
 }));
 
 const enrolmentsServiceMock = vi.hoisted(() => ({
+  getPromotion: vi.fn(),
   listActive: vi.fn(),
   listHistory: vi.fn(),
+  listMovements: vi.fn(),
   create: vi.fn(),
   matriculate: vi.fn(),
   reenrol: vi.fn(),
@@ -39,6 +41,7 @@ const documentsServiceMock = vi.hoisted(() => ({
   updateType: vi.fn(),
   deactivateType: vi.fn(),
   listTemplates: vi.fn(),
+  listTemplateIssuanceUses: vi.fn(),
   getTemplate: vi.fn(),
   createTemplate: vi.fn(),
   updateTemplate: vi.fn(),
@@ -150,6 +153,19 @@ const DRAFT_CYCLE = {
 };
 
 const ENROLMENT = {
+  student: {
+    public_id: "student-1",
+    full_name: "Luis Perez",
+    student_code: "EST-1",
+  },
+  academic_cycle: { public_id: "cycle-2026", name: "Ciclo 2026" },
+  grade: { public_id: "grade-1", name: "Primero Basico" },
+  section: {
+    public_id: "section-a",
+    name: "A",
+    grade_name: "Primero Basico",
+    shift_name: "Matutina",
+  },
   public_id: "enr-1",
   student_id: "student-1",
   academic_cycle_id: "cycle-2026",
@@ -318,6 +334,9 @@ describe("pantallas de los modulos con backend previo", () => {
     enrolmentsServiceMock.listHistory
       .mockReset()
       .mockResolvedValue(paged([ENROLMENT]));
+    enrolmentsServiceMock.listMovements
+      .mockReset()
+      .mockResolvedValue(paged([]));
     enrolmentsServiceMock.listDocuments
       .mockReset()
       .mockResolvedValue(paged([]));
@@ -535,12 +554,67 @@ describe("pantallas de los modulos con backend previo", () => {
       );
     });
 
+    test("abre promoción desde la fila vigente y desde el historial", async () => {
+      enrolmentsServiceMock.getPromotion.mockReset().mockResolvedValue({
+        progression: "promoted",
+        eligible_grade_name: "Segundo básico",
+        result_source: "live",
+        total_subjects: 8,
+        failed_subjects: [],
+      });
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await user.click(
+        await screen.findByRole("button", { name: "Consultar promoción" })
+      );
+      let dialog = await screen.findByRole("dialog", {
+        name: "Consultar promoción",
+      });
+      expect(
+        await within(dialog).findByText("Segundo básico")
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText("Luis Perez · EST-1")
+      ).toBeInTheDocument();
+      expect(enrolmentsServiceMock.getPromotion).toHaveBeenLastCalledWith(
+        ENROLMENT.public_id
+      );
+      await user.click(
+        within(dialog).getAllByRole("button", { name: "Cerrar" })[1]
+      );
+      const studentFilter = screen.getByRole("combobox", {
+        name: "Estudiante",
+      });
+      await user.click(studentFilter);
+      // El PR #636 sustituye el selector de catálogo por búsqueda remota.
+      if (studentFilter.tagName === "INPUT")
+        await user.type(studentFilter, "Luis");
+      await user.click(
+        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+      );
+      await user.click(
+        screen.getByRole("tab", { name: "Historial por estudiante" })
+      );
+      await user.click(
+        await screen.findByRole("button", { name: "Consultar promoción" })
+      );
+      dialog = await screen.findByRole("dialog", {
+        name: "Consultar promoción",
+      });
+      expect(
+        await within(dialog).findByText("Segundo básico")
+      ).toBeInTheDocument();
+      expect(enrolmentsServiceMock.getPromotion).toHaveBeenCalledTimes(2);
+    });
+
     test("muestra nombres en vez de identificadores", async () => {
       renderWithRouter(<EnrolmentsPage />);
 
       expect(await screen.findByText("Luis Perez · EST-1")).toBeInTheDocument();
-      expect(screen.getByText("Primero Basico A")).toBeInTheDocument();
-      expect(screen.getByText("Primero Basico · Basico")).toBeInTheDocument();
+      expect(
+        screen.getByText("Primero Basico A · Matutina")
+      ).toBeInTheDocument();
+      expect(screen.getByText("Primero Basico")).toBeInTheDocument();
       expect(screen.queryByText("student-1")).not.toBeInTheDocument();
     });
 
@@ -550,7 +624,12 @@ describe("pantallas de los modulos con backend previo", () => {
       await screen.findByRole("heading", { name: "Matriculas vigentes" });
 
       await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
-      await user.click(screen.getByRole("combobox", { name: /Estudiante/ }));
+      const form = await screen.findByRole("dialog", {
+        name: "Nueva matricula",
+      });
+      await user.click(
+        within(form).getByRole("combobox", { name: /Estudiante/ })
+      );
       await user.click(
         await screen.findByRole("option", { name: "Luis Perez · EST-1" })
       );
@@ -575,6 +654,29 @@ describe("pantallas de los modulos con backend previo", () => {
         shift_id: "shift-1",
         effective_on: "2026-02-01",
       });
+    });
+
+    test("abre reinscripcion por lotes sin confundirla con altas iniciales", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await user.click(
+        screen.getByRole("button", { name: "Reinscribir por lotes" })
+      );
+      const dialog = await screen.findByRole("dialog", {
+        name: "Reinscripción por lotes",
+      });
+      expect(
+        within(dialog).getByText(
+          "Elija el ciclo de origen para consultar candidatos."
+        )
+      ).toBeInTheDocument();
+      expect(enrolmentsServiceMock.matriculate).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByLabelText("Cerrar"));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: "Reinscripción por lotes" })
+        ).not.toBeInTheDocument()
+      );
     });
 
     test("matricula a varios estudiantes en una sola pasada", async () => {
@@ -775,6 +877,27 @@ describe("pantallas de los modulos con backend previo", () => {
       expect(enrolmentsServiceMock.listHistory).not.toHaveBeenCalled();
     });
 
+    test("abre movimientos desde la fila con contexto de matricula vigente", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByText("Luis Perez · EST-1");
+      await user.click(
+        screen.getAllByRole("button", { name: "Movimientos de matrícula" })[0]
+      );
+      const dialog = await screen.findByRole("dialog", {
+        name: "Historial de movimientos",
+      });
+      expect(
+        within(dialog).getByText("Luis Perez · EST-1")
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByRole("tab", { name: "Registrar movimiento" })
+      ).toBeEnabled();
+      expect(enrolmentsServiceMock.listMovements).toHaveBeenCalledWith(
+        expect.objectContaining({ student_id: "student-1" })
+      );
+    });
+
     test("abre el expediente documental de una matricula", async () => {
       const user = userEvent.setup();
       renderWithRouter(<EnrolmentsPage />);
@@ -813,6 +936,39 @@ describe("pantallas de los modulos con backend previo", () => {
       ).toBeInTheDocument();
       expect(screen.getByText("DPI, CERT-NAC")).toBeInTheDocument();
     });
+  });
+
+  describe("accesos de traslados", () => {
+    test.each(["ingreso", "egreso"])(
+      "abre traslado de %s desde Matriculas",
+      async (direction) => {
+        const user = userEvent.setup();
+        studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
+        academicsServiceMock.listSections.mockResolvedValue(paged([SECTION]));
+        academicsServiceMock.listLevels.mockResolvedValue(
+          paged([{ ...LEVEL, grades: [GRADE] }])
+        );
+        renderWithRouter(<EnrolmentsPage />);
+        await screen.findByText("Luis Perez · EST-1");
+        await user.click(
+          screen.getAllByRole("button", { name: `Traslado de ${direction}` })[0]
+        );
+        const dialog = await screen.findByRole("dialog", {
+          name: `Traslado de ${direction}`,
+        });
+        if (direction === "ingreso")
+          expect(
+            within(dialog).getByPlaceholderText(
+              "Buscar estudiante por nombre o código"
+            )
+          ).toBeInTheDocument();
+        else
+          expect(
+            within(dialog).getByText("Luis Perez · EST-1")
+          ).toBeInTheDocument();
+        expect(screen.getAllByRole("dialog")).toHaveLength(1);
+      }
+    );
   });
 
   describe("DocumentTypesPage", () => {
@@ -865,6 +1021,23 @@ describe("pantallas de los modulos con backend previo", () => {
   });
 
   describe("TemplatesPage", () => {
+    beforeEach(() => {
+      documentsServiceMock.listTemplateIssuanceUses.mockResolvedValue([
+        {
+          code: "enrolment_certificate",
+          label: "Constancia de inscripcion",
+          active_template: null,
+          uses_fallback: true,
+        },
+        {
+          code: "study_certificate",
+          label: "Certificado de estudios",
+          active_template: null,
+          uses_fallback: true,
+        },
+      ]);
+    });
+
     test("el selector de tipo se llena con el catalogo del backend", async () => {
       const user = userEvent.setup();
       renderWithRouter(<TemplatesPage />);
