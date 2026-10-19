@@ -2,6 +2,29 @@
 
 ## ADDED Requirements
 
+### Requirement: Desactivación autorizada del perfil de encargado (RF-PER-001, RF-PER-004, RF-ALC-001, RF-ALC-006)
+
+La baja de un perfil de encargado DEBE exigir `guardian.deactivate` con alcance
+del módulo `students`, o superusuario activo. Se conserva la cuenta, persona e
+historial de vínculos; el perfil desactivado NO DEBE otorgar acceso derivado a sus
+estudiantes. Los permisos vigentes obtenidos por otros roles se conservan.
+Decisión explícita G3 del issue #632; contrato en `guardian-deactivation-ui.md`.
+
+#### Scenario: Permiso sin alcance suficiente
+
+- **GIVEN** un actor con `guardian.deactivate` sin alcance `students`
+- **WHEN** intenta desactivar al encargado
+- **THEN** se rechaza sin modificar el perfil y se audita la denegación
+
+#### Scenario: Baja conserva historial y retira acceso derivado
+
+- **GIVEN** un actor autorizado y un perfil de encargado activo con vínculos
+- **WHEN** confirma la baja
+- **THEN** el perfil queda desactivado, conservando persona, cuenta y relaciones
+- **AND** deja de conceder acceso derivado a estudiantes por esos vínculos
+- **AND** baja y auditoría se confirman juntas; si falla la auditoría se revierte
+- **AND** repetir la baja no genera otro cambio ni duplica su evento
+
 ### Requirement: Inicio de sesión
 
 El sistema DEBE autenticar a un usuario contra las credenciales de una cuenta en estado activo.

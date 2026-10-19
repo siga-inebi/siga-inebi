@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.people.api.serializers import PersonSerializer, validate_institutional_person
-from apps.students import services
+from apps.students import queries, services
 from apps.students.models import (
     EmergencyContact,
     Guardian,
@@ -107,6 +107,17 @@ class StudentDossierSerializer(StudentSerializer):
 
 class GuardianSerializer(serializers.ModelSerializer):
     person = PersonSerializer()
+    actions = serializers.SerializerMethodField()
+
+    def get_actions(self, instance) -> dict[str, bool]:
+        if "guardian_action_permissions" not in self.context:
+            actor = getattr(self.context.get("request"), "user", None)
+            self.context["guardian_action_permissions"] = queries.guardian_action_permissions(
+                actor=actor
+            )
+        return queries.guardian_actions(
+            guardian=instance, permissions=self.context["guardian_action_permissions"]
+        )
 
     class Meta:
         model = Guardian
@@ -116,6 +127,7 @@ class GuardianSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "updated_at",
+            "actions",
         ]
         read_only_fields = ["id", "is_active", "created_at", "updated_at"]
 

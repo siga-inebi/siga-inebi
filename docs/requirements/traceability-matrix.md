@@ -90,7 +90,7 @@ con base `develop`; resultados locales completos en el documento de desarrollo e
 Diseño y contrato existente: [listado de estudiantes](../architecture/student-server-list-ui.md).
 Entrega: [PR #653](https://github.com/siga-inebi/siga-inebi/pull/653), hacia `develop`.
 No se cambian estados globales de requisitos ni reglas del dominio.
-| Requerimiento / hallazgo | Código | Pruebas verificables | Alcance |
+| Requerimiento / hallazgo | Código ; Diseno y codigo | Pruebas verificables ; Evidencia | Alcance ; Estado de esta entrega |
 | --- | --- | --- | --- |
 | E3; E10; 1.1 | `frontend/src/students/{AlumnosPage.jsx,studentsService.js}`; `shared/crud/useServerList.js`; `shared/ui/{filters/SearchField.jsx,buttons/ExportCsvButton.jsx}` | `frontend/src/test/{AlumnosPage.test.jsx,useServerList.test.jsx}`; `backend/tests/api/test_student_server_list_ui_contract.py` | Página visible, tamaño, búsqueda/código, estado, URL y CSV filtrado con 1.001 filas; integración/aceptación pendientes |
 | RF-EXP-003; RF-EXP-008 | `frontend/src/students/AlumnosPage.jsx`; contrato de lectura existente | `test_filtered_roster_beyond_one_thousand_and_server_page_size_limit`; `test_code_status_and_inactive_filters_keep_scope_and_private_fields`; pruebas de listado frontend | Estado y baja lógica independientes; historial consultable; no modifica estados ni desactiva |
@@ -104,6 +104,14 @@ compartidos de #651, sin cambiar estados globales de RF/RNF. G3 y G4 pendientes.
 No implementa RF-EXP-004 (vinculos de estudiantes), no modifica autorizacion y no
 cierra la brecha de permisos #643. Contratos y limites en el documento enlazado.
 Entrega: [PR #656](https://github.com/siga-inebi/siga-inebi/pull/656), hacia `develop`.
+## Entrega G3: desactivacion de encargados (#632)
+Decision explicita: `guardian.deactivate` con alcance `students`. Evidencia acotada
+a esta operacion; no cambia estados globales de cumplimiento ni cierra #643 completo.
+| RF-PER-001/004; RF-ALC-001; G3 | `docs/architecture/guardian-deactivation-ui.md`; `identity/atomic_permissions.py`; `students/{authorization,queries,services}.py`; `students/migrations/0008_seed_guardian_deactivate_permission.py`; API y UI de encargados | `test_guardian_deactivation_ui_api.py`; `GuardianDeactivation.test.jsx`; `guardianDeactivationService.test.js` | Permiso con alcance, sin concesion automatica, rechazo por defecto y capacidades verificadas; integracion/aceptacion pendientes |
+| RF-ALC-006; G3 | Regla existente `identity/scopes.py` conservada; baja logica del perfil | `test_deactivation_preserves_person_account_relations_and_revokes_derived_scope`; `test_guardian_derived_scope.py` | Cuenta y vinculos conservados; acceso derivado retirado, otros permisos vigentes preservados |
+| RF-BIT-001/002/004; G3 | Autorizacion y servicio transaccional de students; auditoria compartida | `test_repeated_delete_is_idempotent_and_audit_failure_rolls_back`; pruebas de denegacion y conservacion | Baja auditada una vez con transicion anterior/posterior, actor y contexto HTTP compartido; denegaciones auditadas |
+Contratos, migracion, validacion y reversion en el documento enlazado. G2 (#656)
+y G4 no forman parte de esta entrega.
 
 ## Estado inicial
 
