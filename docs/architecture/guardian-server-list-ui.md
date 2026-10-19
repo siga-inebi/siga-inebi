@@ -12,6 +12,9 @@ G1 y sus formularios institucionales se conservan. G3 (desactivación) y G4
 (estudiantes vinculados en el detalle) quedan pendientes. No hay cambios de dominio,
 escrituras, permisos, migraciones ni variables de entorno.
 
+Entrega: [PR #656](https://github.com/siga-inebi/siga-inebi/pull/656), hacia `develop`.
+CI y aceptación pendientes al publicar; los resultados locales se detallan abajo.
+
 ## Contratos y navegación
 
 La pantalla `/app/padres-de-familia` utiliza el contrato existente

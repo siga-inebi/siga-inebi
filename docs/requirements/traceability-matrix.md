@@ -103,6 +103,7 @@ compartidos de #651, sin cambiar estados globales de RF/RNF. G3 y G4 pendientes.
 | G2; 1.1: paginacion, busqueda y CSV | `docs/architecture/guardian-server-list-ui.md`; `frontend/src/guardians/{GuardiansPage.jsx,guardiansService.js}`; `useServerList`, `SearchField`, `ExportCsvButton` | `frontend/src/test/{GuardiansPage.test.jsx,useServerList.test.jsx}`; `backend/tests/api/{test_guardian_server_list_ui_contract.py,test_community_list_filters_api.py}` | Probado localmente con PostgreSQL, 1.001 filas y navegador de escritorio/movil; integracion y aceptacion pendientes |
 No implementa RF-EXP-004 (vinculos de estudiantes), no modifica autorizacion y no
 cierra la brecha de permisos #643. Contratos y limites en el documento enlazado.
+Entrega: [PR #656](https://github.com/siga-inebi/siga-inebi/pull/656), hacia `develop`.
 
 ## Estado inicial
 
