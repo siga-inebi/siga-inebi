@@ -266,6 +266,10 @@ test("edita todos los campos disponibles en línea sin incluir CUI ni nacimiento
       last_name: "Nuevo",
     },
   };
+  students.getRecord.mockResolvedValue({
+    ...RECORD,
+    actions: { deactivate: true },
+  });
   students.update.mockResolvedValue(updated);
   const user = userEvent.setup();
   renderRecord();
@@ -286,6 +290,9 @@ test("edita todos los campos disponibles en línea sin incluir CUI ni nacimiento
   );
   expect(
     await screen.findByRole("heading", { name: "Alumno Nuevo" })
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Desactivar estudiante" })
   ).toBeInTheDocument();
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });

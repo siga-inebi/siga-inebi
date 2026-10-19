@@ -1,7 +1,7 @@
 # E7: desactivar estudiante desde el expediente
 
 Issue #632, RF-EXP-008 y RF-ALC-001; ADR-0004/0005/0006/0008. Parte de develop con
-#647 integrado (`ba879da`). Es independiente de #648/#649 y no modifica esos PR.
+#647 y #648 integrados (`c249328`). No modifica esos PR ni depende de #649.
 
 ## Flujo
 
@@ -39,6 +39,11 @@ matrículas, formulario general o el cambio de estado D5/E9, todavía pendiente.
 
 ## Evidencia
 
+Validacion inicial sobre `ba879da`; integracion sobre `c249328` con #648:
+PostgreSQL completo **1982 aprobadas, 23 omitidas, cobertura 95.40%**.
+La UI conserva las capacidades de la ficha al guardar una edicion de datos;
+las **20 pruebas de StudentRecordPage** verifican tambien esa regresion.
+
 - PostgreSQL completo: **1966 aprobadas, 23 omitidas, cobertura 95.37%**.
 - Frontend completo: **418 pruebas / 51 archivos, cobertura 86.53%**.
 - API/ciclo de vida/expediente: **36 aprobadas**. Permisos y alcance, capacidades
@@ -51,7 +56,7 @@ matrículas, formulario general o el cambio de estado D5/E9, todavía pendiente.
 - Chromium **1440 × 1000** y **390 × 844**: confirmación/cancelación, sin desbordamiento
   horizontal móvil y ficha inactiva sin acción. Solo datos sintéticos.
 - Ruff/formato, ESLint, Prettier, build y presupuestos aprobados: inicial
-  **222407/230000 bytes gzip**, mayor entrada con ruta **237608/250000 bytes gzip**.
+  **222459/230000 bytes gzip**, mayor entrada con ruta **237664/250000 bytes gzip**.
 - Django check y migraciones aprobados. OpenAPI: **0 errores**, 28 avisos (24 únicos)
   del esquema completo. **69 pruebas de herramientas y 7 de políticas** aprobadas.
 

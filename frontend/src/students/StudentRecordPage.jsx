@@ -278,7 +278,12 @@ function StudentRecord({ publicId }) {
                   {id === "data" ? (
                     <DataPanel
                       student={student}
-                      onSaved={setStudent}
+                      onSaved={(updated) =>
+                        setStudent((current) => ({
+                          ...updated,
+                          actions: current.actions,
+                        }))
+                      }
                       onBusy={setBusy}
                       onDeactivated={() => {
                         setSuccess(
