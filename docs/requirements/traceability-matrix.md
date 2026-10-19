@@ -294,3 +294,42 @@ revisión independiente, UAT o aceptación institucional.
 | RF-ARC-003, RF-ARC-004 | `backend/tests/api/test_documents_api.py`; `backend/tests/integration/test_backup_and_recovery.py` | `docs/quality/fase-7/informe-recuperacion.md` | Integridad e historial automatizados; validación final pendiente |
 | RNF-RES-003 | `backend/tests/integration/test_backup_and_recovery.py` (`CP-INT-REC-001`) | `docs/manuals/09-final-backup-and-recovery-plan.md`; `docs/quality/fase-7/informe-recuperacion.md` | Evidencia sintética aprobada; simulacro completo de infraestructura pendiente |
 | RNF-SEG-004, RNF-SEG-005, RF-BIT-005, RF-BIT-006 | `backend/tests/api/test_documents_api.py`; `backend/tests/api/test_audit_api.py` | `docs/architecture/audit-strategy.md`; `docs/quality/fase-7/roi-cierre.md` | Controles automatizados ejecutados; revisión independiente pendiente |
+
+
+## Regresión de edición de comunidad educativa — issue #632
+
+Alcance: hallazgos E1, T1 y G1 de `docs/ux-ui.md` (sección 1.2.2). Esta corrección
+mantiene los estados de los requerimientos existentes; el cierre de la épica requiere las demás
+entregas y su verificación. RF-EXP-001 conserva el expediente institucional y RF-BIT-001 aporta
+la auditoría de la escritura de persona. Los hallazgos de docentes y encargados se trazan por su
+identificador UX, sin crear requisitos funcionales artificiales.
+
+| Hallazgo | Diseño / contrato | Código | Prueba verificable |
+| --- | --- | --- | --- |
+| E1 — Edición completa del estudiante (RF-EXP-001) | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/students/AlumnosPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/AlumnosPage.test.jsx |
+| T1 — Edición completa del docente | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/teachers/DocentesPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/DocentesPage.test.jsx |
+| G1 — Edición completa del encargado | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/guardians/GuardiansPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/GuardiansPage.test.jsx |
+| PATCH parcial, privacidad y auditoría (RF-BIT-001) | docs/architecture/audit-strategy.md; docs/architecture/data-classification.md | backend/apps/people/services.py | backend/tests/api/test_people_api.py::test_patch_person_persists_profile_field_without_changing_omitted_data; backend/tests/api/test_people_api.py::test_anonymous_person_profile_patch_is_rejected_without_changes; backend/tests/api/test_people_api.py::test_invalid_profile_patch_does_not_save_other_fields; backend/tests/unit/test_people_services.py::test_update_person_persists_and_audits_institutional_profile_without_logging_values; backend/tests/unit/test_people_services.py::test_update_person_can_clear_optional_profile_fields |
+
+Regresión reproducida antes de corregir: siete fallos backend por parámetros de perfil no aceptados
+y tres fallos frontend por campos omitidos en el envío. Después de corregir, la selección de
+personas aprueba 38 pruebas backend en PostgreSQL; las tres pantallas y los servicios de módulos
+aprueban 55 pruebas frontend. Son pruebas automatizadas locales, no aceptación institucional.
+
+Validación ampliada: 88 pruebas de personas, estudiantes, docentes, encargados, ciclo de vida y
+límites de arquitectura aprobadas. Suite backend completa: 1788 aprobadas, 23 omitidas y 94,73 %
+de cobertura. Ruff, formato backend, ESLint, formato de los archivos frontend modificados,
+build con presupuesto estático, Bandit del módulo de personas y comprobación de migraciones
+pendientes aprobados. La prueba HTTP local de PATCH y consulta de los tres perfiles fue correcta;
+los valores sintéticos originales se restauraron después de verificar.
+
+La suite frontend completa aprueba 309 pruebas en 36 archivos, con 85,05 % de cobertura de
+líneas y sentencias, 85,91 % de ramas y 70,87 % de funciones. La comprobación de formato de todo
+el frontend también aprueba. En la primera ejecución con cobertura, dos pruebas nuevas de edición
+agotaron los cinco segundos por la escritura carácter a carácter; el helper de prueba pasó a
+cargar esos campos mediante eventos de cambio y la repetición completa aprobó, conservando las
+aserciones de envío. Los límites de tiempo y los umbrales de cobertura se mantienen.
+
+Entorno local de esta evidencia (17 de octubre de 2026): PostgreSQL 18.3, Python 3.11.3,
+Django 5.2.17, pytest 8.4.1 y Vitest 3.2.7. Se utilizaron las dependencias previamente instaladas;
+la CI con las versiones fijadas en los archivos de dependencias y el perfil Docker queda pendiente.

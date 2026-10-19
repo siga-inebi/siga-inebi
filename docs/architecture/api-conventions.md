@@ -397,3 +397,24 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - La cuenta vinculada al estudiante no se deshabilita: mientras el expediente no este `active`,
   sus permisos dejan de ser efectivos. Un encargado conserva su cuenta y otros estudiantes
   vigentes, pero pierde el alcance derivado sobre el estudiante retirado.
+
+
+## Edición de persona desde comunidad educativa (#632: E1, T1, G1)
+
+- Los formularios de estudiantes, docentes y encargados envían los datos de persona a
+  `PATCH /api/v1/people/{public_id}/`. El identificador de persona procede del perfil consultado.
+- Además de nombres, apellidos, correo y teléfono, la edición persiste `sex`, `nationality`,
+  `address`, `department` y `municipality`, campos ya publicados por `PersonSerializer`.
+- El PATCH actualiza únicamente los campos enviados; los omitidos conservan su valor.
+  Los campos de texto opcionales admiten `""` para vaciarlos y `sex` conserva sus opciones
+  publicadas (`female`, `male`, `not_specified`). La validación de entrada precede a la escritura.
+- La siguiente consulta del estudiante, docente o encargado devuelve su persona actualizada.
+  CUI y fecha de nacimiento mantienen su condición `write_only` en los serializadores de
+  persona y permanecen fuera de estos formularios de edición.
+- `update_person` realiza la escritura y su auditoría en una transacción. El evento
+  `people.person.updated` conserva actor, recurso y nombres de campos enviados; los valores
+  personales quedan fuera del contexto de auditoría. Se conservan los metadatos técnicos de solicitud.
+- Se conserva la autorización existente del endpoint de personas. Las pruebas incluyen el rechazo
+  de un PATCH anónimo y la lectura del estudiante con permiso y alcance explícitos.
+- Evidencia: `backend/tests/api/test_people_api.py`, `backend/tests/unit/test_people_services.py`
+  y las pruebas `AlumnosPage.test.jsx`, `DocentesPage.test.jsx` y `GuardiansPage.test.jsx`.

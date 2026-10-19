@@ -5,6 +5,8 @@ import { vi } from "vitest";
 import { AlumnosPage } from "@students/AlumnosPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import {
+  editInstitutionalPerson,
+  editedInstitutionalPerson,
   fillInstitutionalPerson,
   institutionalPerson,
   visibleInstitutionalPerson,
@@ -290,6 +292,8 @@ describe("AlumnosPage", () => {
     studentsServiceMock.update.mockResolvedValue({
       id: 1,
       person: {
+        ...visibleInstitutionalPerson,
+        ...editedInstitutionalPerson,
         public_id: "person-11",
         first_name: "Maria Jose",
         last_name: "Lopez Mendez",
@@ -311,6 +315,11 @@ describe("AlumnosPage", () => {
     expect(lastNameInput).toHaveValue("Lopez Garcia");
     await user.clear(lastNameInput);
     await user.type(lastNameInput, "Lopez Mendez");
+    expect(screen.queryByLabelText(/^CUI/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/^Fecha de nacimiento/)
+    ).not.toBeInTheDocument();
+    await editInstitutionalPerson(user);
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() =>
@@ -320,6 +329,8 @@ describe("AlumnosPage", () => {
       1,
       expect.objectContaining({
         person: {
+          ...visibleInstitutionalPerson,
+          ...editedInstitutionalPerson,
           public_id: "person-11",
           first_name: "Maria Jose",
           last_name: "Lopez Mendez",

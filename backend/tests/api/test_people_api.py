@@ -4,9 +4,33 @@ from datetime import date
 import pytest
 from django.urls import reverse
 
+from apps.audit.models import AuditEvent
 from apps.people.models import Person
-from tests.factories.identity import UserFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+    UserFactory,
+)
 from tests.factories.people import PersonFactory
+from tests.factories.students import GuardianFactory, StudentFactory
+from tests.factories.teachers import TeacherFactory
+
+PERSON_FIELDS = (
+    "first_name",
+    "last_name",
+    "email",
+    "phone_number",
+    "institutional_identifier",
+    "cui",
+    "birth_date",
+    "sex",
+    "nationality",
+    "address",
+    "department",
+    "municipality",
+)
 
 
 @pytest.fixture
@@ -95,6 +119,124 @@ def test_update_person(logged_in_client):
     assert response.status_code == 200
     person.refresh_from_db()
     assert person.first_name == "New"
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("sex", "male"),
+        ("nationality", "Salvadoreña"),
+        ("address", "Calle de prueba 42"),
+        ("department", "Quetzaltenango"),
+        ("municipality", "Salcaja"),
+    ],
+)
+def test_patch_person_persists_profile_field_without_changing_omitted_data(
+    logged_in_client, field, value
+):
+    person = PersonFactory(
+        cui="1234567890123",
+        birth_date=date(2015, 3, 1),
+        sex="female",
+        nationality="Guatemalteca",
+        address="Direccion anterior",
+        department="Guatemala",
+        municipality="Guatemala",
+    )
+    original = {name: getattr(person, name) for name in PERSON_FIELDS}
+    url = reverse("person-detail", args=[person.public_id])
+
+    response = logged_in_client.patch(url, {field: value}, content_type="application/json")
+
+    assert response.status_code == 200
+    person.refresh_from_db()
+    assert {name: getattr(person, name) for name in original} == {**original, field: value}
+    retrieved = logged_in_client.get(url).json()
+    assert retrieved[field] == value
+    assert "cui" not in retrieved
+    assert "birth_date" not in retrieved
+    event = AuditEvent.objects.get(action="people.person.updated")
+    assert str(event.actor_id) == logged_in_client.session["_auth_user_id"]
+    assert event.context["fields"] == [field]
+    assert set(event.context) <= {"fields", "ip_address", "path", "user_agent"}
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("factory", "route"),
+    [
+        (StudentFactory, "student-detail"),
+        (TeacherFactory, "teacher-detail"),
+        (GuardianFactory, "guardian-detail"),
+    ],
+)
+def test_edited_person_profile_is_returned_by_community_detail(auth_client, factory, route):
+    profile = factory()
+    if factory is StudentFactory:
+        permission = PermissionFactory(codename="student_view_basic")
+        assignment = RoleAssignmentFactory(
+            user=auth_client.user, role=RoleFactory(permissions=[permission])
+        )
+        ScopeGrantFactory(assignment=assignment, student=profile)
+    changes = {
+        "sex": "male",
+        "nationality": "Salvadoreña",
+        "address": "Calle de prueba 42",
+        "department": "Quetzaltenango",
+        "municipality": "Salcaja",
+    }
+
+    updated = auth_client.patch(
+        reverse("person-detail", args=[profile.person.public_id]),
+        changes,
+        content_type="application/json",
+    )
+    assert updated.status_code == 200
+    response = auth_client.get(reverse(route, args=[profile.pk]))
+
+    assert response.status_code == 200
+    person_data = response.json()["person"]
+    assert {name: person_data[name] for name in changes} == changes
+    assert "cui" not in person_data
+    assert "birth_date" not in person_data
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_anonymous_person_profile_patch_is_rejected_without_changes(client):
+    person = PersonFactory(address="Direccion anterior")
+
+    response = client.patch(
+        reverse("person-detail", args=[person.public_id]),
+        {"address": "Direccion nueva"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 403
+    person.refresh_from_db()
+    assert person.address == "Direccion anterior"
+    assert not AuditEvent.objects.filter(action="people.person.updated").exists()
+
+
+@pytest.mark.api
+@pytest.mark.django_db
+def test_invalid_profile_patch_does_not_save_other_fields(logged_in_client):
+    person = PersonFactory(sex="female", address="Direccion anterior")
+
+    response = logged_in_client.patch(
+        reverse("person-detail", args=[person.public_id]),
+        {"sex": "invalid", "address": "Direccion nueva"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    person.refresh_from_db()
+    assert person.sex == "female"
+    assert person.address == "Direccion anterior"
+    assert not AuditEvent.objects.filter(action="people.person.updated").exists()
 
 
 @pytest.mark.api
