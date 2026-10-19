@@ -55,6 +55,11 @@ def update_person(
     phone_number=None,
     institutional_identifier=None,
     birth_date=None,
+    sex=None,
+    nationality=None,
+    address=None,
+    department=None,
+    municipality=None,
 ):
     """
     Apply only the fields the caller actually supplied, and audit what changed.
@@ -68,6 +73,11 @@ def update_person(
         "phone_number": phone_number,
         "institutional_identifier": institutional_identifier,
         "birth_date": birth_date,
+        "sex": sex,
+        "nationality": nationality,
+        "address": address,
+        "department": department,
+        "municipality": municipality,
     }
     fields = [name for name, value in candidates.items() if value is not None]
     if not fields:

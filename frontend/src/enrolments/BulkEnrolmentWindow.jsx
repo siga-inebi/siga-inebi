@@ -9,6 +9,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { enrolmentsService } from "@enrolments/enrolmentsService.js";
+import { SectionOccupancyNotice } from "./SectionOccupancyNotice.jsx";
 import {
   sectionsForCycle,
   useCycleCatalog,
@@ -221,6 +222,11 @@ export function BulkEnrolmentWindow({ onClose, onCreated }) {
             }}
           />
         </Box>
+        <SectionOccupancyNotice
+          busy={submitting}
+          cycleId={cycleId}
+          sectionId={sectionId}
+        />
         {error ? <Alert severity="error">{error}</Alert> : null}
         {result ? (
           <Alert severity={result.failed ? "warning" : "success"}>

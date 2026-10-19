@@ -105,6 +105,49 @@ def test_update_person_without_changes_is_a_no_op():
 
 @pytest.mark.unit
 @pytest.mark.django_db
+def test_update_person_persists_and_audits_institutional_profile_without_logging_values():
+    actor = UserFactory()
+    person = PersonFactory(first_name="Ana", cui="1234567890123", birth_date=date(2015, 3, 1))
+    profile = {
+        "sex": "male",
+        "nationality": "Salvadoreña",
+        "address": "Calle de prueba 42",
+        "department": "Quetzaltenango",
+        "municipality": "Salcaja",
+    }
+
+    update_person(person=person, actor=actor, **profile)
+
+    person.refresh_from_db()
+    assert {name: getattr(person, name) for name in profile} == profile
+    assert person.first_name == "Ana"
+    assert person.cui == "1234567890123"
+    assert person.birth_date == date(2015, 3, 1)
+    event = AuditEvent.objects.get(action="people.person.updated")
+    assert event.actor == actor
+    assert event.context["fields"] == list(profile)
+    assert set(event.context) <= {"fields", "ip_address", "path", "user_agent"}
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_update_person_can_clear_optional_profile_fields():
+    person = PersonFactory(
+        nationality="Guatemalteca",
+        address="Anterior",
+        department="Anterior",
+        municipality="Anterior",
+    )
+    cleared = dict.fromkeys(("nationality", "address", "department", "municipality"), "")
+
+    update_person(person=person, **cleared)
+
+    person.refresh_from_db()
+    assert {name: getattr(person, name) for name in cleared} == cleared
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
 def test_deactivate_person_sets_is_active_false():
     person = PersonFactory()
 

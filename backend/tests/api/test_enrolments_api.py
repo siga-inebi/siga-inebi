@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.test import Client
@@ -847,6 +848,7 @@ def _cycle_with_graded_plan(grades):
 
 def test_promotion_endpoint_declares_not_promoted_with_a_failed_subject(auth_client):
     enrolment = _cycle_with_graded_plan([95, 55])
+    _grant_enrolment_creation(auth_client.user, section=enrolment.section)
 
     response = auth_client.get(reverse("enrolment-promotion", args=[enrolment.public_id]))
 
@@ -862,6 +864,7 @@ def test_promotion_endpoint_declares_not_promoted_with_a_failed_subject(auth_cli
 
 def test_promotion_endpoint_declares_promoted_when_all_subjects_pass(auth_client):
     enrolment = _cycle_with_graded_plan([60, 75])
+    _grant_enrolment_creation(auth_client.user, section=enrolment.section)
     next_grade = GradeFactory(
         level=enrolment.grade.level,
         sequence=enrolment.grade.sequence + 1,
@@ -893,6 +896,78 @@ def test_promotion_endpoint_returns_404_for_unknown_enrolment(auth_client):
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize("grant", ["none", "no_scope", "other_section", "expired"])
+def test_promotion_denies_missing_permission_or_effective_scope(auth_client, grant):
+    enrolment = _cycle_with_graded_plan([80])
+    if grant != "none":
+        assignment = _grant_enrolment_creation(auth_client.user)
+        if grant == "other_section":
+            ScopeGrantFactory(assignment=assignment, section=SectionFactory())
+        elif grant == "expired":
+            assignment.ends_at = timezone.now() - timedelta(days=1)
+            assignment.save()
+            ScopeGrantFactory(assignment=assignment, section=enrolment.section)
+    with patch("apps.enrolments.api.views.services.determine_grade_eligibility") as calculate:
+        response = auth_client.get(reverse("enrolment-promotion", args=[enrolment.public_id]))
+
+    assert response.status_code == 403
+    calculate.assert_not_called()
+    assert AuditEvent.objects.filter(
+        action="identity.authorization.denied", actor=auth_client.user
+    ).exists()
+
+
+@pytest.mark.parametrize("codename", ["enrollment_create", "enrollment_update"])
+def test_promotion_reads_frozen_result_with_scoped_permission_without_mutating(
+    auth_client, codename
+):
+    from apps.academics.models import FrozenPromotionResult, FrozenSubjectResult
+
+    enrolment = _cycle_with_graded_plan([95])
+    subject = CurriculumPlan.objects.get(
+        academic_cycle=enrolment.academic_cycle, grade=enrolment.grade
+    ).subject
+    FrozenSubjectResult.objects.create(
+        enrolment=enrolment, subject=subject, final_grade=50, condition="failed"
+    )
+    FrozenPromotionResult.objects.create(
+        enrolment=enrolment,
+        promoted=False,
+        condition="not_promoted",
+        failed_subjects=[subject.name],
+    )
+    enrolment.academic_cycle.status = "closed"
+    enrolment.academic_cycle.save()
+    _grant_enrolment(auth_client.user, codename, {"section": enrolment.section})
+    enrolments_before = Enrolment.objects.count()
+    movements_before = StudentMovement.objects.count()
+    original_status = enrolment.status
+
+    response = auth_client.get(reverse("enrolment-promotion", args=[enrolment.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["result_source"] == "frozen"
+    assert response.json()["progression"] == "repeating"
+    assert response.json()["failed_subjects"] == [subject.name]
+    assert response.json()["eligible_grade_id"] == str(enrolment.grade.public_id)
+    enrolment.refresh_from_db()
+    assert enrolment.status == original_status
+    assert Enrolment.objects.count() == enrolments_before
+    assert StudentMovement.objects.count() == movements_before
+
+
+def test_promotion_last_grade_reports_graduation_without_next_grade(auth_client):
+    enrolment = _cycle_with_graded_plan([80])
+    _grant_enrolment_creation(auth_client.user, institution=enrolment.academic_cycle.institution)
+
+    response = auth_client.get(reverse("enrolment-promotion", args=[enrolment.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["progression"] == "graduated"
+    assert response.json()["eligible_grade_id"] is None
+    assert response.json()["eligible_grade_name"] is None
 
 
 # --------------------------------------------------------------------------- #
