@@ -24,9 +24,15 @@ from .views import (
     ScannedDocumentUploadView,
     StorageConsumptionView,
     TeacherDocumentRecordListCreateView,
+    TemplateIssuanceUseListView,
 )
 
 urlpatterns = [
+    path(
+        "templates/issuance-uses/",
+        TemplateIssuanceUseListView.as_view(),
+        name="template-issuance-use-list",
+    ),
     path(
         "templates/", DocumentTemplateListCreateView.as_view(), name="document-template-list-create"
     ),

@@ -16,6 +16,8 @@ from apps.enrolments.api.serializers import (
     MatriculationCreateSerializer,
     MatriculationSerializer,
     PromotionSerializer,
+    ReenrolmentCandidateQuerySerializer,
+    ReenrolmentCandidateSerializer,
     ReenrolmentCreateSerializer,
     SectionChangeCreateSerializer,
     SectionOccupancyQuerySerializer,
@@ -78,7 +80,7 @@ class ActiveEnrolmentListView(GenericAPIView):
         summary="Listar inscripciones activas",
         description=(
             "Devuelve la fuente vigente de estudiantes habilitados para asistencia, "
-            "notas y horarios. Puede filtrarse por estudiante."
+            "notas y horarios. Puede filtrarse por estudiante, ciclo, grado y seccion."
         ),
         parameters=[ActiveEnrolmentQuerySerializer],
         responses={200: EnrolmentSerializer(many=True)},
@@ -91,7 +93,8 @@ class ActiveEnrolmentListView(GenericAPIView):
         student_id = query.validated_data.get("student_id")
         if student_id:
             student = queries.student_or_404(student_id)
-        page = self.paginate_queryset(services.active_enrolments(student=student))
+        filters = {key: value for key, value in query.validated_data.items() if key != "student_id"}
+        page = self.paginate_queryset(services.active_enrolments(student=student, **filters))
         return self.get_paginated_response(EnrolmentSerializer(page, many=True).data)
 
 
@@ -311,7 +314,11 @@ class UnifiedMatriculationCreateView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         section = queries.section_or_404(payload["section_id"])
-        require_section_scope(actor=request.user, codenames="enrollment_create", sections=[section])
+        require_section_scope(
+            actor=request.user,
+            codenames="enrollment_create",
+            sections=[section],
+        )
         enrolment, mode = services.register_student(
             student=queries.student_or_404(payload["student_id"]),
             academic_cycle=queries.academic_cycle_or_404(payload["academic_cycle_id"]),
@@ -325,6 +332,24 @@ class UnifiedMatriculationCreateView(GenericAPIView):
             {**MatriculationSerializer(enrolment).data, "registration_mode": mode},
             status=status.HTTP_201_CREATED,
         )
+
+
+class ReenrolmentCandidateListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ReenrolmentCandidateQuerySerializer
+
+    @extend_schema(
+        summary="Consultar candidatos a reinscripcion por ciclo de origen",
+        parameters=[ReenrolmentCandidateQuerySerializer],
+        responses={200: ReenrolmentCandidateSerializer(many=True)},
+        tags=["enrolments"],
+    )
+    def get(self, request):
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        rows = queries.reenrolment_candidates(actor=request.user, **query.validated_data)
+        page = self.paginate_queryset(rows)
+        return self.get_paginated_response(ReenrolmentCandidateSerializer(page, many=True).data)
 
 
 class BulkReenrolmentCreateView(GenericAPIView):
@@ -537,12 +562,18 @@ class PromotionDetailView(GenericAPIView):
             "en cada subárea de su plan de estudios, considerando la recuperación cuando "
             "exista. También devuelve el grado elegible y distingue promoción, repitencia "
             "y graduación. No crea la matrícula del ciclo siguiente."
+            " Requiere permiso de matrícula y alcance vigente sobre su sección."
         ),
         responses={200: PromotionSerializer},
         tags=["enrolments"],
     )
     def get(self, request, enrolment_id):
         enrolment = queries.enrolment_or_404(enrolment_id)
+        require_section_scope(
+            actor=request.user,
+            codenames=_ENROLMENT_WRITE_PERMISSIONS,
+            sections=[enrolment.section],
+        )
         result = services.determine_grade_eligibility(enrolment)
         return Response(PromotionSerializer(result).data)
 

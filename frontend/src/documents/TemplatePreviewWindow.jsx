@@ -20,8 +20,15 @@ export function TemplatePreviewWindow({ onClose, template }) {
     documentsService
       .previewTemplate(template.public_id, {
         "student.full_name": "Estudiante de ejemplo",
-        "institution.name": template.header?.institution_name ?? "Institución",
-        "institution.short_name": template.header?.institution_short_name ?? "",
+        "student.code": "EST-DEMO-0001",
+        "institution.name":
+          template.header?.institution_name || "Institución de ejemplo",
+        "institution.short_name":
+          template.header?.institution_short_name || "DEMO",
+        "academic.cycle_name": "Ciclo de ejemplo 2026",
+        "academic.section_name": "A",
+        "enrolment.effective_on": "2026-01-15",
+        "document.issue_date": "2026-10-17",
       })
       .then((result) => {
         if (active) setPreview(result);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
@@ -12,10 +13,9 @@ import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
   documentsService,
   templateKindLabel,
-  templateKindOptions,
+  templateIssuanceUseLabel,
   TEMPLATE_KIND_VARIANT,
 } from "@documents/documentsService.js";
-import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
@@ -24,11 +24,20 @@ import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { ActiveCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
 
+import { TemplateFormWindow } from "./TemplateFormWindow.jsx";
+
 import { FieldTagsWindow } from "./FieldTagsWindow.jsx";
 import { TemplateVersionsWindow } from "./TemplateVersionsWindow.jsx";
 import { TemplatePreviewWindow } from "./TemplatePreviewWindow.jsx";
 
-const templateColumns = (kinds) => [
+const templateColumns = (kinds, uses) => [
+  {
+    key: "issuance_use",
+    label: "Se usa para",
+    render: (row) =>
+      uses.find((use) => use.code === row.issuance_use)?.label ??
+      templateIssuanceUseLabel(row.issuance_use),
+  },
   { key: "name", label: "Plantilla", render: (row) => row.name },
   {
     key: "code",
@@ -64,38 +73,6 @@ const templateColumns = (kinds) => [
     key: "is_active",
     label: "Estado",
     render: (row) => <ActiveCell active={row.is_active} />,
-  },
-];
-
-const createFields = (kinds) => [
-  {
-    name: "name",
-    label: "Nombre",
-    required: true,
-    placeholder: "Ejemplo: Constancia de inscripcion",
-  },
-  {
-    name: "code",
-    label: "Codigo",
-    required: true,
-    placeholder: "Ejemplo: CONST-INS",
-  },
-  {
-    name: "kind",
-    label: "Tipo",
-    type: "select",
-    // Los tipos se leen del catalogo institucional, no de una lista fija
-    // (RNF-MAN-001): se administran en "Tipos de documento".
-    options: templateKindOptions(kinds),
-    required: true,
-  },
-  { name: "description", label: "Descripcion (opcional)", span: "full" },
-  {
-    name: "content",
-    label: "Contenido de la plantilla",
-    type: "textarea",
-    help: "Use únicamente etiquetas disponibles, por ejemplo {{student.full_name}}.",
-    span: "full",
   },
 ];
 
@@ -135,13 +112,20 @@ export function TemplatesPage() {
     };
   }, []);
 
-  const columns = useMemo(() => templateColumns(kinds), [kinds]);
-  const createFieldList = useMemo(() => createFields(kinds), [kinds]);
-  /** El codigo es inmutable despues del alta: el backend no acepta cambiarlo. */
-  const editFieldList = useMemo(
-    () => createFieldList.filter((field) => field.name !== "code"),
-    [createFieldList]
-  );
+  const [uses, setUses] = useState([]);
+  const [usesError, setUsesError] = useState("");
+  const loadUses = useCallback(async () => {
+    try {
+      setUses(await documentsService.listTemplateIssuanceUses());
+      setUsesError("");
+    } catch (error) {
+      setUsesError(error.message);
+    }
+  }, []);
+  useEffect(() => {
+    loadUses();
+  }, [loadUses]);
+  const columns = useMemo(() => templateColumns(kinds, uses), [kinds, uses]);
 
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -154,12 +138,14 @@ export function TemplatesPage() {
     await documentsService.createTemplate(payload);
     setCreating(false);
     list.refresh();
+    loadUses();
   };
 
   const handleUpdate = async (payload) => {
     await documentsService.updateTemplate(editing.public_id, payload);
     setEditing(null);
     list.refresh();
+    loadUses();
   };
 
   const handleDeactivate = async (template) => {
@@ -167,6 +153,7 @@ export function TemplatesPage() {
     try {
       await documentsService.deactivateTemplate(template.public_id);
       list.refresh();
+      loadUses();
     } catch (requestError) {
       setActionError(requestError.message);
       throw requestError;
@@ -198,6 +185,26 @@ export function TemplatesPage() {
         subtitle="Plantillas de constancias y reportes. Cada cambio guardado queda como una version nueva e inmutable; el encabezado institucional es obligatorio al emitir."
         title="Plantillas documentales"
       />
+
+      {usesError ? (
+        <Alert
+          severity="error"
+          action={<Button onClick={loadUses}>Reintentar</Button>}
+        >
+          {usesError}
+        </Alert>
+      ) : (
+        uses
+          .filter((use) => use.uses_fallback)
+          .map((use) => (
+            <Alert key={use.code} severity="warning">
+              {use.label} usa el texto por defecto
+              {use.active_template
+                ? ": su plantilla activa no tiene contenido publicado."
+                : ": no hay plantilla activa para este uso."}
+            </Alert>
+          ))
+      )}
 
       <ListSection
         actionError={actionError}
@@ -241,40 +248,19 @@ export function TemplatesPage() {
         title="Plantillas registradas"
       />
 
-      <EntityFormWindow
-        description="El codigo identifica la plantilla y no se puede cambiar despues del alta."
-        fields={createFieldList}
-        initialValues={{
-          name: "",
-          code: "",
-          kind: kinds[0]?.code ?? "",
-          description: "",
-          content: "",
-        }}
-        key={creating ? "template-create-open" : "template-create-closed"}
-        onCancel={() => setCreating(false)}
-        onSubmit={handleCreate}
-        open={creating}
-        submitLabel="Crear plantilla"
-        title="Nueva plantilla documental"
-      />
-
+      {creating ? (
+        <TemplateFormWindow
+          kinds={kinds}
+          onCancel={() => setCreating(false)}
+          onSubmit={handleCreate}
+        />
+      ) : null}
       {editing ? (
-        <EntityFormWindow
-          description={`Guardar genera una version nueva de la plantilla. El codigo ${editing.code} es inmutable.`}
-          fields={editFieldList}
-          initialValues={{
-            name: editing.name,
-            kind: editing.kind ?? "",
-            description: editing.description ?? "",
-            content: editing.content ?? "",
-          }}
-          key={editing.public_id}
+        <TemplateFormWindow
+          kinds={kinds}
+          template={editing}
           onCancel={() => setEditing(null)}
           onSubmit={handleUpdate}
-          open
-          submitLabel="Guardar version"
-          title={`Editar ${editing.name}`}
         />
       ) : null}
 

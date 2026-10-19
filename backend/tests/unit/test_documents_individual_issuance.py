@@ -93,7 +93,7 @@ def test_each_emission_takes_the_next_correlative_folio(actor):
     assert first.issuance.verification_code != second.issuance.verification_code
 
 
-def test_constancia_uses_the_active_template_and_records_its_version(actor):
+def test_constancia_uses_explicit_use_with_arbitrary_kind_and_records_its_version(actor):
     """RF-EMI-001: the institutional template supplies the body and its version is kept."""
     enrolment = _enrolment()
     institution = enrolment.academic_cycle.institution
@@ -102,7 +102,8 @@ def test_constancia_uses_the_active_template_and_records_its_version(actor):
         institution=institution,
         name="Constancia de inscripcion",
         code="CONST",
-        kind="constancia",
+        kind="report",
+        issuance_use="enrolment_certificate",
         content="Hacemos constar que {{student.full_name}} estudia en {{institution.name}}.",
     )
 

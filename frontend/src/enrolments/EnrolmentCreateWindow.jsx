@@ -8,6 +8,7 @@ import {
   useStudentCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { SectionOccupancyNotice } from "./SectionOccupancyNotice.jsx";
 
 const EMPTY_ENROLMENT = {
   student_id: "",
@@ -93,6 +94,14 @@ export function EnrolmentCreateWindow({ onCancel, onCreated }) {
       open
       submitLabel="Confirmar matrícula"
       title="Matricular estudiante"
-    />
+    >
+      {(values, { submitting }) => (
+        <SectionOccupancyNotice
+          busy={submitting}
+          cycleId={values.academic_cycle_id}
+          sectionId={values.section_id}
+        />
+      )}
+    </EntityFormWindow>
   );
 }

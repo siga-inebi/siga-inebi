@@ -17,6 +17,17 @@ export const TEMPLATE_KIND_VARIANT = {
   other: "neutral",
 };
 
+/** Closed emission uses; document kinds remain the institution's editable classification. */
+export function templateIssuanceUseLabel(code) {
+  return (
+    {
+      none: "Ninguna",
+      enrolment_certificate: "Constancia de inscripción",
+      study_certificate: "Certificado de estudios",
+    }[code ?? "none"] ?? code
+  );
+}
+
 /** Opciones de un select a partir del catalogo que devuelve el backend. */
 export function templateKindOptions(kinds) {
   return kinds.map((kind) => ({ value: kind.code, label: kind.label }));
@@ -28,6 +39,8 @@ export function templateKindLabel(kinds, code) {
 }
 
 export const documentsService = {
+  listTemplateIssuanceUses: () =>
+    apiClient.get(`${ROOT}/templates/issuance-uses/`),
   /** Catalogo institucional de tipos de documento (RNF-MAN-001). */
   listTypes: (params) => apiClient.get(withQuery(`${ROOT}/types/`, params)),
   createType: (payload) => apiClient.post(`${ROOT}/types/`, payload),

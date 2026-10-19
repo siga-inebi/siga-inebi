@@ -49,10 +49,11 @@ describe("navegacion de modulos", () => {
     teachersServiceMock.list.mockReset().mockResolvedValue([]);
     guardiansServiceMock.list.mockReset().mockResolvedValue([]);
     authServiceMock.me.mockResolvedValue(authenticatedSession);
-    vi.spyOn(apiClient, "get").mockResolvedValue({
-      service: "api",
-      status: "ok",
-    });
+    vi.spyOn(apiClient, "get").mockImplementation(async (url) =>
+      url === "/documents/templates/issuance-uses/"
+        ? []
+        : { service: "api", status: "ok" }
+    );
   });
 
   test("una sesion abierta ve los modulos del catalogo", async () => {

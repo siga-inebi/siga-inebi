@@ -34,6 +34,91 @@ excepciones. El sobre de error se conserva como `error.status_code` y `error.det
 404 y 403, `detail` mantiene la forma `{"detail": "..."}` usada por DRF; asi el traslado de una
 consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 
+## Resúmenes de matrícula (#632, M1)
+
+Las respuestas que utilizan `EnrolmentSerializer` agregan cuatro objetos de solo lectura.
+Se conservan `student_id`, `academic_cycle_id`, `grade_id` y `section_id`, los campos de
+vigencia/estado y el sobre paginado existente.
+
+| Objeto | Campos publicados |
+| --- | --- |
+| `student` | `public_id`, `full_name`, `student_code` |
+| `academic_cycle` | `public_id`, `name` |
+| `grade` | `public_id`, `name` |
+| `section` | `public_id`, `name`, `grade_name`, `shift_name` |
+
+Aplica a `GET /api/v1/enrolments/active/`, `GET /api/v1/enrolments/history/?student_id=...`
+y las respuestas de alta/movimientos que reutilizan el serializador, incluida su variante
+`MatriculationSerializer`. Los payloads de escritura mantienen sus UUID existentes; los
+resúmenes no son entradas de esos endpoints. No se agregan CUI, domicilio, correo, teléfono,
+salud ni datos del expediente de persona a los resúmenes.
+
+Los nombres provienen de las entidades vinculadas actuales; no son una instantánea de sus
+etiquetas al momento de matricular. Se preservan las referencias históricas aunque los perfiles
+o secciones estén desactivados. El orden, la vigencia y la autorización de cada operación no
+cambian. Los listados vigentes e históricos mantienen sus controles de sesión existentes.
+
+Las lecturas precargan estudiante/persona, ciclo, grado y oferta de sección con grado/jornada:
+serializar una página de 1 o 25 matrículas requiere una consulta, sin consultas adicionales por
+fila. Esto se verifica en `backend/tests/api/test_enrolment_summaries_api.py`.
+
+La tabla de Matrículas usa estos nombres sin pedir padrones para traducir UUID. El filtro de
+estudiante reutiliza la búsqueda remota existente (dos caracteres como mínimo, espera de
+300 ms, primera página y sugerencia de afinar la búsqueda). Solicita `include_inactive=true`
+para consultar historial de perfiles desactivados; su soporte explícito se entrega en #635.
+No recupera todas las páginas de coincidencias ni promete un catálogo completo.
+
+Detalles y límites: [entrega M1](../development/632-enrolment-summaries.md).
+## Listados de comunidad educativa (#632)
+
+`GET /api/v1/people/`, `/teachers/`, `/students/` y `/students/guardians/`
+aplican búsqueda y filtros antes de contar y paginar. Mantienen el sobre
+`{count, next, previous, results}`, los identificadores y los campos de respuesta existentes.
+
+| Parámetro | Contrato |
+| --- | --- |
+| `include_inactive` | Por defecto `false`: solo `is_active=true` del recurso listado. `true` incluye activos y desactivados, sin reactivar ni eliminar filas. |
+| `search` | Búsqueda parcial sin distinguir mayúsculas mediante DRF `SearchFilter`. Todos los términos deben coincidir con alguno de los campos habilitados. Omitir o enviar vacío conserva el listado sin búsqueda. |
+| `status` | Solo estudiantes: valor exacto de `Student.StudentStatus`, independiente de `is_active`. |
+| `position` | Solo docentes: valor exacto de `Teacher.Position`, combinado con búsqueda y actividad. |
+| `page` | Paginación existente de 25 elementos. `page_size`, orden configurable y exportación completa se entregan mediante #630 y la posterior migración de pantallas. |
+
+Campos de búsqueda:
+
+- Personas: nombre, apellido, CUI e identificador institucional.
+- Estudiantes: nombre y apellido de persona, CUI y código estudiantil.
+- Docentes: nombre y apellido de persona, CUI y código de empleado.
+- Encargados: nombre y apellido de persona y CUI.
+
+Valores publicados de `status`: `pre_enrolled`, `active`, `inactive`, `withdrawn`,
+`graduated`, `transferred`. Valores de `position`: `Docente Titulado`, `Docente Interino`,
+`Orientador/a`, `Administrativo`. Son valores del catálogo del modelo, no etiquetas traducidas
+por el cliente. Los filtros deben omitirse cuando el selector representa «Todos».
+
+`include_inactive` acepta las representaciones booleanas de DRF (incluidos `true/false`,
+`1/0`, `yes/no`). Un booleano inválido o vacío, un estado o puesto desconocido o vacío
+devuelve HTTP 400 con el nombre del parámetro en `error.detail`. Un filtro válido sin
+coincidencias devuelve HTTP 200 con `count=0` y `results=[]`.
+
+Compatibilidad: antes los cuatro endpoints mezclaban activos y desactivados aun sin parámetro.
+Los consumidores que necesiten esa mezcla deben enviar `include_inactive=true`. El filtro afecta
+al recurso listado, no al estado de su persona vinculada; la baja de una persona no se propaga
+a sus perfiles. La consulta individual y los servicios conservan el acceso histórico existente.
+En particular, un estudiante con `status=inactive` e `is_active=true` sigue apareciendo en el
+listado normal: estado del expediente y baja lógica son dimensiones distintas.
+
+La búsqueda no amplía autorización. Estudiantes conserva `student_view_basic` y su queryset de
+alcance efectivo. Los otros tres endpoints conservan sus controles de sesión existentes; este
+cambio no agrega permisos ni redefine su política de alcance. No se añaden campos sensibles a
+las respuestas ni se guarda el término de búsqueda en auditoría de aplicación.
+
+Personas desempata nombres iguales por `id`; Estudiantes y Docentes conservan sus códigos únicos
+como orden, y Encargados su orden por apellidos, nombres e `id`. `select_related("person")` evita
+consultas adicionales por fila en los perfiles. La paginación no ofrece una instantánea ante
+escrituras concurrentes.
+
+Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad educativa](../development/632-community-lists.md).
+
 ## Disponibilidad de aulas (RF-AUL-005)
 
 - Las respuestas de aulas agregan `service_status`: `available` (Disponible),
@@ -109,6 +194,14 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - `GET /api/v1/students/guardian-relations/` lista solo relaciones de estudiantes dentro del
   alcance `student.view_basic`. Cada elemento conserva `guardian` como identificador y agrega
   `guardian_detail` de solo lectura con los datos necesarios para presentar al encargado.
+- El filtro opcional `student_id` recibe el `public_id` UUID del estudiante y se aplica en el
+  servidor antes de paginar, junto al filtro de alcance. Un UUID desconocido o fuera del alcance
+  devuelve una colección vacía; un valor mal formado o vacío devuelve HTTP 400. Omitir el parámetro
+  conserva el listado autorizado anterior. Las relaciones históricas se conservan.
+- Relaciones, salud, observaciones y contactos devuelven el sobre paginado estándar
+  (`count`, `next`, `previous`, `results`). Sus clientes solicitan cada página al navegar.
+  Salud y observaciones desempatan fechas iguales por identificador descendente, conservando
+  el orden por fecha más reciente y los controles de lectura sensible y auditoría por solicitud.
 - `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por
   el servicio y no se acepta en el payload.
 - `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como
@@ -208,6 +301,8 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   expediente a `transferred`, revoca acceso y credencial y agrega `transfer_out` con origen.
 - Ambos endpoints exigen `enrollment_update` y alcance efectivo. Rechazan fechas futuras hasta
   que RF-MOV-003 defina su ejecucion; no registran datos externos no declarados.
+- La UI de ambos traslados, la revisión obligatoria, el selector paginado y la
+  cobertura conjunta de M3 se detallan en [Traslados de estudiantes](student-transfers-ui.md).
 
 ### Anulacion de movimientos
 
@@ -219,6 +314,12 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   el ciclo permita escrituras. Traslados se rechazan hasta que sus casos de uso conserven estado
   reversible. La doble anulacion tambien se rechaza.
 - El historial incluye `annulment` como campo aditivo, nulo para movimientos vigentes.
+- El historial agrega `supports_annulment`, booleano de solo lectura que indica
+  soporte de anulación para el tipo (retiro/cambio de sección). No acredita
+  permiso, alcance ni elegibilidad del estado actual; se revalidan al escribir.
+- La captura, revisión y evidencia de la UI están documentadas en
+  [Movimientos de matrícula](enrolment-movements-ui.md). Las escrituras conservan
+  sus endpoints y payloads existentes.
 ## Requisitos documentales de matrícula
 
 - `GET /api/v1/enrolments/{enrolment_id}/documents/` lista los requisitos documentales activos
@@ -265,12 +366,37 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - Las respuestas de registros documentales agregan `student_id` y `teacher_id` (uno siempre nulo).
 - `POST /api/v1/documents/records/{public_id}/download-tokens/` emite el token breve de descarga.
 
+## Filtros de matriculas vigentes
+
+- `GET /api/v1/enrolments/active/` admite `student_id`, `academic_cycle_id`,
+  `grade_id` y `section_id` como UUID opcionales. Se combinan por interseccion
+  antes de contar y paginar; no cambia la forma de respuesta.
+- UUID academico mal formado devuelve 400; un UUID academico valido sin
+  coincidencias o una combinacion contradictoria devuelve 200 con lista vacia.
+- Se conservan el requisito de sesion y la seleccion de registros activos del
+  endpoint existente. Esta entrega no modifica autorizacion ni vigencias.
+- M5 usa ese contrato desde la interfaz; es el mismo preparado en PR #638.
+  Detalle de dependencias, pruebas e historial en
+  [filtros de matriculas](enrolment-filters-ui.md).
+
 ## Historial de inscripciones
 
 - `GET /api/v1/enrolments/history/?student_id={public_id}` devuelve todas las inscripciones
   registradas del estudiante, sin filtrar por estado ni por `is_active`.
 - La respuesta es paginada y se ordena desde la vigencia más reciente hacia la más antigua.
   Los estados y fechas se conservan para mantener la trazabilidad histórica.
+
+## Cupo contextual al matricular
+
+- La UI de M7 consume `GET /api/v1/enrolments/sections/occupancy/` con
+  `academic_cycle_id` y `section_id` para una sola seccion. No cambia el endpoint.
+- Se conservan `capacity`, `occupied_seats` y `available_seats`:
+  `capacity=0` / `available_seats=null` indica sin limite declarado;
+  `available_seats=0` indica ausencia de vacantes.
+- Consultar no reserva cupo ni garantiza una inscripcion posterior. La escritura
+  mantiene la validacion transaccional y puede rechazar un cupo que se lleno
+  despues de consultar. La UI relee al terminar un envio que deja la ventana
+  abierta. Detalle y pruebas en [M7](enrolment-capacity-ui.md).
 
 ## Alta individual unificada
 
@@ -287,6 +413,13 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 
 ## Matricula masiva del ciclo siguiente
 
+- `GET /api/v1/enrolments/re-enrolments/candidates/` consulta el ciclo de origen
+  obligatorio con búsqueda, filtros académicos y alcance antes de paginar. Expone
+  nombres y códigos mínimos junto al UUID de matrícula para seleccionar el lote.
+- `GET /api/v1/enrolments/active/` admite filtros UUID opcionales por
+  `academic_cycle_id`, `grade_id` y `section_id`, además de `student_id`.
+- El contrato completo de candidatos, la secuencia de revisión/confirmación y
+  sus límites están en [Reinscripción por lotes](bulk-reenrolment-ui.md).
 - `POST /api/v1/enrolments/re-enrolments/bulk/` recibe `effective_on`, `preview` y una lista
   explicita de pares `source_enrolment_id` / `target_section_id`.
 - `preview=true` aplica las mismas validaciones sin persistir. La confirmacion procesa cada
@@ -307,6 +440,11 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
   nulo. La consulta no crea una reinscripcion.
 - Si existe un resultado congelado al cierre del ciclo, ese snapshot es la fuente autoritativa;
   solo ciclos sin snapshot usan el calculo vigente como compatibilidad.
+- La lectura exige `enrollment_create` o `enrollment_update` y alcance administrativo vigente
+  sobre la seccion de la matricula, tambien para ciclos cerrados. Una sesion por si sola no
+  autoriza la consulta: sin permiso o alcance devuelve 403 y audita la denegacion antes de
+  determinar el resultado. Ruta y campos JSON no cambian. Vease
+  [consulta de promocion](enrolment-promotion-ui.md) para la UI de M4 (#632).
 
 ## Administracion de roles
 
@@ -410,3 +548,85 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - La cuenta vinculada al estudiante no se deshabilita: mientras el expediente no este `active`,
   sus permisos dejan de ser efectivos. Un encargado conserva su cuenta y otros estudiantes
   vigentes, pero pierde el alcance derivado sobre el estudiante retirado.
+
+## Uso de emisión de plantillas (#632, D7)
+
+`DocumentTemplate` y sus versiones agregan `issuance_use`:
+
+| Código | Etiqueta | Regla |
+| --- | --- | --- |
+| `none` | Ninguna | No selecciona una emisión automática; admite varias plantillas activas. |
+| `enrolment_certificate` | Constancia de inscripción | Como máximo una activa por institución. |
+| `study_certificate` | Certificado de estudios | Como máximo una activa por institución. |
+
+`kind` conserva el código del catálogo institucional como clasificación; no decide qué plantilla
+usa la emisión individual. Se conservan los campos existentes y los endpoints de alta, actualización,
+baja lógica, versiones y vista previa. La emisión selecciona la última versión publicada de la
+plantilla activa del uso solicitado, independientemente del código de tipo.
+
+`POST /api/v1/documents/templates/` acepta el uso opcional, predeterminado `none`.
+`PATCH /api/v1/documents/templates/{public_id}/` lo acepta opcional: omitir conserva el valor.
+Un uso vacío, desconocido o `null` devuelve HTTP 400 con error de campo. No se infiere el uso
+de plantillas nuevas a partir de tipos legados. Las versiones nuevas guardan también su uso.
+
+Si el uso elegido está ocupado, el alta/actualización debe incluir `replaces_template_id`, UUID
+público de la plantilla activa que se confirma reemplazar. Sin confirmación se devuelve HTTP 400.
+Si la activa cambió, se rechaza con HTTP 400 y no se reemplaza la nueva ocupante. Un UUID de otra
+institución, de otro uso, propio, desactivado o sin ocupante coincidente tampoco autoriza reemplazo.
+La interfaz refresca disponibilidad ante error y exige confirmar el nuevo UUID, conservando el
+borrador. No se acepta un booleano que autorice reemplazar cualquier ocupante futuro.
+
+Reemplazar desactiva la anterior y crea/publica la nueva versión dentro de una transacción. Si falla
+la unicidad del código o la publicación de versión se revierte todo, incluidos los asientos de esa
+operación. Se conservan las versiones y emisiones anteriores. Guardar una plantilla desactivada
+no la reactiva. Los servicios serializan escrituras mediante bloqueo de institución y la restricción
+parcial de PostgreSQL protege la unicidad por uso. La auditoría identifica uso y plantillas afectadas.
+
+`GET /api/v1/documents/templates/issuance-uses/` devuelve un arreglo cerrado, no paginado, de dos
+elementos, correspondientes a los usos de emisión distintos de `none`:
+
+```json
+[
+  {"code": "enrolment_certificate", "label": "Constancia de inscripción", "active_template": null, "uses_fallback": true},
+  {"code": "study_certificate", "label": "Certificado de estudios", "active_template": {"public_id": "00000000-0000-0000-0000-000000000001", "name": "Certificado de ejemplo"}, "uses_fallback": false}
+]
+```
+
+Son datos de ejemplo. `uses_fallback=true` si falta plantilla, versión publicada o contenido de esa
+versión; el emisor conserva el texto predeterminado y la pantalla avisa. La consulta es institucional,
+requiere sesión y resuelve las últimas versiones en una consulta, sin descargar el catálogo completo.
+Las escrituras mantienen `scope_assign` con alcance institucional del catálogo existente.
+
+La migración `documents.0016_template_issuance_use` asigna usos a las activas legadas de tipo
+`constancia`/`certificate` y añade metadatos a las versiones según su código histórico. No cambia
+contenido, secuencia, fechas, identificadores ni referencias de emisiones anteriores. Antes de
+revertir deben resolverse explícitamente las activas del mismo tipo que violarían la restricción
+anterior; la reversión no desactiva filas ni borra historia automáticamente.
+
+La vista previa conserva `POST .../{public_id}/preview/` con `{payload: {...}}`. La interfaz aporta
+valores sintéticos no vacíos para las ocho etiquetas del catálogo. El sustituidor seguro compartido
+con emisión admite espacios dentro de `{{ ... }}` y rechaza marcadores no autorizados. No guarda
+versiones ni emite documentos. PDF real y vista previa de borradores sin guardar pertenecen a D4,
+PL4/PL6/PL10 y continúan pendientes.
+
+Decisión y evidencia: [ADR-0011, aporte D7](../decisions/ADR-0011-template-issuance-use.md) y
+[entrega de plantillas](../development/632-template-issuance-use.md).
+## Edición de persona desde comunidad educativa (#632: E1, T1, G1)
+
+- Los formularios de estudiantes, docentes y encargados envían los datos de persona a
+  `PATCH /api/v1/people/{public_id}/`. El identificador de persona procede del perfil consultado.
+- Además de nombres, apellidos, correo y teléfono, la edición persiste `sex`, `nationality`,
+  `address`, `department` y `municipality`, campos ya publicados por `PersonSerializer`.
+- El PATCH actualiza únicamente los campos enviados; los omitidos conservan su valor.
+  Los campos de texto opcionales admiten `""` para vaciarlos y `sex` conserva sus opciones
+  publicadas (`female`, `male`, `not_specified`). La validación de entrada precede a la escritura.
+- La siguiente consulta del estudiante, docente o encargado devuelve su persona actualizada.
+  CUI y fecha de nacimiento mantienen su condición `write_only` en los serializadores de
+  persona y permanecen fuera de estos formularios de edición.
+- `update_person` realiza la escritura y su auditoría en una transacción. El evento
+  `people.person.updated` conserva actor, recurso y nombres de campos enviados; los valores
+  personales quedan fuera del contexto de auditoría. Se conservan los metadatos técnicos de solicitud.
+- Se conserva la autorización existente del endpoint de personas. Las pruebas incluyen el rechazo
+  de un PATCH anónimo y la lectura del estudiante con permiso y alcance explícitos.
+- Evidencia: `backend/tests/api/test_people_api.py`, `backend/tests/unit/test_people_services.py`
+  y las pruebas `AlumnosPage.test.jsx`, `DocentesPage.test.jsx` y `GuardiansPage.test.jsx`.

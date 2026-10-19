@@ -24,6 +24,7 @@ class StudentMovementAnnulmentCreateSerializer(serializers.Serializer):
 
 
 class StudentMovementSerializer(serializers.ModelSerializer):
+    supports_annulment = serializers.BooleanField(read_only=True)
     annulment = StudentMovementAnnulmentSerializer(read_only=True, allow_null=True)
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     source_enrolment_id = serializers.UUIDField(
@@ -44,6 +45,7 @@ class StudentMovementSerializer(serializers.ModelSerializer):
             "source_enrolment_id",
             "target_enrolment_id",
             "annulment",
+            "supports_annulment",
             "created_at",
         ]
 
@@ -117,7 +119,30 @@ class EnrolmentDocumentRequirementCreateSerializer(serializers.Serializer):
     )
 
 
+class EnrolmentStudentSummarySerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    student_code = serializers.CharField(read_only=True)
+    full_name = serializers.SerializerMethodField()
+
+    def get_full_name(self, student) -> str:
+        return f"{student.person.first_name} {student.person.last_name}".strip()
+
+
+class EnrolmentNamedSummarySerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+
+class EnrolmentSectionSummarySerializer(EnrolmentNamedSummarySerializer):
+    grade_name = serializers.CharField(source="grade.name", read_only=True)
+    shift_name = serializers.CharField(source="shift.name", read_only=True)
+
+
 class EnrolmentSerializer(serializers.ModelSerializer):
+    student = EnrolmentStudentSummarySerializer(read_only=True)
+    academic_cycle = EnrolmentNamedSummarySerializer(read_only=True)
+    grade = EnrolmentNamedSummarySerializer(read_only=True)
+    section = EnrolmentSectionSummarySerializer(read_only=True)
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
     grade_id = serializers.UUIDField(source="grade.public_id", read_only=True)
@@ -131,6 +156,10 @@ class EnrolmentSerializer(serializers.ModelSerializer):
             "academic_cycle_id",
             "grade_id",
             "section_id",
+            "student",
+            "academic_cycle",
+            "grade",
+            "section",
             "effective_on",
             "ends_on",
             "status",
@@ -155,6 +184,36 @@ class EnrolmentCreateSerializer(serializers.Serializer):
 
 class ActiveEnrolmentQuerySerializer(serializers.Serializer):
     student_id = serializers.UUIDField(required=False, help_text="Filtra por estudiante.")
+    academic_cycle_id = serializers.UUIDField(required=False)
+    grade_id = serializers.UUIDField(required=False)
+    section_id = serializers.UUIDField(required=False)
+
+
+class ReenrolmentCandidateQuerySerializer(serializers.Serializer):
+    academic_cycle_id = serializers.UUIDField()
+    grade_id = serializers.UUIDField(required=False)
+    section_id = serializers.UUIDField(required=False)
+    search = serializers.CharField(required=False, allow_blank=True, max_length=150)
+
+
+class ReenrolmentCandidateSerializer(serializers.ModelSerializer):
+    student_code = serializers.CharField(source="student.student_code", read_only=True)
+    first_name = serializers.CharField(source="student.person.first_name", read_only=True)
+    last_name = serializers.CharField(source="student.person.last_name", read_only=True)
+    grade_name = serializers.CharField(source="grade.name", read_only=True)
+    section_name = serializers.CharField(source="section.name", read_only=True)
+
+    class Meta:
+        model = Enrolment
+        fields = [
+            "public_id",
+            "student_code",
+            "first_name",
+            "last_name",
+            "grade_name",
+            "section_name",
+            "status",
+        ]
 
 
 class EnrolmentHistoryQuerySerializer(serializers.Serializer):

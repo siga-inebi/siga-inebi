@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 
 const register = vi.hoisted(() => vi.fn());
+const listSectionOccupancy = vi.hoisted(() => vi.fn());
 vi.mock("@enrolments/enrolmentsService.js", () => ({
-  enrolmentsService: { register },
+  enrolmentsService: { listSectionOccupancy, register },
 }));
 vi.mock("@shared/catalogs/academicCatalogs.js", () => ({
   useStudentCatalog: () => ({
@@ -24,6 +25,18 @@ import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 
 beforeEach(() => {
   register.mockReset();
+  listSectionOccupancy.mockReset().mockResolvedValue({
+    count: 1,
+    results: [
+      {
+        public_id: "a1",
+        academic_cycle_id: "c1",
+        capacity: 30,
+        occupied_seats: 10,
+        available_seats: 20,
+      },
+    ],
+  });
 });
 
 async function fill(user) {
@@ -48,9 +61,9 @@ test("un rechazo conserva datos y reintentar hace solo la escritura unificada", 
   );
   await fill(user);
   await user.click(screen.getByRole("button", { name: "Confirmar matrícula" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "La seccion no tiene vacantes."
-  );
+  expect(
+    await screen.findByText("La seccion no tiene vacantes.")
+  ).toBeInTheDocument();
   expect(screen.getByLabelText(/Vigente desde/)).toHaveValue("2027-02-01");
   expect(
     screen.getByRole("combobox", { name: "Estudiante" })

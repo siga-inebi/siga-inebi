@@ -4,6 +4,12 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 
 ## Functional Requirements
 
+Seguimiento UX #632: RF-MOV-001 y RF-MOV-003 incorporan ingreso y egreso con
+revisión explícita y pruebas de API/interfaz. Véase
+[Traslados y cobertura de M3](../architecture/student-transfers-ui.md).
+La cobertura conjunta con PR #639 completa las cinco operaciones en código;
+integración y aceptación institucional permanecen pendientes.
+
 | ID | Descripcion original | Prioridad | Dominio | Estado de implementacion | Issue relacionado | Pruebas relacionadas | Observaciones |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | RF-ASI-001 | Captura mediada por operador | Debe | attendance-capture | Not implemented | #85 | TBD | Nucleo fundacional |
@@ -81,7 +87,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-EST-005 | Plan de estudios por grado y ciclo | Debe | institutional-structure | Not implemented | #169 | TBD | Nucleo academico |
 | RF-EST-006 | Carga horaria de la subarea | Deberia | institutional-structure | Implemented | #170 | backend/tests/api/test_academics_catalog_api.py | Cruza horario |
 | RF-EST-007 | Secciones | Debe | institutional-structure | Not implemented | #171 | TBD | Nucleo fundacional |
-| RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Not implemented | #172 | TBD | Afecta matricula |
+| RF-EST-008 | Cupo declarado y ocupacion consultable | Debe | enrollment-lifecycle | Implemented | #172; #632 (M7) | frontend/src/test/{SectionOccupancyNotice.test.jsx,newModulePages.test.jsx,moduleServices.test.js}; backend/tests/api/test_enrolment_capacity_ui_contract.py; evidencia previa en la matriz | Estado alineado con la matriz existente; M7 expone la consulta por seccion al matricular sin cambiar reglas. Integracion y aceptacion pendientes; docs/architecture/enrolment-capacity-ui.md |
 | RF-EST-009 | Asignacion de docentes a subareas de seccion | Debe | institutional-structure | Implemented | #173 | backend/tests/{unit/test_teaching_assignment_services.py,api/test_teaching_assignments_api.py} | Ya implementado por RF-ALC-003/RF-CIC-002 |
 | RF-EST-010 | Cobertura completa para la activacion del ciclo | Deberia | school-cycle | Not implemented | #174 | TBD | Regla de activacion |
 | RF-EST-011 | Mutabilidad de la estructura segun el estado del ciclo | Debe | school-cycle | Not implemented | #175 | TBD | Regla transversal |
@@ -126,7 +132,8 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-PLA-004 | Encabezado institucional obligatorio | Debe | document-generation | Implemented | #251 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py | Regla documental; encabezado derivado (no almacenado) de Institution, logo_url pendiente del dominio file-storage |
 | RF-PLA-005 | Versiones de la plantilla | Podria | document-generation | Implemented | #252 | backend/tests/unit/test_documents_services.py; backend/tests/api/test_documents_api.py; backend/tests/integration/test_documents.py | Historial inmutable via DocumentTemplateVersion; snapshot automatico en creacion y en cada update con cambios |
 | RF-PLA-006 | Vista previa antes de publicar | Deberia | document-generation | In progress | #253 | backend/tests/api/test_documents_api.py; frontend/src/test/newModulePages.test.jsx | Vista previa con datos de muestra sin persistir ni emitir; pendiente de integracion por PR |
-| RF-PLA-007 | Plantilla activa por tipo | Debe | document-generation | Implemented | #254 | backend/apps/documents/models.py; backend/apps/documents/services.py; backend/tests/unit/test_documents_services.py | Regla central |
+| RF-PLA-007 | Plantilla activa por uso de emisión | Debe | document-generation | Implemented | #254; #632 | backend/apps/documents/{models.py,services.py}; backend/tests/{unit/test_template_issuance_use.py,integration/test_template_use_concurrency.py,api/test_template_issuance_use_api.py} | D7/ADR-0011: máximo una activa por institución y uso; reemplazo explícito, atómico y auditable; tipo solo clasifica |
+| RF-PLA-008 | Uso explícito de emisión de la plantilla | Debe | document-generation | Implemented | #632 | backend/apps/documents/{models.py,services.py,queries.py,migrations/0016_template_issuance_use.py}; frontend/src/documents/{TemplatesPage.jsx,TemplateFormWindow.jsx}; backend/tests/{unit/test_template_issuance_use.py,migrations/test_documents_0016_template_use.py}; frontend/src/test/TemplateIssuanceUse.test.jsx | D7/ADR-0011: Ninguna/Constancia/Certificado, migración del código legado y aviso de texto predeterminado; sin editor rico D4 |
 | RF-AUL-001 | Registro de aulas | Deberia | institutional-structure | Implemented | #99 | backend/tests/{unit/test_classroom_services.py,api/test_classrooms_api.py}; frontend/src/academics/RoomsPage.jsx | Catálogo por sede, unicidad, baja lógica y auditoría |
 | RF-AUL-002 | Aula habitual de la seccion | Deberia | institutional-structure | Not implemented | #100 | TBD | Fase posterior |
 | RF-AUL-003 | Sesiones sin aula asignada | Deberia | institutional-structure | Not implemented | #101 | TBD | Fase posterior |
@@ -208,7 +215,7 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-MAT-004 | Efecto del cupo de la seccion | Debe | enrollment-lifecycle | Not implemented | #228 | TBD | Regla central |
 | RF-MAT-005 | Verificacion documental | Debe | enrollment-lifecycle | Not implemented | #229 | TBD | Cruza documentos |
 | RF-MAT-006 | Bloqueo de documentos oficiales por pendientes | Deberia | document-generation | Not implemented | #230 | TBD | Regla posterior |
-| RF-MAT-007 | Inscripcion activa como insumo de otras capacidades | Debe | enrollment-lifecycle | Not implemented | #231 | TBD | Regla transversal |
+| RF-MAT-007 | Inscripcion activa como insumo de otras capacidades | Debe | enrollment-lifecycle | Implemented | #231; #632 (M5) | backend/tests/api/test_enrolment_filters_api.py; frontend/src/test/{EnrolmentAcademicFilters.test.jsx,newModulePages.test.jsx,moduleServices.test.js}; pruebas de dominio existentes en la matriz | Estado alineado con la matriz existente; fuente activa con filtros de servidor por estudiante, ciclo, grado y seccion. Evidencia UX y limites en docs/architecture/enrolment-filters-ui.md; integracion y aceptacion institucional pendientes |
 | RF-MAT-008 | Historial de inscripciones | Debe | enrollment-lifecycle | Not implemented | #232 | TBD | Historia obligatoria |
 | RF-MOV-001 | Distincion entre cambio de seccion y traslado | Debe | enrollment-lifecycle | Implemented | #233 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Operaciones autorizadas separan cambio interno, traslado de ingreso y traslado de salida; salida usa estado transferred, cierra permanencia y revoca credencial |
 | RF-MOV-002 | Cambio de seccion sin perdida de informacion | Debe | enrollment-lifecycle | Implemented | #234 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Cierra la matricula vigente, crea la nueva y conserva calificaciones, asistencia e historial mediante StudentMovement |
@@ -216,8 +223,17 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RF-MOV-004 | Retiro del estudiante | Debe | enrollment-lifecycle | Implemented | #236 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Retiro atomico con causa y fecha, estados withdrawn, movimiento inmutable y exclusion de listas activas |
 | RF-MOV-005 | Revocacion de la credencial al cerrar la permanencia | Debe | attendance-capture | Implemented | #237 | backend/tests/{integration/test_enrolments.py,permissions/test_guardian_derived_scope.py} | Evento sincronico revoca credencial; estudiante pierde permisos efectivos y encargado solo alcance del retirado |
 | RF-MOV-006 | Promocion y repitencia | Debe | enrollment-lifecycle | Implemented | #238 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Resultado congelado o vigente determina grado elegible, repitencia y graduacion sin crear la siguiente matricula |
-| RF-MOV-007 | Matricula masiva del ciclo siguiente | Deberia | enrollment-lifecycle | Implemented | #239 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Seleccion explicita, vista previa, resultado parcial, idempotencia, permiso y alcance; no decide promocion ni repitencia |
+| RF-MOV-007 | Matricula masiva del ciclo siguiente | Deberia | enrollment-lifecycle | Implemented | #239 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Seleccion explicita, vista previa, resultado parcial, idempotencia, permiso y alcance; UI y candidatos paginados en docs/architecture/bulk-reenrolment-ui.md (#632); no decide promocion ni repitencia |
 | RF-MOV-008 | Correccion de movimientos registrados por error | Deberia | enrollment-lifecycle | Implemented | #240 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Anulacion aditiva y auditable revierte retiro y cambio de seccion |
+
+### Evidencia complementaria de promoción — #632, M4
+
+RF-MOV-006 y RF-RES-006 cuentan con consulta UI por matrícula, sin alterar sus
+reglas de cálculo. La consulta exige permiso y alcance de matrícula (RF-ALC-001),
+con denegaciones auditadas. Pruebas, límites y estado de integración en la
+[matriz de trazabilidad](traceability-matrix.md#evidencia-ux-de-promoción--632-m4)
+y en [consulta de promoción](../architecture/enrolment-promotion-ui.md).
+No se declara aceptación institucional ni cierre de la épica.
 
 ## Non-functional Requirements
 
@@ -260,3 +276,10 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RNF-SEG-005 | Las descargas se resuelven con enlaces de vigencia breve atados al portador; sin rutas directas a archivos | Debe | document-management | Implemented | #296 | backend/apps/documents/services.py, backend/apps/documents/api/views.py, backend/tests/unit/test_documents_services.py, backend/tests/api/test_documents_api.py | Seguridad |
 | RNF-SEG-006 | Limitacion de tasa en las consultas publicas sin autenticacion | Debe | document-generation | Not implemented | #297 | TBD | Verificacion publica |
 | RNF-USA-001 | El permiso de camara se verifica al iniciar el turno, no en el primer escaneo | Debe | attendance-capture | Implemented | #298 | frontend/src/test/AttendancePage.test.jsx | UX operativa; no existe concepto de "iniciar turno" en la UI, se verifica al montar la pagina de captura de asistencia (el punto de entrada real del operador) |
+
+## Seguimiento UX de movimientos (#632)
+
+RF-MOV-002, RF-MOV-003, RF-MOV-004 y RF-MOV-008 incorporan UI de cambio de
+seccion, retiro y anulacion, con revision explicita y evidencia historica.
+Contrato, pruebas y alcance parcial en [Movimientos de matricula](../architecture/enrolment-movements-ui.md).
+M3 conserva pendientes los traslados de ingreso y egreso; no se declara completo el epic.
