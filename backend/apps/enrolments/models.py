@@ -136,6 +136,14 @@ class StudentMovement(TimeStampedModel):
 
     objects = StudentMovementQuerySet.as_manager()
 
+    @property
+    def supports_annulment(self):
+        """Type support only; current state, scope and cycle are checked on write."""
+        return self.movement_type in {
+            self.MovementType.WITHDRAWAL,
+            self.MovementType.SECTION_CHANGE,
+        }
+
     class Meta:
         ordering = ["-effective_on", "-created_at", "-pk"]
         constraints = [

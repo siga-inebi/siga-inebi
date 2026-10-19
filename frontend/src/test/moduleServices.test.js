@@ -90,6 +90,28 @@ describe("servicios de los modulos", () => {
   });
 
   describe("enrolmentsService", () => {
+    test("candidatos se filtran en servidor y reinscripcion usa un POST por lote", async () => {
+      await enrolmentsService.listReenrolmentCandidates({
+        academic_cycle_id: CYCLE,
+        page: 2,
+        search: "Ana Demo",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/re-enrolments/candidates/?academic_cycle_id=${CYCLE}&page=2&search=Ana+Demo`
+      );
+      const payload = {
+        preview: true,
+        effective_on: "2027-01-15",
+        items: [
+          { source_enrolment_id: ENROLMENT, target_section_id: "section" },
+        ],
+      };
+      await enrolmentsService.bulkReenrol(payload);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/enrolments/re-enrolments/bulk/",
+        payload
+      );
+    });
     test("las matriculas vigentes se pueden filtrar por estudiante", async () => {
       await enrolmentsService.listActive({ page: 1, student_id: STUDENT });
       expect(apiClient.get).toHaveBeenCalledWith(
@@ -97,6 +119,31 @@ describe("servicios de los modulos", () => {
       );
     });
 
+    test("movimientos usan los endpoints existentes y el identificador correspondiente", async () => {
+      await enrolmentsService.changeSection(ENROLMENT, {
+        new_section_id: "section",
+        effective_on: "2026-03-01",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/enrolments/${ENROLMENT}/section-change/`,
+        { new_section_id: "section", effective_on: "2026-03-01" }
+      );
+      await enrolmentsService.withdraw(ENROLMENT, {
+        reason: "Causa",
+        effective_on: "2026-03-01",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/enrolments/${ENROLMENT}/withdrawal/`,
+        { reason: "Causa", effective_on: "2026-03-01" }
+      );
+      await enrolmentsService.annulMovement("movement-id", {
+        reason: "Corrección",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/enrolments/movements/movement-id/annulment/",
+        { reason: "Corrección" }
+      );
+    });
     test("el historial viaja siempre con el estudiante, que el backend exige", async () => {
       await enrolmentsService.listHistory({ page: 1, student_id: STUDENT });
       await enrolmentsService.listMovements({ page: 1, student_id: STUDENT });
@@ -145,6 +192,29 @@ describe("servicios de los modulos", () => {
       expect(apiClient.post).toHaveBeenCalledWith(
         `/enrolments/${ENROLMENT}/documents/`,
         { code: "DPI" }
+      );
+    });
+  });
+
+  describe("traslados de estudiantes", () => {
+    test("ingreso y egreso mantienen rutas e identificadores distintos", async () => {
+      const payload = {
+        student_id: STUDENT,
+        section_id: "section",
+        effective_on: "2026-03-01",
+      };
+      await enrolmentsService.transferIn(payload);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/enrolments/transfers/in/",
+        payload
+      );
+      await enrolmentsService.transferOut(ENROLMENT, {
+        effective_on: "2026-03-01",
+        reason: "Cambio",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/enrolments/${ENROLMENT}/transfer-out/`,
+        { effective_on: "2026-03-01", reason: "Cambio" }
       );
     });
   });

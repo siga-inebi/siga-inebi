@@ -1,5 +1,40 @@
 # Traceability Matrix
 
+## Corrección de paginación del expediente — issue #632, E2 y sección 1.1.4
+
+RF-EXP-004: las relaciones de encargados se filtran por el UUID del estudiante y su alcance antes
+de paginar. Se conserva el listado sin filtro y el historial de vínculos finalizados.
+RF-EXP-005, RF-EXP-006 y RF-EXP-009: contactos, observaciones y salud mantienen sus permisos
+sensibles y permiten recorrer todas las páginas. Los estados de los RF existentes se conservan.
+
+| Hallazgo / requisito | Diseño y código | Pruebas verificables |
+| --- | --- | --- |
+| E2 / RF-EXP-004 | docs/architecture/api-conventions.md; backend/apps/students/{queries.py,api/serializers.py,api/views.py}; frontend/src/students/{studentsService.js,StudentGuardianRelations.jsx} | backend/tests/api/test_student_record_pagination_api.py: filtro antes de paginar, alcance, entradas inválidas e historial; frontend/src/test/StudentRecordPagination.test.jsx |
+| 1.1.4 / RF-EXP-005, RF-EXP-006, RF-EXP-009 | backend/apps/students/queries.py; frontend/src/students/{StudentRecordWindow.jsx,StudentRecordList.jsx,AlumnosPage.jsx,studentsService.js} | backend/tests/api/test_student_record_pagination_api.py: segunda página, alcance y desempate de fechas; frontend/src/test/{StudentRecordPagination.test.jsx,studentRecordServices.test.js,AlumnosPage.test.jsx} |
+
+La interfaz pide una página por navegación; permite alcanzar registros después del primero mil,
+reintentar errores, reiniciar la lista al registrar un elemento y descartar respuestas tardías de
+otro estudiante. Esta entrega utiliza el hook paginado existente; la migración a la base compartida
+de #630 y la paginación del padrón principal corresponden a su entrega posterior.
+
+Los contratos nuevos son aditivos y no requieren migraciones. El expediente con pestañas y la
+ampliación de los campos visibles en el detalle permanecen en E4/E11.
+
+Verificación local (17 de octubre de 2026): suite backend en PostgreSQL con base de pruebas
+nueva, 1789 aprobadas, 23 omitidas y 95,15 % de cobertura; frontend, 321 aprobadas en 38 archivos
+con cobertura de líneas de 85,23 %. Ruff, formato, ESLint, build y presupuesto estático, Bandit
+del dominio y comprobación de migraciones pendientes aprobaron.
+
+El primer recorrido completo con `--reuse-db` encontró cuatro fallos de identidad: la base
+de pruebas conservada no contenía el permiso inicial `attendance_record_entry`. Se verificó
+el nombre aislado `test_siga_inebi` y se repitió con `--create-db --reuse-db`, sin modificar la
+base de demostración. La repetición completa aprobó sin cambios en identidad.
+
+Entorno de esta evidencia: PostgreSQL 18.3, Python 3.11.3, Django 5.2.17 y Vitest 3.2.7.
+La CI de esta entrega todavía debe validar las dependencias fijadas del repositorio. La
+comprobación HTTP de la vista previa combinada verificó el filtro de encargados, los tres
+sobres paginados sensibles, el rechazo de UUID inválidos y la conservación de E1/T1/G1.
+
 ## Objetivo
 
 Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo -> Prueba -> Pull Request`.
@@ -15,6 +50,40 @@ Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo 
 
 | Requirement | Issue | Design | Code | Test | Pull Request | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Entrega UX M1 de Matrículas (#632)
+
+M1 agrega resúmenes de lectura para evitar catálogos globales usados como traductores de UUID.
+No modifica las reglas de matrícula ni los estados globales de cumplimiento de los RF.
+
+| Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
+| --- | --- | --- | --- |
+| RF-MAT-007; M1; 1.1.5 | `backend/apps/enrolments/{services.py,api/serializers.py}`; `frontend/src/enrolments/EnrolmentsPage.jsx`; contrato API | `backend/tests/api/test_enrolment_summaries_api.py`; `frontend/src/test/EnrolmentListSummaries.test.jsx` | Nombres incluidos en página vigente; sin catálogos al abrir la tabla ni N+1 al serializar |
+| RF-MAT-008; M1 | Mismos archivos; `EnrolmentStudentFilter.jsx`; `docs/development/632-enrolment-summaries.md` | Casos de historia y referencias desactivadas; búsqueda remota y selección del estudiante | Conserva historial y UUID; consulta de historial solo después de selección |
+| RF-MAT-002/003; M1 | `frontend/src/enrolments/EnrolmentCreateWindow.jsx` | `frontend/src/test/newModulePages.test.jsx` | Extrae formulario para cargar catálogos bajo demanda; mismos payloads y reglas de alta/reinscripción |
+
+El límite global de catálogos, `useServerList`, URL, exportaciones y `search-select` del formulario
+siguen pendientes de #630 y de la migración de sus consumidores. Evidencia final y PR en el
+[documento de entrega](../development/632-enrolment-summaries.md).
+Entrega y checks de integración: [PR #636](https://github.com/siga-inebi/siga-inebi/pull/636),
+con base `develop`.
+## Entrega UX de listados de comunidad educativa (#632)
+
+Alcance verificable: 1.1.6–1.1.7 y PE1; contratos backend de E10, T2, G2 y PE3.
+E3 y la migración de pantallas siguen pendientes de #630. No se modifican estados globales
+de cumplimiento por esta entrega parcial. No hay RF específico de búsqueda docente/persona
+en el catálogo: esas correcciones se trazan al hallazgo UX, sin inventar identificadores.
+
+| Requerimiento / hallazgo | Diseño y código | Evidencia | Estado de esta entrega |
+| --- | --- | --- | --- |
+| RF-EXP-003; E10 | `apps/students/queries.py`, `api/{views,serializers}.py`; contrato API de comunidad educativa | `test_student_status_is_independent_of_logical_deactivation`, `test_invalid_domain_filter_returns_400` | Filtro por estado probado; acción propia D5/E9 pendiente |
+| RF-EXP-008; 1.1.6 | Queries y vistas de people, students y teachers; ADR-0006 | `test_active_default_and_explicit_inactive_opt_in`, `test_inactive_detail_remains_available` | Listas activas por defecto con historial consultable; sin borrado |
+| RF-ALC-001; 1.1.7 | Alcance estudiantil existente conservado en `StudentListCreateView`; ADR-0005 | `test_student_search_does_not_expand_scope`, `test_student_search_requires_permission_and_scope` | Filtros no amplían alcance; no redefine autorización de otros dominios |
+| PE1; PE3; T2; G2; E3/E10; 1.1.6–1.1.7 | `apps/{people,teachers,students}/{queries.py,api/views.py,api/serializers.py}`; `docs/development/632-community-lists.md` | `backend/tests/api/test_community_list_filters_api.py` | Backend implementado; migración de pantallas y eliminación del tope de 1.000 pendientes |
+
+Comandos y límites de validación: [entrega de listados](../development/632-community-lists.md).
+Entrega y checks de integración: [PR #635](https://github.com/siga-inebi/siga-inebi/pull/635),
+con base `develop`; resultados locales completos en el documento de desarrollo enlazado.
 
 ## Estado inicial
 
@@ -85,14 +154,14 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RF-MAT-004 | #228 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/decisions/ADR-0002-modular-monolith.md; docs/decisions/ADR-0005-authentication-and-authorization.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/enrolments/{services.py,api/views.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | TBD | Implemented | Valida cupo antes de confirmar inscripciones activas; capacity=0 queda sin limite; bloquea secciones llenas sin cambiar estado del estudiante ni cerrar historial |
 | RF-MAT-005 | #229 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/decisions/ADR-0002-modular-monolith.md; docs/decisions/ADR-0005-authentication-and-authorization.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/enrolments/{models.py,services.py,api/,migrations/0003_enrolmentdocumentrequirement.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | TBD | Implemented | Requisitos documentales por matrícula con estado pendiente/entregado, actualización idempotente por código, permiso enrollment.create y auditoría; no incluye archivos ni validación de contenido |
 | RF-MAT-006 | #230 | docs/architecture/file-storage-strategy.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md; docs/decisions/ADR-0005-authentication-and-authorization.md | backend/apps/documents/{services.py,api/}; backend/apps/enrolments/services.py | backend/tests/{unit/test_documents_services.py,api/test_documents_api.py,integration/test_documents.py} | TBD | Implemented | Bloquea emisión oficial cuando existen documentos obligatorios pendientes; permite continuar cuando todos están entregados; permiso document.issue y auditoría de decisión |
-| RF-MAT-007 | #231 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md | backend/apps/enrolments/{services.py,api/} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | TBD | Implemented | Fuente paginada de inscripciones activas y vigentes para asistencia, notas y horarios; filtro opcional por estudiante; solo autenticacion requerida |
+| RF-MAT-007 | #231 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md; docs/architecture/bulk-reenrolment-ui.md | backend/apps/enrolments/{services.py,api/} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; backend/tests/api/test_reenrolment_candidates_api.py | TBD | Implemented | Fuente paginada de inscripciones activas y vigentes para asistencia, notas y horarios; filtros opcionales por estudiante, ciclo, grado y seccion; solo autenticacion requerida |
 | RF-MAT-008 | #232 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/enrolments/{services.py,api/}; frontend/src/enrolments/EnrolmentsPage.jsx; frontend/src/shared/ui/filters/FilterSelect.jsx; frontend/src/shared/ui/forms/SearchableSelect.jsx | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; frontend/src/test/FilterSelect.test.jsx | TBD; PR #399 | Implemented | Consulta paginada de todas las inscripciones de un estudiante, incluyendo estados históricos y registros inactivos; orden por vigencia más reciente; sin borrado ni migración nueva. PR #399 vuelve buscable el filtro de estudiante: el historial se consulta por persona, y encontrarla entre cientos con la rueda del raton no es buscar |
 | RF-MOV-001 | #233 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/{enrolments/services.py,enrolments/api/,students/models.py,students/migrations/0007_add_transferred_student_status.py,attendance/receivers.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | PR #465 | Implemented | Endpoints y servicios separados ejecutan `transfer_in` y `transfer_out`; salida cierra matricula, usa estado `transferred` y revoca acceso/credencial; entrada reactiva expediente y crea matricula destino; fechas futuras esperan RF-MOV-003 |
-| RF-MOV-002 | #234 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/enrolments/{services.py,api/} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | PR #413 | Implemented | Endpoint autorizado por `enrollment.update`; cierre y reemplazo atomicos enlazados por `section_change`; calificaciones permanecen en la matricula historica y asistencias en el estudiante, sin copiar, reasignar ni eliminar registros |
-| RF-MOV-003 | #235 | docs/architecture/api-conventions.md; docs/decisions/ADR-0003-database-strategy.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/enrolments/{models.py,services.py,api/,migrations/0005_studentmovement.py}; frontend/src/enrolments/{EnrolmentsPage.jsx,MovementHistoryWindow.jsx,enrolmentsService.js} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; frontend/src/test/moduleServices.test.js | TBD | Implemented | `effective_on` conserva la fecha oficial separada de `created_at`; la ventana de movimientos explica y muestra ambos datos sin inferir reglas en React |
-| RF-MOV-004 | #236 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/enrolments/{models.py,services.py,api/,migrations/0006_student_withdrawal.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | PR #414 | Implemented | Retiro formal autorizado por `enrollment.update`; causa obligatoria y fecha efectiva; matricula y estudiante pasan a `withdrawn`; movimiento inmutable y exclusion inmediata de la fuente de listas operativas sin eliminar historia |
+| RF-MOV-002 | #234 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md; docs/decisions/ADR-0006-soft-delete-and-history.md; docs/architecture/enrolment-movements-ui.md | backend/apps/enrolments/{services.py,api/}; frontend/src/enrolments/{MovementForm.jsx,MovementHistoryWindow.jsx,EnrolmentsPage.jsx,enrolmentsService.js} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; backend/tests/api/test_movement_ui_contract.py; frontend/src/test/{enrolmentMovements.test.jsx,newModulePages.test.jsx,moduleServices.test.js} | PR #413 | Implemented | Endpoint autorizado por `enrollment.update`; cierre y reemplazo atomicos enlazados por `section_change`; calificaciones permanecen en la matricula historica y asistencias en el estudiante, sin copiar, reasignar ni eliminar registros; UI de cambio de seccion con revision explicita y selector filtrado en servidor (#632) |
+| RF-MOV-003 | #235 | docs/architecture/api-conventions.md; docs/decisions/ADR-0003-database-strategy.md; docs/decisions/ADR-0006-soft-delete-and-history.md; docs/architecture/enrolment-movements-ui.md | backend/apps/enrolments/{models.py,services.py,api/,migrations/0005_studentmovement.py}; frontend/src/enrolments/{EnrolmentsPage.jsx,MovementHistoryWindow.jsx,enrolmentsService.js}; frontend/src/enrolments/{MovementForm.jsx,MovementHistoryWindow.jsx,EnrolmentsPage.jsx,enrolmentsService.js} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; frontend/src/test/moduleServices.test.js; backend/tests/api/test_movement_ui_contract.py; frontend/src/test/{enrolmentMovements.test.jsx,newModulePages.test.jsx,moduleServices.test.js} | TBD | Implemented | `effective_on` conserva la fecha oficial separada de `created_at`; la ventana de movimientos explica y muestra ambos datos sin inferir reglas en React; UI de movimientos y correcciones conserva fechas separadas (#632) |
+| RF-MOV-004 | #236 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/domain-map.md; docs/decisions/ADR-0006-soft-delete-and-history.md; docs/architecture/enrolment-movements-ui.md | backend/apps/enrolments/{models.py,services.py,api/,migrations/0006_student_withdrawal.py}; frontend/src/enrolments/{MovementForm.jsx,MovementHistoryWindow.jsx,EnrolmentsPage.jsx,enrolmentsService.js} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; backend/tests/api/test_movement_ui_contract.py; frontend/src/test/{enrolmentMovements.test.jsx,newModulePages.test.jsx,moduleServices.test.js} | PR #414 | Implemented | Retiro formal autorizado por `enrollment.update`; causa obligatoria y fecha efectiva; matricula y estudiante pasan a `withdrawn`; movimiento inmutable y exclusion inmediata de la fuente de listas operativas sin eliminar historia; UI de retiro con causa, fecha, advertencia y confirmacion en linea (#632) |
 | RF-MOV-005 | #237 | docs/architecture/domain-map.md; docs/architecture/authorization-model.md; docs/architecture/api-conventions.md; docs/architecture/audit-strategy.md; docs/decisions/ADR-0005-authentication-and-authorization.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/{enrolments/events.py,enrolments/services.py,attendance/receivers.py,attendance/services.py,identity/models.py,identity/scopes.py} | backend/tests/{integration/test_enrolments.py,permissions/test_guardian_derived_scope.py} | PR #459 | Implemented | Evento de dominio sincronico revoca credencial vigente dentro de la transaccion de retiro; ausencia de credencial es no-op; cuenta estudiantil conserva registro pero pierde permisos efectivos; encargado compartido pierde solo alcance del retirado; asistencia historica intacta |
-| RF-MOV-008 | #240 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/audit-strategy.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/{enrolments/models.py,enrolments/services.py,enrolments/api/,enrolments/migrations/0007_studentmovementannulment.py,attendance/receivers.py,attendance/services.py,attendance/migrations/0010_studentcredential_revoked_on_movement.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | PR #462 | Implemented | Anulacion separada con motivo y actor conserva el movimiento original; revierte retiro y cambio de seccion en transaccion; restaura credencial de permanencia; doble anulacion y traslados sin estado reversible se rechazan |
+| RF-MOV-008 | #240 | docs/architecture/initial-data-model.md; docs/architecture/api-conventions.md; docs/architecture/audit-strategy.md; docs/decisions/ADR-0006-soft-delete-and-history.md; docs/architecture/enrolment-movements-ui.md | backend/apps/{enrolments/models.py,enrolments/services.py,enrolments/api/,enrolments/migrations/0007_studentmovementannulment.py,attendance/receivers.py,attendance/services.py,attendance/migrations/0010_studentcredential_revoked_on_movement.py}; frontend/src/enrolments/{MovementForm.jsx,MovementHistoryWindow.jsx,EnrolmentsPage.jsx,enrolmentsService.js}; backend/apps/enrolments/{models.py,queries.py,services.py,api/serializers.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; backend/tests/api/test_movement_ui_contract.py; frontend/src/test/{enrolmentMovements.test.jsx,newModulePages.test.jsx,moduleServices.test.js} | PR #462 | Implemented | Anulacion separada con motivo y actor conserva el movimiento original; revierte retiro y cambio de seccion en transaccion; restaura credencial de permanencia; doble anulacion y traslados sin estado reversible se rechazan; UI de anulacion con motivo, flag de soporte desde dominio y correccion visible; sin consultas por fila (#632) |
 | RF-CRE-001 | #133 | docs/requirements/openspec/credencial-estudiantil.md; docs/architecture/api-conventions.md; docs/architecture/audit-strategy.md | backend/apps/common/opaque.py; backend/apps/attendance/{models.py,services.py,admin.py,api/,migrations/0006_opaque_student_identifier.py}; backend/apps/identity/{atomic_permissions.py,scopes.py} | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py,integration/test_attendance.py} | PR #400 | Implemented | Identificador opaco de 32 bytes generado con `secrets`, no derivable del codigo estudiantil ni de datos personales; el QR codifica solo el token y ninguna consulta lo publica fuera de la respuesta de emision. Exige inscripcion activa y una sola credencial vigente por estudiante, con unicidad resuelta por constraint mas reintento (nunca leer-luego-escribir). Permiso atomico nuevo `attendance.credential.issue` con alcance sobre estudiante; el asiento de auditoria registra la emision sin copiar el token. Revocacion (RF-CRE-003), reposicion (RF-CRE-004) y material imprimible (RF-CRE-002) quedan fuera de este corte |
 | RF-CRE-002 | #134 | docs/requirements/openspec/credencial-estudiantil.md | backend/apps/attendance/{services.py,api/} | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py} | PR #452 | Implemented | `GET /attendance/credentials/print-content/`: nombre completo, foto, grado, seccion, ciclo escolar e institucion, derivados de la inscripcion activa; exige credencial vigente e inscripcion activa. Reutiliza `attendance_credential_issue` con alcance sobre estudiante, sin permiso nuevo. Usa `CredentialPrintContentSerializer`, separado de `ScanConfirmation` porque ambos contratos exponen campos distintos. |
 | RF-CRE-003 | #135 | docs/requirements/openspec/credencial-estudiantil.md | backend/apps/attendance/{models.py,services.py,admin.py,api/,migrations/0008_credential_revocation.py} | backend/tests/{unit/test_attendance_services.py,api/test_attendance_api.py} | PR #453 | Implemented | `POST /attendance/credentials/revoke/`: revoca de inmediato la credencial vigente del estudiante, exigiendo motivo y actor; campos nuevos `revocation_reason` y `revoked_by` en `StudentCredential`. `resolve_credential` y `resolve_scan_subject` rechazan estados distintos de vigente, por lo que una credencial revocada queda inutilizable. Reutiliza el permiso con alcance de emision, sin permiso nuevo. |
@@ -143,7 +212,8 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RF-ARC-004 | #81 | docs/architecture/file-storage-strategy.md; docs/decisions/ADR-0006-soft-delete-and-history.md; docs/requirements/requirements.json | backend/apps/documents/{models.py,services.py,api/}; backend/apps/documents/migrations/0009_documentrecord_immutable_versions.py; frontend/src/enrolments/EnrolmentDocumentsWindow.jsx | backend/tests/{unit/test_documents_services.py,api/test_documents_api.py,integration/test_documents.py}; frontend/src/test/newModulePages.test.jsx | TBD | In Progress | Un reemplazo crea una nueva fila con grupo y numero de version, archiva la anterior sin modificar sus metadatos, conserva el enlace y registra auditoria; la interfaz muestra estado e historial autorizado. |
 | RF-ARC-007 | #84 | docs/architecture/file-storage-strategy.md; docs/decisions/ADR-0006-soft-delete-and-history.md; docs/requirements/requirements.json | backend/apps/documents/models.py; backend/apps/enrolments/models.py | backend/tests/unit/test_documents_services.py | TBD | Implemented | Se bloquea borrado fisico para preservar historial y auditoria de documentos y requisitos de matricula |
 | RF-PLA-006 | #253 | docs/architecture/domain-map.md; docs/requirements/requirements.json | backend/apps/documents/{services.py,api/}; frontend/src/documents/{TemplatesPage.jsx,TemplatePreviewWindow.jsx,documentsService.js} | backend/tests/api/test_documents_api.py; frontend/src/test/newModulePages.test.jsx | TBD | In Progress | La vista previa interpola un catalogo cerrado con datos de muestra en memoria, audita la consulta y no guarda, emite ni expone campos sensibles. |
-| RF-PLA-007 | #254 | docs/architecture/domain-map.md; docs/requirements/requirements.json | backend/apps/documents/models.py; backend/apps/documents/services.py | backend/tests/unit/test_documents_services.py | TBD | Implemented | Una sola plantilla activa por tipo e institucion; la resolucion exige exactamente una activa para emitir documentos |
+| RF-PLA-007 | #254; #632 | docs/decisions/ADR-0011-template-issuance-use.md; docs/requirements/requirements.json | backend/apps/documents/{models.py,services.py,migrations/0016_template_issuance_use.py} | backend/tests/{unit/test_template_issuance_use.py,integration/test_template_use_concurrency.py,api/test_template_issuance_use_api.py} | PR #637 | Implemented | D7 reemplaza unicidad por tipo: máximo una activa por institución y uso distinto de Ninguna; confirmación por UUID, transacción, restricción parcial y conservación de historia |
+| RF-PLA-008 | #632 | docs/decisions/ADR-0011-template-issuance-use.md; docs/architecture/api-conventions.md | backend/apps/documents/{models.py,queries.py,services.py,api/,migrations/0016_template_issuance_use.py}; frontend/src/documents/{TemplatesPage.jsx,TemplateFormWindow.jsx} | backend/tests/{unit/test_template_issuance_use.py,migrations/test_documents_0016_template_use.py,api/test_template_issuance_use_api.py}; frontend/src/test/TemplateIssuanceUse.test.jsx | PR #637 | Implemented | Uso explícito y aviso de fallback; migración de tipos legados; emisión independiente del código de clasificación |
 | RF-DOC-001 | #146 | docs/architecture/domain-map.md; docs/requirements/requirements.json; docs/requirements/openspec/documentos-expedientes.md | backend/apps/documents/{models.py,services.py,queries.py,api/views.py,api/urls.py,api/serializers.py,migrations/0014_documentrecord_teacher_owner.py}; frontend/src/teachers/TeacherDocumentsWindow.jsx | backend/tests/{unit/test_documents_services.py,unit/test_documents_teacher_dossier.py,permissions/test_teacher_document_permissions.py,api/test_teacher_documents_api.py,migrations/test_documents_0014_teacher_owner.py}; frontend/src/test/TeacherDocumentsWindow.test.jsx | TBD; PR feat/documentos-docente-y-emision-individual | Implemented | Vinculacion del expediente del estudiante con los documentos persistidos y su historial. Brecha cerrada: el criterio exige tambien el expediente del docente y `DocumentRecord.student` era obligatorio. `DocumentRecord` gana un dueno explicito `teacher` y la restriccion `document_record_has_exactly_one_owner` (estudiante XOR docente); se eligio sobre un modelo hermano porque el versionado, el token de descarga (FK a `DocumentRecord`), la verificacion SHA-256 y la auditoria se reutilizan sin duplicarse. Migracion 0014 aditiva: los registros existentes ya cumplen la restriccion. Alcance: `document_read` + propio docente o `module_key=teachers`; carga solo `document_upload` + `module_key=teachers`. Nuevos `GET/POST documents/teachers/{teacher_id}/records/` y `POST documents/records/{public_id}/download-tokens/` (el token solo se emitia por servicio) |
 | RF-DOC-002 | #147 | docs/architecture/domain-map.md; docs/requirements/requirements.json | backend/apps/documents/services.py | backend/tests/unit/test_documents_services.py | TBD | Implemented | Catalogo fijo de tipos de documento para certificados, reportes y otros |
 | RF-DOC-003 | #148 | docs/architecture/domain-map.md; docs/requirements/requirements.json | backend/apps/enrolments/models.py; backend/apps/enrolments/services.py | backend/tests/unit/test_enrolments_services.py | TBD; PR #399 | Implemented | Requisitos documentales declarados en la matrícula con actualización idempotente por código y estado entregado/pendiente. PR #399 no cambia esta regla; se cita porque las nuevas reglas de duplicado de matricula (RF-MAT-001) alteran las filas de las que cuelgan los requisitos |
@@ -253,9 +323,23 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 | RF-DOC-007 | #152 | docs/architecture/file-storage-strategy.md | backend/apps/documents/{services.py,api/serializers.py,api/views.py,api/urls.py} | backend/tests/unit/test_documents_services.py | PR #468 | Implemented | Digitalizacion directa desde escaner: services.register_scanned_document (source="scanner", storage_prefix="scanner") reutiliza el pipeline inmutable de DocumentRecord (validacion, checksum, versionado); endpoint POST documents/records/scan/ (ScannedDocumentUploadView). Cierre verificado en la auditoria S10/S11: codigo y prueba test_register_scanned_document_creates_a_student_document_from_a_scanner_upload ya en develop |
 | RNF-MAN-002 | #278 | docs/architecture/file-storage-strategy.md; docs/decisions/ADR-0006-soft-delete-and-history.md | backend/apps/documents/{models.py,services.py,api/} | backend/tests/{unit/test_documents_services.py,api/test_documents_api.py,integration/test_documents.py} | PR #314; PR #318; PR #485 | Implemented | Plantillas editables sin re-despliegue: DocumentTemplate es catalogo en DB (alta/edicion/baja logica administrativa, codigo unico por institucion) y DocumentTemplateVersion conserva un snapshot inmutable por cada cambio (mismo contrato no-borrable que AuditEvent, PR #318), con preview y versiones consultables por API; editar textos/estructura no toca codigo ni requiere migracion. Cierre verificado en la auditoria S10/S11 |
 
-| RF-MOV-007 | #239 | docs/architecture/{domain-map.md,api-conventions.md,authorization-model.md}; docs/decisions/{ADR-0004-rest-api.md,ADR-0005-authentication-and-authorization.md,ADR-0006-soft-delete-and-history.md,ADR-0008-application-layer-boundaries.md} | backend/apps/enrolments/{services.py,api/serializers.py,api/views.py,api/urls.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | PR #463 | Implemented | Lote explicito para ciclo inmediato siguiente con preview, fallos parciales, idempotencia, permiso y alcance; promocion y repitencia permanecen en RF-MOV-006 |
+| RF-MOV-007 | #239 | docs/architecture/{domain-map.md,api-conventions.md,authorization-model.md}; docs/decisions/{ADR-0004-rest-api.md,ADR-0005-authentication-and-authorization.md,ADR-0006-soft-delete-and-history.md,ADR-0008-application-layer-boundaries.md}; docs/architecture/bulk-reenrolment-ui.md | backend/apps/enrolments/{services.py,queries.py,api/serializers.py,api/views.py,api/urls.py}; frontend/src/enrolments/{BulkReenrolmentWindow.jsx,enrolmentsService.js} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py}; backend/tests/api/test_reenrolment_candidates_api.py; frontend/src/test/{bulkReenrolment.test.jsx,moduleServices.test.js} | PR #463 | Implemented | Lote explicito para ciclo inmediato siguiente con preview, fallos parciales, idempotencia, permiso y alcance; promocion y repitencia permanecen en RF-MOV-006; issue #632: UI de reinscripcion masiva con candidatos paginados, preview y confirmacion; promocion y altas iniciales masivas pendientes |
 
 | RF-MOV-006 | #238 | docs/architecture/{domain-map.md,initial-data-model.md,api-conventions.md,authorization-model.md}; docs/decisions/{ADR-0004-rest-api.md,ADR-0005-authentication-and-authorization.md,ADR-0006-soft-delete-and-history.md,ADR-0008-application-layer-boundaries.md} | backend/apps/academics/queries.py; backend/apps/enrolments/{services.py,api/serializers.py,api/views.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | TBD | Implemented | Extiende de forma aditiva la consulta de promocion: promovido avanza al siguiente grado activo segun orden pedagogico; no promovido repite el mismo grado; aprobar el ultimo grado produce graduated sin grado elegible. Los ciclos cerrados consumen el snapshot inmutable de RF-RES-007 y no recalculan notas; no crea la matricula siguiente |
+
+## Evidencia de traslados y cobertura conjunta de M3 — issue #632
+
+RF-MOV-001 y RF-MOV-003 agregan captura/revisión de ingreso y egreso, búsqueda
+paginada de expedientes y consulta de fechas separadas. Diseño y límites:
+`docs/architecture/student-transfers-ui.md`. Código:
+`frontend/src/enrolments/{StudentTransferWindow.jsx,EnrolmentsPage.jsx,enrolmentsService.js}`.
+Pruebas: `backend/tests/api/test_student_transfer_ui_contract.py` y
+`frontend/src/test/{studentTransfers.test.jsx,newModulePages.test.jsx,moduleServices.test.js}`.
+
+La cobertura de cinco operaciones de M3 se completa en código con el PR #639
+(cambio, retiro y anulación) y esta entrega (ambos traslados), sin cambiar los
+estados canónicos de RF ya implementados en backend. Integración en `develop`
+y aceptación institucional pendientes; #632 permanece abierto.
 
 ## Mantenimiento
 
@@ -310,3 +394,54 @@ promoción. No crea matrículas ni movimientos y no recalcula resultados en Reac
 Detalle de contratos, ADR, límites y revisión: [consulta de promoción](../architecture/enrolment-promotion-ui.md).
 Integración a `develop` y aceptación institucional pendientes. La reinscripción
 masiva corresponde al PR #638; esta evidencia no declara cerrados M2 ni #632.
+## Entrega UX PL1/PL2/PL5 y D7 (#632)
+
+- RF-PLA-007 y RF-PLA-008 se trazan en sus filas canónicas al aporte D7 de ADR-0011.
+- RF-PLA-005: las versiones nuevas incluyen uso; el reemplazo conserva historia y la migración
+  no reescribe campos históricos previos. Evidencia: `test_template_issuance_use.py` y
+  `test_documents_0016_template_use.py`.
+- RF-PLA-002/006: las ocho etiquetas tienen muestras no vacías y admiten espacios en marcadores,
+  sin publicar desde preview. Evidencia: `test_template_issuance_use_api.py` y
+  `TemplateIssuanceUse.test.jsx`. RF-PLA-006 sigue parcial: vista previa de borrador/PDF pendiente.
+- RF-EMI-001: la emisión usa el destino explícito con tipo arbitrario y conserva referencia a
+  versión; evidencia en `test_documents_individual_issuance.py`.
+- TD1 explica clasificación frente a destino. TD2 y el editor/PDF de D4 no se incluyen.
+
+Contratos, comandos, límites, despliegue y reversión: [entrega de plantillas](../development/632-template-issuance-use.md).
+## Regresión de edición de comunidad educativa — issue #632
+
+Alcance: hallazgos E1, T1 y G1 de `docs/ux-ui.md` (sección 1.2.2). Esta corrección
+mantiene los estados de los requerimientos existentes; el cierre de la épica requiere las demás
+entregas y su verificación. RF-EXP-001 conserva el expediente institucional y RF-BIT-001 aporta
+la auditoría de la escritura de persona. Los hallazgos de docentes y encargados se trazan por su
+identificador UX, sin crear requisitos funcionales artificiales.
+
+| Hallazgo | Diseño / contrato | Código | Prueba verificable |
+| --- | --- | --- | --- |
+| E1 — Edición completa del estudiante (RF-EXP-001) | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/students/AlumnosPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/AlumnosPage.test.jsx |
+| T1 — Edición completa del docente | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/teachers/DocentesPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/DocentesPage.test.jsx |
+| G1 — Edición completa del encargado | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/guardians/GuardiansPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/GuardiansPage.test.jsx |
+| PATCH parcial, privacidad y auditoría (RF-BIT-001) | docs/architecture/audit-strategy.md; docs/architecture/data-classification.md | backend/apps/people/services.py | backend/tests/api/test_people_api.py::test_patch_person_persists_profile_field_without_changing_omitted_data; backend/tests/api/test_people_api.py::test_anonymous_person_profile_patch_is_rejected_without_changes; backend/tests/api/test_people_api.py::test_invalid_profile_patch_does_not_save_other_fields; backend/tests/unit/test_people_services.py::test_update_person_persists_and_audits_institutional_profile_without_logging_values; backend/tests/unit/test_people_services.py::test_update_person_can_clear_optional_profile_fields |
+
+Regresión reproducida antes de corregir: siete fallos backend por parámetros de perfil no aceptados
+y tres fallos frontend por campos omitidos en el envío. Después de corregir, la selección de
+personas aprueba 38 pruebas backend en PostgreSQL; las tres pantallas y los servicios de módulos
+aprueban 55 pruebas frontend. Son pruebas automatizadas locales, no aceptación institucional.
+
+Validación ampliada: 88 pruebas de personas, estudiantes, docentes, encargados, ciclo de vida y
+límites de arquitectura aprobadas. Suite backend completa: 1788 aprobadas, 23 omitidas y 94,73 %
+de cobertura. Ruff, formato backend, ESLint, formato de los archivos frontend modificados,
+build con presupuesto estático, Bandit del módulo de personas y comprobación de migraciones
+pendientes aprobados. La prueba HTTP local de PATCH y consulta de los tres perfiles fue correcta;
+los valores sintéticos originales se restauraron después de verificar.
+
+La suite frontend completa aprueba 309 pruebas en 36 archivos, con 85,05 % de cobertura de
+líneas y sentencias, 85,91 % de ramas y 70,87 % de funciones. La comprobación de formato de todo
+el frontend también aprueba. En la primera ejecución con cobertura, dos pruebas nuevas de edición
+agotaron los cinco segundos por la escritura carácter a carácter; el helper de prueba pasó a
+cargar esos campos mediante eventos de cambio y la repetición completa aprobó, conservando las
+aserciones de envío. Los límites de tiempo y los umbrales de cobertura se mantienen.
+
+Entorno local de esta evidencia (17 de octubre de 2026): PostgreSQL 18.3, Python 3.11.3,
+Django 5.2.17, pytest 8.4.1 y Vitest 3.2.7. Se utilizaron las dependencias previamente instaladas;
+la CI con las versiones fijadas en los archivos de dependencias y el perfil Docker queda pendiente.

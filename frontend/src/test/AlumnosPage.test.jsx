@@ -5,6 +5,8 @@ import { vi } from "vitest";
 import { AlumnosPage } from "@students/AlumnosPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import {
+  editInstitutionalPerson,
+  editedInstitutionalPerson,
   fillInstitutionalPerson,
   institutionalPerson,
   visibleInstitutionalPerson,
@@ -44,9 +46,12 @@ const downloadCsvMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@shared/utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
 
+const EMPTY_PAGE = { results: [], count: 0, next: null, previous: null };
+
 const SAMPLE = [
   {
     id: 1,
+    public_id: "11111111-1111-1111-1111-111111111111",
     person: {
       ...visibleInstitutionalPerson,
       public_id: "person-11",
@@ -61,6 +66,7 @@ const SAMPLE = [
   },
   {
     id: 2,
+    public_id: "22222222-2222-2222-2222-222222222222",
     person: {
       public_id: "person-12",
       first_name: "Carlos Enrique",
@@ -81,16 +87,16 @@ describe("AlumnosPage", () => {
     studentsServiceMock.update.mockReset();
     studentsServiceMock.listHealthNotes.mockReset();
     studentsServiceMock.createHealthNote.mockReset();
-    studentsServiceMock.listHealthNotes.mockResolvedValue([]);
+    studentsServiceMock.listHealthNotes.mockResolvedValue(EMPTY_PAGE);
     studentsServiceMock.listObservations.mockReset();
     studentsServiceMock.createObservation.mockReset();
-    studentsServiceMock.listObservations.mockResolvedValue([]);
+    studentsServiceMock.listObservations.mockResolvedValue(EMPTY_PAGE);
     studentsServiceMock.listEmergencyContacts.mockReset();
     studentsServiceMock.createEmergencyContact.mockReset();
-    studentsServiceMock.listEmergencyContacts.mockResolvedValue([]);
+    studentsServiceMock.listEmergencyContacts.mockResolvedValue(EMPTY_PAGE);
     studentsServiceMock.listGuardianRelations.mockReset();
     studentsServiceMock.createGuardianRelation.mockReset();
-    studentsServiceMock.listGuardianRelations.mockResolvedValue([]);
+    studentsServiceMock.listGuardianRelations.mockResolvedValue(EMPTY_PAGE);
     guardiansServiceMock.list.mockReset();
     downloadCsvMock.mockReset();
   });
@@ -290,6 +296,8 @@ describe("AlumnosPage", () => {
     studentsServiceMock.update.mockResolvedValue({
       id: 1,
       person: {
+        ...visibleInstitutionalPerson,
+        ...editedInstitutionalPerson,
         public_id: "person-11",
         first_name: "Maria Jose",
         last_name: "Lopez Mendez",
@@ -311,6 +319,11 @@ describe("AlumnosPage", () => {
     expect(lastNameInput).toHaveValue("Lopez Garcia");
     await user.clear(lastNameInput);
     await user.type(lastNameInput, "Lopez Mendez");
+    expect(screen.queryByLabelText(/^CUI/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/^Fecha de nacimiento/)
+    ).not.toBeInTheDocument();
+    await editInstitutionalPerson(user);
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() =>
@@ -320,6 +333,8 @@ describe("AlumnosPage", () => {
       1,
       expect.objectContaining({
         person: {
+          ...visibleInstitutionalPerson,
+          ...editedInstitutionalPerson,
           public_id: "person-11",
           first_name: "Maria Jose",
           last_name: "Lopez Mendez",
@@ -352,12 +367,16 @@ describe("AlumnosPage", () => {
     studentsServiceMock.list.mockResolvedValue([
       { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
     ]);
-    studentsServiceMock.createHealthNote.mockResolvedValue({
+    const createdRecord = {
       public_id: "22222222-2222-2222-2222-222222222222",
       author: "directora",
       content: "Alergia de prueba",
       recorded_on: "2026-08-17",
-    });
+    };
+    studentsServiceMock.createHealthNote.mockResolvedValue(createdRecord);
+    studentsServiceMock.listHealthNotes
+      .mockResolvedValueOnce(EMPTY_PAGE)
+      .mockResolvedValue({ ...EMPTY_PAGE, results: [createdRecord], count: 1 });
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 
@@ -395,7 +414,7 @@ describe("AlumnosPage", () => {
     };
     studentsServiceMock.list.mockResolvedValue(SAMPLE);
     guardiansServiceMock.list.mockResolvedValue([guardian]);
-    studentsServiceMock.createGuardianRelation.mockResolvedValue({
+    const createdRecord = {
       id: 41,
       student: 1,
       guardian: guardian.id,
@@ -403,7 +422,11 @@ describe("AlumnosPage", () => {
       relationship_label: "Madre",
       is_primary: true,
       ends_at: null,
-    });
+    };
+    studentsServiceMock.createGuardianRelation.mockResolvedValue(createdRecord);
+    studentsServiceMock.listGuardianRelations
+      .mockResolvedValueOnce(EMPTY_PAGE)
+      .mockResolvedValue({ ...EMPTY_PAGE, results: [createdRecord], count: 1 });
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 
@@ -445,12 +468,16 @@ describe("AlumnosPage", () => {
     studentsServiceMock.list.mockResolvedValue([
       { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
     ]);
-    studentsServiceMock.createObservation.mockResolvedValue({
+    const createdRecord = {
       public_id: "22222222-2222-2222-2222-222222222222",
       author: "directora",
       description: "Seguimiento pedagogico",
       observed_on: "2026-08-17",
-    });
+    };
+    studentsServiceMock.createObservation.mockResolvedValue(createdRecord);
+    studentsServiceMock.listObservations
+      .mockResolvedValueOnce(EMPTY_PAGE)
+      .mockResolvedValue({ ...EMPTY_PAGE, results: [createdRecord], count: 1 });
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 
@@ -482,12 +509,16 @@ describe("AlumnosPage", () => {
     studentsServiceMock.list.mockResolvedValue([
       { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
     ]);
-    studentsServiceMock.createEmergencyContact.mockResolvedValue({
+    const createdRecord = {
       public_id: "33333333-3333-3333-3333-333333333333",
       name: "Ana López",
       phone_number: "555-0104",
       relationship_label: "Tía",
-    });
+    };
+    studentsServiceMock.createEmergencyContact.mockResolvedValue(createdRecord);
+    studentsServiceMock.listEmergencyContacts
+      .mockResolvedValueOnce(EMPTY_PAGE)
+      .mockResolvedValue({ ...EMPTY_PAGE, results: [createdRecord], count: 1 });
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 
@@ -524,12 +555,16 @@ describe("AlumnosPage", () => {
     studentsServiceMock.list.mockResolvedValue([
       { ...SAMPLE[0], public_id: "11111111-1111-1111-1111-111111111111" },
     ]);
-    studentsServiceMock.createObservation.mockResolvedValue({
+    const createdRecord = {
       public_id: "22222222-2222-2222-2222-222222222222",
       author: "directora",
       description: "Seguimiento pedagogico",
       observed_on: "2026-08-17",
-    });
+    };
+    studentsServiceMock.createObservation.mockResolvedValue(createdRecord);
+    studentsServiceMock.listObservations
+      .mockResolvedValueOnce(EMPTY_PAGE)
+      .mockResolvedValue({ ...EMPTY_PAGE, results: [createdRecord], count: 1 });
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 

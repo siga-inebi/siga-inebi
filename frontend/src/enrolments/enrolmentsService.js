@@ -66,8 +66,15 @@ export const enrolmentsService = {
     apiClient.get(withQuery(`${ROOT}/movements/`, params)),
 
   create: (payload) => apiClient.post(`${ROOT}/`, payload),
+  transferIn: (payload) => apiClient.post(`${ROOT}/transfers/in/`, payload),
+  transferOut: (enrolmentId, payload) =>
+    apiClient.post(`${ROOT}/${enrolmentId}/transfer-out/`, payload),
   matriculate: (payload) => apiClient.post(`${ROOT}/matriculations/`, payload),
   reenrol: (payload) => apiClient.post(`${ROOT}/re-enrolments/`, payload),
+  listReenrolmentCandidates: (params) =>
+    apiClient.get(withQuery(`${ROOT}/re-enrolments/candidates/`, params)),
+  bulkReenrol: (payload) =>
+    apiClient.post(`${ROOT}/re-enrolments/bulk/`, payload),
 
   /** Resultado y grado elegible; esta consulta no reinscribe al estudiante. */
   getPromotion: (enrolmentId) =>
@@ -78,4 +85,11 @@ export const enrolmentsService = {
     apiClient.get(withQuery(`${ROOT}/${enrolmentId}/documents/`, params)),
   addDocument: (enrolmentId, payload) =>
     apiClient.post(`${ROOT}/${enrolmentId}/documents/`, payload),
+
+  changeSection: (enrolmentId, payload) =>
+    apiClient.post(`${ROOT}/${enrolmentId}/section-change/`, payload),
+  withdraw: (enrolmentId, payload) =>
+    apiClient.post(`${ROOT}/${enrolmentId}/withdrawal/`, payload),
+  annulMovement: (movementId, payload) =>
+    apiClient.post(`${ROOT}/movements/${movementId}/annulment/`, payload),
 };

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
@@ -10,6 +10,7 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import PlaylistAddCheckOutlinedIcon from "@mui/icons-material/PlaylistAddCheckOutlined";
 import ReplayOutlinedIcon from "@mui/icons-material/ReplayOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import ExitToAppOutlinedIcon from "@mui/icons-material/ExitToAppOutlined";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
@@ -17,26 +18,17 @@ import {
   ENROLMENT_STATUS_VARIANT,
   enrolmentsService,
 } from "@enrolments/enrolmentsService.js";
-import {
-  labelIndex,
-  sectionsForCycle,
-  useCycleCatalog,
-  useGradeCatalog,
-  useSectionCatalog,
-  useStudentCatalog,
-} from "@shared/catalogs/academicCatalogs.js";
-import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { EnrolmentStudentFilter } from "./EnrolmentStudentFilter.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate } from "@shared/utils/format.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
-import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
-import { MutedCell, NameCell } from "@ui/table/cells.jsx";
+import { MutedCell } from "@ui/table/cells.jsx";
 
 // Estos flujos se abren solo por accion explicita. Cargarlos bajo demanda evita
 // que la ruta de matriculas consuma el presupuesto de la pantalla inicial sin
@@ -46,6 +38,11 @@ const BulkEnrolmentWindow = lazy(() =>
     ({ BulkEnrolmentWindow: Window }) => ({
       default: Window,
     })
+  )
+);
+const BulkReenrolmentWindow = lazy(() =>
+  import("./BulkReenrolmentWindow.jsx").then(
+    ({ BulkReenrolmentWindow: Window }) => ({ default: Window })
   )
 );
 const EnrolmentDocumentsWindow = lazy(() =>
@@ -58,13 +55,17 @@ const MovementHistoryWindow = lazy(() =>
     ({ MovementHistoryWindow: Window }) => ({ default: Window })
   )
 );
+const StudentTransferWindow = lazy(() =>
+  import("./StudentTransferWindow.jsx").then(
+    ({ StudentTransferWindow: Window }) => ({ default: Window })
+  )
+);
 
-const EMPTY_ENROLMENT = {
-  student_id: "",
-  academic_cycle_id: "",
-  section_id: "",
-  effective_on: "",
-};
+const EnrolmentCreateWindow = lazy(() =>
+  import("./EnrolmentCreateWindow.jsx").then(
+    ({ EnrolmentCreateWindow: Window }) => ({ default: Window })
+  )
+);
 
 const ACTIVE_TAB = "active";
 const HISTORY_TAB = "history";
@@ -91,149 +92,99 @@ const PromotionWindow = lazy(() =>
  * posibilidad de contradecirse y recibir un rechazo al guardar.
  */
 export function EnrolmentsPage() {
+  const [transferFor, setTransferFor] = useState(null);
   const [tab, setTab] = useState(ACTIVE_TAB);
-  const [studentFilter, setStudentFilter] = useState("");
+  const [studentFilter, setStudentFilter] = useState(null);
   const [creating, setCreating] = useState(null);
   const [promotionFor, setPromotionFor] = useState(null);
   const [bulkEnrolling, setBulkEnrolling] = useState(false);
+  const [bulkReenrolling, setBulkReenrolling] = useState(false);
   const [documentsFor, setDocumentsFor] = useState(null);
+  const [movementFor, setMovementFor] = useState(null);
   const [movementStudentId, setMovementStudentId] = useState("");
-
-  const students = useStudentCatalog();
-  const cycles = useCycleCatalog();
-  const sections = useSectionCatalog();
-  const grades = useGradeCatalog();
 
   const loadActive = useCallback(
     (params) =>
       enrolmentsService.listActive({
         ...params,
-        student_id: studentFilter || undefined,
+        student_id: studentFilter?.value,
       }),
     [studentFilter]
   );
 
   const loadHistory = useCallback(
     (params) =>
-      enrolmentsService.listHistory({ ...params, student_id: studentFilter }),
+      enrolmentsService.listHistory({
+        ...params,
+        student_id: studentFilter?.value,
+      }),
     [studentFilter]
   );
 
-  const activeList = usePaginatedList(loadActive, {
-    canIncludeInactive: false,
-    pageSize: PAGE_SIZE,
-  });
-
-  const historyReady = studentFilter !== "";
-  const historyList = usePaginatedList(
-    historyReady ? loadHistory : EMPTY_LOADER,
+  const activeList = usePaginatedList(
+    tab === ACTIVE_TAB ? loadActive : EMPTY_LOADER,
     {
       canIncludeInactive: false,
       pageSize: PAGE_SIZE,
     }
   );
 
-  const names = useMemo(
-    () => ({
-      students: labelIndex(students.options),
-      cycles: labelIndex(cycles.options),
-      sections: labelIndex(sections.options),
-      grades: labelIndex(grades.options),
-    }),
-    [students.options, cycles.options, sections.options, grades.options]
-  );
-
-  const enrolmentFields = useCallback(
-    (values) => [
-      {
-        name: "student_id",
-        label: "Estudiante",
-        type: "select",
-        options: students.options,
-        loading: students.loading,
-        optionsError: students.error,
-        emptyHint: "No hay estudiantes registrados.",
-        required: true,
-        span: "full",
-      },
-      {
-        name: "academic_cycle_id",
-        label: "Ciclo escolar",
-        type: "select",
-        options: cycles.options,
-        loading: cycles.loading,
-        optionsError: cycles.error,
-        emptyHint: "No hay ciclos escolares registrados.",
-        required: true,
-        resets: ["section_id"],
-      },
-      {
-        name: "section_id",
-        label: "Seccion",
-        type: "select",
-        options: sectionsForCycle(sections.options, values.academic_cycle_id),
-        loading: sections.loading,
-        optionsError: sections.error,
-        emptyHint: values.academic_cycle_id
-          ? "Ese ciclo no tiene secciones registradas."
-          : "Elija primero el ciclo escolar.",
-        help: "El grado y la jornada se toman de la seccion.",
-        required: true,
-      },
-      {
-        name: "effective_on",
-        label: "Vigente desde",
-        type: "date",
-        required: true,
-        span: "full",
-      },
-    ],
-    [students, cycles, sections]
-  );
-
-  const handleSubmit = async (values) => {
-    const section = sections.options.find(
-      (option) => option.value === values.section_id
-    );
-
-    const payload = {
-      ...values,
-      grade_id: section?.gradeId,
-      shift_id: section?.shiftId,
-    };
-
-    if (creating === "reenrol") {
-      await enrolmentsService.reenrol(payload);
-    } else {
-      await enrolmentsService.matriculate(payload);
+  const historyReady = Boolean(studentFilter);
+  const historyList = usePaginatedList(
+    tab === HISTORY_TAB && historyReady ? loadHistory : EMPTY_LOADER,
+    {
+      canIncludeInactive: false,
+      pageSize: PAGE_SIZE,
     }
-    setCreating(null);
-    activeList.refresh();
-    if (historyReady) historyList.refresh();
+  );
+
+  const changeStudentFilter = (option) => {
+    activeList.goToPage(1);
+    historyList.goToPage(1);
+    setStudentFilter(option);
   };
 
   const columns = [
     {
       key: "student_id",
       label: "Estudiante",
-      render: (row) => <NameCell id={row.student_id} index={names.students} />,
+      render: (row) =>
+        row.student ? (
+          [row.student.full_name, row.student.student_code]
+            .filter(Boolean)
+            .join(" · ")
+        ) : (
+          <MutedCell>Estudiante no disponible</MutedCell>
+        ),
     },
     {
       key: "academic_cycle_id",
       label: "Ciclo",
-      render: (row) => (
-        <NameCell id={row.academic_cycle_id} index={names.cycles} />
-      ),
+      render: (row) =>
+        row.academic_cycle?.name || <MutedCell>Ciclo no disponible</MutedCell>,
     },
     {
       key: "grade_id",
       label: "Grado",
-      render: (row) => <NameCell id={row.grade_id} index={names.grades} />,
+      render: (row) =>
+        row.grade?.name || <MutedCell>Grado no disponible</MutedCell>,
     },
     {
       key: "section_id",
       label: "Seccion",
-      render: (row) => <NameCell id={row.section_id} index={names.sections} />,
+      render: (row) =>
+        row.section ? (
+          [
+            [row.section.grade_name, row.section.name]
+              .filter(Boolean)
+              .join(" "),
+            row.section.shift_name,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        ) : (
+          <MutedCell>Seccion no disponible</MutedCell>
+        ),
     },
     {
       key: "effective_on",
@@ -288,11 +239,68 @@ export function EnrolmentsPage() {
       render: (row) => (
         <Stack direction="row" gap={0.5} justifyContent="flex-end">
           <ActionIconButton
+            label="Movimientos de matrícula"
+            onClick={() =>
+              setMovementFor({
+                studentId: row.student_id,
+                // Reuse the displayed cells with either catalogues or M1's nested DTO.
+                studentLabel: columns
+                  .find((column) => column.key === "student_id")
+                  .render(row),
+                enrolment: tab === ACTIVE_TAB ? row : undefined,
+                enrolmentLabel: (
+                  <Stack direction="row" flexWrap="wrap" gap={1}>
+                    {["academic_cycle_id", "grade_id", "section_id"].map(
+                      (key) => (
+                        <span key={key}>
+                          {columns
+                            .find((column) => column.key === key)
+                            .render(row)}
+                        </span>
+                      )
+                    )}
+                  </Stack>
+                ),
+              })
+            }
+          >
+            <HistoryOutlinedIcon fontSize="small" />
+          </ActionIconButton>
+          <ActionIconButton
             label="Requisitos documentales"
             onClick={() => setDocumentsFor(row)}
           >
             <DescriptionOutlinedIcon fontSize="small" />
           </ActionIconButton>
+          {tab === ACTIVE_TAB ? (
+            <ActionIconButton
+              label="Traslado de egreso"
+              onClick={() =>
+                setTransferFor({
+                  direction: "out",
+                  enrolment: row,
+                  studentLabel: columns
+                    .find((column) => column.key === "student_id")
+                    .render(row),
+                  enrolmentLabel: (
+                    <Stack direction="row" flexWrap="wrap" gap={1}>
+                      {["academic_cycle_id", "grade_id", "section_id"].map(
+                        (key) => (
+                          <span key={key}>
+                            {columns
+                              .find((column) => column.key === key)
+                              .render(row)}
+                          </span>
+                        )
+                      )}
+                    </Stack>
+                  ),
+                })
+              }
+            >
+              <ExitToAppOutlinedIcon fontSize="small" />
+            </ActionIconButton>
+          ) : null}
         </Stack>
       ),
     },
@@ -305,7 +313,7 @@ export function EnrolmentsPage() {
           <Stack direction="row" flexWrap="wrap" gap={1}>
             <Button
               disabled={!studentFilter}
-              onClick={() => setMovementStudentId(studentFilter)}
+              onClick={() => setMovementStudentId(studentFilter.value)}
               startIcon={<HistoryOutlinedIcon fontSize="small" />}
               variant="text"
             >
@@ -317,6 +325,9 @@ export function EnrolmentsPage() {
               variant="outlined"
             >
               Matricular por lotes
+            </Button>
+            <Button onClick={() => setBulkReenrolling(true)} variant="outlined">
+              Reinscribir por lotes
             </Button>
             <Button
               onClick={() => setCreating("reenrol")}
@@ -331,6 +342,12 @@ export function EnrolmentsPage() {
               variant="contained"
             >
               Nueva matricula
+            </Button>
+            <Button
+              onClick={() => setTransferFor({ direction: "in" })}
+              variant="outlined"
+            >
+              Traslado de ingreso
             </Button>
           </Stack>
         }
@@ -350,19 +367,11 @@ export function EnrolmentsPage() {
         </Tabs>
 
         <FilterBar
-          onClear={studentFilter ? () => setStudentFilter("") : undefined}
+          onClear={studentFilter ? () => changeStudentFilter(null) : undefined}
         >
-          <FilterSelect
-            emptyLabel="Todos los estudiantes"
-            label="Estudiante"
-            loading={students.loading}
-            // La etiqueta es "Nombre Apellido · EST-2026-0027": mas angosto que
-            // esto la parte en dos lineas y el codigo, que es lo que
-            // desambigua a dos homonimos, queda cortado abajo.
-            minWidth={360}
-            onChange={setStudentFilter}
-            options={students.options}
-            value={studentFilter}
+          <EnrolmentStudentFilter
+            selected={studentFilter}
+            onChange={changeStudentFilter}
           />
         </FilterBar>
 
@@ -399,29 +408,30 @@ export function EnrolmentsPage() {
         )}
       </SectionCard>
 
-      {creating ? (
-        <EntityFormWindow
-          description={
-            creating === "reenrol"
-              ? "Reinscripcion de un estudiante con matricula previa. El backend valida que exista historial y que el ciclo destino este abierto."
-              : "Matriculacion nueva. El backend valida cupo de la seccion, jornada y requisitos del ciclo."
-          }
-          fields={enrolmentFields}
-          initialValues={EMPTY_ENROLMENT}
-          key={creating}
-          onCancel={() => setCreating(null)}
-          onSubmit={handleSubmit}
-          open
-          submitLabel={creating === "reenrol" ? "Reinscribir" : "Matricular"}
-          title={
-            creating === "reenrol"
-              ? "Reinscribir estudiante"
-              : "Nueva matricula"
-          }
-        />
-      ) : null}
+      <Suspense fallback={null}>
+        {creating ? (
+          <EnrolmentCreateWindow
+            creating={creating}
+            onCancel={() => setCreating(null)}
+            onCreated={() => {
+              setCreating(null);
+              activeList.refresh();
+              if (historyReady) historyList.refresh();
+            }}
+          />
+        ) : null}
+      </Suspense>
 
       <Suspense fallback={null}>
+        {bulkReenrolling ? (
+          <BulkReenrolmentWindow
+            onClose={() => setBulkReenrolling(false)}
+            onCreated={() => {
+              activeList.refresh();
+              if (historyReady) historyList.refresh();
+            }}
+          />
+        ) : null}
         {bulkEnrolling ? (
           <BulkEnrolmentWindow
             onClose={() => setBulkEnrolling(false)}
@@ -448,11 +458,32 @@ export function EnrolmentsPage() {
           />
         ) : null}
 
-        {movementStudentId ? (
+        {movementFor || movementStudentId ? (
           <MovementHistoryWindow
-            key={movementStudentId}
-            onClose={() => setMovementStudentId("")}
+            key={
+              movementFor?.enrolment?.public_id ??
+              (movementStudentId || movementFor?.studentId)
+            }
+            onClose={() => {
+              setMovementFor(null);
+              setMovementStudentId("");
+            }}
             studentId={movementStudentId}
+            {...movementFor}
+            onChanged={() => {
+              activeList.refresh();
+              if (historyReady) historyList.refresh();
+            }}
+          />
+        ) : null}
+        {transferFor ? (
+          <StudentTransferWindow
+            {...transferFor}
+            onClose={() => setTransferFor(null)}
+            onChanged={() => {
+              activeList.refresh();
+              if (historyReady) historyList.refresh();
+            }}
           />
         ) : null}
       </Suspense>
