@@ -1,6 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
+import { useLocation } from "react-router-dom";
+import { selectOption } from "./helpers/selectOption.jsx";
 
 import { GuardiansPage } from "@guardians/GuardiansPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
@@ -26,15 +28,21 @@ vi.mock("@guardians/guardiansService.js", () => ({
 
 const downloadCsvMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@shared/utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
+vi.mock("@shared/utils/csv.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  triggerCsvDownload: downloadCsvMock,
+}));
 
-/** Sobre paginado de DRF: la pantalla solo pide la pagina visible. */
-const page = (rows, count = rows.length) => ({
+const paged = (results, count = results.length, next = null) => ({
+  results,
   count,
-  next: null,
+  next,
   previous: null,
-  results: rows,
 });
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.search}</output>;
+}
 
 const SAMPLE = [
   {
@@ -63,32 +71,14 @@ const SAMPLE = [
 describe("GuardiansPage", () => {
   beforeEach(() => {
     guardiansServiceMock.list.mockReset();
-    guardiansServiceMock.listPage.mockReset();
+    guardiansServiceMock.listPage.mockReset().mockResolvedValue(paged(SAMPLE));
     guardiansServiceMock.create.mockReset();
     guardiansServiceMock.update.mockReset();
     downloadCsvMock.mockReset();
   });
 
-  test("exports every page of the current search as CSV", async () => {
-    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE));
-    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
-    const user = userEvent.setup();
-    renderWithRouter(<GuardiansPage />, { route: "/?search=Garcia" });
-
-    await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
-
-    await waitFor(() => expect(downloadCsvMock).toHaveBeenCalledTimes(1));
-    expect(guardiansServiceMock.list).toHaveBeenCalledWith({
-      search: "Garcia",
-    });
-    const [filename, , rows] = downloadCsvMock.mock.calls[0];
-    expect(filename).toBe("padres-de-familia.csv");
-    expect(rows).toEqual(SAMPLE);
-  });
-
-  test("asks the server only for the visible page and shows its total", async () => {
-    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE, 100));
+  test("renders the list once loaded", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     renderWithRouter(<GuardiansPage />);
 
     expect(
@@ -97,36 +87,186 @@ describe("GuardiansPage", () => {
     expect(
       within(screen.getByRole("table")).getByText("rosa@example.test")
     ).toBeInTheDocument();
-    expect(guardiansServiceMock.listPage).toHaveBeenCalledTimes(1);
-    expect(guardiansServiceMock.listPage).toHaveBeenCalledWith({
-      page: 1,
-      page_size: 25,
-    });
-    expect(guardiansServiceMock.list).not.toHaveBeenCalled();
-    expect(screen.getByText("100 encargados registrados.")).toBeInTheDocument();
+    expect(screen.getByText(/Mostrando 1–2 de 2/)).toBeInTheDocument();
   });
 
-  test("sends the search to the server and shows its empty state", async () => {
-    guardiansServiceMock.listPage.mockImplementation(async (params) =>
-      params.search ? page([]) : page(SAMPLE)
+  test("consulta una página y recupera búsqueda, tamaño y actividad desde URL", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE, 2500));
+    renderWithRouter(<GuardiansPage />, {
+      route:
+        "/app/padres-de-familia?page=2&page_size=50&search=Rosa&include_inactive=1",
+    });
+    await screen.findByText("Rosa Elvira Garcia Mendez");
+    expect(guardiansServiceMock.listPage).toHaveBeenCalledExactlyOnceWith({
+      page: 2,
+      page_size: 50,
+      search: "Rosa",
+      include_inactive: true,
+    });
+    expect(guardiansServiceMock.list).not.toHaveBeenCalled();
+    expect(screen.getByText(/2500 encargados encontrados/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: "Mostrar desactivados" })
+    ).toBeChecked();
+  });
+
+  test("pagina, cambia tamaño y busca en el servidor sin perder letras", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE, 2500));
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <GuardiansPage />
+        <LocationProbe />
+      </>
     );
+    await screen.findByText("Rosa Elvira Garcia Mendez");
+    await user.click(screen.getByRole("button", { name: "Siguiente" }));
+    await waitFor(() =>
+      expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 2,
+        page_size: 25,
+      })
+    );
+    await selectOption(user, /Filas por página/, "50");
+    await waitFor(() =>
+      expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 50,
+      })
+    );
+    await user.type(
+      screen.getByPlaceholderText(/Buscar por nombre/),
+      "Rosa Elvira"
+    );
+    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
+    await waitFor(() =>
+      expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 50,
+        search: "Rosa Elvira",
+      })
+    );
+    expect(screen.getByPlaceholderText(/Buscar por nombre/)).toHaveValue(
+      "Rosa Elvira"
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "search=Rosa+Elvira"
+    );
+  });
+
+  test("combina actividad y búsqueda, muestra desactivados y limpia conservando tamaño", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(
+      paged([{ ...SAMPLE[0], is_active: false }])
+    );
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <GuardiansPage />
+        <LocationProbe />
+      </>,
+      { route: "/app/padres-de-familia?page=3&page_size=50&search=Rosa" }
+    );
+    await screen.findByText("Rosa Elvira Garcia Mendez");
+    await user.click(
+      screen.getByRole("switch", { name: "Mostrar desactivados" })
+    );
+    await waitFor(() =>
+      expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 50,
+        search: "Rosa",
+        include_inactive: true,
+      })
+    );
+    expect(await screen.findByText("Desactivado")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Limpiar", exact: true })
+    );
+    await waitFor(() =>
+      expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 50,
+      })
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("?page_size=50");
+  });
+
+  test("exporta 1001 filas con los filtros vigentes sin recorrer el padrón al abrir", async () => {
+    const rows = Array.from({ length: 1001 }, (_, index) => ({
+      ...SAMPLE[0],
+      id: index + 1,
+      is_active: index !== 1000,
+      person: { ...SAMPLE[0].person, last_name: `Demostracion ${index + 1}` },
+    }));
+    guardiansServiceMock.listPage.mockImplementation(
+      async ({ page, page_size }) =>
+        paged(
+          rows.slice((page - 1) * page_size, page * page_size),
+          rows.length,
+          page * page_size < rows.length ? "next" : null
+        )
+    );
+    const user = userEvent.setup();
+    renderWithRouter(<GuardiansPage />, {
+      route:
+        "/app/padres-de-familia?page=2&search=Demostracion&include_inactive=1",
+    });
+    await screen.findByText("Rosa Elvira Demostracion 26");
+    expect(guardiansServiceMock.listPage).toHaveBeenCalledTimes(1);
+    expect(downloadCsvMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    await waitFor(() => expect(downloadCsvMock).toHaveBeenCalledTimes(1));
+    const [filename, csv] = downloadCsvMock.mock.calls[0];
+    expect(filename).toBe("padres-de-familia.csv");
+    expect(csv).toContain("Rosa Elvira Demostracion 1001");
+    expect(csv).toContain("Desactivado");
+    expect(csv.trim().split(/\r?\n/)).toHaveLength(1002);
+    const calls = guardiansServiceMock.listPage.mock.calls.slice(1);
+    expect(calls).toHaveLength(11);
+    calls.forEach(([params], index) =>
+      expect(params).toEqual({
+        page: index + 1,
+        page_size: 100,
+        search: "Demostracion",
+        include_inactive: true,
+      })
+    );
+  });
+
+  test("una página ya inexistente permite volver a la primera sin eliminar filtros", async () => {
+    guardiansServiceMock.listPage
+      .mockRejectedValueOnce(new Error("Página no disponible."))
+      .mockResolvedValue(paged(SAMPLE));
+    const user = userEvent.setup();
+    renderWithRouter(<GuardiansPage />, {
+      route: "/app/padres-de-familia?page=9&search=Rosa&include_inactive=1",
+    });
+    await screen.findByText("Página no disponible.");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Volver a primera página" })
+    );
+    await screen.findByText("Rosa Elvira Garcia Mendez");
+    expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 25,
+      search: "Rosa",
+      include_inactive: true,
+    });
+  });
+
+  test("shows an empty state when the search does not match", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.type(
-      screen.getByPlaceholderText("Buscar por nombre o CUI…"),
-      "Nadie"
-    );
+    guardiansServiceMock.listPage.mockResolvedValue(paged([]));
+    await user.type(screen.getByPlaceholderText(/Buscar por nombre/), "Nadie");
 
     expect(
-      await screen.findByText("Sin resultados para la busqueda.")
+      await screen.findByText("Sin encargados para los filtros seleccionados.")
     ).toBeInTheDocument();
-    expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith({
-      page: 1,
-      page_size: 25,
-      search: "Nadie",
-    });
   });
 
   test("shows the service error instead of the table", async () => {
@@ -138,10 +278,17 @@ describe("GuardiansPage", () => {
     expect(
       await screen.findByText("Solicitud no completada.")
     ).toBeInTheDocument();
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Reintentar listado" }));
+    expect(
+      await screen.findByText("Rosa Elvira Garcia Mendez")
+    ).toBeInTheDocument();
   });
 
   test("opens the detail panel for a row", async () => {
-    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE));
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<GuardiansPage />);
 
@@ -156,7 +303,8 @@ describe("GuardiansPage", () => {
   });
 
   test("submits the create form against the service", async () => {
-    const createdGuardian = {
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
+    const created = {
       id: 3,
       person: {
         public_id: "person-33",
@@ -166,10 +314,10 @@ describe("GuardiansPage", () => {
         phone_number: "",
       },
     };
+    guardiansServiceMock.create.mockResolvedValue(created);
     guardiansServiceMock.listPage
-      .mockResolvedValueOnce(page(SAMPLE))
-      .mockResolvedValueOnce(page([...SAMPLE, createdGuardian]));
-    guardiansServiceMock.create.mockResolvedValue(createdGuardian);
+      .mockResolvedValueOnce(paged(SAMPLE))
+      .mockResolvedValue(paged([...SAMPLE, created]));
     const user = userEvent.setup();
     renderWithRouter(<GuardiansPage />);
 
@@ -193,14 +341,11 @@ describe("GuardiansPage", () => {
         },
       })
     );
-    await waitFor(() =>
-      expect(guardiansServiceMock.listPage).toHaveBeenCalledTimes(2)
-    );
     expect(await screen.findByText("Nuevo Encargado")).toBeInTheDocument();
   }, 10000);
 
-  test("edits a guardian via the detail panel", async () => {
-    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE));
+  test("edits a guardian and refreshes the filtered page without inserting a local row", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     guardiansServiceMock.update.mockResolvedValue({
       id: 1,
       person: {
@@ -214,11 +359,14 @@ describe("GuardiansPage", () => {
       },
     });
     const user = userEvent.setup();
-    renderWithRouter(<GuardiansPage />);
+    renderWithRouter(<GuardiansPage />, {
+      route: "/app/padres-de-familia?search=Mendez",
+    });
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
     await user.click(screen.getByRole("button", { name: "Editar" }));
+    guardiansServiceMock.listPage.mockResolvedValue(paged([]));
 
     const lastNameInput = screen.getByLabelText(/^Apellidos/);
     expect(lastNameInput).toHaveValue("Garcia Mendez");
@@ -251,10 +399,19 @@ describe("GuardiansPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Rosa Elvira Garcia Lopez" })
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(guardiansServiceMock.listPage).toHaveBeenCalledTimes(2)
+    );
+    expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: "Mendez", page: 1 })
+    );
+    expect(
+      await screen.findByText("Sin encargados para los filtros seleccionados.")
+    ).toBeInTheDocument();
   });
 
   test("requires the mandatory fields before submitting", async () => {
-    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE));
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<GuardiansPage />);
 

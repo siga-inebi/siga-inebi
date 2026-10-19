@@ -3,13 +3,15 @@ import { useState } from "react";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import AddIcon from "@mui/icons-material/Add";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
 
 import { guardiansService } from "@guardians/guardiansService.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { useServerList } from "@shared/crud/useServerList.js";
-import { downloadCsv } from "@shared/utils/csv.js";
+import { ExportCsvButton } from "@ui/buttons/ExportCsvButton.jsx";
+import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
@@ -102,9 +104,19 @@ function guardianColumns({ onView }) {
     },
     {
       key: "telefono",
-      label: "Telefono",
+      label: "Teléfono",
       render: (item) =>
         item.person.phone_number || <MutedCell>Sin registrar</MutedCell>,
+    },
+    {
+      key: "actividad",
+      label: "Actividad",
+      render: (guardian) => (
+        <StatusChip
+          label={activityLabel(guardian)}
+          variant={guardian.is_active === false ? "neutral" : "success"}
+        />
+      ),
     },
     {
       key: "detalle",
@@ -121,40 +133,19 @@ function guardianColumns({ onView }) {
 }
 
 export function GuardiansPage() {
-  // Solo la pagina visible: la busqueda (nombre o CUI) y la paginacion las
-  // resuelve el backend, no el navegador.
   const list = useServerList({
-    queryKey: queryKeys.guardians.all,
+    queryKey: [...queryKeys.guardians.all, "list"],
     fetchPage: guardiansService.listPage,
+    canIncludeInactive: true,
   });
+  const updating =
+    list.loading ||
+    list.fetching ||
+    list.search.trim() !== (list.params.search ?? "");
 
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState("");
-
-  // La exportacion si recorre todas las paginas, con la busqueda vigente.
-  const handleExport = async () => {
-    setExporting(true);
-    setExportError("");
-    try {
-      const rows = await guardiansService.list(list.exportParams);
-      downloadCsv(
-        "padres-de-familia.csv",
-        [
-          { label: "Nombre", value: fullName },
-          { label: "Correo", value: (item) => item.person.email },
-          { label: "Telefono", value: (item) => item.person.phone_number },
-        ],
-        rows
-      );
-    } catch (requestError) {
-      setExportError(requestError.message);
-    } finally {
-      setExporting(false);
-    }
-  };
 
   const handleCreate = async (values) => {
     await guardiansService.create({
@@ -197,56 +188,89 @@ export function GuardiansPage() {
           </Button>
         }
         breadcrumb="Comunidad educativa"
-        subtitle={`${list.count} encargados registrados.`}
+        subtitle={
+          list.error
+            ? "No se pudo consultar el listado."
+            : updating
+              ? "Consultando encargados\u2026"
+              : `${list.count} encargados encontrados.`
+        }
         title="Padres de familia"
       />
 
       <SectionCard fillHeight>
         <FilterBar
           actions={
-            <Button
-              disabled={exporting}
-              onClick={handleExport}
-              size="small"
-              startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              {exporting ? "Exportando…" : "Exportar CSV"}
-            </Button>
+            <ExportCsvButton
+              fetchPage={guardiansService.listPage}
+              params={list.exportParams}
+              filename="padres-de-familia.csv"
+              columns={CSV_COLUMNS}
+              disabled={updating || Boolean(list.error)}
+            />
+          }
+          onClear={
+            list.search || list.includeInactive
+              ? () => {
+                  list.setSearch("");
+                  list.setIncludeInactive(false);
+                }
+              : undefined
           }
         >
           <SearchField
+            debounceMs={0}
             onChange={list.setSearch}
             placeholder="Buscar por nombre o CUI…"
             value={list.search}
           />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={list.includeInactive}
+                size="small"
+                onChange={(event) =>
+                  list.setIncludeInactive(event.target.checked)
+                }
+              />
+            }
+            label="Mostrar desactivados"
+          />
         </FilterBar>
 
-        {list.error || exportError ? (
+        {list.error ? (
           <Alert
             role="alert"
             severity="error"
             sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
           >
-            {list.error || exportError}
+            {list.error}
+            <Button onClick={list.refresh}>Reintentar listado</Button>
+            {list.page > 1 ? (
+              <Button onClick={() => list.goToPage(1)}>
+                Volver a primera página
+              </Button>
+            ) : null}
           </Alert>
         ) : null}
 
-        <SectionTableArea>
-          <DataTable
-            columns={guardianColumns({ onView: setSelected })}
-            emptyMessage={
-              list.search
-                ? "Sin resultados para la busqueda."
-                : "Todavia no hay encargados registrados."
-            }
-            fillHeight
-            loading={list.loading}
-            onRowClick={setSelected}
-            pagination={list.pagination}
-            rows={list.items}
-          />
-        </SectionTableArea>
+        {!list.error ? (
+          <SectionTableArea>
+            <DataTable
+              columns={guardianColumns({ onView: setSelected })}
+              emptyMessage={
+                list.search || list.includeInactive
+                  ? "Sin encargados para los filtros seleccionados."
+                  : "No hay encargados registrados."
+              }
+              fillHeight
+              loading={updating}
+              onRowClick={setSelected}
+              pagination={list.pagination}
+              rows={list.items}
+            />
+          </SectionTableArea>
+        ) : null}
       </SectionCard>
 
       <DetailWindow
@@ -262,7 +286,8 @@ export function GuardiansPage() {
             ? [
                 { label: "Nombre completo", value: fullName(selected) },
                 { label: "Correo", value: selected.person.email },
-                { label: "Telefono", value: selected.person.phone_number },
+                { label: "Teléfono", value: selected.person.phone_number },
+                { label: "Actividad", value: activityLabel(selected) },
               ]
             : []
         }
@@ -307,3 +332,12 @@ export function GuardiansPage() {
     </>
   );
 }
+
+const activityLabel = (guardian) =>
+  guardian.is_active === false ? "Desactivado" : "Activo";
+const CSV_COLUMNS = [
+  { label: "Nombre", value: fullName },
+  { label: "Correo", value: (item) => item.person.email },
+  { label: "Tel\u00e9fono", value: (item) => item.person.phone_number },
+  { label: "Actividad", value: activityLabel },
+];
