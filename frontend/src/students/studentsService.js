@@ -3,6 +3,15 @@ import { collectAllPages } from "@shared/api/pages.js";
 import { withQuery } from "@shared/api/query.js";
 
 export const studentsService = {
+  getRecord: (id) => apiClient.get(`/students/records/${id}/`),
+  listRecordGuardians: (id, params) =>
+    apiClient.get(withQuery(`/students/records/${id}/guardians/`, params)),
+  listHealthNotesPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/health-notes/`, params)),
+  listObservationsPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/observations/`, params)),
+  listEmergencyContactsPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/emergency-contacts/`, params)),
   /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
   listPage: (params) => apiClient.get(withQuery("/students/", params)),
   // AlumnosPage pagina, busca y exporta del lado del cliente, asi que necesita

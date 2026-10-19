@@ -1,5 +1,7 @@
 from django.urls import path
 
+from apps.documents.api.views import StudentDocumentRecordListView
+
 from .views import (
     DocumentBatchCompileView,
     DocumentDeliveryReceiptCreateView,
@@ -28,6 +30,11 @@ from .views import (
 )
 
 urlpatterns = [
+    path(
+        "students/<uuid:student_id>/records/",
+        StudentDocumentRecordListView.as_view(),
+        name="student-document-record-list",
+    ),
     path(
         "templates/issuance-uses/",
         TemplateIssuanceUseListView.as_view(),

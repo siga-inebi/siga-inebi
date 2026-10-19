@@ -25,6 +25,11 @@ const LoginPage = lazy(() =>
 const HomePage = lazy(() =>
   import("@dashboard/HomePage.jsx").then((m) => ({ default: m.HomePage }))
 );
+const StudentRecordPage = lazy(() =>
+  import("@students/StudentRecordPage.jsx").then((module) => ({
+    default: module.StudentRecordPage,
+  }))
+);
 
 /** Convierte un modulo del registro en un componente perezoso. */
 function lazyModule(item) {
@@ -80,6 +85,16 @@ function PrivateLayout({ children }) {
 export function AppRoutes() {
   return (
     <Routes>
+      <Route
+        path="/app/alumnos/:studentId"
+        element={
+          <PrivateRoute>
+            <PrivateLayout>
+              <StudentRecordPage />
+            </PrivateLayout>
+          </PrivateRoute>
+        }
+      />
       <Route
         element={
           <PublicShell>

@@ -55,6 +55,8 @@ export const MOVEMENT_TYPE_VARIANT = {
  * cada una.
  */
 export const enrolmentsService = {
+  listStudentRecord: (id, params) =>
+    apiClient.get(withQuery(`${ROOT}/students/${id}/record/`, params)),
   /** Matriculas vigentes. Filtrable por estudiante (RF-MAT-007). */
   listActive: (params) => apiClient.get(withQuery(`${ROOT}/active/`, params)),
 

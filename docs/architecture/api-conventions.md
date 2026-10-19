@@ -565,6 +565,19 @@ Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad edu
   sus permisos dejan de ser efectivos. Un encargado conserva su cuenta y otros estudiantes
   vigentes, pero pierde el alcance derivado sobre el estudiante retirado.
 
+## Expediente del estudiante con pestanas (#632)
+
+La ruta frontend `/app/alumnos/{public_id}?tab={seccion}` usa lecturas especificas
+paginadas y autorizadas: `GET /students/records/{public_id}/`,
+`GET /students/records/{public_id}/guardians/`,
+`GET /enrolments/students/{student_id}/record/` y
+`GET /documents/students/{student_id}/records/` bajo `/api/v1/`.
+`GET /attendance/events/` agrega el filtro UUID opcional `student_id`, validado
+antes de paginar y combinado con el alcance existente. No cambia campos de
+persona ni expone CUI/fecha de nacimiento. Los contratos previos se conservan.
+Campos, permisos, paginacion, limites y evidencia en
+[expediente con pestanas](student-record-tabs-ui.md).
+
 ## Uso de emisión de plantillas (#632, D7)
 
 `DocumentTemplate` y sus versiones agregan `issuance_use`:

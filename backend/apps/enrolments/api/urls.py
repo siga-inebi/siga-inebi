@@ -4,6 +4,7 @@ from apps.enrolments.api.initial_matriculations import (
     BulkMatriculationCreateView,
     InitialMatriculationCandidatesView,
 )
+from apps.enrolments.api.student_record import StudentRecordEnrolmentsView
 from apps.enrolments.api.views import (
     ActiveEnrolmentListView,
     BulkReenrolmentCreateView,
@@ -25,6 +26,11 @@ from apps.enrolments.api.views import (
 )
 
 urlpatterns = [
+    path(
+        "students/<uuid:student_id>/record/",
+        StudentRecordEnrolmentsView.as_view(),
+        name="student-record-enrolments",
+    ),
     path(
         "matriculations/bulk/",
         BulkMatriculationCreateView.as_view(),

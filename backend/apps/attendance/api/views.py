@@ -28,6 +28,7 @@ from .serializers import (
     AbsenceNotificationSerializer,
     AttendanceAlertSerializer,
     AttendanceEventCreateSerializer,
+    AttendanceEventListQuerySerializer,
     AttendanceEventResolutionQuerySerializer,
     AttendanceEventSerializer,
     AttendancePercentageQuerySerializer,
@@ -137,6 +138,7 @@ class JornadaParametersListCreateView(GenericAPIView):
 @extend_schema_view(
     get=extend_schema(
         summary="Listar movimientos de asistencia",
+        parameters=[AttendanceEventListQuerySerializer],
         description=(
             "Entradas y salidas dentro del alcance del actor. Incluye los "
             "movimientos suprimidos por duplicado (`is_active=false`): el registro "
@@ -160,10 +162,13 @@ class AttendanceEventListCreateView(GenericAPIView):
     serializer_class = AttendanceEventSerializer
 
     def get_queryset(self):
+        query = AttendanceEventListQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
         return queries.attendance_events(
+            student_id=query.validated_data.get("student_id"),
             students=authorized_student_queryset(
                 user=self.request.user, codename=STUDENT_VIEW_PERMISSION
-            )
+            ),
         )
 
     def get(self, request):

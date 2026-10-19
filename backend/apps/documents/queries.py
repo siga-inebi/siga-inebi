@@ -124,6 +124,14 @@ def document_records_for_enrolment(enrolment):
     )
 
 
+def document_records_for_student(student):
+    return (
+        DocumentRecord.objects.filter(student=student)
+        .select_related("enrolment")
+        .order_by("-created_at", "-pk")
+    )
+
+
 def document_issuance_or_404(public_id):
     try:
         return DocumentIssuance.objects.select_related("student").get(public_id=public_id)
