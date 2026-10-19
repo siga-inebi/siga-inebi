@@ -90,6 +90,28 @@ describe("servicios de los modulos", () => {
   });
 
   describe("enrolmentsService", () => {
+    test("consulta candidatos paginados y envía el lote en una petición", async () => {
+      await enrolmentsService.listInitialCandidates({
+        page: 2,
+        section_id: "s1",
+        search: "Ana",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/enrolments/matriculations/candidates/?page=2&section_id=s1&search=Ana"
+      );
+      const payload = {
+        section_id: "s1",
+        student_ids: ["a", "b"],
+        preview: true,
+      };
+      await enrolmentsService.bulkMatriculate(payload);
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/enrolments/matriculations/bulk/",
+        payload
+      );
+    });
+
     test("candidatos se filtran en servidor y reinscripcion usa un POST por lote", async () => {
       await enrolmentsService.listReenrolmentCandidates({
         academic_cycle_id: CYCLE,

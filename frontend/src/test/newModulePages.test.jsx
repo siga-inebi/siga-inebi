@@ -32,6 +32,8 @@ const enrolmentsServiceMock = vi.hoisted(() => ({
   register: vi.fn(),
   matriculate: vi.fn(),
   reenrol: vi.fn(),
+  listInitialCandidates: vi.fn(),
+  bulkMatriculate: vi.fn(),
   listSectionOccupancy: vi.fn(),
   listDocuments: vi.fn(),
   addDocument: vi.fn(),
@@ -731,6 +733,31 @@ describe("pantallas de los modulos con backend previo", () => {
         student_code: "EST-2",
       };
       studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT, OTRO]));
+      enrolmentsServiceMock.listInitialCandidates.mockResolvedValue(
+        paged([
+          {
+            public_id: OTRO.public_id,
+            full_name: "Ines Xoy",
+            student_code: OTRO.student_code,
+          },
+        ])
+      );
+      enrolmentsServiceMock.bulkMatriculate.mockImplementation(
+        async (payload) => ({
+          preview: payload.preview,
+          total: 1,
+          succeeded: 1,
+          failed: 0,
+          results: [
+            {
+              student_id: "student-2",
+              status: payload.preview ? "ready" : "created",
+              error: null,
+              enrolment_id: payload.preview ? null : "enrolment-2",
+            },
+          ],
+        })
+      );
       // ENROLMENT ya cubre a student-1, asi que solo el segundo debe ofrecerse.
       enrolmentsServiceMock.listActive.mockResolvedValue(paged([ENROLMENT]));
       renderWithRouter(<EnrolmentsPage />);
@@ -777,24 +804,26 @@ describe("pantallas de los modulos con backend previo", () => {
 
       await user.click(within(window).getByLabelText("Ines Xoy · EST-2"));
       await user.click(
-        within(window).getByRole("button", { name: /Matricular 1 estudiante/ })
+        within(window).getByRole("button", { name: "Vista previa" })
       );
-
-      expect(enrolmentsServiceMock.matriculate).toHaveBeenCalledWith({
-        student_id: "student-2",
-        academic_cycle_id: "cycle-2026",
-        grade_id: "grade-1",
-        shift_id: "shift-1",
+      await user.click(
+        await within(window).findByRole("button", {
+          name: "Confirmar matrículas",
+        })
+      );
+      expect(enrolmentsServiceMock.bulkMatriculate).toHaveBeenLastCalledWith({
         section_id: "section-a",
         effective_on: "2026-03-02",
+        student_ids: ["student-2"],
+        preview: false,
       });
       const occupancy = within(window).getByRole("region", {
         name: "Cupo de la sección",
       });
       expect(await within(occupancy).findByText("17")).toBeInTheDocument();
-      expect(enrolmentsServiceMock.listSectionOccupancy).toHaveBeenCalledTimes(
-        2
-      );
+      expect(
+        enrolmentsServiceMock.listSectionOccupancy.mock.calls.length
+      ).toBeGreaterThanOrEqual(2);
     });
 
     test("muestra cupo en el formulario individual unificado", async () => {

@@ -1,5 +1,9 @@
 from django.urls import path
 
+from apps.enrolments.api.initial_matriculations import (
+    BulkMatriculationCreateView,
+    InitialMatriculationCandidatesView,
+)
 from apps.enrolments.api.views import (
     ActiveEnrolmentListView,
     BulkReenrolmentCreateView,
@@ -21,6 +25,16 @@ from apps.enrolments.api.views import (
 )
 
 urlpatterns = [
+    path(
+        "matriculations/bulk/",
+        BulkMatriculationCreateView.as_view(),
+        name="bulk-matriculation-create",
+    ),
+    path(
+        "matriculations/candidates/",
+        InitialMatriculationCandidatesView.as_view(),
+        name="initial-matriculation-candidates",
+    ),
     path("active/", ActiveEnrolmentListView.as_view(), name="active-enrolment-list"),
     path("history/", EnrolmentHistoryListView.as_view(), name="enrolment-history-list"),
     path("movements/", StudentMovementListView.as_view(), name="student-movement-list"),

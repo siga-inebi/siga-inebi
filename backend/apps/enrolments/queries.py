@@ -9,6 +9,27 @@ from apps.identity.scopes import authorized_student_queryset
 from apps.students.models import Student
 
 
+def initial_matriculation_candidates(*, actor, section, search=""):
+    from django.db.models import Exists, OuterRef, Q
+
+    from apps.identity.scopes import authorized_student_queryset
+
+    rows = authorized_student_queryset(
+        user=actor, codename="student_view_basic", queryset=Student.objects.filter(is_active=True)
+    )
+    unavailable = Enrolment.objects.filter(student_id=OuterRef("pk")).filter(
+        Q(status="active") | Q(section=section)
+    )
+    rows = rows.annotate(unavailable=Exists(unavailable)).filter(unavailable=False)
+    for term in search.split():
+        rows = rows.filter(
+            Q(student_code__icontains=term)
+            | Q(person__first_name__icontains=term)
+            | Q(person__last_name__icontains=term)
+        )
+    return rows.select_related("person").order_by("student_code", "pk")
+
+
 def _get(queryset, public_id, label):
     try:
         return queryset.get(public_id=public_id)
