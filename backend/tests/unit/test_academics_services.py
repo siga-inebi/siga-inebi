@@ -463,7 +463,8 @@ def test_clone_cycle_is_atomic_and_leaves_no_partial_rows_on_failure(monkeypatch
     assert not AuditEvent.objects.filter(action="academics.cycle.created").exists()
 
 
-def test_clone_cycle_can_omit_teaching_assignments_and_requires_closed_source():
+def test_clone_cycle_rejects_draft_source_with_clear_message():
+    """D2 (ADR-0011): a draft is still being written, so it cannot be cloned."""
     source = AcademicCycleFactory(
         year=2026,
         starts_on=date(2026, 1, 1),
@@ -471,7 +472,7 @@ def test_clone_cycle_can_omit_teaching_assignments_and_requires_closed_source():
         status=AcademicCycle.CycleStatus.DRAFT,
     )
 
-    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
+    with pytest.raises(DomainError, match="No se puede clonar un ciclo en borrador"):
         clone_academic_cycle(
             source_cycle=source,
             year=2027,
@@ -479,6 +480,85 @@ def test_clone_cycle_can_omit_teaching_assignments_and_requires_closed_source():
             starts_on=date(2027, 1, 1),
             ends_on=date(2027, 12, 31),
         )
+
+    assert not AcademicCycle.objects.filter(year=2027).exists()
+
+
+def test_clone_cycle_from_active_source_copies_only_current_assignments():
+    """D2 (ADR-0011): an ACTIVE cycle can be cloned to prepare the next one."""
+    source = AcademicCycleFactory(
+        year=2026,
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 12, 31),
+        status=AcademicCycle.CycleStatus.ACTIVE,
+    )
+    offering = GradeOfferingFactory(academic_cycle=source)
+    section = SectionFactory(academic_cycle=source, grade=offering.grade, shift=offering.shift)
+    subject = SubjectFactory(institution=source.institution)
+    CurriculumPlan.objects.create(academic_cycle=source, grade=offering.grade, subject=subject)
+    former = TeacherFactory()
+    current = TeacherFactory()
+    TeachingAssignment.objects.create(
+        academic_cycle=source,
+        section=section,
+        subject=subject,
+        teacher=former.person,
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 5, 31),
+    )
+    TeachingAssignment.objects.create(
+        academic_cycle=source,
+        section=section,
+        subject=subject,
+        teacher=current.person,
+        starts_on=date(2026, 6, 1),
+    )
+
+    cloned = clone_academic_cycle(
+        source_cycle=source,
+        year=2027,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+        include_teaching_assignments=True,
+    )
+
+    source.refresh_from_db()
+    assert source.status == AcademicCycle.CycleStatus.ACTIVE
+    assert cloned.status == AcademicCycle.CycleStatus.DRAFT
+    assert cloned.grade_offerings.get().sections.get().name == section.name
+    assert cloned.curriculum_plans.get().subject == subject
+    copied = cloned.teaching_assignments.get()
+    assert copied.teacher == current.person
+    assert copied.ends_on is None
+
+
+def test_clone_cycle_can_omit_teaching_assignments():
+    source = AcademicCycleFactory(
+        year=2026,
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 12, 31),
+        status=AcademicCycle.CycleStatus.CLOSED,
+    )
+    offering = GradeOfferingFactory(academic_cycle=source)
+    section = SectionFactory(academic_cycle=source, grade=offering.grade, shift=offering.shift)
+    subject = SubjectFactory(institution=source.institution)
+    TeachingAssignment.objects.create(
+        academic_cycle=source,
+        section=section,
+        subject=subject,
+        teacher=TeacherFactory().person,
+        starts_on=source.starts_on,
+    )
+
+    cloned = clone_academic_cycle(
+        source_cycle=source,
+        year=2027,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+    )
+
+    assert cloned.grade_offerings.get().sections.count() == 1
+    assert not cloned.teaching_assignments.exists()
 
 
 def test_activate_cycle_reports_grade_without_curriculum_plan():

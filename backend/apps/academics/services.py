@@ -418,10 +418,20 @@ def clone_academic_cycle(
     include_teaching_assignments=False,
     actor=None,
 ):
-    """Create an independent draft cycle from existing academic structure (RF-CIC-007)."""
+    """
+    Create an independent draft cycle from existing academic structure (RF-CIC-007).
+
+    D2 (ADR-0011): an ACTIVE cycle can be cloned to prepare the next one, as can
+    a CLOSED one. A DRAFT is rejected: its structure is still being written, so
+    a copy would freeze an unfinished plan into two places. Cloning copies the
+    current (``ends_on`` is null) teaching assignments only, whatever the
+    source status.
+    """
     source = AcademicCycle.objects.select_for_update().get(pk=source_cycle.pk)
-    if source.status != AcademicCycle.CycleStatus.CLOSED:
-        raise DomainError("Solo se puede clonar un ciclo escolar cerrado.")
+    if source.status == AcademicCycle.CycleStatus.DRAFT:
+        raise DomainError(
+            "No se puede clonar un ciclo en borrador; active o cierre el ciclo antes de clonarlo."
+        )
     target = create_academic_cycle(
         institution=source.institution,
         year=year,
