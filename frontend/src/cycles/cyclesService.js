@@ -100,10 +100,7 @@ export const cyclesService = {
     ),
   /** `{starts_on?, items: [{section_id, subject_id, teacher_id}]}` -> `{created, failed}`. */
   createAssignmentsBatch: (publicId, payload) =>
-    apiClient.post(
-      `${ROOT}/${publicId}/teaching-assignments/batch/`,
-      payload
-    ),
+    apiClient.post(`${ROOT}/${publicId}/teaching-assignments/batch/`, payload),
 
   // publicacion del horario (RF-HOR-009)
   schedulePublication: (publicId) =>
