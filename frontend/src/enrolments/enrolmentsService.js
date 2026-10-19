@@ -78,4 +78,11 @@ export const enrolmentsService = {
     apiClient.get(withQuery(`${ROOT}/${enrolmentId}/documents/`, params)),
   addDocument: (enrolmentId, payload) =>
     apiClient.post(`${ROOT}/${enrolmentId}/documents/`, payload),
+
+  changeSection: (enrolmentId, payload) =>
+    apiClient.post(`${ROOT}/${enrolmentId}/section-change/`, payload),
+  withdraw: (enrolmentId, payload) =>
+    apiClient.post(`${ROOT}/${enrolmentId}/withdrawal/`, payload),
+  annulMovement: (movementId, payload) =>
+    apiClient.post(`${ROOT}/movements/${movementId}/annulment/`, payload),
 };

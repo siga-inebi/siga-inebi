@@ -49,6 +49,7 @@ def student_movements(*, student):
         "student",
         "source_enrolment",
         "target_enrolment",
+        "annulment",
     )
 
 

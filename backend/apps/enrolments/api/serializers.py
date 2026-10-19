@@ -24,6 +24,7 @@ class StudentMovementAnnulmentCreateSerializer(serializers.Serializer):
 
 
 class StudentMovementSerializer(serializers.ModelSerializer):
+    supports_annulment = serializers.BooleanField(read_only=True)
     annulment = StudentMovementAnnulmentSerializer(read_only=True, allow_null=True)
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     source_enrolment_id = serializers.UUIDField(
@@ -44,6 +45,7 @@ class StudentMovementSerializer(serializers.ModelSerializer):
             "source_enrolment_id",
             "target_enrolment_id",
             "annulment",
+            "supports_annulment",
             "created_at",
         ]
 

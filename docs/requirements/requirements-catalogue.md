@@ -261,3 +261,10 @@ Estado de implementacion inicial para todos requerimientos: `Not implemented`.
 | RNF-SEG-005 | Las descargas se resuelven con enlaces de vigencia breve atados al portador; sin rutas directas a archivos | Debe | document-management | Implemented | #296 | backend/apps/documents/services.py, backend/apps/documents/api/views.py, backend/tests/unit/test_documents_services.py, backend/tests/api/test_documents_api.py | Seguridad |
 | RNF-SEG-006 | Limitacion de tasa en las consultas publicas sin autenticacion | Debe | document-generation | Not implemented | #297 | TBD | Verificacion publica |
 | RNF-USA-001 | El permiso de camara se verifica al iniciar el turno, no en el primer escaneo | Debe | attendance-capture | Implemented | #298 | frontend/src/test/AttendancePage.test.jsx | UX operativa; no existe concepto de "iniciar turno" en la UI, se verifica al montar la pagina de captura de asistencia (el punto de entrada real del operador) |
+
+## Seguimiento UX de movimientos (#632)
+
+RF-MOV-002, RF-MOV-003, RF-MOV-004 y RF-MOV-008 incorporan UI de cambio de
+seccion, retiro y anulacion, con revision explicita y evidencia historica.
+Contrato, pruebas y alcance parcial en [Movimientos de matricula](../architecture/enrolment-movements-ui.md).
+M3 conserva pendientes los traslados de ingreso y egreso; no se declara completo el epic.

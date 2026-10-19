@@ -26,6 +26,7 @@ const cyclesServiceMock = vi.hoisted(() => ({
 const enrolmentsServiceMock = vi.hoisted(() => ({
   listActive: vi.fn(),
   listHistory: vi.fn(),
+  listMovements: vi.fn(),
   create: vi.fn(),
   matriculate: vi.fn(),
   reenrol: vi.fn(),
@@ -331,6 +332,9 @@ describe("pantallas de los modulos con backend previo", () => {
     enrolmentsServiceMock.listHistory
       .mockReset()
       .mockResolvedValue(paged([ENROLMENT]));
+    enrolmentsServiceMock.listMovements
+      .mockReset()
+      .mockResolvedValue(paged([]));
     enrolmentsServiceMock.listDocuments
       .mockReset()
       .mockResolvedValue(paged([]));
@@ -701,6 +705,27 @@ describe("pantallas de los modulos con backend previo", () => {
         screen.getByText(/elija uno en el filtro de arriba/)
       ).toBeInTheDocument();
       expect(enrolmentsServiceMock.listHistory).not.toHaveBeenCalled();
+    });
+
+    test("abre movimientos desde la fila con contexto de matricula vigente", async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await screen.findByText("Luis Perez · EST-1");
+      await user.click(
+        screen.getAllByRole("button", { name: "Movimientos de matrícula" })[0]
+      );
+      const dialog = await screen.findByRole("dialog", {
+        name: "Historial de movimientos",
+      });
+      expect(
+        within(dialog).getByText("Luis Perez · EST-1")
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByRole("tab", { name: "Registrar movimiento" })
+      ).toBeEnabled();
+      expect(enrolmentsServiceMock.listMovements).toHaveBeenCalledWith(
+        expect.objectContaining({ student_id: "student-1" })
+      );
     });
 
     test("abre el expediente documental de una matricula", async () => {
