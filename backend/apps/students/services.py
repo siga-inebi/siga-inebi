@@ -188,7 +188,9 @@ def guardian_can_access_student(*, user, student, when=None):
     return guardian_student_queryset(user=user).filter(pk=student.pk).exists()
 
 
+@transaction.atomic
 def deactivate_student(*, student, actor=None):
+    student = Student.objects.select_for_update().get(pk=student.pk)
     student.is_active = False
     student.status = student.StudentStatus.INACTIVE
     student.save(update_fields=["is_active", "status", "updated_at"])
@@ -200,6 +202,10 @@ def deactivate_student(*, student, actor=None):
         context={"student_code": student.student_code},
     )
     return student
+
+
+def student_deactivation_action(*, student, can_manage):
+    return {"deactivate": can_manage and student.is_active}
 
 
 def deactivate_guardian(*, guardian, actor=None):

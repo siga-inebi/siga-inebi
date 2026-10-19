@@ -3,6 +3,7 @@ import { collectAllPages } from "@shared/api/pages.js";
 import { withQuery } from "@shared/api/query.js";
 
 export const studentsService = {
+  deactivate: (id) => apiClient.del(`/students/${id}/`),
   getRecord: (id) => apiClient.get(`/students/records/${id}/`),
   listRecordGuardians: (id, params) =>
     apiClient.get(withQuery(`/students/records/${id}/guardians/`, params)),

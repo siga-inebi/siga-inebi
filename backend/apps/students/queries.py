@@ -28,6 +28,22 @@ def students(*, include_inactive=True, status=None):
     return queryset if status is None else queryset.filter(status=status)
 
 
+def student_dossier_queryset(*, actor):
+    from django.db.models import Exists, OuterRef
+
+    from apps.identity.scopes import authorized_student_queryset, effective_student_queryset
+
+    readable = authorized_student_queryset(
+        user=actor, codename="student_view_basic", queryset=students(include_inactive=True)
+    )
+    editable = (
+        effective_student_queryset(user=actor, codename="student_edit_basic")
+        if actor.has_atomic_permission("student_edit_basic")
+        else Student.objects.none()
+    )
+    return readable.annotate(record_can_manage=Exists(editable.filter(pk=OuterRef("pk"))))
+
+
 def guardians(*, include_inactive=True):
     from apps.students.models import Guardian
 

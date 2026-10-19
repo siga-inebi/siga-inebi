@@ -18,6 +18,7 @@ import { ImageDialog } from "@ui/display/ImageDialog.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { formatDateTime } from "@shared/utils/format.js";
 import { RecordForm } from "./RecordForm.jsx";
+import { StudentDeactivationForm } from "./StudentDeactivationForm.jsx";
 import {
   STUDENT_EDIT_FIELDS,
   STATUS_LABEL,
@@ -47,9 +48,19 @@ const TABS = [
   ["attendance", "Asistencia"],
 ];
 
-function DataPanel({ student, onSaved, onBusy }) {
+function DataPanel({ student, onSaved, onBusy, onDeactivated }) {
   const [editing, setEditing] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
   const [photo, setPhoto] = useState(false);
+  if (deactivating)
+    return (
+      <StudentDeactivationForm
+        student={student}
+        onCancel={() => setDeactivating(false)}
+        onBusy={onBusy}
+        onCompleted={onDeactivated}
+      />
+    );
   if (editing)
     return (
       <RecordForm
@@ -112,13 +123,20 @@ function DataPanel({ student, onSaved, onBusy }) {
   ];
   return (
     <Stack gap={2}>
-      <Button
-        sx={{ alignSelf: "flex-start" }}
-        variant="outlined"
-        onClick={() => setEditing(true)}
-      >
-        Editar
-      </Button>
+      <Stack direction="row" gap={1} useFlexGap flexWrap="wrap">
+        <Button
+          sx={{ alignSelf: "flex-start" }}
+          variant="outlined"
+          onClick={() => setEditing(true)}
+        >
+          Editar
+        </Button>
+        {student.actions?.deactivate ? (
+          <Button color="error" onClick={() => setDeactivating(true)}>
+            Desactivar estudiante
+          </Button>
+        ) : null}
+      </Stack>
       <Box
         component="dl"
         sx={{
@@ -165,6 +183,7 @@ function StudentRecord({ publicId }) {
   const [error, setError] = useState("");
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [success, setSuccess] = useState("");
   useEffect(() => {
     setVisited((current) =>
       current.includes(tab) ? current : [...current, tab]
@@ -200,6 +219,11 @@ function StudentRecord({ publicId }) {
           </Button>
         }
       />
+      {success ? (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {success}
+        </Alert>
+      ) : null}
       {error ? (
         <Alert severity="error">
           {error}
@@ -256,6 +280,13 @@ function StudentRecord({ publicId }) {
                       student={student}
                       onSaved={setStudent}
                       onBusy={setBusy}
+                      onDeactivated={() => {
+                        setSuccess(
+                          "Estudiante desactivado. El historial se conserva."
+                        );
+                        setStudent(null);
+                        setVersion((value) => value + 1);
+                      }}
                     />
                   ) : id === "guardians" ? (
                     <GuardiansPanel student={student} onBusy={setBusy} />

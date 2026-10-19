@@ -14,6 +14,7 @@ from apps.students.services import (
     create_student,
     create_student_guardian_relation,
     guardian_relation_actions,
+    student_deactivation_action,
     update_student,
 )
 
@@ -89,6 +90,16 @@ class StudentSerializer(serializers.ModelSerializer):
         validated_data.pop("person", None)
         actor = getattr(self.context.get("request"), "user", None)
         return update_student(student=instance, actor=actor, **validated_data)
+
+
+class StudentDossierSerializer(StudentSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(StudentSerializer.Meta):
+        fields = [*StudentSerializer.Meta.fields, "actions"]
+
+    def get_actions(self, instance) -> dict[str, bool]:
+        return student_deactivation_action(student=instance, can_manage=instance.record_can_manage)
 
 
 class GuardianSerializer(serializers.ModelSerializer):
