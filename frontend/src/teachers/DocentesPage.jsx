@@ -10,8 +10,11 @@ import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
 import { GrantAccessButton } from "@auth/GrantAccessButton.jsx";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
 import { teachersService } from "@teachers/teachersService.js";
+import { TeacherAssignments } from "@teachers/TeacherAssignments.jsx";
 import { TeacherDocumentsWindow } from "@teachers/TeacherDocumentsWindow.jsx";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
@@ -76,7 +79,7 @@ const TEACHER_FIELDS = [
   },
   {
     name: "employee_code",
-    label: "Codigo de empleado",
+    label: "Código de empleado",
     help: "Se genera solo. Cambielo si ya figura en contratos o planilla.",
   },
   { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
@@ -136,6 +139,8 @@ export function DocentesPage() {
   const list = useLocalList(loadTeachers, { filters, matches });
 
   const [selected, setSelected] = useState(null);
+  // "Qué imparte" consulta un listado que exige administrar asignaciones.
+  const canSeeAssignments = usePermissions().can(PERMISSION.SCOPE_ASSIGN);
   const [editing, setEditing] = useState(null);
   // Valores iniciales, no un booleano: ver el comentario homonimo en
   // AlumnosPage. El codigo sugerido se pide al abrir.
@@ -347,7 +352,7 @@ export function DocentesPage() {
                     <StatusChip label={selected.position} variant="primary" />
                   ),
                 },
-                { label: "Codigo de empleado", value: selected.employee_code },
+                { label: "Código de empleado", value: selected.employee_code },
                 {
                   label: "Fecha de nombramiento",
                   value: selected.appointment_date
@@ -355,7 +360,7 @@ export function DocentesPage() {
                     : null,
                 },
                 { label: "Correo", value: selected.person.email },
-                { label: "Telefono", value: selected.person.phone_number },
+                { label: "Teléfono", value: selected.person.phone_number },
                 {
                   label: "Foto",
                   value: selected.photo ? (
@@ -393,7 +398,14 @@ export function DocentesPage() {
         }}
         open={Boolean(selected)}
         title={selected ? fullName(selected) : ""}
-      />
+      >
+        {selected && canSeeAssignments ? (
+          <TeacherAssignments
+            key={selected.public_id}
+            teacherId={selected.public_id}
+          />
+        ) : null}
+      </DetailWindow>
 
       {documentsFor ? (
         <TeacherDocumentsWindow
