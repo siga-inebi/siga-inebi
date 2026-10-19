@@ -918,7 +918,7 @@ describe("Asistencia → Configuración", () => {
     );
 
     expect(
-      await screen.findByRole("dialog", { name: "Vista previa de camara" })
+      await screen.findByRole("dialog", { name: "Vista previa de cámara" })
     ).toBeInTheDocument();
     expect(attendanceServiceMock.createEvent).not.toHaveBeenCalled();
   });
@@ -977,7 +977,7 @@ describe("Asistencia — verificación preventiva de cámara (RNF-USA-001)", () 
 
     await waitFor(() => expect(stop).toHaveBeenCalled());
     expect(
-      screen.queryByText(/No se pudo acceder a la camara/)
+      screen.queryByText(/No se pudo acceder a la cámara/)
     ).not.toBeInTheDocument();
   });
 
@@ -990,7 +990,7 @@ describe("Asistencia — verificación preventiva de cámara (RNF-USA-001)", () 
 
     expect(
       await screen.findByText(
-        "No se pudo acceder a la camara. Habilita el permiso en el navegador y vuelve a intentarlo."
+        "No se pudo acceder a la cámara. Habilite el permiso en el navegador y vuelva a intentarlo."
       )
     ).toBeInTheDocument();
     // El aviso no bloquea: el operador sigue pudiendo escanear.
