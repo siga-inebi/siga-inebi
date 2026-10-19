@@ -68,7 +68,9 @@ export const MUTATION_RULES = [
   },
   {
     prefix: "/academics",
-    keys: [queryKeys.academics.all, ["catalog"]],
+    // `["search"]`: los selectores con busqueda de secciones, aulas y cursos
+    // llevan el ciclo o la sede en el nombre de la key.
+    keys: [queryKeys.academics.all, ["catalog"], ["search"]],
   },
   {
     prefix: "/enrolments",
