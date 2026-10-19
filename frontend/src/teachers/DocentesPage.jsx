@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
@@ -14,7 +14,6 @@ import { PERMISSION } from "@auth/permissions.js";
 import { usePermissions } from "@auth/usePermissions.js";
 import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
 import { teachersService } from "@teachers/teachersService.js";
-import { TeacherAssignments } from "@teachers/TeacherAssignments.jsx";
 import { TeacherDocumentsWindow } from "@teachers/TeacherDocumentsWindow.jsx";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
@@ -32,6 +31,13 @@ import { MutedCell } from "@ui/table/cells.jsx";
 import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
+
+// "Qué imparte" trae el servicio académico: se descarga al abrir la ficha.
+const TeacherAssignments = lazy(() =>
+  import("@teachers/TeacherAssignments.jsx").then((module) => ({
+    default: module.TeacherAssignments,
+  }))
+);
 
 const TEACHER_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
@@ -400,10 +406,12 @@ export function DocentesPage() {
         title={selected ? fullName(selected) : ""}
       >
         {selected && canSeeAssignments ? (
-          <TeacherAssignments
-            key={selected.public_id}
-            teacherId={selected.public_id}
-          />
+          <Suspense fallback={null}>
+            <TeacherAssignments
+              key={selected.public_id}
+              teacherId={selected.public_id}
+            />
+          </Suspense>
         ) : null}
       </DetailWindow>
 

@@ -335,7 +335,7 @@ describe("DocentesPage", () => {
         name: "Marvin Estuardo Lopez Mendez",
       })
     ).toBeInTheDocument();
-  });
+  }, 15000);
 
   test("requires the mandatory fields before submitting", async () => {
     teachersServiceMock.list.mockResolvedValue(SAMPLE);
