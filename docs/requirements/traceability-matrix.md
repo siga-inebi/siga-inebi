@@ -1,5 +1,40 @@
 # Traceability Matrix
 
+## Corrección de paginación del expediente — issue #632, E2 y sección 1.1.4
+
+RF-EXP-004: las relaciones de encargados se filtran por el UUID del estudiante y su alcance antes
+de paginar. Se conserva el listado sin filtro y el historial de vínculos finalizados.
+RF-EXP-005, RF-EXP-006 y RF-EXP-009: contactos, observaciones y salud mantienen sus permisos
+sensibles y permiten recorrer todas las páginas. Los estados de los RF existentes se conservan.
+
+| Hallazgo / requisito | Diseño y código | Pruebas verificables |
+| --- | --- | --- |
+| E2 / RF-EXP-004 | docs/architecture/api-conventions.md; backend/apps/students/{queries.py,api/serializers.py,api/views.py}; frontend/src/students/{studentsService.js,StudentGuardianRelations.jsx} | backend/tests/api/test_student_record_pagination_api.py: filtro antes de paginar, alcance, entradas inválidas e historial; frontend/src/test/StudentRecordPagination.test.jsx |
+| 1.1.4 / RF-EXP-005, RF-EXP-006, RF-EXP-009 | backend/apps/students/queries.py; frontend/src/students/{StudentRecordWindow.jsx,StudentRecordList.jsx,AlumnosPage.jsx,studentsService.js} | backend/tests/api/test_student_record_pagination_api.py: segunda página, alcance y desempate de fechas; frontend/src/test/{StudentRecordPagination.test.jsx,studentRecordServices.test.js,AlumnosPage.test.jsx} |
+
+La interfaz pide una página por navegación; permite alcanzar registros después del primero mil,
+reintentar errores, reiniciar la lista al registrar un elemento y descartar respuestas tardías de
+otro estudiante. Esta entrega utiliza el hook paginado existente; la migración a la base compartida
+de #630 y la paginación del padrón principal corresponden a su entrega posterior.
+
+Los contratos nuevos son aditivos y no requieren migraciones. El expediente con pestañas y la
+ampliación de los campos visibles en el detalle permanecen en E4/E11.
+
+Verificación local (17 de octubre de 2026): suite backend en PostgreSQL con base de pruebas
+nueva, 1789 aprobadas, 23 omitidas y 95,15 % de cobertura; frontend, 321 aprobadas en 38 archivos
+con cobertura de líneas de 85,23 %. Ruff, formato, ESLint, build y presupuesto estático, Bandit
+del dominio y comprobación de migraciones pendientes aprobaron.
+
+El primer recorrido completo con `--reuse-db` encontró cuatro fallos de identidad: la base
+de pruebas conservada no contenía el permiso inicial `attendance_record_entry`. Se verificó
+el nombre aislado `test_siga_inebi` y se repitió con `--create-db --reuse-db`, sin modificar la
+base de demostración. La repetición completa aprobó sin cambios en identidad.
+
+Entorno de esta evidencia: PostgreSQL 18.3, Python 3.11.3, Django 5.2.17 y Vitest 3.2.7.
+La CI de esta entrega todavía debe validar las dependencias fijadas del repositorio. La
+comprobación HTTP de la vista previa combinada verificó el filtro de encargados, los tres
+sobres paginados sensibles, el rechazo de UUID inválidos y la conservación de E1/T1/G1.
+
 ## Objetivo
 
 Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo -> Prueba -> Pull Request`.
@@ -15,6 +50,40 @@ Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo 
 
 | Requirement | Issue | Design | Code | Test | Pull Request | Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Entrega UX M1 de Matrículas (#632)
+
+M1 agrega resúmenes de lectura para evitar catálogos globales usados como traductores de UUID.
+No modifica las reglas de matrícula ni los estados globales de cumplimiento de los RF.
+
+| Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
+| --- | --- | --- | --- |
+| RF-MAT-007; M1; 1.1.5 | `backend/apps/enrolments/{services.py,api/serializers.py}`; `frontend/src/enrolments/EnrolmentsPage.jsx`; contrato API | `backend/tests/api/test_enrolment_summaries_api.py`; `frontend/src/test/EnrolmentListSummaries.test.jsx` | Nombres incluidos en página vigente; sin catálogos al abrir la tabla ni N+1 al serializar |
+| RF-MAT-008; M1 | Mismos archivos; `EnrolmentStudentFilter.jsx`; `docs/development/632-enrolment-summaries.md` | Casos de historia y referencias desactivadas; búsqueda remota y selección del estudiante | Conserva historial y UUID; consulta de historial solo después de selección |
+| RF-MAT-002/003; M1 | `frontend/src/enrolments/EnrolmentCreateWindow.jsx` | `frontend/src/test/newModulePages.test.jsx` | Extrae formulario para cargar catálogos bajo demanda; mismos payloads y reglas de alta/reinscripción |
+
+El límite global de catálogos, `useServerList`, URL, exportaciones y `search-select` del formulario
+siguen pendientes de #630 y de la migración de sus consumidores. Evidencia final y PR en el
+[documento de entrega](../development/632-enrolment-summaries.md).
+Entrega y checks de integración: [PR #636](https://github.com/siga-inebi/siga-inebi/pull/636),
+con base `develop`.
+## Entrega UX de listados de comunidad educativa (#632)
+
+Alcance verificable: 1.1.6–1.1.7 y PE1; contratos backend de E10, T2, G2 y PE3.
+E3 y la migración de pantallas siguen pendientes de #630. No se modifican estados globales
+de cumplimiento por esta entrega parcial. No hay RF específico de búsqueda docente/persona
+en el catálogo: esas correcciones se trazan al hallazgo UX, sin inventar identificadores.
+
+| Requerimiento / hallazgo | Diseño y código | Evidencia | Estado de esta entrega |
+| --- | --- | --- | --- |
+| RF-EXP-003; E10 | `apps/students/queries.py`, `api/{views,serializers}.py`; contrato API de comunidad educativa | `test_student_status_is_independent_of_logical_deactivation`, `test_invalid_domain_filter_returns_400` | Filtro por estado probado; acción propia D5/E9 pendiente |
+| RF-EXP-008; 1.1.6 | Queries y vistas de people, students y teachers; ADR-0006 | `test_active_default_and_explicit_inactive_opt_in`, `test_inactive_detail_remains_available` | Listas activas por defecto con historial consultable; sin borrado |
+| RF-ALC-001; 1.1.7 | Alcance estudiantil existente conservado en `StudentListCreateView`; ADR-0005 | `test_student_search_does_not_expand_scope`, `test_student_search_requires_permission_and_scope` | Filtros no amplían alcance; no redefine autorización de otros dominios |
+| PE1; PE3; T2; G2; E3/E10; 1.1.6–1.1.7 | `apps/{people,teachers,students}/{queries.py,api/views.py,api/serializers.py}`; `docs/development/632-community-lists.md` | `backend/tests/api/test_community_list_filters_api.py` | Backend implementado; migración de pantallas y eliminación del tope de 1.000 pendientes |
+
+Comandos y límites de validación: [entrega de listados](../development/632-community-lists.md).
+Entrega y checks de integración: [PR #635](https://github.com/siga-inebi/siga-inebi/pull/635),
+con base `develop`; resultados locales completos en el documento de desarrollo enlazado.
 
 ## Estado inicial
 
@@ -310,3 +379,40 @@ revisión independiente, UAT o aceptación institucional.
 - TD1 explica clasificación frente a destino. TD2 y el editor/PDF de D4 no se incluyen.
 
 Contratos, comandos, límites, despliegue y reversión: [entrega de plantillas](../development/632-template-issuance-use.md).
+## Regresión de edición de comunidad educativa — issue #632
+
+Alcance: hallazgos E1, T1 y G1 de `docs/ux-ui.md` (sección 1.2.2). Esta corrección
+mantiene los estados de los requerimientos existentes; el cierre de la épica requiere las demás
+entregas y su verificación. RF-EXP-001 conserva el expediente institucional y RF-BIT-001 aporta
+la auditoría de la escritura de persona. Los hallazgos de docentes y encargados se trazan por su
+identificador UX, sin crear requisitos funcionales artificiales.
+
+| Hallazgo | Diseño / contrato | Código | Prueba verificable |
+| --- | --- | --- | --- |
+| E1 — Edición completa del estudiante (RF-EXP-001) | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/students/AlumnosPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/AlumnosPage.test.jsx |
+| T1 — Edición completa del docente | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/teachers/DocentesPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/DocentesPage.test.jsx |
+| G1 — Edición completa del encargado | docs/architecture/api-conventions.md; ADR-0008 | backend/apps/people/services.py; frontend/src/guardians/GuardiansPage.jsx | backend/tests/api/test_people_api.py::test_edited_person_profile_is_returned_by_community_detail; frontend/src/test/GuardiansPage.test.jsx |
+| PATCH parcial, privacidad y auditoría (RF-BIT-001) | docs/architecture/audit-strategy.md; docs/architecture/data-classification.md | backend/apps/people/services.py | backend/tests/api/test_people_api.py::test_patch_person_persists_profile_field_without_changing_omitted_data; backend/tests/api/test_people_api.py::test_anonymous_person_profile_patch_is_rejected_without_changes; backend/tests/api/test_people_api.py::test_invalid_profile_patch_does_not_save_other_fields; backend/tests/unit/test_people_services.py::test_update_person_persists_and_audits_institutional_profile_without_logging_values; backend/tests/unit/test_people_services.py::test_update_person_can_clear_optional_profile_fields |
+
+Regresión reproducida antes de corregir: siete fallos backend por parámetros de perfil no aceptados
+y tres fallos frontend por campos omitidos en el envío. Después de corregir, la selección de
+personas aprueba 38 pruebas backend en PostgreSQL; las tres pantallas y los servicios de módulos
+aprueban 55 pruebas frontend. Son pruebas automatizadas locales, no aceptación institucional.
+
+Validación ampliada: 88 pruebas de personas, estudiantes, docentes, encargados, ciclo de vida y
+límites de arquitectura aprobadas. Suite backend completa: 1788 aprobadas, 23 omitidas y 94,73 %
+de cobertura. Ruff, formato backend, ESLint, formato de los archivos frontend modificados,
+build con presupuesto estático, Bandit del módulo de personas y comprobación de migraciones
+pendientes aprobados. La prueba HTTP local de PATCH y consulta de los tres perfiles fue correcta;
+los valores sintéticos originales se restauraron después de verificar.
+
+La suite frontend completa aprueba 309 pruebas en 36 archivos, con 85,05 % de cobertura de
+líneas y sentencias, 85,91 % de ramas y 70,87 % de funciones. La comprobación de formato de todo
+el frontend también aprueba. En la primera ejecución con cobertura, dos pruebas nuevas de edición
+agotaron los cinco segundos por la escritura carácter a carácter; el helper de prueba pasó a
+cargar esos campos mediante eventos de cambio y la repetición completa aprobó, conservando las
+aserciones de envío. Los límites de tiempo y los umbrales de cobertura se mantienen.
+
+Entorno local de esta evidencia (17 de octubre de 2026): PostgreSQL 18.3, Python 3.11.3,
+Django 5.2.17, pytest 8.4.1 y Vitest 3.2.7. Se utilizaron las dependencias previamente instaladas;
+la CI con las versiones fijadas en los archivos de dependencias y el perfil Docker queda pendiente.

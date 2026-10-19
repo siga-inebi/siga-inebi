@@ -34,6 +34,91 @@ excepciones. El sobre de error se conserva como `error.status_code` y `error.det
 404 y 403, `detail` mantiene la forma `{"detail": "..."}` usada por DRF; asi el traslado de una
 consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 
+## Resúmenes de matrícula (#632, M1)
+
+Las respuestas que utilizan `EnrolmentSerializer` agregan cuatro objetos de solo lectura.
+Se conservan `student_id`, `academic_cycle_id`, `grade_id` y `section_id`, los campos de
+vigencia/estado y el sobre paginado existente.
+
+| Objeto | Campos publicados |
+| --- | --- |
+| `student` | `public_id`, `full_name`, `student_code` |
+| `academic_cycle` | `public_id`, `name` |
+| `grade` | `public_id`, `name` |
+| `section` | `public_id`, `name`, `grade_name`, `shift_name` |
+
+Aplica a `GET /api/v1/enrolments/active/`, `GET /api/v1/enrolments/history/?student_id=...`
+y las respuestas de alta/movimientos que reutilizan el serializador, incluida su variante
+`MatriculationSerializer`. Los payloads de escritura mantienen sus UUID existentes; los
+resúmenes no son entradas de esos endpoints. No se agregan CUI, domicilio, correo, teléfono,
+salud ni datos del expediente de persona a los resúmenes.
+
+Los nombres provienen de las entidades vinculadas actuales; no son una instantánea de sus
+etiquetas al momento de matricular. Se preservan las referencias históricas aunque los perfiles
+o secciones estén desactivados. El orden, la vigencia y la autorización de cada operación no
+cambian. Los listados vigentes e históricos mantienen sus controles de sesión existentes.
+
+Las lecturas precargan estudiante/persona, ciclo, grado y oferta de sección con grado/jornada:
+serializar una página de 1 o 25 matrículas requiere una consulta, sin consultas adicionales por
+fila. Esto se verifica en `backend/tests/api/test_enrolment_summaries_api.py`.
+
+La tabla de Matrículas usa estos nombres sin pedir padrones para traducir UUID. El filtro de
+estudiante reutiliza la búsqueda remota existente (dos caracteres como mínimo, espera de
+300 ms, primera página y sugerencia de afinar la búsqueda). Solicita `include_inactive=true`
+para consultar historial de perfiles desactivados; su soporte explícito se entrega en #635.
+No recupera todas las páginas de coincidencias ni promete un catálogo completo.
+
+Detalles y límites: [entrega M1](../development/632-enrolment-summaries.md).
+## Listados de comunidad educativa (#632)
+
+`GET /api/v1/people/`, `/teachers/`, `/students/` y `/students/guardians/`
+aplican búsqueda y filtros antes de contar y paginar. Mantienen el sobre
+`{count, next, previous, results}`, los identificadores y los campos de respuesta existentes.
+
+| Parámetro | Contrato |
+| --- | --- |
+| `include_inactive` | Por defecto `false`: solo `is_active=true` del recurso listado. `true` incluye activos y desactivados, sin reactivar ni eliminar filas. |
+| `search` | Búsqueda parcial sin distinguir mayúsculas mediante DRF `SearchFilter`. Todos los términos deben coincidir con alguno de los campos habilitados. Omitir o enviar vacío conserva el listado sin búsqueda. |
+| `status` | Solo estudiantes: valor exacto de `Student.StudentStatus`, independiente de `is_active`. |
+| `position` | Solo docentes: valor exacto de `Teacher.Position`, combinado con búsqueda y actividad. |
+| `page` | Paginación existente de 25 elementos. `page_size`, orden configurable y exportación completa se entregan mediante #630 y la posterior migración de pantallas. |
+
+Campos de búsqueda:
+
+- Personas: nombre, apellido, CUI e identificador institucional.
+- Estudiantes: nombre y apellido de persona, CUI y código estudiantil.
+- Docentes: nombre y apellido de persona, CUI y código de empleado.
+- Encargados: nombre y apellido de persona y CUI.
+
+Valores publicados de `status`: `pre_enrolled`, `active`, `inactive`, `withdrawn`,
+`graduated`, `transferred`. Valores de `position`: `Docente Titulado`, `Docente Interino`,
+`Orientador/a`, `Administrativo`. Son valores del catálogo del modelo, no etiquetas traducidas
+por el cliente. Los filtros deben omitirse cuando el selector representa «Todos».
+
+`include_inactive` acepta las representaciones booleanas de DRF (incluidos `true/false`,
+`1/0`, `yes/no`). Un booleano inválido o vacío, un estado o puesto desconocido o vacío
+devuelve HTTP 400 con el nombre del parámetro en `error.detail`. Un filtro válido sin
+coincidencias devuelve HTTP 200 con `count=0` y `results=[]`.
+
+Compatibilidad: antes los cuatro endpoints mezclaban activos y desactivados aun sin parámetro.
+Los consumidores que necesiten esa mezcla deben enviar `include_inactive=true`. El filtro afecta
+al recurso listado, no al estado de su persona vinculada; la baja de una persona no se propaga
+a sus perfiles. La consulta individual y los servicios conservan el acceso histórico existente.
+En particular, un estudiante con `status=inactive` e `is_active=true` sigue apareciendo en el
+listado normal: estado del expediente y baja lógica son dimensiones distintas.
+
+La búsqueda no amplía autorización. Estudiantes conserva `student_view_basic` y su queryset de
+alcance efectivo. Los otros tres endpoints conservan sus controles de sesión existentes; este
+cambio no agrega permisos ni redefine su política de alcance. No se añaden campos sensibles a
+las respuestas ni se guarda el término de búsqueda en auditoría de aplicación.
+
+Personas desempata nombres iguales por `id`; Estudiantes y Docentes conservan sus códigos únicos
+como orden, y Encargados su orden por apellidos, nombres e `id`. `select_related("person")` evita
+consultas adicionales por fila en los perfiles. La paginación no ofrece una instantánea ante
+escrituras concurrentes.
+
+Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad educativa](../development/632-community-lists.md).
+
 ## Disponibilidad de aulas (RF-AUL-005)
 
 - Las respuestas de aulas agregan `service_status`: `available` (Disponible),
@@ -109,6 +194,14 @@ consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 - `GET /api/v1/students/guardian-relations/` lista solo relaciones de estudiantes dentro del
   alcance `student.view_basic`. Cada elemento conserva `guardian` como identificador y agrega
   `guardian_detail` de solo lectura con los datos necesarios para presentar al encargado.
+- El filtro opcional `student_id` recibe el `public_id` UUID del estudiante y se aplica en el
+  servidor antes de paginar, junto al filtro de alcance. Un UUID desconocido o fuera del alcance
+  devuelve una colección vacía; un valor mal formado o vacío devuelve HTTP 400. Omitir el parámetro
+  conserva el listado autorizado anterior. Las relaciones históricas se conservan.
+- Relaciones, salud, observaciones y contactos devuelven el sobre paginado estándar
+  (`count`, `next`, `previous`, `results`). Sus clientes solicitan cada página al navegar.
+  Salud y observaciones desempatan fechas iguales por identificador descendente, conservando
+  el orden por fecha más reciente y los controles de lectura sensible y auditoría por solicitud.
 - `POST /api/v1/students/guardian-relations/` crea una asociacion; `is_primary` es calculado por
   el servicio y no se acepta en el payload.
 - `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como
@@ -460,3 +553,22 @@ PL4/PL6/PL10 y continúan pendientes.
 
 Decisión y evidencia: [ADR-0011, aporte D7](../decisions/ADR-0011-template-issuance-use.md) y
 [entrega de plantillas](../development/632-template-issuance-use.md).
+## Edición de persona desde comunidad educativa (#632: E1, T1, G1)
+
+- Los formularios de estudiantes, docentes y encargados envían los datos de persona a
+  `PATCH /api/v1/people/{public_id}/`. El identificador de persona procede del perfil consultado.
+- Además de nombres, apellidos, correo y teléfono, la edición persiste `sex`, `nationality`,
+  `address`, `department` y `municipality`, campos ya publicados por `PersonSerializer`.
+- El PATCH actualiza únicamente los campos enviados; los omitidos conservan su valor.
+  Los campos de texto opcionales admiten `""` para vaciarlos y `sex` conserva sus opciones
+  publicadas (`female`, `male`, `not_specified`). La validación de entrada precede a la escritura.
+- La siguiente consulta del estudiante, docente o encargado devuelve su persona actualizada.
+  CUI y fecha de nacimiento mantienen su condición `write_only` en los serializadores de
+  persona y permanecen fuera de estos formularios de edición.
+- `update_person` realiza la escritura y su auditoría en una transacción. El evento
+  `people.person.updated` conserva actor, recurso y nombres de campos enviados; los valores
+  personales quedan fuera del contexto de auditoría. Se conservan los metadatos técnicos de solicitud.
+- Se conserva la autorización existente del endpoint de personas. Las pruebas incluyen el rechazo
+  de un PATCH anónimo y la lectura del estudiante con permiso y alcance explícitos.
+- Evidencia: `backend/tests/api/test_people_api.py`, `backend/tests/unit/test_people_services.py`
+  y las pruebas `AlumnosPage.test.jsx`, `DocentesPage.test.jsx` y `GuardiansPage.test.jsx`.

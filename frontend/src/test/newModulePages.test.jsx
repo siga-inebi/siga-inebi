@@ -150,6 +150,19 @@ const DRAFT_CYCLE = {
 };
 
 const ENROLMENT = {
+  student: {
+    public_id: "student-1",
+    full_name: "Luis Perez",
+    student_code: "EST-1",
+  },
+  academic_cycle: { public_id: "cycle-2026", name: "Ciclo 2026" },
+  grade: { public_id: "grade-1", name: "Primero Basico" },
+  section: {
+    public_id: "section-a",
+    name: "A",
+    grade_name: "Primero Basico",
+    shift_name: "Matutina",
+  },
   public_id: "enr-1",
   student_id: "student-1",
   academic_cycle_id: "cycle-2026",
@@ -530,8 +543,10 @@ describe("pantallas de los modulos con backend previo", () => {
       renderWithRouter(<EnrolmentsPage />);
 
       expect(await screen.findByText("Luis Perez · EST-1")).toBeInTheDocument();
-      expect(screen.getByText("Primero Basico A")).toBeInTheDocument();
-      expect(screen.getByText("Primero Basico · Basico")).toBeInTheDocument();
+      expect(
+        screen.getByText("Primero Basico A · Matutina")
+      ).toBeInTheDocument();
+      expect(screen.getByText("Primero Basico")).toBeInTheDocument();
       expect(screen.queryByText("student-1")).not.toBeInTheDocument();
     });
 
@@ -541,7 +556,12 @@ describe("pantallas de los modulos con backend previo", () => {
       await screen.findByRole("heading", { name: "Matriculas vigentes" });
 
       await user.click(screen.getByRole("button", { name: "Nueva matricula" }));
-      await user.click(screen.getByRole("combobox", { name: /Estudiante/ }));
+      const form = await screen.findByRole("dialog", {
+        name: "Nueva matricula",
+      });
+      await user.click(
+        within(form).getByRole("combobox", { name: /Estudiante/ })
+      );
       await user.click(
         await screen.findByRole("option", { name: "Luis Perez · EST-1" })
       );
