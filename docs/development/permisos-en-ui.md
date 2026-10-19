@@ -85,22 +85,24 @@ institución, módulo).
 | Asignaciones docentes | Nueva asignación / Asignar por lotes / Clonar en ciclo nuevo | `POST /academics/teaching-assignments/`, `POST /academics/cycles/{id}/teaching-assignments/batch/` | `scope.assign` con alcance sobre la institución |
 | Asignaciones docentes | Listado, matriz sección × curso, vista previa del clonado | `GET /academics/teaching-assignments/`, `GET /academics/cycles/{id}/assignment-matrix/`, `GET /academics/cycles/{id}/teaching-assignments/clone-preview/` | `scope.assign` con alcance sobre la institución |
 | Asignaciones docentes | Reasignar a otro docente | `POST /academics/teaching-assignments/{id}/reassignments/` | `scope.assign` con alcance sobre la institución |
-| Evaluación | Nueva unidad / Crear unidad | `POST /academics/cycles/{id}/evaluation-units/` | `evaluation.configure_units` con alcance sobre la institución (#631; antes solo sesión) |
-| Evaluación | Ajustar ventana de recuperación | `PATCH …/evaluation-units/{id}/recovery-window/` | `evaluation.configure_units` con alcance sobre la institución (#631) |
-| Evaluación | Cerrar unidad | `PATCH …/evaluation-units/{id}/close/` | `evaluation.configure_units` con alcance sobre la institución |
-| Evaluación | Permisos excepcionales de captura → Otorgar excepción / listado | `GET`/`POST …/evaluation-units/{id}/capture-exceptions/` | `evaluation.configure_units` con alcance sobre la institución (#631) |
-| Evaluación | Cambiar configuración / Guardar default | `PATCH /academics/evaluation-config/`, `PATCH /academics/cycles/{id}/evaluation-config/` | `evaluation.configure_units` con alcance sobre la institución (#631); la consulta (`GET`) sigue con sesión |
-| Evaluación | Clonar configuración | `POST /academics/cycles/{id}/evaluation-config/clone/` | `evaluation.configure_units` con alcance sobre la institución |
-| Evaluación | Notas de la unidad → Registrar nota | `POST …/evaluation-units/{id}/grades/` | `grade.write` con alcance (asignación docente) |
-| Evaluación | Planilla de calificaciones → abrir | `GET …/evaluation-units/{id}/sheet/` | `grade.write` sobre la sección y la subárea, o `evaluation.configure_units` sobre la institución (solo lectura) |
-| Evaluación | Planilla → Guardar / Cargar archivo | `POST …/grades/sheet/`, `POST …/grades/bulk/` | `grade.write` sobre la sección y la subárea |
-| Evaluación | Avance de captura | `GET …/evaluation-units/{id}/capture-progress/` | `evaluation.configure_units` (todas las filas) o `grade.write` con asignaciones vigentes (solo las propias) (#631) |
-| Evaluación | Recuperación → elegibilidad (matrícula o sección) | `GET …/enrolments/{id}/recovery-eligibility/`, `GET …/sections/{id}/recovery-eligibility/` | `student.view_basic` con alcance sobre el estudiante o la sección (#631) |
-| Evaluación | Recuperación → Registrar nota | `POST …/enrolments/{id}/recovery-grades/` | `grade.write` sobre la sección y la subárea (#631) |
-| Evaluación | Boleta del estudiante | `GET …/enrolments/{id}/grades/` | `student.view_basic` con alcance sobre el estudiante |
-| Evaluación | Resultados congelados (consulta y listado) | `GET …/subjects/{id}/frozen-result/`, `GET …/enrolments/{id}/frozen-results/`, `GET …/frozen-promotion/` | **Sin control de permiso** (solo sesión; #643) |
-| Evaluación | Corregir resultado congelado | `POST …/frozen-result/correct/` | `grade.correct` (sin alcance) |
-| Evaluación | Consultar nota final / promedio; listado de notas de la unidad | `GET` de consulta | **Sin control de permiso** en la vista (el listado de notas sí acota al docente a sus asignaciones; #643) |
+| Evaluación | Pestañas (`/app/evaluacion?tab=`) | — | Unidades: sesión. Planilla y Avance: `grade.write` o `evaluation.configure_units`. Recuperación: `student.view_basic`. Resultados: `student.view_basic` o `grade.correct`. La pestaña sin permiso no se muestra |
+| Evaluación → Unidades | Nueva unidad / Crear unidad (recuperación opcional: las dos fechas o ninguna) | `POST /academics/cycles/{id}/evaluation-units/` | `evaluation.configure_units` con alcance sobre la institución (#631; antes solo sesión). Sin el permiso no se muestra el botón |
+| Evaluación → Unidades | ⋯ → Ajustar ventana de recuperación | `PATCH …/evaluation-units/{id}/recovery-window/` | `evaluation.configure_units` con alcance sobre la institución (#631); oculto sin el permiso |
+| Evaluación → Unidades | ⋯ → Cerrar unidad (confirmación; solo unidades abiertas) | `PATCH …/evaluation-units/{id}/close/` | `evaluation.configure_units` con alcance sobre la institución; oculto sin el permiso |
+| Evaluación → Unidades | ⋯ → Permisos excepcionales de captura → Otorgar excepción / listado | `GET`/`POST …/evaluation-units/{id}/capture-exceptions/` | `evaluation.configure_units` con alcance sobre la institución (#631); oculto sin el permiso |
+| Evaluación → Unidades | Cambiar (unidades por defecto / de este ciclo) | `PATCH /academics/evaluation-config/`, `PATCH /academics/cycles/{id}/evaluation-config/` | `evaluation.configure_units` con alcance sobre la institución (#631); la consulta (`GET`) sigue con sesión. Oculto sin el permiso |
+| Evaluación → Unidades | Clonar configuración a otro ciclo | `POST /academics/cycles/{id}/evaluation-config/clone/` | `evaluation.configure_units` con alcance sobre la institución; oculto sin el permiso |
+| Evaluación → Planilla | Abrir planilla (unidad, sección, subárea) | `GET …/evaluation-units/{id}/sheet/` | `grade.write` sobre la sección y la subárea, o `evaluation.configure_units` sobre la institución (solo lectura: la planilla se muestra deshabilitada sin `grade.write`) |
+| Evaluación → Planilla | Guardar cambios | `POST …/grades/sheet/` | `grade.write` sobre la sección y la subárea. La carga CSV (`POST …/grades/bulk/`) y el alta individual (`POST …/grades/`) siguen en la API sin pantalla |
+| Evaluación → Avance | Avance de captura; Abrir planilla de una fila | `GET …/evaluation-units/{id}/capture-progress/` | `evaluation.configure_units` (todas las filas) o `grade.write` con asignaciones vigentes (solo las propias) (#631) |
+| Evaluación → Recuperación | Elegibilidad de la sección | `GET …/sections/{id}/recovery-eligibility/` | `student.view_basic` con alcance sobre la sección (#631). El de una matrícula (`GET …/enrolments/{id}/recovery-eligibility/`) sigue sin pantalla |
+| Evaluación → Recuperación | ⋯ → Registrar recuperación de una subárea reprobada (solo elegibles) | `POST …/enrolments/{id}/recovery-grades/` | `grade.write` sobre la sección y la subárea (#631); oculto sin el permiso |
+| Evaluación → Resultados | Buscar estudiante; boleta | `GET /students/?search=`, `GET /enrolments/history/?student_id=`, `GET …/enrolments/{id}/grades/` | Búsqueda e historial: los del módulo de estudiantes y matrículas. Boleta: `student.view_basic` con alcance sobre el estudiante |
+| Evaluación → Resultados | Nota final por subárea (ciclo abierto) | `GET …/subjects/{id}/final-grade/` | **Sin control de permiso** en la vista (#643) |
+| Evaluación → Resultados | Resultados congelados y promoción (ciclo cerrado) | `GET …/enrolments/{id}/frozen-results/`, `GET …/frozen-promotion/` | **Sin control de permiso** (solo sesión; #643) |
+| Evaluación → Resultados | ⋯ → Corregir (ciclo cerrado; nota y motivo) | `POST …/frozen-result/correct/` | `grade.correct` (sin alcance); oculto sin el permiso |
+| Evaluación → Resultados | ⋯ → Ver trazabilidad | `GET /audit/enrolments/{id}/subjects/{id}/result-trace/` | `audit.read`; oculto sin el permiso |
+| Evaluación | Promedio en curso; listado de notas de la unidad | `GET …/current-average/`, `GET …/evaluation-units/{id}/grades/` | **Sin control de permiso** en la vista (el listado de notas sí acota al docente a sus asignaciones; #643). Ya no tienen pantalla: la planilla y la boleta los reemplazan |
 | Asistencia | Escanear | `POST /attendance/scan/` | `attendance.scan` **y** `attendance.record_entry` o `attendance.record_exit` (composición) |
 | Asistencia | Registrar movimiento | `POST /attendance/events/` | permiso del origen (`attendance.scan`, `attendance.record_manual` o `attendance.declared_close`) **y** del tipo (`attendance.record_entry`/`attendance.record_exit`), más `student.view_basic` con alcance |
 | Asistencia | Parámetros de jornada → Registrar parámetros | `POST /attendance/jornada-parameters/` | `attendance.jornada.configure` |
@@ -125,8 +127,8 @@ Evaluación, Asistencia):
 
 - Aplicar `<Can>` / `usePermissions` a **todas** las acciones de sus módulos
   según la tabla: ningún botón visible sin su permiso. Hecho en #631 para
-  Ciclo escolar (con sus pestañas), Sedes, Aulas, Niveles, Cursos y
-  Asignaciones docentes; quedan Evaluación y Asistencia.
+  Ciclo escolar (con sus pestañas), Sedes, Aulas, Niveles, Cursos,
+  Asignaciones docentes y Evaluación (con sus pestañas); queda Asistencia.
 - Cerrar en el backend los huecos marcados "Sin control de permiso" en
   la previsualización del cierre de sección, con denegación por defecto. En
   Evaluación, #631 cerró la configuración (`evaluation.configure_units`), el
