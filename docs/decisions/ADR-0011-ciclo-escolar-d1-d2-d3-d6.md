@@ -5,8 +5,9 @@
 Aceptada por `docs/ux-ui.md`, sección 3, e implementada en el backend en la entrega 1 del
 issue #631 (rama `feat/631-ciclo-estructura`). Este archivo aporta D1, D2, D3 y D6 al
 [ADR-0011](ADR-0011-decisiones-ux-ui.md). La interfaz (botones, textos y lista de
-verificación) llega en la parte de frontend de la misma entrega; hasta entonces los
-requerimientos afectados quedan «En progreso» en el catálogo.
+verificación) llega en la parte de frontend de la misma entrega, ya incorporada: listado y
+detalle del ciclo (`frontend/src/cycles/`), con RF-CIC-008 y RF-JOR-010 implementados en el
+catálogo.
 
 ## Contexto
 

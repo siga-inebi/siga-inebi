@@ -492,9 +492,8 @@ la CI con las versiones fijadas en los archivos de dependencias y el perfil Dock
 
 Primera entrega de #631 (backend). Cubre los hallazgos C2, C3, C7, C8, C10, 1.2.1, A1, N1,
 AD2, AD3, AD4 y S3 de [docs/ux-ui.md](../ux-ui.md) y las decisiones D1, D2, D3 y D6
-([aporte al ADR-0011](../decisions/ADR-0011-ciclo-escolar-d1-d2-d3-d6.md)). La interfaz llega
-en la parte de frontend de la misma entrega; ningún RF de esta tabla se declara implementado por
-la pantalla todavía.
+([aporte al ADR-0011](../decisions/ADR-0011-ciclo-escolar-d1-d2-d3-d6.md)). La segunda tabla
+cubre la parte de frontend de la misma entrega.
 
 | Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
 | --- | --- | --- | --- |
@@ -508,3 +507,20 @@ la pantalla todavía.
 | RF-EST-010; AD3 | `GET /academics/cycles/{id}/assignment-matrix/` | `test_teaching_assignment_planning.py`; `test_academic_structure_ux_api.py` | Matriz sección × curso paginada por sección |
 | RF-HOR-003/004; RF-AUL-002; S3 | `teacher` y `classroom` en sesiones; `default_classroom` en secciones | `test_academic_structure_ux_api.py` (sin N+1 por docente) | Campos aditivos |
 | Listados (api-conventions) | `apps/common/listing.py`; `search` y `ordering` en sedes, jornadas, aulas, niveles, grados, cursos, secciones y plan de estudios | `test_academic_structure_ux_api.py`; `test_teaching_assignment_planning.py` | Búsqueda por nombre y código; orden con lista blanca |
+
+Frontend de la entrega (C1–C10, S1–S5, A1–A3, N1–N3, AD1–AD4, 1.6):
+
+| Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
+| --- | --- | --- | --- |
+| RF-CIC-001/003/004; C3; C5; D1 | `frontend/src/cycles/CyclesPage.jsx`, `useCycleActions.jsx`, `CycleFormWindow.jsx` | `frontend/src/test/cyclesPage.test.jsx` | Listado con `useServerList`; Editar en borrador; Activar deshabilitado con «Cierre primero el ciclo «X»» y enlace al ciclo activo; textos de activación y cierre veraces |
+| RF-CIC-007; C2; D2 | `useCycleActions.jsx` | `cyclesPage.test.jsx` | Clonar deshabilitado en borradores con el motivo; el ciclo clonado abre su detalle |
+| RF-CIC-008; C10; D3; D6 | `useCycleActions.jsx` (`ReasonDialog`); `GET readiness/` | `cyclesPage.test.jsx` | Volver a borrador con motivo y permiso `academic_cycle.revert`; deshabilitado con los bloqueos («Tiene 312 matrículas.») |
+| RF-CIC-005; C6 | `useCycleActions.jsx` | `cyclesPage.test.jsx` | Reabrir con motivo y permiso `academic_cycle.reopen` |
+| C7; C9; 1.5 | `frontend/src/cycles/CycleDetailPage.jsx`, `CycleHistory.jsx`; ruta `/app/ciclos/:cycleId` en `app/navigation.js` | `frontend/src/test/cycleDetailPage.test.jsx` | Pestañas en `?tab=`; lista de verificación con un botón a la pestaña que resuelve cada faltante; pendientes de cierre; estructura registrada (antes ventana) |
+| RF-EST-007; S1; S5 | `frontend/src/cycles/tabs/SectionsTab.jsx` | `cycleDetailPage.test.jsx` | Alta, edición y baja solo en borrador; ocupación con el ciclo activo; aula habitual con búsqueda en el servidor |
+| S2; N2 | `tabs/CurriculumPlanTab.jsx`, `tabs/GeneratePlanWindow.jsx` | `cycleDetailPage.test.jsx` | Plan por grado; «Generar desde cursos del nivel» con avance y rechazo por curso |
+| RF-EST-009/010; AD1; AD3 | `tabs/AssignmentMatrixTab.jsx` | `cycleDetailPage.test.jsx` | Matriz sección × curso; asignar por celda (`batch/`) y reemplazar (reasignación) |
+| RF-HOR-003/004/007/009; S3; S4 | `tabs/ScheduleTab.jsx`, `frontend/src/academics/WeeklyScheduleGrid.jsx`, `auth/MyAccountPage.jsx` | `cycleDetailPage.test.jsx`; `sharedInfra.test.jsx` | Bloques por jornada, reja semanal por sección, copiar horario, carga semanal, publicación; Mi horario con la misma reja |
+| RF-JOR-010; C8 | `tabs/NonComputableDaysTab.jsx` | `cycleDetailPage.test.jsx` | Listar, declarar y quitar |
+| RF-EST-009; AD2; AD4 | `academics/TeachingAssignmentsPage.jsx`, `BulkAssignmentWindow.jsx`, `CloneAssignmentsWindow.jsx`; `teachers/TeacherAssignments.jsx` | `frontend/src/test/teachingAssignments.test.jsx`; `DocentesPage.test.jsx` | Listado filtrable con nombres del servidor; lotes y clonado sin `collectAllPages`; «Qué imparte» en la ficha del docente |
+| A1–A3; N1–N3; 1.1; 1.3 | `academics/CampusesPage.jsx`, `RoomsPage.jsx`, `LevelsPage.jsx`, `SubjectsPage.jsx`, `CatalogFilters.jsx` | `campusesPage.test.jsx`; `RoomsPage.test.jsx`; `levelsPage.test.jsx`; `subjectsPage.test.jsx` | Búsqueda, orden e inactivos en la URL; «Ver jornadas (n)» / «Ver grados (n)»; «Cursos del nivel»; acciones con `scope.assign` |
