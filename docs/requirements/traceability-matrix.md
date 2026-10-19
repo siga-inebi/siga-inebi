@@ -89,6 +89,7 @@ con base `develop`; resultados locales completos en el documento de desarrollo e
 ## Entrega UX E3/E10 del listado de estudiantes (#632)
 
 Diseño y contrato existente: [listado de estudiantes](../architecture/student-server-list-ui.md).
+Entrega: [PR #653](https://github.com/siga-inebi/siga-inebi/pull/653), hacia `develop`.
 No se cambian estados globales de requisitos ni reglas del dominio.
 
 | Requerimiento / hallazgo | Código | Pruebas verificables | Alcance |

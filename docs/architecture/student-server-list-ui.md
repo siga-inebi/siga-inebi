@@ -84,7 +84,8 @@ sin recorrido del padrón. Las capturas y logs locales contienen únicamente dat
 no se versionan bases, sesiones, archivos descargados ni perfiles de navegador.
 
 Vista de revisión: `http://127.0.0.1:5190/app/alumnos?search=LIST-DEMO&status=active`.
-La evidencia de CI se registra en el PR de esta entrega.
+Entrega y evidencia de CI: [PR #653](https://github.com/siga-inebi/siga-inebi/pull/653),
+desde `feat/632-student-server-list` hacia `develop`.
 
 No hay migraciones, variables nuevas ni cambios de contratos públicos. Revertir el PR no
 requiere modificar datos ni historial. Se conservan los estados globales de RF-EXP-003,
