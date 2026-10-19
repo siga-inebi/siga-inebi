@@ -9,6 +9,7 @@ from apps.identity.scopes import authorized_student_queryset, can_access_student
 from apps.students import queries, services
 from apps.students.api.serializers import (
     EmergencyContactCreateSerializer,
+    EmergencyContactListSerializer,
     EmergencyContactSerializer,
     EmergencyContactUpdateSerializer,
     GuardianSerializer,
@@ -16,9 +17,13 @@ from apps.students.api.serializers import (
     StudentGuardianRelationSerializer,
     StudentGuardianRelationUpdateSerializer,
     StudentHealthNoteCreateSerializer,
+    StudentHealthNoteListSerializer,
     StudentHealthNoteSerializer,
+    StudentHealthNoteUpdateSerializer,
     StudentObservationCreateSerializer,
+    StudentObservationListSerializer,
     StudentObservationSerializer,
+    StudentObservationUpdateSerializer,
     StudentRecordGuardianRelationSerializer,
     StudentRecordGuardiansQuerySerializer,
     StudentSerializer,
@@ -243,6 +248,7 @@ class StudentRecordView(GenericAPIView):
 class StudentRecordListCreateView(StudentRecordView):
     list_serializer = None
     create_serializer = None
+    create_response_serializer = None
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -256,7 +262,8 @@ class StudentRecordListCreateView(StudentRecordView):
     def post(self, request, **kwargs):
         payload = self.validated(self.create_serializer, request)
         created = self.create(request, payload, **kwargs)
-        return Response(self.list_serializer(created).data, status=status.HTTP_201_CREATED)
+        response_serializer = self.create_response_serializer or self.list_serializer
+        return Response(response_serializer(created).data, status=status.HTTP_201_CREATED)
 
 
 class StudentRecordDetailView(StudentRecordView):
@@ -297,7 +304,7 @@ class DeactivateMixin:
         # `StudentRecordListCreateView.get` pagina dentro del handler, algo que
         # drf-spectacular no puede inferir desde `get_serializer_class`: sin esta
         # anotacion documenta un objeto suelto en vez del sobre paginado.
-        responses={200: EmergencyContactSerializer(many=True)},
+        responses={200: EmergencyContactListSerializer(many=True)},
     ),
     post=extend_schema(
         summary="Registrar contacto de emergencia",
@@ -307,8 +314,9 @@ class DeactivateMixin:
     ),
 )
 class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
-    list_serializer = EmergencyContactSerializer
+    list_serializer = EmergencyContactListSerializer
     create_serializer = EmergencyContactCreateSerializer
+    create_response_serializer = EmergencyContactSerializer
 
     def _student(self, request, public_id, *, write=False):
         student = queries.student_or_404(public_id)
@@ -331,7 +339,11 @@ class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
             resource_identifier=str(student.pk),
             student=student,
         )
-        return queries.emergency_contacts(student, include_inactive=_include_inactive(request))
+        return queries.with_student_record_actions(
+            queries.emergency_contacts(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
@@ -375,9 +387,16 @@ class EmergencyContactDetailView(
         )
 
 
+@extend_schema_view(
+    get=extend_schema(responses={200: StudentHealthNoteListSerializer(many=True)}),
+    post=extend_schema(
+        request=StudentHealthNoteCreateSerializer, responses={201: StudentHealthNoteSerializer}
+    ),
+)
 class StudentHealthNoteListCreateView(StudentRecordListCreateView):
-    list_serializer = StudentHealthNoteSerializer
+    list_serializer = StudentHealthNoteListSerializer
     create_serializer = StudentHealthNoteCreateSerializer
+    create_response_serializer = StudentHealthNoteSerializer
 
     def _student(self, request, public_id, *, write=False):
         student = queries.student_or_404(public_id)
@@ -399,15 +418,27 @@ class StudentHealthNoteListCreateView(StudentRecordListCreateView):
             student,
             student_id=student.pk,
         )
-        return queries.health_notes(student, include_inactive=_include_inactive(request))
+        return queries.with_student_record_actions(
+            queries.health_notes(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
         return services.create_student_health_note(student=student, actor=request.user, **payload)
 
 
-class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordDetailView):
+@extend_schema_view(
+    patch=extend_schema(
+        request=StudentHealthNoteUpdateSerializer, responses={200: StudentHealthNoteSerializer}
+    ),
+)
+class StudentHealthNoteDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
     detail_serializer = StudentHealthNoteSerializer
+    update_serializer = StudentHealthNoteUpdateSerializer
 
     def get_object(self, public_id):
         note = queries.health_note_or_404(public_id)
@@ -430,10 +461,24 @@ class StudentHealthNoteDetailView(RetrieveMixin, DeactivateMixin, StudentRecordD
             raise AuthorizationError("Actor lacks student edit permission or scope.")
         services.deactivate_student_health_note(health_note=health_note, actor=request.user)
 
+    def update(self, request, health_note, payload):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": health_note.student}
+        ):
+            raise AuthorizationError("Actor lacks student edit permission or scope.")
+        services.update_student_health_note(health_note=health_note, actor=request.user, **payload)
 
+
+@extend_schema_view(
+    get=extend_schema(responses={200: StudentObservationListSerializer(many=True)}),
+    post=extend_schema(
+        request=StudentObservationCreateSerializer, responses={201: StudentObservationSerializer}
+    ),
+)
 class StudentObservationListCreateView(StudentRecordListCreateView):
-    list_serializer = StudentObservationSerializer
+    list_serializer = StudentObservationListSerializer
     create_serializer = StudentObservationCreateSerializer
+    create_response_serializer = StudentObservationSerializer
 
     def _student(self, request, public_id, *, write=False):
         student = queries.student_or_404(public_id)
@@ -455,15 +500,27 @@ class StudentObservationListCreateView(StudentRecordListCreateView):
             student,
             student_id=student.pk,
         )
-        return queries.observations(student, include_inactive=_include_inactive(request))
+        return queries.with_student_record_actions(
+            queries.observations(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
 
     def create(self, request, payload, public_id):
         student = self._student(request, public_id, write=True)
         return services.create_student_observation(student=student, actor=request.user, **payload)
 
 
-class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecordDetailView):
+@extend_schema_view(
+    patch=extend_schema(
+        request=StudentObservationUpdateSerializer, responses={200: StudentObservationSerializer}
+    ),
+)
+class StudentObservationDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
     detail_serializer = StudentObservationSerializer
+    update_serializer = StudentObservationUpdateSerializer
 
     def get_object(self, public_id):
         observation = queries.observation_or_404(public_id)
@@ -485,3 +542,10 @@ class StudentObservationDetailView(RetrieveMixin, DeactivateMixin, StudentRecord
         ):
             raise AuthorizationError("Actor lacks student edit permission or scope.")
         services.deactivate_student_observation(observation=observation, actor=request.user)
+
+    def update(self, request, observation, payload):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": observation.student}
+        ):
+            raise AuthorizationError("Actor lacks student edit permission or scope.")
+        services.update_student_observation(observation=observation, actor=request.user, **payload)

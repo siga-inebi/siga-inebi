@@ -2,7 +2,9 @@ import { useCallback, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import Stack from "@mui/material/Stack";
+import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 
 import { studentsService } from "@students/studentsService.js";
@@ -22,10 +24,15 @@ import { formatDate, formatDateTime } from "@shared/utils/format.js";
 import { RecordCollection } from "./RecordCollection.jsx";
 import { RecordForm } from "./RecordForm.jsx";
 import { GuardianRelationAction } from "./GuardianRelationAction.jsx";
+import { RelatedRecordAction } from "./RelatedRecordAction.jsx";
+import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { fullName } from "./studentPresentation.js";
 
 const RELATED = {
   health: {
+    singular: "nota de salud",
+    update: "updateHealthNote",
+    deactivate: "deactivateHealthNote",
     load: "listHealthNotesPage",
     create: "createHealthNote",
     title: "Nueva nota de salud",
@@ -41,6 +48,9 @@ const RELATED = {
     ],
   },
   observations: {
+    singular: "observación",
+    update: "updateObservation",
+    deactivate: "deactivateObservation",
     load: "listObservationsPage",
     create: "createObservation",
     title: "Nueva observación",
@@ -56,6 +66,9 @@ const RELATED = {
     ],
   },
   contacts: {
+    singular: "contacto de emergencia",
+    update: "updateEmergencyContact",
+    deactivate: "deactivateEmergencyContact",
     load: "listEmergencyContactsPage",
     create: "createEmergencyContact",
     title: "Nuevo contacto",
@@ -72,22 +85,60 @@ const RELATED = {
 export function RelatedRecordsPanel({ student, kind, onBusy }) {
   const config = RELATED[kind];
   const [creating, setCreating] = useState(false);
+  const [selection, setSelection] = useState(null);
+  const [success, setSuccess] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(
     (params) => studentsService[config.load](student.public_id, params),
     [config, student.public_id]
   );
-  const list = usePaginatedList(load, { canIncludeInactive: false });
+  const list = usePaginatedList(load);
   const setProcessing = (value) => {
     setBusy(value);
     onBusy(value);
   };
   return (
     <Stack gap={2}>
-      {!creating ? (
+      {success ? <Alert severity="success">{success}</Alert> : null}
+      <FormControlLabel
+        label="Mostrar desactivados"
+        control={
+          <Switch
+            checked={list.includeInactive}
+            disabled={busy || creating || Boolean(selection)}
+            onChange={(_event, checked) => {
+              list.goToPage(1);
+              list.setIncludeInactive(checked);
+              setSuccess("");
+            }}
+          />
+        }
+      />
+      {selection ? (
+        <RelatedRecordAction
+          key={`${selection.kind}-${selection.row.public_id}`}
+          selection={selection}
+          config={config}
+          onCancel={() => setSelection(null)}
+          onBusy={setProcessing}
+          onSaved={(action) => {
+            setSelection(null);
+            setSuccess(
+              action === "edit"
+                ? "Registro actualizado."
+                : "Registro desactivado. Se conserva en el historial."
+            );
+            list.goToPage(1);
+            list.refresh();
+          }}
+        />
+      ) : !creating ? (
         <Button
           sx={{ alignSelf: "flex-start" }}
-          onClick={() => setCreating(true)}
+          onClick={() => {
+            setSuccess("");
+            setCreating(true);
+          }}
           variant="outlined"
         >
           {config.title}
@@ -114,29 +165,63 @@ export function RelatedRecordsPanel({ student, kind, onBusy }) {
       )}
       <RecordCollection
         list={list}
-        busy={busy}
+        busy={busy || creating || Boolean(selection)}
         emptyMessage={config.empty}
-        renderRow={(row) =>
-          kind === "contacts" ? (
-            <>
-              <Typography fontWeight={600}>
-                {row.name} · {row.relationship_label}
-              </Typography>
-              <Typography>{row.phone_number}</Typography>
-            </>
-          ) : (
-            <>
-              <Typography color="text.secondary">
-                {formatDate(row.recorded_on ?? row.observed_on)} · {row.author}
-              </Typography>
-              <Typography
-                sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
-              >
-                {row.content ?? row.description}
-              </Typography>
-            </>
-          )
-        }
+        renderRow={(row) => (
+          <>
+            <StatusChip
+              label={row.is_active === false ? "Desactivado" : "Activo"}
+              variant={row.is_active === false ? "neutral" : "success"}
+              sx={{ alignSelf: "flex-start" }}
+            />
+            {kind === "contacts" ? (
+              <>
+                <Typography fontWeight={600}>
+                  {row.name} · {row.relationship_label}
+                </Typography>
+                <Typography>{row.phone_number}</Typography>
+              </>
+            ) : (
+              <>
+                <Typography color="text.secondary">
+                  {formatDate(
+                    kind === "health" ? row.recorded_on : row.observed_on
+                  )}{" "}
+                  · {row.author}
+                </Typography>
+                <Typography
+                  sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  {kind === "health" ? row.content : row.description}
+                </Typography>
+              </>
+            )}
+            {!selection && !creating ? (
+              <Stack direction="row" gap={1} useFlexGap flexWrap="wrap">
+                {row.actions?.edit ? (
+                  <Button
+                    onClick={() => {
+                      setSuccess("");
+                      setSelection({ kind: "edit", row });
+                    }}
+                  >
+                    Editar {config.singular}
+                  </Button>
+                ) : null}
+                {row.actions?.deactivate ? (
+                  <Button
+                    onClick={() => {
+                      setSuccess("");
+                      setSelection({ kind: "deactivate", row });
+                    }}
+                  >
+                    Desactivar {config.singular}
+                  </Button>
+                ) : null}
+              </Stack>
+            ) : null}
+          </>
+        )}
       />
     </Stack>
   );

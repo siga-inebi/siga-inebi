@@ -34,18 +34,28 @@ export const studentsService = {
       .then((page) => page.results),
   createHealthNote: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/health-notes/`, data),
+  updateHealthNote: (id, data) =>
+    apiClient.patch(`/students/health-notes/${id}/`, data),
+  deactivateHealthNote: (id) => apiClient.del(`/students/health-notes/${id}/`),
   listObservations: (studentPublicId) =>
     apiClient
       .get(`/students/${studentPublicId}/observations/`)
       .then((page) => page.results),
   createObservation: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/observations/`, data),
+  updateObservation: (id, data) =>
+    apiClient.patch(`/students/observations/${id}/`, data),
+  deactivateObservation: (id) => apiClient.del(`/students/observations/${id}/`),
   listEmergencyContacts: (studentPublicId) =>
     apiClient
       .get(`/students/${studentPublicId}/emergency-contacts/`)
       .then((page) => page.results),
   createEmergencyContact: (studentPublicId, data) =>
     apiClient.post(`/students/${studentPublicId}/emergency-contacts/`, data),
+  updateEmergencyContact: (id, data) =>
+    apiClient.patch(`/students/emergency-contacts/${id}/`, data),
+  deactivateEmergencyContact: (id) =>
+    apiClient.del(`/students/emergency-contacts/${id}/`),
   listGuardianRelations: () =>
     apiClient.get("/students/guardian-relations/").then((page) => page.results),
   createGuardianRelation: (data) =>
