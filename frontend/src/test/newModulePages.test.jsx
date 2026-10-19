@@ -24,6 +24,7 @@ const cyclesServiceMock = vi.hoisted(() => ({
 }));
 
 const enrolmentsServiceMock = vi.hoisted(() => ({
+  getPromotion: vi.fn(),
   listActive: vi.fn(),
   listHistory: vi.fn(),
   listMovements: vi.fn(),
@@ -541,6 +542,59 @@ describe("pantallas de los modulos con backend previo", () => {
       academicsServiceMock.listLevels.mockResolvedValue(
         paged([{ ...LEVEL, grades: [GRADE] }])
       );
+    });
+
+    test("abre promoción desde la fila vigente y desde el historial", async () => {
+      enrolmentsServiceMock.getPromotion.mockReset().mockResolvedValue({
+        progression: "promoted",
+        eligible_grade_name: "Segundo básico",
+        result_source: "live",
+        total_subjects: 8,
+        failed_subjects: [],
+      });
+      const user = userEvent.setup();
+      renderWithRouter(<EnrolmentsPage />);
+      await user.click(
+        await screen.findByRole("button", { name: "Consultar promoción" })
+      );
+      let dialog = await screen.findByRole("dialog", {
+        name: "Consultar promoción",
+      });
+      expect(
+        await within(dialog).findByText("Segundo básico")
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText("Luis Perez · EST-1")
+      ).toBeInTheDocument();
+      expect(enrolmentsServiceMock.getPromotion).toHaveBeenLastCalledWith(
+        ENROLMENT.public_id
+      );
+      await user.click(
+        within(dialog).getAllByRole("button", { name: "Cerrar" })[1]
+      );
+      const studentFilter = screen.getByRole("combobox", {
+        name: "Estudiante",
+      });
+      await user.click(studentFilter);
+      // El PR #636 sustituye el selector de catálogo por búsqueda remota.
+      if (studentFilter.tagName === "INPUT")
+        await user.type(studentFilter, "Luis");
+      await user.click(
+        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
+      );
+      await user.click(
+        screen.getByRole("tab", { name: "Historial por estudiante" })
+      );
+      await user.click(
+        await screen.findByRole("button", { name: "Consultar promoción" })
+      );
+      dialog = await screen.findByRole("dialog", {
+        name: "Consultar promoción",
+      });
+      expect(
+        await within(dialog).findByText("Segundo básico")
+      ).toBeInTheDocument();
+      expect(enrolmentsServiceMock.getPromotion).toHaveBeenCalledTimes(2);
     });
 
     test("muestra nombres en vez de identificadores", async () => {

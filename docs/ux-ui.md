@@ -233,6 +233,16 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 
 ### 2.10 Matrículas
 
+#### Seguimiento de M4: consulta de promoción
+
+Entrega de #632: la acción **Consultar promoción** en cada fila de Vigentes e
+Historial muestra promoción, repitencia o graduación, grado elegible, subáreas
+pendientes y fuente congelada/vigente. No crea una reinscripción. Reutiliza el
+endpoint existente con permiso y alcance de matrícula; no añade catálogos.
+La reinscripción masiva se entrega separadamente en PR #638. Ambas partes de M4
+requieren integración a `develop` y aceptación; no completan M2 ni el resto de
+Matrículas. Evidencia y límites: [consulta de promoción](architecture/enrolment-promotion-ui.md).
+
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
 | M1 | **P1 · Rendimiento** | **Por qué carga estudiantes:** [EnrolmentsPage.jsx](../frontend/src/enrolments/EnrolmentsPage.jsx) monta `useStudentCatalog`, `useSectionCatalog`, `useGradeCatalog` y `useCycleCatalog`. Cada uno descarga el catálogo completo **solo para traducir** `student_id`, `section_id`, etc. a nombres, porque [EnrolmentSerializer](../backend/apps/enrolments/api/serializers.py) responde únicamente UUIDs. *Corrección:* que el serializador incluya `student: {full_name, student_code}`, `section: {name, grade_name, shift_name}` y `academic_cycle: {name}`, y quitar esos catálogos de la página. |

@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useState } from "react";
 
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
+import SchoolOutlinedIcon from "@mui/icons-material/SchoolOutlined";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import AddIcon from "@mui/icons-material/Add";
@@ -69,6 +70,12 @@ const EnrolmentCreateWindow = lazy(() =>
 const ACTIVE_TAB = "active";
 const HISTORY_TAB = "history";
 
+const PromotionWindow = lazy(() =>
+  import("./PromotionWindow.jsx").then(({ PromotionWindow: Window }) => ({
+    default: Window,
+  }))
+);
+
 /**
  * Matricula: matriculas vigentes e historial por estudiante.
  *
@@ -89,6 +96,7 @@ export function EnrolmentsPage() {
   const [tab, setTab] = useState(ACTIVE_TAB);
   const [studentFilter, setStudentFilter] = useState(null);
   const [creating, setCreating] = useState(null);
+  const [promotionFor, setPromotionFor] = useState(null);
   const [bulkEnrolling, setBulkEnrolling] = useState(false);
   const [bulkReenrolling, setBulkReenrolling] = useState(false);
   const [documentsFor, setDocumentsFor] = useState(null);
@@ -201,6 +209,27 @@ export function EnrolmentsPage() {
           label={ENROLMENT_STATUS_LABEL[row.status] ?? row.status}
           variant={ENROLMENT_STATUS_VARIANT[row.status] ?? "neutral"}
         />
+      ),
+    },
+    {
+      key: "promotion",
+      label: "Promoción",
+      align: "center",
+      render: (row) => (
+        <ActionIconButton
+          label="Consultar promoción"
+          onClick={() =>
+            setPromotionFor({
+              enrolment: row,
+              context: columns.slice(0, 4).map((column) => ({
+                label: column.label,
+                value: column.render(row),
+              })),
+            })
+          }
+        >
+          <SchoolOutlinedIcon fontSize="small" />
+        </ActionIconButton>
       ),
     },
     {
@@ -410,6 +439,14 @@ export function EnrolmentsPage() {
               activeList.refresh();
               if (historyReady) historyList.refresh();
             }}
+          />
+        ) : null}
+
+        {promotionFor ? (
+          <PromotionWindow
+            {...promotionFor}
+            key={promotionFor.enrolment.public_id}
+            onClose={() => setPromotionFor(null)}
           />
         ) : null}
 

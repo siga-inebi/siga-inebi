@@ -226,6 +226,15 @@ integración y aceptación institucional permanecen pendientes.
 | RF-MOV-007 | Matricula masiva del ciclo siguiente | Deberia | enrollment-lifecycle | Implemented | #239 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Seleccion explicita, vista previa, resultado parcial, idempotencia, permiso y alcance; UI y candidatos paginados en docs/architecture/bulk-reenrolment-ui.md (#632); no decide promocion ni repitencia |
 | RF-MOV-008 | Correccion de movimientos registrados por error | Deberia | enrollment-lifecycle | Implemented | #240 | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | Anulacion aditiva y auditable revierte retiro y cambio de seccion |
 
+### Evidencia complementaria de promoción — #632, M4
+
+RF-MOV-006 y RF-RES-006 cuentan con consulta UI por matrícula, sin alterar sus
+reglas de cálculo. La consulta exige permiso y alcance de matrícula (RF-ALC-001),
+con denegaciones auditadas. Pruebas, límites y estado de integración en la
+[matriz de trazabilidad](traceability-matrix.md#evidencia-ux-de-promoción--632-m4)
+y en [consulta de promoción](../architecture/enrolment-promotion-ui.md).
+No se declara aceptación institucional ni cierre de la épica.
+
 ## Non-functional Requirements
 
 | ID | Descripcion original | Prioridad | Dominio | Estado de implementacion | Issue relacionado | Pruebas relacionadas | Observaciones |

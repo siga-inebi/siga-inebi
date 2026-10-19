@@ -76,6 +76,10 @@ export const enrolmentsService = {
   bulkReenrol: (payload) =>
     apiClient.post(`${ROOT}/re-enrolments/bulk/`, payload),
 
+  /** Resultado y grado elegible; esta consulta no reinscribe al estudiante. */
+  getPromotion: (enrolmentId) =>
+    apiClient.get(`${ROOT}/${enrolmentId}/promotion/`),
+
   /** Requisitos documentales de una matricula (RF-MAT-005). */
   listDocuments: (enrolmentId, params) =>
     apiClient.get(withQuery(`${ROOT}/${enrolmentId}/documents/`, params)),

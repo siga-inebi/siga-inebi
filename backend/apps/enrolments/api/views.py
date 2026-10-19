@@ -519,12 +519,18 @@ class PromotionDetailView(GenericAPIView):
             "en cada subárea de su plan de estudios, considerando la recuperación cuando "
             "exista. También devuelve el grado elegible y distingue promoción, repitencia "
             "y graduación. No crea la matrícula del ciclo siguiente."
+            " Requiere permiso de matrícula y alcance vigente sobre su sección."
         ),
         responses={200: PromotionSerializer},
         tags=["enrolments"],
     )
     def get(self, request, enrolment_id):
         enrolment = queries.enrolment_or_404(enrolment_id)
+        require_section_scope(
+            actor=request.user,
+            codenames=_ENROLMENT_WRITE_PERMISSIONS,
+            sections=[enrolment.section],
+        )
         result = services.determine_grade_eligibility(enrolment)
         return Response(PromotionSerializer(result).data)
 

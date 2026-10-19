@@ -379,6 +379,21 @@ revisión independiente, UAT o aceptación institucional.
 | RNF-RES-003 | `backend/tests/integration/test_backup_and_recovery.py` (`CP-INT-REC-001`) | `docs/manuals/09-final-backup-and-recovery-plan.md`; `docs/quality/fase-7/informe-recuperacion.md` | Evidencia sintética aprobada; simulacro completo de infraestructura pendiente |
 | RNF-SEG-004, RNF-SEG-005, RF-BIT-005, RF-BIT-006 | `backend/tests/api/test_documents_api.py`; `backend/tests/api/test_audit_api.py` | `docs/architecture/audit-strategy.md`; `docs/quality/fase-7/roi-cierre.md` | Controles automatizados ejecutados; revisión independiente pendiente |
 
+## Evidencia UX de promoción — #632, M4
+
+RF-MOV-006 y RF-RES-006 conservan sus reglas existentes y su evidencia de backend.
+La consulta ahora tiene entrada en cada fila de Matrículas (Vigentes e Historial),
+con resultado, grado elegible, fuente congelada/vigente y subáreas que impiden la
+promoción. No crea matrículas ni movimientos y no recalcula resultados en React.
+
+| Requerimiento | Implementación de esta entrega | Pruebas verificables |
+| --- | --- | --- |
+| RF-MOV-006 / RF-RES-006 | `frontend/src/enrolments/{EnrolmentsPage.jsx,PromotionWindow.jsx,enrolmentsService.js}`; `backend/apps/enrolments/api/views.py` | `frontend/src/test/{PromotionWindow.test.jsx,newModulePages.test.jsx,moduleServices.test.js}`; `backend/tests/api/test_enrolments_api.py` (promoción, repitencia, graduación y snapshot sin mutaciones) |
+| RF-ALC-001, alcance de la consulta | `require_section_scope` existente aplicado antes de determinar el resultado, con `enrollment_create` o `enrollment_update` | `test_promotion_denies_missing_permission_or_effective_scope`: sin permiso, sin alcance, otra sección o asignación vencida; denegación auditada y cálculo no ejecutado. `test_promotion_reads_frozen_result_with_scoped_permission_without_mutating`: ambos permisos, sección autorizada en ciclo cerrado |
+
+Detalle de contratos, ADR, límites y revisión: [consulta de promoción](../architecture/enrolment-promotion-ui.md).
+Integración a `develop` y aceptación institucional pendientes. La reinscripción
+masiva corresponde al PR #638; esta evidencia no declara cerrados M2 ni #632.
 ## Entrega UX PL1/PL2/PL5 y D7 (#632)
 
 - RF-PLA-007 y RF-PLA-008 se trazan en sus filas canónicas al aporte D7 de ADR-0011.
