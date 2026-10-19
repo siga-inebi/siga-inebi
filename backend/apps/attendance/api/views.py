@@ -26,10 +26,11 @@ from apps.identity.scopes import authorized_student_queryset, can_access_student
 
 from .serializers import (
     AbsenceNotificationSerializer,
-    AttendanceAlertSerializer,
+    AttendanceAlertRowSerializer,
     AttendanceEventCreateSerializer,
     AttendanceEventListQuerySerializer,
     AttendanceEventResolutionQuerySerializer,
+    AttendanceEventRowSerializer,
     AttendanceEventSerializer,
     AttendancePercentageQuerySerializer,
     AttendancePercentageResultSerializer,
@@ -154,7 +155,7 @@ class JornadaParametersListCreateView(GenericAPIView):
             "se conserva, no se borra."
         ),
         tags=TAGS,
-        responses={200: AttendanceEventSerializer(many=True)},
+        responses={200: AttendanceEventRowSerializer(many=True)},
     ),
     post=extend_schema(
         summary="Registrar movimiento de asistencia",
@@ -182,7 +183,7 @@ class AttendanceEventListCreateView(GenericAPIView):
 
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
-        return self.get_paginated_response(AttendanceEventSerializer(page, many=True).data)
+        return self.get_paginated_response(AttendanceEventRowSerializer(page, many=True).data)
 
     def post(self, request):
         serializer = AttendanceEventCreateSerializer(data=request.data)
@@ -453,14 +454,14 @@ class CoverageClosureRatioView(GenericAPIView):
         summary="Listar alertas de asistencia",
         description="Alertas emitidas por el cierre de jornada, dentro del alcance del actor.",
         tags=TAGS,
-        responses={200: AttendanceAlertSerializer(many=True)},
+        responses={200: AttendanceAlertRowSerializer(many=True)},
     ),
 )
 class AttendanceAlertListView(GenericAPIView):
     """RF-JOR-004/RF-JOR-005 contract: generated attendance alerts."""
 
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = AttendanceAlertSerializer
+    serializer_class = AttendanceAlertRowSerializer
 
     def get_queryset(self):
         return queries.attendance_alerts(
@@ -471,7 +472,7 @@ class AttendanceAlertListView(GenericAPIView):
 
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
-        return self.get_paginated_response(AttendanceAlertSerializer(page, many=True).data)
+        return self.get_paginated_response(AttendanceAlertRowSerializer(page, many=True).data)
 
 
 @extend_schema_view(
@@ -789,7 +790,13 @@ class CaptureBatchCurrentView(GenericAPIView):
     def get(self, request):
         _require_permission(request, "attendance_scan")
         capture_batch = services.recover_open_capture_batch(operator=request.user)
-        events = capture_batch.events.all() if capture_batch is not None else []
+        events = (
+            capture_batch.events.select_related(
+                "student__person", "shift", "control_point", "manual_reason", "operator"
+            )
+            if capture_batch is not None
+            else []
+        )
         return Response(
             CaptureBatchRecoverySerializer({"capture_batch": capture_batch, "events": events}).data
         )

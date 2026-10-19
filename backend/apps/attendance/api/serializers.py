@@ -150,6 +150,19 @@ class AttendanceEventSerializer(serializers.ModelSerializer):
         ]
 
 
+class AttendanceEventRowSerializer(AttendanceEventSerializer):
+    """
+    #631 (AS6): a movement as a listing row. ``student`` is additive so the
+    staff UI names the student without downloading the whole roster; the
+    write and nested responses keep ``AttendanceEventSerializer`` unchanged.
+    """
+
+    student = StudentReferenceSerializer(read_only=True)
+
+    class Meta(AttendanceEventSerializer.Meta):
+        fields = [*AttendanceEventSerializer.Meta.fields, "student"]
+
+
 class AttendanceEventCreateSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
@@ -207,6 +220,15 @@ class AttendanceAlertSerializer(serializers.ModelSerializer):
             "context",
             "created_at",
         ]
+
+
+class AttendanceAlertRowSerializer(AttendanceAlertSerializer):
+    """#631 (AS6): an alert as a listing row, with the student's name (additive)."""
+
+    student = StudentReferenceSerializer(read_only=True)
+
+    class Meta(AttendanceAlertSerializer.Meta):
+        fields = [*AttendanceAlertSerializer.Meta.fields, "student"]
 
 
 class JornadaClosureRequestSerializer(serializers.Serializer):
@@ -296,6 +318,8 @@ class AttendancePresenceQuerySerializer(serializers.Serializer):
 
 class PresentStudentSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(source="student.public_id")
+    # #631 (AS6): additive, so the presence table names the student.
+    student = StudentReferenceSerializer(read_only=True)
     section_id = serializers.UUIDField(source="section.public_id")
     entry_event = AttendanceEventSerializer(allow_null=True)
 
@@ -462,7 +486,7 @@ class CaptureBatchRecoverySerializer(serializers.Serializer):
     """
 
     capture_batch = CaptureBatchSerializer(allow_null=True)
-    events = AttendanceEventSerializer(many=True)
+    events = AttendanceEventRowSerializer(many=True)
 
 
 class StudentCredentialSerializer(serializers.ModelSerializer):

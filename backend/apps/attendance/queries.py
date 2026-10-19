@@ -31,12 +31,14 @@ def attendance_events(*, students, student_id=None):
     rows = AttendanceEvent.objects.filter(student__in=students)
     if student_id:
         rows = rows.filter(student__public_id=student_id)
-    return rows.select_related("student", "shift").order_by("-captured_at", "-pk")
+    return rows.select_related(
+        "student__person", "shift", "control_point", "manual_reason", "operator"
+    ).order_by("-captured_at", "-pk")
 
 
 def attendance_alerts(*, students):
     return AttendanceAlert.objects.filter(student__in=students).select_related(
-        "student", "shift", "section"
+        "student__person", "shift", "section"
     )
 
 

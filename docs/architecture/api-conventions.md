@@ -559,6 +559,16 @@ de alta y de resolución:
   retirados). El alta de un movimiento `manual` sigue exigiendo `manual_reason_id` de un motivo
   vigente.
 - `GET section-closures/coverage-ratio/` no cambia (`attendance.jornada.configure`).
+
+### Nombre del estudiante en las filas (AS6)
+
+- `GET events/`, `GET alerts/`, `GET presence/` y los `events` de
+  `GET capture-batches/current/` agregan `student: {public_id, student_code, full_name}`
+  junto a `student_id`, que no cambia. Así la interfaz nombra al estudiante de cada fila sin
+  descargar el padrón completo. Es aditivo: las respuestas de escritura y los movimientos
+  anidados (escaneo, estado del día, cierre de jornada) no cambian.
+- Estudiante, persona y demás referencias se precargan: el número de consultas no crece con
+  las filas.
 - **Notificaciones de inasistencia**: `GET absence-notifications/` sigue siendo solo para la
   cuenta de encargado (al personal le responde 403 y queda auditado). Por D9 de
   [ADR-0011](../decisions/ADR-0011-decisiones-ux-ui.md) el portal de encargados está fuera del

@@ -1859,7 +1859,7 @@ def list_roster_day_statuses(
         enrolments = enrolments.filter(section=section)
     if students is not None:
         enrolments = enrolments.filter(student__in=students)
-    enrolments = list(enrolments.select_related("student", "section"))
+    enrolments = list(enrolments.select_related("student__person", "section"))
     students = [enrolment.student for enrolment in enrolments]
 
     # Two batched reads for the whole roster instead of two per student: a
