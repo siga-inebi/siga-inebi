@@ -102,7 +102,7 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class StudentDossierDetailView(StudentDetailView):
-    """Lectura por UUID para la ruta de expediente, sin ampliar sus campos."""
+    """Lectura por UUID con capacidades, sin ampliar datos sensibles."""
 
     lookup_field = "public_id"
     permission_classes = [permissions.IsAuthenticated]
