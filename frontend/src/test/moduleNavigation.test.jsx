@@ -136,7 +136,7 @@ describe("navegacion de modulos", () => {
     ["/app/ciclos", "Ciclo escolar"],
     ["/app/matriculas", "Matriculas"],
     ["/app/asistencia", "Asistencia"],
-    ["/app/evaluacion", "Configuracion de evaluacion"],
+    ["/app/evaluacion", "Evaluación"],
     ["/app/plantillas", "Plantillas documentales"],
     ["/app/alertas", "Alertas"],
     ["/app/asignaciones", "Asignaciones docentes"],

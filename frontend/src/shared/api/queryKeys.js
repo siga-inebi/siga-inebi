@@ -80,6 +80,16 @@ export const queryKeys = {
       params,
     ],
   },
+  /**
+   * Evaluacion: sus rutas cuelgan de `/academics/cycles/{id}/`, asi que la key
+   * empieza por `academics` para que esas escrituras la invaliden.
+   */
+  evaluation: (cycleId, ...rest) => [
+    "academics",
+    "evaluation",
+    cycleId,
+    ...rest,
+  ],
   reporting: {
     all: ["reporting"],
     alerts: (params = {}) => ["reporting", "alerts", params],

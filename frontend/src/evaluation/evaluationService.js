@@ -3,110 +3,151 @@ import { withQuery } from "@shared/api/query.js";
 
 const ROOT = "/academics";
 
-/** Estados de una unidad de evaluacion, tal como los expone el backend. */
+/** Estados de una unidad de evaluación, tal como los expone el backend. */
 export const UNIT_STATUS_LABEL = {
   open: "Abierta",
   closed: "Cerrada",
 };
 
-/** Estado de dominio -> variante semantica de chip. */
+/** Estado de dominio -> variante semántica de chip. */
 export const UNIT_STATUS_VARIANT = {
   open: "success",
   closed: "neutral",
 };
 
+/** Condición de una subárea (RF-RES-003, RF-RES-005). */
+export const SUBJECT_CONDITION_LABEL = {
+  approved: "Aprobada",
+  approved_by_recovery: "Aprobada por recuperación",
+  failed: "Reprobada",
+};
+
+export const SUBJECT_CONDITION_VARIANT = {
+  approved: "success",
+  approved_by_recovery: "primary",
+  failed: "danger",
+};
+
+const cycle = (cycleId) => `${ROOT}/cycles/${cycleId}`;
+const unit = (cycleId, unitId) =>
+  `${cycle(cycleId)}/evaluation-units/${unitId}`;
+const enrolment = (cycleId, enrolmentId) =>
+  `${cycle(cycleId)}/enrolments/${enrolmentId}`;
+
 export const evaluationService = {
-  /** Configuracion global de evaluacion: el default de toda la institucion. */
+  /** Configuración global de evaluación: el default de toda la institución. */
   getGlobalConfig: () => apiClient.get(`${ROOT}/evaluation-config/`),
   updateGlobalConfig: (payload) =>
     apiClient.patch(`${ROOT}/evaluation-config/`, payload),
 
   /**
-   * Configuracion de un ciclo concreto. Existe para poder desviarse del default
-   * global en un ciclo sin cambiarlo para todos los demas.
+   * Configuración de un ciclo concreto. Existe para poder desviarse del default
+   * global en un ciclo sin cambiarlo para todos los demás.
    */
-  getCycleConfig: (cyclePublicId) =>
-    apiClient.get(`${ROOT}/cycles/${cyclePublicId}/evaluation-config/`),
-  updateCycleConfig: (cyclePublicId, payload) =>
-    apiClient.patch(
-      `${ROOT}/cycles/${cyclePublicId}/evaluation-config/`,
-      payload
-    ),
-
-  /** Unidades de evaluacion (bimestres, trimestres) del ciclo. */
-  listUnits: (cyclePublicId, params) =>
-    apiClient.get(
-      withQuery(`${ROOT}/cycles/${cyclePublicId}/evaluation-units/`, params)
-    ),
-  createUnit: (cyclePublicId, payload) =>
-    apiClient.post(
-      `${ROOT}/cycles/${cyclePublicId}/evaluation-units/`,
-      payload
-    ),
-
-  /** Ventana de recuperacion de una unidad. */
-  updateRecoveryWindow: (cyclePublicId, unitPublicId, payload) =>
-    apiClient.patch(
-      `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/recovery-window/`,
-      payload
-    ),
+  getCycleConfig: (cycleId) =>
+    apiClient.get(`${cycle(cycleId)}/evaluation-config/`),
+  updateCycleConfig: (cycleId, payload) =>
+    apiClient.patch(`${cycle(cycleId)}/evaluation-config/`, payload),
 
   /**
-   * Permisos excepcionales de captura fuera de ventana.
-   *
-   * Se otorgan por curso y docente, con motivo y vencimiento obligatorios: es una
-   * excepcion auditable, no un permiso permanente.
+   * Copia las unidades (con sus ventanas, trasladadas por la diferencia de
+   * inicio) y el número de unidades a un ciclo en borrador sin unidades (V6).
    */
-  listCaptureExceptions: (cyclePublicId, unitPublicId, params) =>
+  cloneConfig: (cycleId, targetCycleId) =>
+    apiClient.post(`${cycle(cycleId)}/evaluation-config/clone/`, {
+      target_cycle: targetCycleId,
+    }),
+
+  /** Unidades de evaluación (bimestres, trimestres) del ciclo. */
+  listUnits: (cycleId, params) =>
+    apiClient.get(withQuery(`${cycle(cycleId)}/evaluation-units/`, params)),
+  createUnit: (cycleId, payload) =>
+    apiClient.post(`${cycle(cycleId)}/evaluation-units/`, payload),
+  /** Cierra la unidad (V1): ya no admite captura y habilita cerrar el ciclo. */
+  closeUnit: (cycleId, unitId) =>
+    apiClient.patch(`${unit(cycleId, unitId)}/close/`, {}),
+
+  /** Ventana de recuperación de una unidad. */
+  updateRecoveryWindow: (cycleId, unitId, payload) =>
+    apiClient.patch(`${unit(cycleId, unitId)}/recovery-window/`, payload),
+
+  /**
+   * Permisos excepcionales de captura fuera de ventana (RF-EVC-004). Se
+   * otorgan por subárea y docente, con motivo y vencimiento obligatorios.
+   */
+  listCaptureExceptions: (cycleId, unitId, params) =>
+    apiClient.get(
+      withQuery(`${unit(cycleId, unitId)}/capture-exceptions/`, params)
+    ),
+  createCaptureException: (cycleId, unitId, payload) =>
+    apiClient.post(`${unit(cycleId, unitId)}/capture-exceptions/`, payload),
+
+  /**
+   * Planilla de una unidad, sección y subárea (V2, V8): una fila por matrícula
+   * activa, la nota vigente y el docente de la asignación vigente.
+   */
+  getSheet: (cycleId, unitId, sectionId, subjectId) =>
+    apiClient.get(
+      withQuery(`${unit(cycleId, unitId)}/sheet/`, {
+        section_id: sectionId,
+        subject_id: subjectId,
+      })
+    ),
+  /**
+   * Guarda la planilla en un solo lote, todo o nada:
+   * `{section_id, subject_id, grades: [{enrolment_id, value}]}` -> `{created, updated}`.
+   * Un 400 por fila trae `payload.errors[].index` (en el orden enviado).
+   */
+  saveSheet: (cycleId, unitId, payload) =>
+    apiClient.post(`${unit(cycleId, unitId)}/grades/sheet/`, payload),
+
+  /** Avance de captura de la unidad por sección y subárea (RF-CAL-008, V3). */
+  getCaptureProgress: (cycleId, unitId) =>
+    apiClient.get(`${unit(cycleId, unitId)}/capture-progress/`),
+
+  /** Elegibilidad de recuperación de toda una sección, paginada (V4). */
+  listSectionRecovery: (cycleId, sectionId, params) =>
     apiClient.get(
       withQuery(
-        `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/capture-exceptions/`,
+        `${cycle(cycleId)}/sections/${sectionId}/recovery-eligibility/`,
         params
       )
     ),
-  createCaptureException: (cyclePublicId, unitPublicId, payload) =>
+  /** `{subject, value}`: nota de recuperación de una subárea reprobada. */
+  registerRecoveryGrade: (cycleId, enrolmentId, payload) =>
     apiClient.post(
-      `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/capture-exceptions/`,
+      `${enrolment(cycleId, enrolmentId)}/recovery-grades/`,
       payload
     ),
 
+  /** Boleta: notas de unidad de una matrícula, con nombres de subárea. */
+  getReportCard: (cycleId, enrolmentId) =>
+    apiClient.get(`${enrolment(cycleId, enrolmentId)}/grades/`),
+
   /**
-   * Notas de unidad (RF-CAL-001): la nota consolidada que el docente ya
-   * calculo para un estudiante, una subarea y una unidad. Registrar de nuevo
-   * la misma combinacion actualiza la nota existente.
+   * Nota final de una subárea (RF-RES-001): promedio de las unidades con nota,
+   * redondeado por el sistema; una unidad sin nota no cuenta como cero.
    */
-  listGrades: (cyclePublicId, unitPublicId, params) =>
+  getFinalSubjectGrade: (cycleId, enrolmentId, subjectId) =>
     apiClient.get(
-      withQuery(
-        `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/grades/`,
-        params
-      )
+      `${enrolment(cycleId, enrolmentId)}/subjects/${subjectId}/final-grade/`
     ),
-  registerGrade: (cyclePublicId, unitPublicId, payload) =>
+
+  /** Resultados congelados al cierre del ciclo (RF-RES-007, V5). */
+  listFrozenResults: (cycleId, enrolmentId) =>
+    apiClient.get(`${enrolment(cycleId, enrolmentId)}/frozen-results/`),
+  getFrozenPromotion: (cycleId, enrolmentId) =>
+    apiClient.get(`${enrolment(cycleId, enrolmentId)}/frozen-promotion/`),
+  /** Corrección auditada con motivo: `{final_grade, reason}`. */
+  correctFrozenResult: (cycleId, enrolmentId, subjectId, payload) =>
     apiClient.post(
-      `${ROOT}/cycles/${cyclePublicId}/evaluation-units/${unitPublicId}/grades/`,
+      `${enrolment(cycleId, enrolmentId)}/subjects/${subjectId}/frozen-result/correct/`,
       payload
     ),
 
-  /**
-   * Promedio en curso de un estudiante en una subarea (RF-CAL-003).
-   *
-   * Promedia solo las unidades con nota registrada; una unidad sin nota
-   * nunca se trata como cero, se cuenta aparte como pendiente.
-   */
-  getCurrentAverage: (cyclePublicId, enrolmentId, subjectId) =>
+  /** Trazabilidad del resultado de una subárea (RF-RES-009). */
+  getResultTrace: (enrolmentId, subjectId) =>
     apiClient.get(
-      `${ROOT}/cycles/${cyclePublicId}/enrolments/${enrolmentId}/subjects/${subjectId}/current-average/`
-    ),
-
-  /**
-   * Nota final de un estudiante en una subarea (RF-RES-001).
-   *
-   * Promedio de las notas de unidad registradas; se recalcula ante cualquier
-   * correccion mientras el ciclo esta abierto.
-   */
-  getFinalSubjectGrade: (cyclePublicId, enrolmentId, subjectId) =>
-    apiClient.get(
-      `${ROOT}/cycles/${cyclePublicId}/enrolments/${enrolmentId}/subjects/${subjectId}/final-grade/`
+      `/audit/enrolments/${enrolmentId}/subjects/${subjectId}/result-trace/`
     ),
 };
