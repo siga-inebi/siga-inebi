@@ -12,6 +12,9 @@
  * a una peticion no debe obligar a tocar todos los call sites existentes.
  */
 export const queryKeys = {
+  enrolments: {
+    occupancy: (params) => ["enrolments", "occupancy", params],
+  },
   catalog: (name, reloadToken = 0) => ["catalog", name, reloadToken],
   /** Busqueda server-side generica, para pickers de cualquier entidad. */
   search: (name, term) => ["search", name, term],

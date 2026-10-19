@@ -5,6 +5,11 @@ from apps.teachers.models import Teacher
 from apps.teachers.services import create_teacher
 
 
+class TeacherListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(default=False)
+    position = serializers.ChoiceField(choices=Teacher.Position.choices, required=False)
+
+
 class SuggestedEmployeeCodeSerializer(serializers.Serializer):
     """Siguiente codigo de empleado libre, para prellenar el formulario."""
 
