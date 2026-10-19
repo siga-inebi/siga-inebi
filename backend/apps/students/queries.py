@@ -49,7 +49,7 @@ def guardian_relations_for_record(*, actor, student_public_id, replacement_for=N
     from django.db.models import BooleanField, Value
     from django.utils import timezone
 
-    from apps.identity.scopes import authorized_student_queryset, can_access_student
+    from apps.identity.scopes import authorized_student_queryset
 
     student = _get(
         authorized_student_queryset(user=actor, codename="student_view_basic"),
@@ -63,7 +63,7 @@ def guardian_relations_for_record(*, actor, student_public_id, replacement_for=N
         queryset = queryset.filter(
             ends_at__isnull=True, is_active=True, starts_at__lte=timezone.localdate()
         ).exclude(pk=replacement_for)
-    can_manage = can_access_student(user=actor, codename="student_edit_basic", student=student)
+    can_manage = student_record_can_manage(actor=actor, student=student)
     return queryset.annotate(
         record_can_manage=Value(can_manage, output_field=BooleanField())
     ).order_by("-is_primary", "pk")
@@ -76,6 +76,25 @@ def emergency_contacts(student, *, include_inactive=False):
         EmergencyContact.objects.filter(student=student).select_related("student"),
         include_inactive=include_inactive,
     ).order_by("name", "id")
+
+
+def with_student_record_actions(queryset, *, actor, student):
+    from django.db.models import BooleanField, Value
+
+    can_manage = student_record_can_manage(actor=actor, student=student)
+    return queryset.annotate(record_can_manage=Value(can_manage, output_field=BooleanField()))
+
+
+def student_record_can_manage(*, actor, student):
+    """Read capabilities without auditing a write that was never attempted."""
+    from apps.identity.scopes import effective_student_queryset
+
+    return (
+        actor.has_atomic_permission("student_edit_basic")
+        and effective_student_queryset(user=actor, codename="student_edit_basic")
+        .filter(pk=student.pk)
+        .exists()
+    )
 
 
 def emergency_contact_or_404(public_id):
