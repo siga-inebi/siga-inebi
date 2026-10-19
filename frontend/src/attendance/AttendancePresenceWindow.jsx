@@ -14,7 +14,6 @@ import {
   useGradeCatalog,
   useSectionCatalog,
   useShiftCatalog,
-  useStudentCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
 import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDateTime, todayInputValue } from "@shared/utils/format.js";
@@ -26,15 +25,17 @@ import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { MutedCell, NameCell } from "@ui/table/cells.jsx";
 
+import { StudentCell } from "./StudentCell.jsx";
+
 const presenceColumns = (names) => [
   {
     key: "student_id",
     label: "Estudiante",
-    render: (row) => <NameCell id={row.student_id} index={names.students} />,
+    render: (row) => <StudentCell student={row.student} />,
   },
   {
     key: "section_id",
-    label: "Seccion",
+    label: "Sección",
     render: (row) => <NameCell id={row.section_id} index={names.sections} />,
   },
   {
@@ -65,7 +66,6 @@ export function AttendancePresenceWindow({ onClose }) {
   const shifts = useShiftCatalog();
   const grades = useGradeCatalog();
   const sections = useSectionCatalog();
-  const students = useStudentCatalog();
 
   const [shiftId, setShiftId] = useState("");
   const [eventDate, setEventDate] = useState(todayInputValue);
@@ -73,12 +73,11 @@ export function AttendancePresenceWindow({ onClose }) {
   const [sectionId, setSectionId] = useState("");
   const [query, setQuery] = useState(null);
 
+  // Las filas traen el nombre del estudiante; solo la sección sale del
+  // catálogo (acotado), ya no se descarga el padrón completo.
   const names = useMemo(
-    () => ({
-      students: labelIndex(students.options),
-      sections: labelIndex(sections.options),
-    }),
-    [students.options, sections.options]
+    () => ({ sections: labelIndex(sections.options) }),
+    [sections.options]
   );
 
   const loadPresence = useCallback(
@@ -177,7 +176,7 @@ export function AttendancePresenceWindow({ onClose }) {
               error={sections.error}
               fullWidth
               helperText="Opcional; acota el listado."
-              label="Seccion"
+              label="Sección"
               loading={sections.loading}
               onChange={(event) => setSectionId(event.target.value)}
               options={sectionOptions}
@@ -214,7 +213,7 @@ export function AttendancePresenceWindow({ onClose }) {
             rows={list.items}
           />
         ) : (
-          <EmptyState message="Elija la jornada para consultar quien esta presente." />
+          <EmptyState message="Elija la jornada para consultar quién está presente." />
         )}
       </Stack>
     </FloatingWindow>

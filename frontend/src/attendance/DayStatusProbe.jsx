@@ -11,24 +11,38 @@ import {
   attendanceService,
   MOVEMENT_LABEL,
 } from "@attendance/attendanceService.js";
-import {
-  useShiftCatalog,
-  useStudentCatalog,
-} from "@shared/catalogs/academicCatalogs.js";
+import { useShiftCatalog } from "@shared/catalogs/academicCatalogs.js";
 import { formatDateTime, todayInputValue } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
 import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
+import { RemoteSearchSelect } from "@ui/forms/RemoteSearchSelect.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { DetailField } from "@ui/layout/DetailWindow.jsx";
 
-/** Estado del dia calculado por el backend -> variante semantica. */
+import { STUDENT_SEARCH } from "./studentSearch.js";
+
+/** Estado del día calculado por el backend -> variante semántica. */
 const DAY_STATUS_VARIANT = {
   presente: "success",
   tarde: "warning",
   ausente: "danger",
+  ausente_pendiente_justificar: "danger",
+  ausencia_justificada: "primary",
+  tarde_justificada: "primary",
   permanencia_sin_cierre: "warning",
+};
+
+/** Etiqueta del estado (`DayStatus` del backend); nunca el valor crudo. */
+const DAY_STATUS_LABEL = {
+  presente: "Presente",
+  tarde: "Tarde",
+  ausente: "Ausente",
+  ausente_pendiente_justificar: "Ausente pendiente de justificar",
+  ausencia_justificada: "Ausencia justificada",
+  tarde_justificada: "Llegada tardía justificada",
+  permanencia_sin_cierre: "Permanencia sin cierre",
 };
 
 /**
@@ -44,7 +58,6 @@ const DAY_STATUS_VARIANT = {
  * La fecha arranca en hoy, que es lo que se consulta el 99% de las veces.
  */
 export function DayStatusProbe() {
-  const students = useStudentCatalog();
   const shifts = useShiftCatalog();
 
   const [studentId, setStudentId] = useState("");
@@ -85,23 +98,16 @@ export function DayStatusProbe() {
     <SectionCard
       subtitle="Requiere estudiante, jornada y fecha"
       sx={{ height: "100%" }}
-      title="Estado del dia"
+      title="Estado del día"
     >
       <Box component="form" onSubmit={handleSubmit} sx={{ px: 3, py: 2.5 }}>
         <Stack gap={2}>
-          <FormSelect
-            error={students.error}
-            fullWidth
-            helperText={
-              !students.loading && students.options.length === 0
-                ? "No hay estudiantes registrados."
-                : undefined
-            }
+          <RemoteSearchSelect
+            helperText="Escriba el nombre o el código del estudiante."
             label="Estudiante"
-            loading={students.loading}
+            name="student_id"
             onChange={(event) => setStudentId(event.target.value)}
-            options={students.options}
-            placeholder="Seleccione un estudiante"
+            search={STUDENT_SEARCH}
             value={studentId}
           />
           <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
@@ -163,7 +169,7 @@ export function DayStatusProbe() {
                 value={
                   result.status ? (
                     <StatusChip
-                      label={result.status}
+                      label={DAY_STATUS_LABEL[result.status] ?? result.status}
                       variant={DAY_STATUS_VARIANT[result.status] ?? "neutral"}
                     />
                   ) : (
@@ -184,7 +190,7 @@ export function DayStatusProbe() {
               />
             </Box>
           ) : !error && !loading ? (
-            <EmptyState message="Elija estudiante, jornada y fecha para consultar el estado del dia." />
+            <EmptyState message="Elija estudiante, jornada y fecha para consultar el estado del día." />
           ) : null}
         </Stack>
       </Box>

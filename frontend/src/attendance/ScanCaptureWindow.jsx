@@ -28,9 +28,10 @@ const MOVEMENT_OPTIONS = [
 /**
  * Registro de un movimiento por escaneo (RF-ASI-001/002/004/010).
  *
- * Como el carnet con QR real todavia no existe (RF-CRE-001), "escanear" es
- * escribir o inyectar el codigo del estudiante: el flujo queda listo para
- * conectar un lector de verdad sin rediseñarse.
+ * "Escanear" es escribir o inyectar el código del estudiante (un lector de
+ * teclado lo hace igual): el flujo queda listo para conectar el lector del
+ * carné sin rediseñarse. Si hay un turno abierto (AS1), cada escaneo lleva su
+ * `capture_batch_id`.
  *
  * La jornada se elige del catalogo. Se pedia como "ID de jornada", que es un
  * UUID de la base de datos: en un punto de control, con la fila esperando, no
@@ -42,7 +43,11 @@ const MOVEMENT_OPTIONS = [
  * nuevo despues de un envio que sí completo (creado, duplicado informado o ya
  * procesado) — ahi empieza un intento distinto.
  */
-export function ScanCaptureWindow({ onClose, onRecorded }) {
+export function ScanCaptureWindow({
+  captureBatchId = "",
+  onClose,
+  onRecorded,
+}) {
   const shifts = useShiftCatalog();
 
   const [studentCode, setStudentCode] = useState("");
@@ -90,6 +95,7 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
     setError("");
     try {
       const response = await attendanceService.recordScan({
+        ...(captureBatchId ? { capture_batch_id: captureBatchId } : null),
         items: [
           {
             client_event_id: clientEventId,
@@ -106,7 +112,7 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
       // es uno nuevo, con su propio id.
       setClientEventId(crypto.randomUUID());
       setStudentCode("");
-      if (response[0].outcome === "created") onRecorded?.();
+      onRecorded?.(response[0]);
     } catch (requestError) {
       // Fallo de red o del servidor: NO se genera un id nuevo, para que
       // reintentar con el mismo boton reuse el mismo client_event_id.
@@ -118,7 +124,11 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
 
   return (
     <FloatingWindow
-      description="Cada escaneo es idempotente: un reintento por fallo de red no duplica el movimiento."
+      description={
+        captureBatchId
+          ? "Lo escaneado queda en el turno abierto. Un reintento por fallo de red no duplica el movimiento."
+          : "Sin turno abierto. Un reintento por fallo de red no duplica el movimiento."
+      }
       footer={
         <Button onClick={onClose} variant="text">
           Cerrar
@@ -131,8 +141,8 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
     >
       <Stack component="form" gap={2} onSubmit={handleSubmit}>
         <FormTextField
-          helperText="Codigo leido del carnet del estudiante."
-          label="Codigo de estudiante"
+          helperText="Código leído del carné del estudiante."
+          label="Código de estudiante"
           onChange={(event) => setStudentCode(event.target.value)}
           required
           value={studentCode}
@@ -147,7 +157,7 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
         <FormSelect
           helperText={
             controlPoints.length === 0 && !controlPointsLoading
-              ? "No hay puntos de control registrados todavia."
+              ? "No hay puntos de control registrados todavía."
               : undefined
           }
           label="Punto de control"
@@ -166,7 +176,7 @@ export function ScanCaptureWindow({ onClose, onRecorded }) {
           helperText={
             !shifts.loading && shifts.options.length === 0
               ? "No hay jornadas registradas."
-              : "Provisional: mas adelante se resuelve por el punto de control."
+              : "Provisional: más adelante se resuelve por el punto de control."
           }
           label="Jornada"
           loading={shifts.loading}
