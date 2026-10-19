@@ -4,6 +4,11 @@ from apps.common.exceptions import DomainError, ResourceNotFoundError
 from apps.teachers.models import Teacher
 
 
+def teacher_positions():
+    """Published position choices; no duplicate catalogue in the UI."""
+    return [{"value": value, "label": label} for value, label in Teacher.Position.choices]
+
+
 def teachers(*, include_inactive=True, position=None):
     queryset = Teacher.objects.select_related("person").all()
     if not include_inactive:

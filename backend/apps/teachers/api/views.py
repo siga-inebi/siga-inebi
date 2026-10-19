@@ -7,9 +7,26 @@ from apps.teachers import queries
 from apps.teachers.api.serializers import (
     SuggestedEmployeeCodeSerializer,
     TeacherListQuerySerializer,
+    TeacherPositionSerializer,
     TeacherSerializer,
 )
 from apps.teachers.services import deactivate_teacher, next_employee_code
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar puestos de docentes y administrativos",
+        tags=["teachers"],
+        responses={200: TeacherPositionSerializer(many=True)},
+    )
+)
+class TeacherPositionListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TeacherPositionSerializer
+    pagination_class = None
+
+    def get(self, request):
+        return Response(self.get_serializer(queries.teacher_positions(), many=True).data)
 
 
 @extend_schema_view(
