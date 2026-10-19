@@ -210,7 +210,7 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 |---|---|---|
 | T1 | **P0 · Bug** | La edición descarta sexo, nacionalidad, dirección, departamento y municipio (ver 1.2.2). |
 | T2 | **P1 · Rendimiento** | Se descarga todo el padrón (ver 1.1.2). El backend no tiene `?search=` ni filtro por puesto: el filtro "Puesto" funciona solo sobre lo descargado. **Resuelto en #631:** el backend ya acepta `search` y `position`; la pantalla pagina, busca y filtra por puesto en el servidor. **Seguimiento #632:** contratos de servidor en #635; adopción de `useServerList`, filtros, URL y CSV completo en [T2/T4](architecture/teacher-server-list-ui.md). Pendiente de integración y aceptación. |
-| T3 | **P1 · Sin UI** | **Desactivar docente** (`DELETE /teachers/<id>/`). |
+| T3 | **P1 · Sin UI** | **Desactivar docente** (`DELETE /teachers/<id>/`). **Seguimiento #632:** confirmación, permiso aprobado `teacher.deactivate` con alcance `teachers`, baja y auditoría atómicas, idempotencia e historial conservado en [T3](architecture/teacher-deactivation-ui.md). Pendiente de integración y aceptación. |
 | T4 | **P2 · Claridad** | Los puestos estaban fijos en `teachersMock.js` y duplicaban el backend. **Seguimiento #632:** catálogo autenticado `GET /teachers/positions/` desde `Teacher.Position`, compartido por filtro y formularios; archivo duplicado retirado. Contrato, errores y pruebas en [T2/T4](architecture/teacher-server-list-ui.md). Pendiente de integración y aceptación. |
 
 ### 2.8 Padres de familia (encargados)

@@ -3,6 +3,7 @@ import { collectAllPages } from "@shared/api/pages.js";
 import { withQuery } from "@shared/api/query.js";
 
 export const teachersService = {
+  deactivate: (id) => apiClient.del(`/teachers/${id}/`),
   listPositions: () => apiClient.get("/teachers/positions/"),
   /** Página del servidor para el listado y recorridos explícitos. */
   listPage: (params) => apiClient.get(withQuery("/teachers/", params)),
