@@ -16,6 +16,16 @@ from apps.students.services import (
     update_student,
 )
 
+
+class StudentListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(default=False)
+    status = serializers.ChoiceField(choices=Student.StudentStatus.choices, required=False)
+
+
+class GuardianListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(default=False)
+
+
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a parent record
 # without dragging in a full nested representation.

@@ -4,8 +4,13 @@ from apps.common.exceptions import DomainError, ResourceNotFoundError
 from apps.teachers.models import Teacher
 
 
-def teachers():
-    return Teacher.objects.select_related("person").all()
+def teachers(*, include_inactive=True, position=None):
+    queryset = Teacher.objects.select_related("person").all()
+    if not include_inactive:
+        queryset = queryset.filter(is_active=True)
+    if position is not None:
+        queryset = queryset.filter(position=position)
+    return queryset
 
 
 def teacher_or_404(public_id):

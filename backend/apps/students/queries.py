@@ -21,14 +21,19 @@ def student_or_404(public_id):
     return _get(Student.objects.all(), public_id, "Student")
 
 
-def students():
-    return Student.objects.all()
+def students(*, include_inactive=True, status=None):
+    queryset = _filter_active(
+        Student.objects.select_related("person"), include_inactive=include_inactive
+    )
+    return queryset if status is None else queryset.filter(status=status)
 
 
-def guardians():
+def guardians(*, include_inactive=True):
     from apps.students.models import Guardian
 
-    return Guardian.objects.select_related("person").all()
+    return _filter_active(
+        Guardian.objects.select_related("person"), include_inactive=include_inactive
+    )
 
 
 def guardian_relations(*, student_public_id=None):

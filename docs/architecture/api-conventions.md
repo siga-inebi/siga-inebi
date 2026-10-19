@@ -34,6 +34,56 @@ excepciones. El sobre de error se conserva como `error.status_code` y `error.det
 404 y 403, `detail` mantiene la forma `{"detail": "..."}` usada por DRF; asi el traslado de una
 consulta o una regla fuera de una vista no rompe a los consumidores existentes.
 
+## Listados de comunidad educativa (#632)
+
+`GET /api/v1/people/`, `/teachers/`, `/students/` y `/students/guardians/`
+aplican búsqueda y filtros antes de contar y paginar. Mantienen el sobre
+`{count, next, previous, results}`, los identificadores y los campos de respuesta existentes.
+
+| Parámetro | Contrato |
+| --- | --- |
+| `include_inactive` | Por defecto `false`: solo `is_active=true` del recurso listado. `true` incluye activos y desactivados, sin reactivar ni eliminar filas. |
+| `search` | Búsqueda parcial sin distinguir mayúsculas mediante DRF `SearchFilter`. Todos los términos deben coincidir con alguno de los campos habilitados. Omitir o enviar vacío conserva el listado sin búsqueda. |
+| `status` | Solo estudiantes: valor exacto de `Student.StudentStatus`, independiente de `is_active`. |
+| `position` | Solo docentes: valor exacto de `Teacher.Position`, combinado con búsqueda y actividad. |
+| `page` | Paginación existente de 25 elementos. `page_size`, orden configurable y exportación completa se entregan mediante #630 y la posterior migración de pantallas. |
+
+Campos de búsqueda:
+
+- Personas: nombre, apellido, CUI e identificador institucional.
+- Estudiantes: nombre y apellido de persona, CUI y código estudiantil.
+- Docentes: nombre y apellido de persona, CUI y código de empleado.
+- Encargados: nombre y apellido de persona y CUI.
+
+Valores publicados de `status`: `pre_enrolled`, `active`, `inactive`, `withdrawn`,
+`graduated`, `transferred`. Valores de `position`: `Docente Titulado`, `Docente Interino`,
+`Orientador/a`, `Administrativo`. Son valores del catálogo del modelo, no etiquetas traducidas
+por el cliente. Los filtros deben omitirse cuando el selector representa «Todos».
+
+`include_inactive` acepta las representaciones booleanas de DRF (incluidos `true/false`,
+`1/0`, `yes/no`). Un booleano inválido o vacío, un estado o puesto desconocido o vacío
+devuelve HTTP 400 con el nombre del parámetro en `error.detail`. Un filtro válido sin
+coincidencias devuelve HTTP 200 con `count=0` y `results=[]`.
+
+Compatibilidad: antes los cuatro endpoints mezclaban activos y desactivados aun sin parámetro.
+Los consumidores que necesiten esa mezcla deben enviar `include_inactive=true`. El filtro afecta
+al recurso listado, no al estado de su persona vinculada; la baja de una persona no se propaga
+a sus perfiles. La consulta individual y los servicios conservan el acceso histórico existente.
+En particular, un estudiante con `status=inactive` e `is_active=true` sigue apareciendo en el
+listado normal: estado del expediente y baja lógica son dimensiones distintas.
+
+La búsqueda no amplía autorización. Estudiantes conserva `student_view_basic` y su queryset de
+alcance efectivo. Los otros tres endpoints conservan sus controles de sesión existentes; este
+cambio no agrega permisos ni redefine su política de alcance. No se añaden campos sensibles a
+las respuestas ni se guarda el término de búsqueda en auditoría de aplicación.
+
+Personas desempata nombres iguales por `id`; Estudiantes y Docentes conservan sus códigos únicos
+como orden, y Encargados su orden por apellidos, nombres e `id`. `select_related("person")` evita
+consultas adicionales por fila en los perfiles. La paginación no ofrece una instantánea ante
+escrituras concurrentes.
+
+Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad educativa](../development/632-community-lists.md).
+
 ## Disponibilidad de aulas (RF-AUL-005)
 
 - Las respuestas de aulas agregan `service_status`: `available` (Disponible),
