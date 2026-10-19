@@ -601,6 +601,7 @@ Frontend de la entrega (AS1–AS6, 1.1, 1.3, 1.5, 1.6):
 | RF-JOR-007; D9 | — | — | Las notificaciones de inasistencia no tienen pantalla del personal |
 ## Entrega UX T2/T4: listado docente y puestos (#632)
 Diseño y límites: [listado docente](../architecture/teacher-server-list-ui.md).
+Entrega: [PR #654](https://github.com/siga-inebi/siga-inebi/pull/654), hacia `develop`.
 No existe RF específico para búsqueda/puesto docente: se conserva la trazabilidad por hallazgo
 y no se cambian estados globales de RF/RNF. T3 continúa pendiente.
 | Hallazgo | Código / contrato | Pruebas verificables | Estado de esta entrega |
