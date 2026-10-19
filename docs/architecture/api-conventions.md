@@ -423,6 +423,82 @@ Solo considera asignaciones vigentes del origen.
 
 Cada llave admite su versión descendente con `-`. Se mantiene `include_inactive`.
 
+## Evaluación (#631)
+
+Contratos de la entrega de Evaluación de #631 (hallazgos V1–V8 de docs/ux-ui.md 2.11). Los
+campos nuevos son **aditivos**. Cambian dos cosas: los endpoints de configuración que solo
+pedían sesión ahora exigen permiso (ver la tabla y
+[permisos-en-ui.md](../development/permisos-en-ui.md), #643) y la carga CSV responde
+`{created, updated}` en vez de `{created}`, donde `created` cuenta solo las notas nuevas. Las
+rutas cuelgan de `/api/v1/academics/cycles/{cycle_id}`; `…/units/{u}` abrevia
+`…/evaluation-units/{unit_id}`.
+
+### Notas de la unidad y planilla
+
+`GradeSerializer` se publica como componente `UnitGrade` (antes chocaba con el `Grade` de
+academics) y agrega, sin cambiar `enrolment`, `subject` ni `evaluation_unit` (pk interno):
+`student: {public_id, student_code, full_name}`, `subject_detail: {public_id, name}` (se llama
+así porque `subject` ya es el public_id) y `evaluation_unit_id` (public_id). Aplica al listado,
+al alta y a la boleta `GET …/enrolments/{id}/grades/`. El listado y la boleta precargan
+estudiante, subárea y unidad: el número de consultas no crece con las filas.
+
+| Método y ruta | Parámetros o cuerpo | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET …/units/{u}/grades/` | `section_id?`, `student_id?`, `subject_id?` (public_id), `page`, `page_size` | 200 paginado de `UnitGrade`, por apellido, nombre y subárea. Un identificador inexistente deja la lista vacía; uno mal formado responde 400 | Sesión; el docente ve solo sus asignaciones (RF-CAL-006, sin cambio) |
+| `POST …/units/{u}/grades/` | `{enrolment, subject, value, teacher?}` | 201 `UnitGrade`. Sin `teacher` se toma la persona de la asignación vigente de la sección y la subárea; si no hay, 400 «La sección «…» no tiene docente asignado en «…». …» | `grade.write` sobre sección y subárea |
+| `POST …/units/{u}/grades/bulk/` | multipart: `file` (CSV `student_code,value`), `subject`, `section`, `teacher?` | 200 `{created, updated}`; 400 `{errors: [{row, field, message}], created: 0}` | `grade.write` sobre sección y subárea |
+| `GET …/units/{u}/sheet/` | `section_id`, `subject_id` (obligatorios) | 200 `{unit: {public_id, name, status, window_open}, section: {public_id, name}, subject: {public_id, name}, teacher: {public_id, name} \| null, rows: [{enrolment_id, student: {public_id, student_code, full_name}, grade: {public_id, value} \| null}]}`. Una fila por matrícula activa de la sección, por apellido y nombre. 404 si la sección no es del ciclo de la unidad | `grade.write` sobre sección y subárea, o `evaluation.configure_units` sobre la institución (solo lectura) |
+| `POST …/units/{u}/grades/sheet/` | `{section_id, subject_id, teacher_id?, grades: [{enrolment_id \| student_code, value}]}` (1 a 200) | 200 `{created, updated}`; 400 `{errors: [{index, student_code, field, message}]}` | `grade.write` sobre sección y subárea |
+
+- La planilla responde en **una sola página** con tope de 200 filas (una sección real tiene
+  unas 35). Una sección con más responde 400 en vez de cortar: no hay tope silencioso.
+- `teacher` del `GET` es la persona docente (`Person.public_id`), la misma que acepta
+  `teacher_id`; no es el perfil `Teacher` que usa `teacher_id` en las asignaciones.
+- Guardado: la carga CSV y la planilla usan el mismo servicio, `bulk_register_unit_grades`.
+  Es **todo o nada**: se validan todas las filas (matrícula activa en la sección, entero de 0 a
+  100 sin decimales ni booleanos, sin estudiantes repetidos) y si alguna falla no se escribe
+  nada. `index` empieza en 0, en el orden recibido; la carga CSV conserva su `row` (desde 1).
+  Las condiciones de lote (sección de otro ciclo, sin docente, ventana cerrada) responden 400
+  con el sobre habitual (`error.detail`).
+- **Correcciones**: una fila de un estudiante que ya tiene nota la corrige (RF-CAL-005) por la
+  misma vía que una corrección individual, `register_unit_grade`: exige ventana de captura
+  abierta y unidad abierta, o brecha excepcional vigente, y la bitácora registra
+  `evaluation.grade_updated` con el valor anterior y el nuevo. No pide motivo porque RF-CAL-005
+  no lo exige; `grade.correct` con motivo sigue siendo solo para resultados congelados.
+  `updated` cuenta esas correcciones. El evento resumen `evaluation.grades_bulk_registered`
+  lleva `teacher_id`, `created` y `updated`.
+
+### Avance, recuperación y resultados
+
+| Método y ruta | Parámetros o cuerpo | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET …/units/{u}/capture-progress/` | — | Sin cambio de forma | `evaluation.configure_units` sobre la institución ve todas las filas; con `grade.write` y asignaciones vigentes en el ciclo, solo las propias (y `overall_progress_pct` sobre ellas); si no, 403 |
+| `GET …/enrolments/{e}/recovery-eligibility/` | — | Sin cambio de forma | `student.view_basic` sobre el estudiante (mismo criterio que la boleta) |
+| `POST …/enrolments/{e}/recovery-grades/` | Sin cambio | Sin cambio | `grade.write` sobre la sección de la matrícula y la subárea; denegación auditada `evaluation.grade_write_denied` |
+| `GET …/sections/{s}/recovery-eligibility/` | `page`, `page_size` | 200 paginado de `{enrolment_id, student, eligible, reasons, attendance_percentage, failed_count, failed_limit, recovery_already_used, failed_subjects: [{public_id, name, final_grade}]}` por apellido y nombre | `student.view_basic` con alcance sobre la sección |
+| `GET …/enrolments/{e}/frozen-results/` | — | 200 lista sin paginar de `FrozenSubjectResult` (la fila vigente de cada subárea, por nombre de subárea); vacía antes del cierre | Sesión, igual que `…/subjects/{s}/frozen-result/` (hueco seguido en #643) |
+
+- En el listado por sección `failed_subjects` es la **lista** de subáreas reprobadas y
+  `failed_count` el conteo; en el endpoint por matrícula `failed_subjects` sigue siendo el
+  conteo. Cada fila reutiliza `assess_recovery_eligibility`: no se repiten reglas. Su costo
+  es de una evaluación por matrícula de la página (asistencia y nota final de cada subárea
+  del plan), acotado por `page_size` (25 por omisión, 100 como máximo).
+- El avance de captura lee siempre cuatro consultas (plan, secciones con su conteo de
+  matrículas activas, notas agrupadas por sección y subárea, asignaciones vigentes).
+
+### Configuración
+
+| Método y ruta | Cambio | Permiso |
+| --- | --- | --- |
+| `POST …/evaluation-units/` | Acepta `recovery_starts_on` y `recovery_ends_on` opcionales (las dos o ninguna; con una sola, 400 y no se crea la unidad). Responde `academic_cycle_id` (public_id) además de `academic_cycle` | `evaluation.configure_units` sobre la institución del ciclo (antes solo sesión) |
+| `PATCH …/units/{u}/recovery-window/` | — | ídem (antes solo sesión) |
+| `GET`/`POST …/units/{u}/capture-exceptions/` | — | ídem para listar y otorgar (antes solo sesión) |
+| `PATCH /academics/evaluation-config/` | — | ídem sobre la institución del sistema (antes solo sesión); el `GET` sigue con sesión |
+| `PATCH …/evaluation-config/` (del ciclo) | — | ídem sobre la institución del ciclo (antes solo sesión); el `GET` sigue con sesión |
+
+Cierre de unidad y clonado de configuración ya exigían el permiso; no cambian. Las acciones de
+configuración registran ahora al actor en la bitácora.
+
 ## Inscripciones activas
 
 - `GET /api/v1/enrolments/active/` expone las inscripciones con estado `active` y registro

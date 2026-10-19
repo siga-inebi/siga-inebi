@@ -524,3 +524,22 @@ Frontend de la entrega (C1–C10, S1–S5, A1–A3, N1–N3, AD1–AD4, 1.6):
 | RF-JOR-010; C8 | `tabs/NonComputableDaysTab.jsx` | `cycleDetailPage.test.jsx` | Listar, declarar y quitar |
 | RF-EST-009; AD2; AD4 | `academics/TeachingAssignmentsPage.jsx`, `BulkAssignmentWindow.jsx`, `CloneAssignmentsWindow.jsx`; `teachers/TeacherAssignments.jsx` | `frontend/src/test/teachingAssignments.test.jsx`; `DocentesPage.test.jsx` | Listado filtrable con nombres del servidor; lotes y clonado sin `collectAllPages`; «Qué imparte» en la ficha del docente |
 | A1–A3; N1–N3; 1.1; 1.3 | `academics/CampusesPage.jsx`, `RoomsPage.jsx`, `LevelsPage.jsx`, `SubjectsPage.jsx`, `CatalogFilters.jsx` | `campusesPage.test.jsx`; `RoomsPage.test.jsx`; `levelsPage.test.jsx`; `subjectsPage.test.jsx` | Búsqueda, orden e inactivos en la URL; «Ver jornadas (n)» / «Ver grados (n)»; «Cursos del nivel»; acciones con `scope.assign` |
+
+## Entrega UX evaluación (#631)
+
+Segunda entrega de #631, parte de backend. Cubre los hallazgos V1–V8 de
+[docs/ux-ui.md](../ux-ui.md) 2.11 y cierra en Evaluación los huecos "Sin control de permiso"
+de [permisos-en-ui.md](../development/permisos-en-ui.md) (seguimiento en #643). Contratos en
+[api-conventions.md](../architecture/api-conventions.md), sección «Evaluación (#631)». La
+interfaz llega en la siguiente parte de la entrega: hasta entonces cada requerimiento queda
+«In progress» en el catálogo.
+
+| Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
+| --- | --- | --- | --- |
+| RF-CAL-001/004/005; V2 | `bulk_register_unit_grades` (CSV y planilla), `build_grade_sheet` (`backend/apps/evaluation/services.py`); `GET …/sheet/`, `POST …/grades/sheet/` | `api/test_evaluation_grade_sheet_api.py`; `unit/test_evaluation_grade_sheet_services.py`; `integration/test_evaluation_grade_sheet_flow.py` | Planilla en una llamada (tope 200 filas, sin corte silencioso); guardado todo o nada con `created`/`updated`; una nota existente se corrige por `register_unit_grade` (ventana o brecha, bitácora antes/después) |
+| RF-CAL-001; V2; V5 | `GradeSerializer` (componente `UnitGrade`): `student`, `subject_detail`, `evaluation_unit_id`; filtros `section_id`, `subject_id`, `student_id` | `api/test_evaluation_grade_sheet_api.py` (conteo de consultas constante) | Campos aditivos; también en la boleta `…/enrolments/{id}/grades/` |
+| RF-CAL-001/004; V8 | `resolve_capture_teacher` reutiliza `current_teaching_assignment` | mismas pruebas | `teacher` opcional en nota individual, CSV y planilla; 400 si no hay asignación vigente |
+| RF-CAL-008; V3 | `queries.capture_progress_rows` agregado en memoria; `UnitCaptureProgressView` con permiso | `api/test_evaluation_grade_sheet_api.py`; `permissions/test_evaluation_permissions.py` | Cuatro consultas fijas; docente ve solo sus asignaciones |
+| RF-RES-004/005; V4 | `section_recovery_eligibility`, `RecoveryEligibility.failed_subject_list`; `GET …/sections/{id}/recovery-eligibility/` | mismas pruebas | Listado paginado por sección; permisos en elegibilidad (`student.view_basic`) y registro (`grade.write`) |
+| RF-RES-007; V5 | `queries.current_frozen_subject_results`; `GET …/enrolments/{id}/frozen-results/` | `api/test_evaluation_grade_sheet_api.py` | Resultado vigente de cada subárea en una llamada |
+| RF-EVC-001/003/004/005 | `require_evaluation_configuration` en crear unidad, ventana de recuperación, excepciones de captura y configuración global/del ciclo | `permissions/test_evaluation_permissions.py`; `api/test_evaluation_api.py` | `evaluation.configure_units` sobre la institución; ventana de recuperación aceptada al crear; `academic_cycle_id` aditivo |

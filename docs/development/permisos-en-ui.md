@@ -85,13 +85,22 @@ institución, módulo).
 | Asignaciones docentes | Nueva asignación / Asignar por lotes / Clonar en ciclo nuevo | `POST /academics/teaching-assignments/`, `POST /academics/cycles/{id}/teaching-assignments/batch/` | `scope.assign` con alcance sobre la institución |
 | Asignaciones docentes | Listado, matriz sección × curso, vista previa del clonado | `GET /academics/teaching-assignments/`, `GET /academics/cycles/{id}/assignment-matrix/`, `GET /academics/cycles/{id}/teaching-assignments/clone-preview/` | `scope.assign` con alcance sobre la institución |
 | Asignaciones docentes | Reasignar a otro docente | `POST /academics/teaching-assignments/{id}/reassignments/` | `scope.assign` con alcance sobre la institución |
-| Evaluación | Nueva unidad / Crear unidad | `POST /evaluation/cycles/{id}/evaluation-units/` | **Sin control de permiso** (`check_director_permission` solo exige sesión; TODO en el código: `evaluation.configure_units`) |
-| Evaluación | Ajustar ventana de recuperación | `PATCH …/evaluation-units/{id}/recovery-window/` | **Sin control de permiso** (mismo TODO) |
-| Evaluación | Cerrar unidad (aún sin UI) | `POST …/evaluation-units/{id}/close/` | `evaluation.configure_units` |
-| Evaluación | Permisos excepcionales de captura → Otorgar excepción | `POST …/evaluation-units/{id}/capture-exceptions/` | **Sin control de permiso** (TODO en el código) |
-| Evaluación | Cambiar configuración / Guardar default | `/evaluation/evaluation-config/`, `/evaluation/cycles/{id}/evaluation-config/` | **Sin control de permiso** (TODO en el código) |
-| Evaluación | Notas de la unidad → Registrar nota | `POST /evaluation/cycles/{id}/evaluation-units/{id}/grades/` | `grade.write` con alcance (asignación docente) |
-| Evaluación | Consultar nota final / promedio | `GET` de consulta | **Sin control de permiso** en la vista |
+| Evaluación | Nueva unidad / Crear unidad | `POST /academics/cycles/{id}/evaluation-units/` | `evaluation.configure_units` con alcance sobre la institución (#631; antes solo sesión) |
+| Evaluación | Ajustar ventana de recuperación | `PATCH …/evaluation-units/{id}/recovery-window/` | `evaluation.configure_units` con alcance sobre la institución (#631) |
+| Evaluación | Cerrar unidad | `PATCH …/evaluation-units/{id}/close/` | `evaluation.configure_units` con alcance sobre la institución |
+| Evaluación | Permisos excepcionales de captura → Otorgar excepción / listado | `GET`/`POST …/evaluation-units/{id}/capture-exceptions/` | `evaluation.configure_units` con alcance sobre la institución (#631) |
+| Evaluación | Cambiar configuración / Guardar default | `PATCH /academics/evaluation-config/`, `PATCH /academics/cycles/{id}/evaluation-config/` | `evaluation.configure_units` con alcance sobre la institución (#631); la consulta (`GET`) sigue con sesión |
+| Evaluación | Clonar configuración | `POST /academics/cycles/{id}/evaluation-config/clone/` | `evaluation.configure_units` con alcance sobre la institución |
+| Evaluación | Notas de la unidad → Registrar nota | `POST …/evaluation-units/{id}/grades/` | `grade.write` con alcance (asignación docente) |
+| Evaluación | Planilla de calificaciones → abrir | `GET …/evaluation-units/{id}/sheet/` | `grade.write` sobre la sección y la subárea, o `evaluation.configure_units` sobre la institución (solo lectura) |
+| Evaluación | Planilla → Guardar / Cargar archivo | `POST …/grades/sheet/`, `POST …/grades/bulk/` | `grade.write` sobre la sección y la subárea |
+| Evaluación | Avance de captura | `GET …/evaluation-units/{id}/capture-progress/` | `evaluation.configure_units` (todas las filas) o `grade.write` con asignaciones vigentes (solo las propias) (#631) |
+| Evaluación | Recuperación → elegibilidad (matrícula o sección) | `GET …/enrolments/{id}/recovery-eligibility/`, `GET …/sections/{id}/recovery-eligibility/` | `student.view_basic` con alcance sobre el estudiante o la sección (#631) |
+| Evaluación | Recuperación → Registrar nota | `POST …/enrolments/{id}/recovery-grades/` | `grade.write` sobre la sección y la subárea (#631) |
+| Evaluación | Boleta del estudiante | `GET …/enrolments/{id}/grades/` | `student.view_basic` con alcance sobre el estudiante |
+| Evaluación | Resultados congelados (consulta y listado) | `GET …/subjects/{id}/frozen-result/`, `GET …/enrolments/{id}/frozen-results/`, `GET …/frozen-promotion/` | **Sin control de permiso** (solo sesión; #643) |
+| Evaluación | Corregir resultado congelado | `POST …/frozen-result/correct/` | `grade.correct` (sin alcance) |
+| Evaluación | Consultar nota final / promedio; listado de notas de la unidad | `GET` de consulta | **Sin control de permiso** en la vista (el listado de notas sí acota al docente a sus asignaciones; #643) |
 | Asistencia | Escanear | `POST /attendance/scan/` | `attendance.scan` **y** `attendance.record_entry` o `attendance.record_exit` (composición) |
 | Asistencia | Registrar movimiento | `POST /attendance/events/` | permiso del origen (`attendance.scan`, `attendance.record_manual` o `attendance.declared_close`) **y** del tipo (`attendance.record_entry`/`attendance.record_exit`), más `student.view_basic` con alcance |
 | Asistencia | Parámetros de jornada → Registrar parámetros | `POST /attendance/jornada-parameters/` | `attendance.jornada.configure` |
@@ -119,8 +128,10 @@ Evaluación, Asistencia):
   Ciclo escolar (con sus pestañas), Sedes, Aulas, Niveles, Cursos y
   Asignaciones docentes; quedan Evaluación y Asistencia.
 - Cerrar en el backend los huecos marcados "Sin control de permiso" en
-  Evaluación (`check_director_permission` → `evaluation.configure_units`) y en
-  la previsualización del cierre de sección, con denegación por defecto.
+  la previsualización del cierre de sección, con denegación por defecto. En
+  Evaluación, #631 cerró la configuración (`evaluation.configure_units`), el
+  avance de captura y la recuperación; quedan las consultas de nota final,
+  promedio, listado de notas y resultados congelados (#643).
 
 **Persona 3** (Estudiantes, Docentes, Padres, Personas, Matrículas,
 Plantillas, Tipos de documento, Documentos):
