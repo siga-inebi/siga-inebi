@@ -107,9 +107,23 @@ institución, módulo).
 | Asistencia | Registrar movimiento | `POST /attendance/events/` | permiso del origen (`attendance.scan`, `attendance.record_manual` o `attendance.declared_close`) **y** del tipo (`attendance.record_entry`/`attendance.record_exit`), más `student.view_basic` con alcance |
 | Asistencia | Parámetros de jornada → Registrar parámetros | `POST /attendance/jornada-parameters/` | `attendance.jornada.configure` |
 | Asistencia | Cierre de sección → Cerrar | `POST /attendance/section-closures/` | `attendance.declared_close` **y** `attendance.record_exit` |
-| Asistencia | Cierre de sección → Previsualizar | `GET /attendance/section-closures/preview/` | **Sin control de permiso** |
+| Asistencia | Cierre de sección → Previsualizar | `GET /attendance/section-closures/preview/` | `attendance.declared_close` **y** `attendance.record_exit` (revisado en #631: ya no es un hueco) |
 | Asistencia | Presencia, estado del día, porcentaje | `GET` de consulta | `student.view_basic` con alcance |
 | Asistencia | Cámara | sin endpoint | — |
+| Asistencia → Hoy | Turno de captura: abrir, ver el vigente, confirmar | `POST /attendance/capture-batches/`, `GET …/current/`, `POST …/{id}/confirm/` | `attendance.scan` (el turno es del propio operador) |
+| Asistencia → Hoy | Registro manual: motivos | `GET /attendance/manual-registration-reasons/` | Sesión (catálogo de referencia; solo motivos vigentes por omisión, #631) |
+| Asistencia → Credenciales | Estado de la credencial | `GET /attendance/credentials/status/` | `attendance.credential.issue` con alcance sobre el estudiante (#631) |
+| Asistencia → Credenciales | Emitir (muestra el QR una sola vez) / Contenido imprimible / Revocar | `POST /attendance/credentials/`, `GET …/print-content/`, `POST …/revoke/` | `attendance.credential.issue` con alcance sobre el estudiante. Reimprimir = revocar y emitir de nuevo |
+| Asistencia → Credenciales | Resolver identificador leído | `POST /attendance/credentials/resolve/` | `attendance.credential.resolve` (sin alcance por estudiante; lectura auditada) |
+| Asistencia → Justificaciones y permisos | Bandeja de justificaciones; detalle | `GET /attendance/justifications/`, `GET …/{id}/` | `attendance.justification.resolve` (las de su alcance) o `attendance.justification.request` (las propias); sin ninguno, 403 (#631) |
+| Asistencia → Justificaciones y permisos | Nueva justificación | `POST /attendance/justifications/` | `attendance.justification.request` con alcance; registrarla como excepción a la ventana exige además `attendance.justification.resolve` |
+| Asistencia → Justificaciones y permisos | ⋯ → Aprobar / Rechazar | `POST /attendance/justifications/{id}/resolve/` | `attendance.justification.resolve` |
+| Asistencia → Justificaciones y permisos | Adjunto: subir / ver | `POST`/`GET /attendance/justifications/{id}/attachment/` | Subir: solo quien la presentó. Ver: quien la presentó o `attendance.justification.resolve` (lectura auditada) |
+| Asistencia → Justificaciones y permisos | Bandeja de permisos; detalle | `GET /attendance/permits/`, `GET …/{id}/` | `attendance.permit.resolve` (los de su alcance) o `attendance.permit.request` (los propios); sin ninguno, 403 (#631) |
+| Asistencia → Justificaciones y permisos | Nuevo permiso | `POST /attendance/permits/` | `attendance.permit.request` con alcance |
+| Asistencia → Justificaciones y permisos | ⋯ → Aprobar / Rechazar permiso | `POST /attendance/permits/{id}/resolve/` | `attendance.permit.resolve` |
+| Asistencia → Configuración | Razón de cobertura de cierres | `GET /attendance/section-closures/coverage-ratio/` | `attendance.jornada.configure` |
+| Asistencia | Notificaciones de inasistencia | `GET /attendance/absence-notifications/` | Solo cuenta de encargado; al personal, 403 auditado. **Sin pantalla** por D9 (portal de encargados fuera de alcance) |
 | Alertas | Atender | `POST /reporting/alerts/{id}/acknowledge/` | `reporting.alert.acknowledge` y `student.view_basic` con alcance |
 | Alertas | Evaluar alertas | `POST /reporting/alert-evaluations/` | `reporting.alert.evaluate` |
 | Alertas | Umbrales → Registrar umbral | `POST /reporting/absence-threshold-parameters/` | `reporting.absence_threshold.configure` |
@@ -129,8 +143,9 @@ Evaluación, Asistencia):
   según la tabla: ningún botón visible sin su permiso. Hecho en #631 para
   Ciclo escolar (con sus pestañas), Sedes, Aulas, Niveles, Cursos,
   Asignaciones docentes y Evaluación (con sus pestañas); queda Asistencia.
-- Cerrar en el backend los huecos marcados "Sin control de permiso" en
-  la previsualización del cierre de sección, con denegación por defecto. En
+- Cerrar en el backend los huecos marcados "Sin control de permiso", con
+  denegación por defecto. La previsualización del cierre de sección ya exige
+  `attendance.declared_close` y `attendance.record_exit` (revisado en #631). En
   Evaluación, #631 cerró la configuración (`evaluation.configure_units`), el
   avance de captura y la recuperación; quedan las consultas de nota final,
   promedio, listado de notas y resultados congelados (#643).
