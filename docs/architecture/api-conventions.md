@@ -754,3 +754,14 @@ Decisión y evidencia: [ADR-0011, aporte D7](../decisions/ADR-0011-template-issu
   de un PATCH anónimo y la lectura del estudiante con permiso y alcance explícitos.
 - Evidencia: `backend/tests/api/test_people_api.py`, `backend/tests/unit/test_people_services.py`
   y las pruebas `AlumnosPage.test.jsx`, `DocentesPage.test.jsx` y `GuardiansPage.test.jsx`.
+
+
+## Desactivacion del estudiante desde el expediente (E7)
+
+GET/HEAD `/students/records/{public_id}/` agrega `actions.deactivate`, calculada
+segun actividad y permiso/alcance de edicion, sin auditoria de escritura no intentada.
+La lectura mantiene `student.view_basic`. DELETE `/students/{id}/` conserva sesion,
+`student.edit_basic`, alcance y 204 sin cuerpo; escritura y auditoria son atomicas.
+La UI distingue el DELETE confirmado de errores al recargar: reintenta solo GET.
+Ver [contratos y evidencia E7](student-deactivation-ui.md). No borra registros ni
+modifica la matricula; D5/E9 queda separado.

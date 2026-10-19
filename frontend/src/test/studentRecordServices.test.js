@@ -7,13 +7,13 @@ const STUDENT = "11111111-1111-1111-1111-111111111111";
 afterEach(() => vi.restoreAllMocks());
 
 test.each([
+  ["listRecordGuardians", `/students/records/${STUDENT}/guardians/?page=2`],
+  ["listHealthNotesPage", `/students/${STUDENT}/health-notes/?page=2`],
+  ["listObservationsPage", `/students/${STUDENT}/observations/?page=2`],
   [
-    "listGuardianRelations",
-    `/students/guardian-relations/?page=2&student_id=${STUDENT}`,
+    "listEmergencyContactsPage",
+    `/students/${STUDENT}/emergency-contacts/?page=2`,
   ],
-  ["listHealthNotes", `/students/${STUDENT}/health-notes/?page=2`],
-  ["listObservations", `/students/${STUDENT}/observations/?page=2`],
-  ["listEmergencyContacts", `/students/${STUDENT}/emergency-contacts/?page=2`],
 ])(
   "%s preserves pagination and requests only the selected student's page",
   async (method, url) => {
