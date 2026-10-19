@@ -115,6 +115,10 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: "jsdom",
       setupFiles: "./src/test/setup.js",
+      // Las pruebas que escriben en formularios tardan ~2 s en local, pero con
+      // cobertura en el runner de CI se acercan a los 5 s por defecto y fallan
+      // al azar segun la carga. 15 s es el limite que ya usaban una por una.
+      testTimeout: 15000,
       coverage: {
         provider: "v8",
         reporter: ["text", "json", "html"],
