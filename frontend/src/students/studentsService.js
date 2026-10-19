@@ -55,6 +55,12 @@ export const studentsService = {
     ),
   createGuardianRelation: (data) =>
     apiClient.post("/students/guardian-relations/", data),
+  updateGuardianRelation: (id, data) =>
+    apiClient.patch(`/students/guardian-relations/${id}/`, data),
+  makeGuardianRelationPrimary: (id) =>
+    apiClient.post(`/students/guardian-relations/${id}/make-primary/`, {}),
+  endGuardianRelation: (id, data) =>
+    apiClient.post(`/students/guardian-relations/${id}/end/`, data),
   create: async ({ photo, ...data }) => {
     const created = await apiClient.post("/students/", data);
     if (!photo) {

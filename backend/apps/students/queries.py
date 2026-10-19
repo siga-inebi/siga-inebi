@@ -45,15 +45,28 @@ def guardian_relations(*, student_public_id=None):
     return queryset
 
 
-def guardian_relations_for_record(*, actor, student_public_id):
-    from apps.identity.scopes import authorized_student_queryset
+def guardian_relations_for_record(*, actor, student_public_id, replacement_for=None):
+    from django.db.models import BooleanField, Value
+    from django.utils import timezone
+
+    from apps.identity.scopes import authorized_student_queryset, can_access_student
 
     student = _get(
         authorized_student_queryset(user=actor, codename="student_view_basic"),
         student_public_id,
         "Student",
     )
-    return guardian_relations().filter(student=student).order_by("-is_primary", "pk")
+    queryset = guardian_relations().filter(student=student)
+    if replacement_for is not None:
+        if not queryset.filter(pk=replacement_for).exists():
+            raise ResourceNotFoundError("Student guardian relation not found.")
+        queryset = queryset.filter(
+            ends_at__isnull=True, is_active=True, starts_at__lte=timezone.localdate()
+        ).exclude(pk=replacement_for)
+    can_manage = can_access_student(user=actor, codename="student_edit_basic", student=student)
+    return queryset.annotate(
+        record_can_manage=Value(can_manage, output_field=BooleanField())
+    ).order_by("-is_primary", "pk")
 
 
 def emergency_contacts(student, *, include_inactive=False):

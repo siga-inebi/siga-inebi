@@ -13,6 +13,7 @@ from apps.students.services import (
     create_guardian,
     create_student,
     create_student_guardian_relation,
+    guardian_relation_actions,
     update_student,
 )
 
@@ -154,6 +155,31 @@ class StudentGuardianRelationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         actor = getattr(self.context.get("request"), "user", None)
         return create_student_guardian_relation(actor=actor, **validated_data)
+
+
+class StudentRecordGuardianRelationSerializer(StudentGuardianRelationSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(StudentGuardianRelationSerializer.Meta):
+        fields = [*StudentGuardianRelationSerializer.Meta.fields, "actions"]
+
+    def get_actions(self, instance) -> dict[str, bool]:
+        return guardian_relation_actions(relation=instance, can_manage=instance.record_can_manage)
+
+
+class StudentRecordGuardiansQuerySerializer(serializers.Serializer):
+    replacement_for = serializers.IntegerField(min_value=1, required=False)
+
+
+class StudentGuardianRelationUpdateSerializer(serializers.Serializer):
+    relationship_label = serializers.CharField(max_length=100)
+
+    def validate(self, attrs):
+        if set(self.initial_data) - {"relationship_label"}:
+            raise serializers.ValidationError(
+                "Solo se puede editar el parentesco o responsabilidad."
+            )
+        return attrs
 
 
 class StudentGuardianRelationEndSerializer(serializers.Serializer):

@@ -28,7 +28,9 @@ recarga la primera página de su colección, con los filtros del alumno conserva
   La foto conserva el visor independiente. Se reutiliza el formulario de edición.
 - **Encargados:** relaciones vigentes e históricas, parentesco, principal, teléfono y
   fechas. La vinculación elige un encargado desde páginas del catálogo; no descarga
-  todos los encargados. No añade crear encargado, marcar principal ni finalizar vínculos.
+  todos los encargados. La entrega posterior [E5](guardian-relation-actions-ui.md)
+  agrega edición de parentesco, cambio de principal y finalización con reemplazo;
+  crear/buscar encargado E8 sigue pendiente.
 - **Salud/Observaciones/Contactos:** lectura y creación existentes, con carga, errores,
   reintento y páginas; no se convierten denegaciones en «Sin registros». No añade editar
   ni desactivar estos registros (E6).

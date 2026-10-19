@@ -21,6 +21,7 @@ import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
 import { formatDate, formatDateTime } from "@shared/utils/format.js";
 import { RecordCollection } from "./RecordCollection.jsx";
 import { RecordForm } from "./RecordForm.jsx";
+import { GuardianRelationAction } from "./GuardianRelationAction.jsx";
 import { fullName } from "./studentPresentation.js";
 
 const RELATED = {
@@ -198,15 +199,43 @@ function GuardianLinkForm({ student, onCancel, onSaved, onBusy }) {
 
 export function GuardiansPanel({ student, onBusy }) {
   const [linking, setLinking] = useState(false);
+  const [selection, setSelection] = useState(null);
+  const [success, setSuccess] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(
     (params) => studentsService.listRecordGuardians(student.public_id, params),
     [student.public_id]
   );
   const list = usePaginatedList(load, { canIncludeInactive: false });
+  const setProcessing = (value) => {
+    setBusy(value);
+    onBusy(value);
+  };
+  const saved = (kind) => {
+    setSelection(null);
+    setSuccess(
+      kind === "end"
+        ? "Vínculo finalizado. El historial se conserva."
+        : kind === "primary"
+          ? "Encargado principal actualizado."
+          : "Vínculo actualizado."
+    );
+    list.goToPage(1);
+    list.refresh();
+  };
   return (
     <Stack gap={2}>
-      {linking ? (
+      {success ? <Alert severity="success">{success}</Alert> : null}
+      {selection ? (
+        <GuardianRelationAction
+          key={`${selection.kind}-${selection.relation.id}`}
+          student={student}
+          selection={selection}
+          onCancel={() => setSelection(null)}
+          onBusy={setProcessing}
+          onSaved={saved}
+        />
+      ) : linking ? (
         <GuardianLinkForm
           student={student}
           onCancel={() => setLinking(false)}
@@ -224,7 +253,10 @@ export function GuardiansPanel({ student, onBusy }) {
         <Button
           sx={{ alignSelf: "flex-start" }}
           variant="outlined"
-          onClick={() => setLinking(true)}
+          onClick={() => {
+            setSuccess("");
+            setLinking(true);
+          }}
         >
           Vincular encargado
         </Button>
@@ -252,6 +284,28 @@ export function GuardiansPanel({ student, onBusy }) {
               {row.ends_at ? ` · Hasta ${formatDate(row.ends_at)}` : ""}
             </Typography>
             <Typography>{row.guardian_detail?.person?.phone_number}</Typography>
+            {!selection && !linking ? (
+              <Stack direction="row" gap={1} useFlexGap flexWrap="wrap">
+                {[
+                  ["edit", "edit", "Editar vínculo"],
+                  ["primary", "make_primary", "Marcar como principal"],
+                  ["end", "end", "Finalizar vínculo"],
+                ]
+                  .filter(([, capability]) => row.actions?.[capability])
+                  .map(([kind, , label]) => (
+                    <Button
+                      key={kind}
+                      disabled={busy}
+                      onClick={() => {
+                        setSuccess("");
+                        setSelection({ kind, relation: row });
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+              </Stack>
+            ) : null}
           </>
         )}
       />
