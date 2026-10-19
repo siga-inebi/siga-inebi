@@ -8,11 +8,12 @@ Domain rules of the evaluation UX delivery of #631 (docs/ux-ui.md 2.11).
 - assess_recovery_eligibility lists the failed subareas (V4).
 """
 
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 
 from apps.academics.models import CurriculumPlan, TeachingAssignment
 from apps.common.exceptions import DomainError
@@ -27,7 +28,7 @@ from apps.evaluation.services import (
     resolve_capture_teacher,
 )
 from tests.factories.academic import AcademicCycleFactory, SectionFactory, SubjectFactory
-from tests.factories.evaluation import open_unit
+from tests.factories.evaluation import CaptureExceptionGrantFactory, open_unit
 from tests.factories.people import PersonFactory
 from tests.factories.students import StudentFactory
 
@@ -237,6 +238,69 @@ class TestGradeSheet:
         )
 
         assert sheet["window_open"] is False
+        assert sheet["can_capture"] is False
+        assert sheet["capture_exception_expires_at"] is None
+
+    def test_open_window_can_capture_without_exception(self):
+        world = _world()
+
+        sheet = build_grade_sheet(
+            evaluation_unit=world.unit, section=world.section, subject=world.subject
+        )
+
+        assert sheet["can_capture"] is True
+        assert sheet["capture_exception_expires_at"] is None
+
+    def test_exception_grant_of_the_attributed_teacher_reopens_capture(self):
+        # Same rule as validate_capture_allowed (RF-EVC-004): with the unit
+        # closed the sheet stays editable while the grant covers the teacher
+        # the capture is attributed to.
+        world = _world()
+        world.unit.status = EvaluationUnit.UnitStatus.CLOSED
+        world.unit.save(update_fields=["status"])
+        grant = CaptureExceptionGrantFactory(
+            evaluation_unit=world.unit, subject=world.subject, teacher=world.teacher
+        )
+
+        sheet = build_grade_sheet(
+            evaluation_unit=world.unit, section=world.section, subject=world.subject
+        )
+
+        assert sheet["window_open"] is False
+        assert sheet["can_capture"] is True
+        assert sheet["capture_exception_expires_at"] == grant.expires_at
+
+    def test_grant_for_another_teacher_or_expired_does_not_count(self):
+        world = _world()
+        world.unit.status = EvaluationUnit.UnitStatus.CLOSED
+        world.unit.save(update_fields=["status"])
+        CaptureExceptionGrantFactory(
+            evaluation_unit=world.unit, subject=world.subject, teacher=PersonFactory()
+        )
+        CaptureExceptionGrantFactory(
+            evaluation_unit=world.unit,
+            subject=world.subject,
+            teacher=world.teacher,
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        sheet = build_grade_sheet(
+            evaluation_unit=world.unit, section=world.section, subject=world.subject
+        )
+
+        assert sheet["can_capture"] is False
+
+    def test_without_assigned_teacher_no_exception_applies(self):
+        world = _world(assigned=False)
+        world.unit.status = EvaluationUnit.UnitStatus.CLOSED
+        world.unit.save(update_fields=["status"])
+
+        sheet = build_grade_sheet(
+            evaluation_unit=world.unit, section=world.section, subject=world.subject
+        )
+
+        assert sheet["teacher"] is None
+        assert sheet["can_capture"] is False
 
 
 class TestCreateUnitWithRecoveryWindow:

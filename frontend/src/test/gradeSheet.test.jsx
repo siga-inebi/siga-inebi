@@ -70,6 +70,8 @@ const SHEET = {
     name: "Cuarta unidad",
     status: "open",
     window_open: true,
+    can_capture: true,
+    capture_exception_expires_at: null,
   },
   section: { public_id: "sec-a", name: "Primero Básico A" },
   subject: MATH,
@@ -257,7 +259,7 @@ describe("Planilla de calificaciones (V2, V8)", () => {
   test("con la ventana cerrada la planilla es de solo consulta", async () => {
     evaluationServiceMock.getSheet.mockResolvedValue({
       ...SHEET,
-      unit: { ...SHEET.unit, window_open: false },
+      unit: { ...SHEET.unit, window_open: false, can_capture: false },
     });
     renderPage();
 
@@ -268,6 +270,26 @@ describe("Planilla de calificaciones (V2, V8)", () => {
     expect(
       screen.queryByRole("button", { name: /Guardar cambios/ })
     ).toBeNull();
+  });
+
+  test("un permiso excepcional vigente habilita la planilla con la ventana cerrada", async () => {
+    evaluationServiceMock.getSheet.mockResolvedValue({
+      ...SHEET,
+      unit: {
+        ...SHEET.unit,
+        status: "closed",
+        window_open: false,
+        can_capture: true,
+        capture_exception_expires_at: "2026-10-20T23:59:00-06:00",
+      },
+    });
+    renderPage();
+
+    expect(
+      await screen.findByText(/un permiso excepcional habilita la captura/)
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Nota de Ana López")).toBeEnabled();
+    expect(screen.queryByText(/solo consulta/)).toBeNull();
   });
 
   test("sin docente asignado lo explica", async () => {

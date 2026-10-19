@@ -20,7 +20,7 @@ import {
   useUrlParams,
 } from "@evaluation/evaluationData.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
-import { formatDate } from "@shared/utils/format.js";
+import { formatDate, formatDateTime } from "@shared/utils/format.js";
 import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
@@ -48,6 +48,14 @@ function cellError(text, original) {
 }
 
 function readOnlyReason({ canWrite, sheet, unit }) {
+  // can_capture ya incluye un permiso excepcional vigente del docente al que
+  // se atribuye la nota (RF-EVC-004): en ese caso se edita aunque la ventana
+  // esté cerrada o la unidad cerrada.
+  if (sheet.unit.can_capture) {
+    return canWrite
+      ? ""
+      : "Su cuenta puede consultar la planilla, pero no registrar notas.";
+  }
   if (sheet.unit.status === "closed") {
     return "La unidad está cerrada: la planilla es de solo consulta.";
   }
@@ -88,6 +96,10 @@ function SheetEditor({
   const dirty = changed.length > 0;
   const lockedReason = readOnlyReason({ canWrite, sheet, unit });
   const editable = !lockedReason;
+  const exceptionUntil =
+    !sheet.unit.window_open && sheet.unit.capture_exception_expires_at
+      ? sheet.unit.capture_exception_expires_at
+      : null;
 
   useEffect(() => {
     onDirtyChange(dirty);
@@ -266,6 +278,12 @@ function SheetEditor({
         </Alert>
       ) : null}
       {lockedReason ? <Alert severity="info">{lockedReason}</Alert> : null}
+      {exceptionUntil ? (
+        <Alert severity="warning">
+          La ventana de captura está cerrada, pero un permiso excepcional
+          habilita la captura hasta el {formatDateTime(exceptionUntil)}.
+        </Alert>
+      ) : null}
       {notice ? (
         <Alert role="status" severity="success">
           {notice}

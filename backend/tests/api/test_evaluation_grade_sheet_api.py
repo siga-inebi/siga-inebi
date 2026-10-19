@@ -189,6 +189,8 @@ class TestGradeSheet:
             "name": world.unit.name,
             "status": "open",
             "window_open": True,
+            "can_capture": True,
+            "capture_exception_expires_at": None,
         }
         assert data["section"]["public_id"] == str(world.section.public_id)
         assert data["subject"] == {"public_id": str(world.subject.public_id), "name": "Matemática"}

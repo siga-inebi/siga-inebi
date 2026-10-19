@@ -230,6 +230,28 @@ def grant_capture_exception(
     return grant
 
 
+def active_capture_exception(
+    evaluation_unit: EvaluationUnit,
+    subject: Subject,
+    teacher: Person,
+    at: datetime = None,
+):
+    """The non-expired capture exception grant for this combination, or None."""
+    if at is None:
+        at = timezone.now()
+    return (
+        CaptureExceptionGrant.objects.filter(
+            evaluation_unit=evaluation_unit,
+            subject=subject,
+            teacher=teacher,
+            is_active=True,
+            expires_at__gt=at,
+        )
+        .order_by("-expires_at")
+        .first()
+    )
+
+
 def has_active_capture_exception(
     evaluation_unit: EvaluationUnit,
     subject: Subject,
@@ -237,15 +259,7 @@ def has_active_capture_exception(
     at: datetime = None,
 ) -> bool:
     """Check whether a non-expired capture exception grant covers this combination."""
-    if at is None:
-        at = timezone.now()
-    return CaptureExceptionGrant.objects.filter(
-        evaluation_unit=evaluation_unit,
-        subject=subject,
-        teacher=teacher,
-        is_active=True,
-        expires_at__gt=at,
-    ).exists()
+    return active_capture_exception(evaluation_unit, subject, teacher, at=at) is not None
 
 
 def validate_capture_allowed(
@@ -1362,7 +1376,8 @@ def build_grade_sheet(
     Everything the grade sheet needs for one unit, section and subarea, in a
     fixed number of queries: the unit and whether its capture window is open,
     the teacher the capture will be attributed to (V8; None if nobody is
-    assigned) and one row per active enrolment, ordered by the student's name,
+    assigned), whether that teacher can capture now (open window or an active
+    exceptional grant, RF-EVC-004) and one row per active enrolment, ordered by the student's name,
     with its current grade or None (sin calificar, never 0: RF-CAL-003).
 
     Raises:
@@ -1378,16 +1393,26 @@ def build_grade_sheet(
     grades = queries.unit_grades_by_enrolment(
         evaluation_unit=evaluation_unit, subject=subject, enrolments=enrolments
     )
+    teacher = queries.current_teacher(
+        academic_cycle=evaluation_unit.academic_cycle, section=section, subject=subject
+    )
+    window_open = evaluation_unit.is_capture_window_open(on_date) and not evaluation_unit.is_closed
+    # Same rule as validate_capture_allowed: outside the window (or with the
+    # unit closed) the sheet is still editable while an exceptional grant
+    # (RF-EVC-004) covers the teacher the capture is attributed to.
+    exception = (
+        active_capture_exception(evaluation_unit, subject, teacher)
+        if teacher is not None and not window_open
+        else None
+    )
     return {
         "unit": evaluation_unit,
-        "window_open": (
-            evaluation_unit.is_capture_window_open(on_date) and not evaluation_unit.is_closed
-        ),
+        "window_open": window_open,
+        "can_capture": window_open or exception is not None,
+        "capture_exception_expires_at": exception.expires_at if exception else None,
         "section": section,
         "subject": subject,
-        "teacher": queries.current_teacher(
-            academic_cycle=evaluation_unit.academic_cycle, section=section, subject=subject
-        ),
+        "teacher": teacher,
         "rows": [
             {"enrolment": enrolment, "grade": grades.get(enrolment.pk)} for enrolment in enrolments
         ],

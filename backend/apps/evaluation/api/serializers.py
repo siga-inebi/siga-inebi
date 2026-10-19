@@ -476,6 +476,8 @@ class GradeSheetUnitSerializer(serializers.Serializer):
     name = serializers.CharField(read_only=True)
     status = serializers.CharField(read_only=True)
     window_open = serializers.BooleanField(read_only=True)
+    can_capture = serializers.BooleanField(read_only=True)
+    capture_exception_expires_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
 
 class GradeSheetSerializer(serializers.Serializer):
@@ -499,6 +501,8 @@ class GradeSheetSerializer(serializers.Serializer):
                 "name": unit.name,
                 "status": unit.status,
                 "window_open": sheet["window_open"],
+                "can_capture": sheet["can_capture"],
+                "capture_exception_expires_at": sheet["capture_exception_expires_at"],
             }
         ).data
 
