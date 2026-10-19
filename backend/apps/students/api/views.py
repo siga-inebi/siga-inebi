@@ -13,6 +13,7 @@ from apps.students.api.serializers import (
     EmergencyContactUpdateSerializer,
     GuardianSerializer,
     StudentGuardianRelationEndSerializer,
+    StudentGuardianRelationQuerySerializer,
     StudentGuardianRelationSerializer,
     StudentHealthNoteCreateSerializer,
     StudentHealthNoteSerializer,
@@ -108,11 +109,16 @@ class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
         deactivate_guardian(guardian=instance, actor=self.request.user)
 
 
+@extend_schema_view(get=extend_schema(parameters=[StudentGuardianRelationQuerySerializer]))
 class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):
-        return queries.guardian_relations().filter(
+        query = StudentGuardianRelationQuerySerializer(data=self.request.query_params.dict())
+        query.is_valid(raise_exception=True)
+        return queries.guardian_relations(
+            student_public_id=query.validated_data.get("student_id")
+        ).filter(
             student__in=authorized_student_queryset(
                 user=self.request.user,
                 codename="student_view_basic",

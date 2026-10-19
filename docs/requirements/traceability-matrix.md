@@ -1,5 +1,40 @@
 # Traceability Matrix
 
+## Corrección de paginación del expediente — issue #632, E2 y sección 1.1.4
+
+RF-EXP-004: las relaciones de encargados se filtran por el UUID del estudiante y su alcance antes
+de paginar. Se conserva el listado sin filtro y el historial de vínculos finalizados.
+RF-EXP-005, RF-EXP-006 y RF-EXP-009: contactos, observaciones y salud mantienen sus permisos
+sensibles y permiten recorrer todas las páginas. Los estados de los RF existentes se conservan.
+
+| Hallazgo / requisito | Diseño y código | Pruebas verificables |
+| --- | --- | --- |
+| E2 / RF-EXP-004 | docs/architecture/api-conventions.md; backend/apps/students/{queries.py,api/serializers.py,api/views.py}; frontend/src/students/{studentsService.js,StudentGuardianRelations.jsx} | backend/tests/api/test_student_record_pagination_api.py: filtro antes de paginar, alcance, entradas inválidas e historial; frontend/src/test/StudentRecordPagination.test.jsx |
+| 1.1.4 / RF-EXP-005, RF-EXP-006, RF-EXP-009 | backend/apps/students/queries.py; frontend/src/students/{StudentRecordWindow.jsx,StudentRecordList.jsx,AlumnosPage.jsx,studentsService.js} | backend/tests/api/test_student_record_pagination_api.py: segunda página, alcance y desempate de fechas; frontend/src/test/{StudentRecordPagination.test.jsx,studentRecordServices.test.js,AlumnosPage.test.jsx} |
+
+La interfaz pide una página por navegación; permite alcanzar registros después del primero mil,
+reintentar errores, reiniciar la lista al registrar un elemento y descartar respuestas tardías de
+otro estudiante. Esta entrega utiliza el hook paginado existente; la migración a la base compartida
+de #630 y la paginación del padrón principal corresponden a su entrega posterior.
+
+Los contratos nuevos son aditivos y no requieren migraciones. El expediente con pestañas y la
+ampliación de los campos visibles en el detalle permanecen en E4/E11.
+
+Verificación local (17 de octubre de 2026): suite backend en PostgreSQL con base de pruebas
+nueva, 1789 aprobadas, 23 omitidas y 95,15 % de cobertura; frontend, 321 aprobadas en 38 archivos
+con cobertura de líneas de 85,23 %. Ruff, formato, ESLint, build y presupuesto estático, Bandit
+del dominio y comprobación de migraciones pendientes aprobaron.
+
+El primer recorrido completo con `--reuse-db` encontró cuatro fallos de identidad: la base
+de pruebas conservada no contenía el permiso inicial `attendance_record_entry`. Se verificó
+el nombre aislado `test_siga_inebi` y se repitió con `--create-db --reuse-db`, sin modificar la
+base de demostración. La repetición completa aprobó sin cambios en identidad.
+
+Entorno de esta evidencia: PostgreSQL 18.3, Python 3.11.3, Django 5.2.17 y Vitest 3.2.7.
+La CI de esta entrega todavía debe validar las dependencias fijadas del repositorio. La
+comprobación HTTP de la vista previa combinada verificó el filtro de encargados, los tres
+sobres paginados sensibles, el rechazo de UUID inválidos y la conservación de E1/T1/G1.
+
 ## Objetivo
 
 Preparar relacion verificable entre `Requerimiento -> Issue -> Diseno -> Codigo -> Prueba -> Pull Request`.

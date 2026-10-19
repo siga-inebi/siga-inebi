@@ -110,6 +110,10 @@ class GuardianSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class StudentGuardianRelationQuerySerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(required=False)
+
+
 class StudentGuardianRelationSerializer(serializers.ModelSerializer):
     guardian_detail = GuardianSerializer(source="guardian", read_only=True)
 
