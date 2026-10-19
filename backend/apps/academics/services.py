@@ -381,7 +381,6 @@ def _academic_cycle_opening_gaps(cycle):
 
 
 @transaction.atomic
-@transaction.atomic
 def declare_non_computable_day(*, academic_cycle, day, reason, actor=None):
     """RF-JOR-010: exclude an approved institutional date from attendance."""
     if not academic_cycle.starts_on <= day <= academic_cycle.ends_on:
@@ -407,6 +406,7 @@ def declare_non_computable_day(*, academic_cycle, day, reason, actor=None):
     return record
 
 
+@transaction.atomic
 def clone_academic_cycle(
     *,
     source_cycle,

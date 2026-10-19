@@ -428,6 +428,41 @@ def test_clone_cycle_copies_independent_structure_and_optional_teachers():
     assert source_section.name == "A"
 
 
+def test_clone_cycle_is_atomic_and_leaves_no_partial_rows_on_failure(monkeypatch):
+    """A failure after the target cycle and its offerings exist rolls everything back."""
+    source = AcademicCycleFactory(
+        year=2026,
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 12, 31),
+        status=AcademicCycle.CycleStatus.CLOSED,
+    )
+    offering = GradeOfferingFactory(academic_cycle=source)
+    SectionFactory(academic_cycle=source, grade=offering.grade, shift=offering.shift)
+    CurriculumPlan.objects.create(
+        academic_cycle=source,
+        grade=offering.grade,
+        subject=SubjectFactory(institution=source.institution),
+    )
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("fallo simulado a mitad del clonado")
+
+    monkeypatch.setattr(CurriculumPlan.objects, "bulk_create", explode)
+
+    with pytest.raises(RuntimeError):
+        clone_academic_cycle(
+            source_cycle=source,
+            year=2027,
+            name="Ciclo 2027",
+            starts_on=date(2027, 1, 1),
+            ends_on=date(2027, 12, 31),
+        )
+
+    assert not AcademicCycle.objects.filter(year=2027).exists()
+    assert GradeOffering.objects.filter(academic_cycle__year=2027).count() == 0
+    assert not AuditEvent.objects.filter(action="academics.cycle.created").exists()
+
+
 def test_clone_cycle_can_omit_teaching_assignments_and_requires_closed_source():
     source = AcademicCycleFactory(
         year=2026,
