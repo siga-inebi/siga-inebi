@@ -19,7 +19,7 @@ export const studentsService = {
     apiClient.get(withQuery(`/students/${id}/observations/`, params)),
   listEmergencyContactsPage: (id, params) =>
     apiClient.get(withQuery(`/students/${id}/emergency-contacts/`, params)),
-  /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
+  /** Página del servidor: listado principal, selectores y exportación explícita. */
   listPage: (params) => apiClient.get(withQuery("/students/", params)),
   /**
    * Listado completo con los filtros dados, recorriendo todas las paginas.

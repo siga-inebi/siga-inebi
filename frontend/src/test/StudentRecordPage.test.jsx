@@ -180,6 +180,49 @@ test("presenta el sexo no especificado con una etiqueta en español", async () =
   expect(screen.queryByText("not_specified")).not.toBeInTheDocument();
 });
 
+test.each([
+  [
+    "/app/alumnos?page=3&page_size=50&search=DEMO&status=active",
+    "/app/alumnos?page=3&page_size=50&search=DEMO&status=active",
+  ],
+  ["https://example.invalid/otra", "/app/alumnos"],
+  ["/app/alumnos/student-2", "/app/alumnos"],
+])(
+  "volver al listado conserva únicamente un destino de listado válido: %s",
+  async (destination, expected) => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <Link
+          to="/app/alumnos/student-1"
+          state={{ studentListLocation: destination }}
+        >
+          Abrir expediente
+        </Link>
+        <Routes>
+          <Route path="/app/alumnos" element={null} />
+          <Route
+            path="/app/alumnos/:studentId"
+            element={<StudentRecordPage />}
+          />
+        </Routes>
+      </>,
+      { route: "/app/alumnos" }
+    );
+    await user.click(screen.getByRole("link", { name: "Abrir expediente" }));
+    await screen.findByRole("heading", { name: "Alumno Demo" });
+    expect(screen.getByRole("link", { name: /Volver/ })).toHaveAttribute(
+      "href",
+      expected
+    );
+    await openTab(user, "Salud");
+    expect(screen.getByRole("link", { name: /Volver/ })).toHaveAttribute(
+      "href",
+      expected
+    );
+  }
+);
+
 test("conserva borrador y página al cambiar pestañas, sin nuevas lecturas al volver", async () => {
   students.listHealthNotesPage.mockImplementation(async (_id, params) =>
     paged(

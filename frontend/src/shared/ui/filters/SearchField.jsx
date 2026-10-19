@@ -39,6 +39,7 @@ export function SearchField({
   }, [value]);
 
   useEffect(() => {
+    if (debounceMs === 0) return undefined;
     if (text === value) return undefined;
     const timer = setTimeout(() => onChange(text), debounceMs);
     return () => clearTimeout(timer);
@@ -47,7 +48,13 @@ export function SearchField({
   return (
     <TextField
       fullWidth={false}
-      onChange={(event) => setText(event.target.value)}
+      onChange={(event) => {
+        const next = event.target.value;
+        setText(next);
+        // useServerList aplica su propia espera: el valor controlado debe
+        // sincronizarse en el mismo evento para no restaurar texto anterior.
+        if (debounceMs === 0) onChange(next);
+      }}
       placeholder={placeholder}
       slotProps={{
         input: {

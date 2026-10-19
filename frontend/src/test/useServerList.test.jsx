@@ -40,6 +40,13 @@ function setup(route = "/lista", options = {}) {
 }
 
 describe("useServerList (ux-ui 1.1)", () => {
+  test("limita el tamaño al máximo del servidor para no ocultar páginas", async () => {
+    const { result, fetchPage } = setup("/lista?page_size=1000");
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetchPage).toHaveBeenCalledWith({ page: 1, page_size: 100 });
+    expect(result.current.pageSize).toBe(100);
+    expect(result.current.pageCount).toBe(2);
+  });
   test("pide solo la pagina visible con el tamano por defecto", async () => {
     const { result, fetchPage } = setup();
 

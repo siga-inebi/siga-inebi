@@ -27,6 +27,7 @@ import { exportAllToCsv } from "@shared/utils/csvExport.js";
  */
 export function ExportCsvButton({
   columns,
+  disabled = false,
   fetchPage,
   filename,
   label = "Exportar CSV",
@@ -73,7 +74,7 @@ export function ExportCsvButton({
   return (
     <>
       <Button
-        disabled={running}
+        disabled={disabled || running}
         onClick={start}
         size="small"
         startIcon={<FileDownloadOutlinedIcon fontSize="small" />}

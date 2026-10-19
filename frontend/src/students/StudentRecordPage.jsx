@@ -1,5 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 
 import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
@@ -204,6 +209,12 @@ function DataPanel({
 function StudentRecord({ publicId }) {
   const { can } = usePermissions();
   const tabs = TABS.filter(([, , code]) => !code || can(code));
+  const location = useLocation();
+  const candidate = location.state?.studentListLocation;
+  const returnTo =
+    typeof candidate === "string" && /^\/app\/alumnos(?:\?|$)/.test(candidate)
+      ? candidate
+      : "/app/alumnos";
   const [params, setParams] = useSearchParams();
   const tab = tabs.some(([id]) => id === params.get("tab"))
     ? params.get("tab")
@@ -244,7 +255,7 @@ function StudentRecord({ publicId }) {
           student?.student_code ?? "Consulta del expediente institucional"
         }
         action={
-          <Button component={Link} to="/app/alumnos" disabled={busy}>
+          <Button component={Link} to={returnTo} disabled={busy}>
             Volver a estudiantes
           </Button>
         }
@@ -278,7 +289,7 @@ function StudentRecord({ publicId }) {
               allowScrollButtonsMobile
               aria-label="Secciones del expediente"
               onChange={(_event, next) => {
-                if (!busy) setParams({ tab: next });
+                if (!busy) setParams({ tab: next }, { state: location.state });
               }}
             >
               {tabs.map(([id, label]) => (
