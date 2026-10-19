@@ -583,3 +583,43 @@ def student_dossier_actions(*, student, can_manage):
         **student_deactivation_action(student=student, can_manage=can_manage),
         "link_guardian": can_manage and student_allows_interaction(student),
     }
+
+
+def link_student_from_guardian(*, actor, guardian_id, student_public_id, relationship_label):
+    from apps.common.exceptions import ResourceNotFoundError
+    from apps.identity.scopes import authorized_student_queryset
+    from apps.students.queries import guardian_or_404, guardian_readable_students
+
+    # Authorize before the transaction so denied-attempt audits survive.
+    guardian = guardian_or_404(guardian_id)
+    allowed = guardian_readable_students(actor).filter(
+        pk__in=authorized_student_queryset(user=actor, codename="student_edit_basic")
+    )
+    try:
+        student = allowed.get(public_id=student_public_id)
+    except Student.DoesNotExist as exc:
+        record_event(
+            actor=actor,
+            action="identity.authorization.denied",
+            resource="Student",
+            resource_identifier=str(student_public_id),
+            context={
+                "permission": "student_edit_basic",
+                "required_permissions": ["student_view_basic", "student_edit_basic"],
+                "reason": "not_found_or_outside_scope",
+                "result": "denied",
+            },
+        )
+        raise ResourceNotFoundError("No se encontro el estudiante en su alcance.") from exc
+    with transaction.atomic():
+        student = Student.objects.select_for_update().get(pk=student.pk)
+        guardian = Guardian.objects.select_for_update().select_related("person").get(pk=guardian.pk)
+        if not guardian.is_active or not guardian.person.is_active:
+            raise DomainError("El encargado y su persona deben estar activos para vincular.")
+        if StudentGuardianRelation.objects.filter(
+            student=student, guardian=guardian, is_active=True, ends_at__isnull=True
+        ).exists():
+            raise DomainError("Este encargado ya tiene un vinculo vigente con el estudiante.")
+        return create_student_guardian_relation(
+            student=student, guardian=guardian, relationship_label=relationship_label, actor=actor
+        )

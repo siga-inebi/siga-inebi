@@ -27,6 +27,12 @@ const GuardianDeactivationDialog = lazy(() =>
   }))
 );
 
+const GuardianStudentsWindow = lazy(() =>
+  import("./GuardianStudentsWindow.jsx").then((module) => ({
+    default: module.GuardianStudentsWindow,
+  }))
+);
+
 const GUARDIAN_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
   { name: "last_name", label: "Apellidos", required: true },
@@ -154,6 +160,7 @@ export function GuardiansPage() {
   const [creating, setCreating] = useState(false);
   const [deactivating, setDeactivating] = useState(null);
   const [deactivationNotice, setDeactivationNotice] = useState("");
+  const [studentsFor, setStudentsFor] = useState(null);
 
   const handleCreate = async (values) => {
     await guardiansService.create({
@@ -294,6 +301,15 @@ export function GuardiansPage() {
         actions={
           selected ? (
             <>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  setStudentsFor(selected);
+                  setSelected(null);
+                }}
+              >
+                Estudiantes vinculados
+              </Button>
               {selected.is_active && selected.actions?.deactivate === true ? (
                 <Button
                   color="error"
@@ -341,6 +357,21 @@ export function GuardiansPage() {
                 "Encargado desactivado. El historial se conserva."
               );
               list.refresh();
+            }}
+          />
+        </Suspense>
+      ) : null}
+
+      {studentsFor ? (
+        <Suspense
+          fallback={<p role="status">Preparando estudiantes vinculados...</p>}
+        >
+          <GuardianStudentsWindow
+            key={studentsFor.id}
+            guardian={studentsFor}
+            onClose={() => {
+              setSelected(studentsFor);
+              setStudentsFor(null);
             }}
           />
         </Suspense>

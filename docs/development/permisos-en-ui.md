@@ -43,6 +43,8 @@ institución, módulo).
 | Padres de familia | Nuevo encargado | `POST /students/guardians/` | **Sin control de permiso** |
 | Padres de familia | Editar | `PATCH /students/guardians/{id}/` | **Sin control de permiso** |
 | Padres de familia | Desactivar encargado (G3) | `DELETE /students/guardians/{id}/` | `guardian.deactivate` con alcance `students`, o superusuario activo; capacidad de UI derivada del backend |
+| Padres de familia | Estudiantes vinculados (G4) | `GET /students/guardians/{id}/students/` | `student.view_basic` con alcance; solo relaciones autorizadas |
+| Padres de familia | Vincular estudiante (G4) | `GET .../student-candidates/`, `POST .../students/` | `student.view_basic` y `student.edit_basic`, con interseccion de alcances sobre el estudiante |
 | Padres de familia | Exportar CSV | `GET /students/guardians/` | **Sin control de permiso** |
 | Personas | Nueva persona / Crear persona | `POST /people/` | **Sin control de permiso** (previsto `person.edit`, ADR-0011) |
 | Personas | Editar | `PATCH /people/{id}/` | **Sin control de permiso** (previsto `person.edit`) |
