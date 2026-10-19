@@ -15,6 +15,9 @@ esas entregas se deben conservar sus acciones y refrescos junto con el acceso a
 esta ventana. La navegación del padrón en URL corresponde a G2; no se declara
 resuelta aquí. No se agregan permisos, migraciones o variables de entorno.
 
+Entrega: [PR #658](https://github.com/siga-inebi/siga-inebi/pull/658), hacia `develop`.
+CI, integración y aceptación pendientes al publicar; evidencia local debajo.
+
 Se revisaron AGENTS, ADR-0004/0005/0006/0008, guías de permisos/textos, expediente
 con pestañas, requerimientos de vínculos, alcance y bitácora. Se reutiliza la regla
 existente de permisos sobre estudiantes; no hay una nueva decisión de autorización.

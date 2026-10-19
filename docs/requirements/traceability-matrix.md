@@ -116,6 +116,9 @@ Entrega: [PR #657](https://github.com/siga-inebi/siga-inebi/pull/657), hacia `de
 ## Entrega G4: estudiantes vinculados al encargado (#632)
 Evidencia acotada al hallazgo G4. Conserva estados globales de RF/RNF; integracion
 y aceptacion pendientes. Contrato y comandos en [entrega G4](../architecture/guardian-students-record-ui.md).
+Entrega: [PR #658](https://github.com/siga-inebi/siga-inebi/pull/658), hacia `develop`.
+| Requerimiento / hallazgo | Diseno y codigo | Evidencia | Estado de esta entrega |
+| --- | --- | --- | --- |
 | RF-EXP-004; G4 | `docs/requirements/openspec/encargados-estudiantes.md`; `students/api/guardian_records.py`, `queries.py`, `services.py`; `GuardianStudentsWindow.jsx` | `test_guardian_record_ui_api.py`; `GuardianStudents.test.jsx`; `guardianRecordServices.test.js` | Consulta e historial paginados y vinculacion auditada desde encargado; sin duplicar relaciones vigentes ni sobrescribir finalizadas |
 | RF-ALC-001; RF-PER-004; G4 | Resolver compartido de alcance estudiantil; interseccion de lectura/edicion; capacidades de presentacion | Pruebas de alcance previo a conteo/paginacion, permisos, candidatos, UUID ajeno y seleccion obsoleta | Referencias basicas solo dentro de alcance; no expone CUI, contactos o salud; no modifica permisos del padron general |
 | RF-BIT-001/004; G4 | Servicio transaccional, creacion de relacion y denegaciones con auditoria compartida | Pruebas de auditoria fallida, duplicados, denegacion y vigencia de alcance | Creacion y asiento atomicos; rechazos auditados; historial conservado |
