@@ -94,4 +94,5 @@ nombre/código, cancelación sin escritura, una baja real con un DELETE y un eve
 y detalle desactivado conservado con capacidad falsa. No se versionan sesiones, bases,
 capturas ni descargas. Vista local: `http://127.0.0.1:5192/app/docentes`; «DocenteT3
 Confirmacion» queda activo para revisión y «DocenteT3 Baja» conserva la baja comprobada.
-Resultados CI en el PR de esta entrega.
+Entrega y resultados CI: [PR #655](https://github.com/siga-inebi/siga-inebi/pull/655),
+desde `feat/632-teacher-deactivation` hacia `develop`.
