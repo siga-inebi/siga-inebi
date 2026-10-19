@@ -43,7 +43,10 @@ Validacion inicial sobre `ba879da`; integracion sobre `c249328` con #648:
 PostgreSQL completo **1982 aprobadas, 23 omitidas, cobertura 95.40%**;
 frontend completo **426 pruebas / 53 archivos, cobertura 86.78%**.
 Despues se incorpora #649 desde develop; las pruebas de integracion y CI del PR
-verifican esa combinacion sin alterar los PR previos.
+verifican esa combinacion sin alterar los PR previos. Se actualizan cuatro
+pruebas antiguas de servicios que reaparecieron con #649: ahora verifican
+los metodos paginados usados por el expediente y la ruta de encargados por UUID;
+no se cambia produccion ni se elimina la comprobacion de pagina, filtro o respuesta.
 La UI conserva las capacidades de la ficha al guardar una edicion de datos;
 las **20 pruebas de StudentRecordPage** verifican tambien esa regresion.
 
