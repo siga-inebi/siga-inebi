@@ -112,6 +112,7 @@ a esta operacion; no cambia estados globales de cumplimiento ni cierra #643 comp
 | RF-BIT-001/002/004; G3 | Autorizacion y servicio transaccional de students; auditoria compartida | `test_repeated_delete_is_idempotent_and_audit_failure_rolls_back`; pruebas de denegacion y conservacion | Baja auditada una vez con transicion anterior/posterior, actor y contexto HTTP compartido; denegaciones auditadas |
 Contratos, migracion, validacion y reversion en el documento enlazado. G2 (#656)
 y G4 no forman parte de esta entrega.
+Entrega: [PR #657](https://github.com/siga-inebi/siga-inebi/pull/657), hacia `develop`.
 
 ## Estado inicial
 
