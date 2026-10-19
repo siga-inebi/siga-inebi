@@ -182,6 +182,36 @@ class EnrolmentCreateSerializer(serializers.Serializer):
 
 class ActiveEnrolmentQuerySerializer(serializers.Serializer):
     student_id = serializers.UUIDField(required=False, help_text="Filtra por estudiante.")
+    academic_cycle_id = serializers.UUIDField(required=False)
+    grade_id = serializers.UUIDField(required=False)
+    section_id = serializers.UUIDField(required=False)
+
+
+class ReenrolmentCandidateQuerySerializer(serializers.Serializer):
+    academic_cycle_id = serializers.UUIDField()
+    grade_id = serializers.UUIDField(required=False)
+    section_id = serializers.UUIDField(required=False)
+    search = serializers.CharField(required=False, allow_blank=True, max_length=150)
+
+
+class ReenrolmentCandidateSerializer(serializers.ModelSerializer):
+    student_code = serializers.CharField(source="student.student_code", read_only=True)
+    first_name = serializers.CharField(source="student.person.first_name", read_only=True)
+    last_name = serializers.CharField(source="student.person.last_name", read_only=True)
+    grade_name = serializers.CharField(source="grade.name", read_only=True)
+    section_name = serializers.CharField(source="section.name", read_only=True)
+
+    class Meta:
+        model = Enrolment
+        fields = [
+            "public_id",
+            "student_code",
+            "first_name",
+            "last_name",
+            "grade_name",
+            "section_name",
+            "status",
+        ]
 
 
 class EnrolmentHistoryQuerySerializer(serializers.Serializer):

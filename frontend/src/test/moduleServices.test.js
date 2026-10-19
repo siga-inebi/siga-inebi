@@ -90,6 +90,28 @@ describe("servicios de los modulos", () => {
   });
 
   describe("enrolmentsService", () => {
+    test("candidatos se filtran en servidor y reinscripcion usa un POST por lote", async () => {
+      await enrolmentsService.listReenrolmentCandidates({
+        academic_cycle_id: CYCLE,
+        page: 2,
+        search: "Ana Demo",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/enrolments/re-enrolments/candidates/?academic_cycle_id=${CYCLE}&page=2&search=Ana+Demo`
+      );
+      const payload = {
+        preview: true,
+        effective_on: "2027-01-15",
+        items: [
+          { source_enrolment_id: ENROLMENT, target_section_id: "section" },
+        ],
+      };
+      await enrolmentsService.bulkReenrol(payload);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/enrolments/re-enrolments/bulk/",
+        payload
+      );
+    });
     test("las matriculas vigentes se pueden filtrar por estudiante", async () => {
       await enrolmentsService.listActive({ page: 1, student_id: STUDENT });
       expect(apiClient.get).toHaveBeenCalledWith(
