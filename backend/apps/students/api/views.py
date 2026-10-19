@@ -12,14 +12,17 @@ from apps.students.api.serializers import (
     EmergencyContactListSerializer,
     EmergencyContactSerializer,
     EmergencyContactUpdateSerializer,
+    GuardianListQuerySerializer,
     GuardianSerializer,
     StudentGuardianRelationEndSerializer,
+    StudentGuardianRelationQuerySerializer,
     StudentGuardianRelationSerializer,
     StudentGuardianRelationUpdateSerializer,
     StudentHealthNoteCreateSerializer,
     StudentHealthNoteListSerializer,
     StudentHealthNoteSerializer,
     StudentHealthNoteUpdateSerializer,
+    StudentListQuerySerializer,
     StudentObservationCreateSerializer,
     StudentObservationListSerializer,
     StudentObservationSerializer,
@@ -62,19 +65,22 @@ class StudentNextCodeView(GenericAPIView):
         return Response(SuggestedStudentCodeSerializer({"student_code": code}).data)
 
 
+@extend_schema_view(get=extend_schema(parameters=[StudentListQuerySerializer]))
 class StudentListCreateView(generics.ListCreateAPIView):
     serializer_class = StudentSerializer
     # Sin esto, el selector de estudiante de cada modal (matricular por lotes,
     # consultar resultado) traia el listado completo paginado solo para poder
     # escribir un nombre en el buscador. `?search=` deja que el backend filtre.
     filter_backends = [filters.SearchFilter]
-    search_fields = ["student_code", "person__first_name", "person__last_name"]
+    search_fields = ["student_code", "person__first_name", "person__last_name", "person__cui"]
 
     def get_queryset(self):
+        params = StudentListQuerySerializer(data=self.request.query_params.dict())
+        params.is_valid(raise_exception=True)
         return authorized_student_queryset(
             user=self.request.user,
             codename="student_view_basic",
-            queryset=queries.students(),
+            queryset=queries.students(**params.validated_data),
         )
 
     def perform_create(self, serializer):
@@ -122,11 +128,16 @@ class StudentRecordGuardiansView(generics.ListAPIView):
         )
 
 
+@extend_schema_view(get=extend_schema(parameters=[GuardianListQuerySerializer]))
 class GuardianListCreateView(generics.ListCreateAPIView):
     serializer_class = GuardianSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["person__first_name", "person__last_name", "person__cui"]
 
     def get_queryset(self):
-        return queries.guardians()
+        params = GuardianListQuerySerializer(data=self.request.query_params.dict())
+        params.is_valid(raise_exception=True)
+        return queries.guardians(**params.validated_data)
 
 
 class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -139,11 +150,16 @@ class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
         deactivate_guardian(guardian=instance, actor=self.request.user)
 
 
+@extend_schema_view(get=extend_schema(parameters=[StudentGuardianRelationQuerySerializer]))
 class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
     serializer_class = StudentGuardianRelationSerializer
 
     def get_queryset(self):
-        return queries.guardian_relations().filter(
+        query = StudentGuardianRelationQuerySerializer(data=self.request.query_params.dict())
+        query.is_valid(raise_exception=True)
+        return queries.guardian_relations(
+            student_public_id=query.validated_data.get("student_id")
+        ).filter(
             student__in=authorized_student_queryset(
                 user=self.request.user,
                 codename="student_view_basic",
