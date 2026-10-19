@@ -13,6 +13,8 @@ from apps.evaluation.api.views import (
     EvaluationUnitListCreateView,
     EvaluationUnitRecoveryWindowView,
     GradeListCreateView,
+    GradeSheetSaveView,
+    GradeSheetView,
     UnitCaptureProgressView,
 )
 
@@ -42,6 +44,16 @@ urlpatterns = [
         "<uuid:unit_public_id>/grades/bulk/",
         BulkGradeUploadView.as_view(),
         name="evaluation-unit-grades-bulk",
+    ),
+    path(
+        "<uuid:unit_public_id>/grades/sheet/",
+        GradeSheetSaveView.as_view(),
+        name="evaluation-unit-grades-sheet",
+    ),
+    path(
+        "<uuid:unit_public_id>/sheet/",
+        GradeSheetView.as_view(),
+        name="evaluation-unit-sheet",
     ),
     path(
         "<uuid:unit_public_id>/capture-progress/",

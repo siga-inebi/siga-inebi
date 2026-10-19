@@ -1878,6 +1878,40 @@ class FrozenSubjectResultView(GenericAPIView):
         return Response(FrozenSubjectResultSerializer(result).data)
 
 
+class FrozenSubjectResultListView(GenericAPIView):
+    """
+    Current frozen result of every subarea of an enrolment (V5: the report
+    card in one call instead of one call per subarea).
+
+    Base: /api/v1/academics/cycles/{cycle_public_id}
+
+    GET {base}/enrolments/{enrolment_id}/frozen-results/
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FrozenSubjectResultSerializer
+
+    @extend_schema(
+        summary="Consultar los resultados congelados de una matrícula",
+        description=(
+            "El resultado vigente (la corrección más reciente, si la hubo) de cada "
+            "subárea, ordenado por nombre de la subárea. Lista sin paginar, acotada "
+            "por el plan de estudios; vacía si el ciclo aún no se cerró. Mismo "
+            "permiso que la consulta por subárea (sesión; ver #643)."
+        ),
+        responses={200: FrozenSubjectResultSerializer(many=True)},
+        tags=["academics: cycles"],
+    )
+    def get(self, request, cycle_public_id, enrolment_id):
+        enrolment = evaluation_queries.enrolment_or_none(
+            cycle_public_id=cycle_public_id, enrolment_id=enrolment_id
+        )
+        if enrolment is None:
+            raise ResourceNotFoundError("No se encontró la matrícula.")
+        results = queries.current_frozen_subject_results(enrolment=enrolment)
+        return Response(FrozenSubjectResultSerializer(results, many=True).data)
+
+
 class FrozenSubjectResultCorrectionView(GenericAPIView):
     """
     Correct a subarea's frozen result via the exceptional academic-authorization

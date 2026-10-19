@@ -632,6 +632,20 @@ def frozen_subject_results_for_enrolment(*, enrolment):
     return FrozenSubjectResult.objects.filter(enrolment=enrolment).select_related("subject")
 
 
+def current_frozen_subject_results(*, enrolment):
+    """
+    El resultado congelado vigente (la fila más reciente) de cada subárea de
+    la matrícula, ordenado por nombre de la subárea (V5, boleta en una sola
+    llamada). Acotado por el plan de estudios: unas pocas filas por subárea.
+    """
+    current = {}
+    for result in frozen_subject_results_for_enrolment(enrolment=enrolment).order_by(
+        "-created_at", "-pk"
+    ):
+        current.setdefault(result.subject_id, result)
+    return sorted(current.values(), key=lambda result: (result.subject.name, result.subject_id))
+
+
 def frozen_promotion_result_history(*, enrolment):
     """Every frozen promotion row for this enrolment, most recent first."""
     return FrozenPromotionResult.objects.filter(enrolment=enrolment)

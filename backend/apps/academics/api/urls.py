@@ -9,6 +9,7 @@ from apps.evaluation.api.views import (
     FinalSubjectGradeView,
     RecoveryEligibilityView,
     RecoveryGradeCreateView,
+    SectionRecoveryEligibilityView,
 )
 
 from .views import (
@@ -37,6 +38,7 @@ from .views import (
     CycleTeachingAssignmentClonePreviewView,
     FrozenPromotionResultView,
     FrozenSubjectResultCorrectionView,
+    FrozenSubjectResultListView,
     FrozenSubjectResultView,
     GradeDetailView,
     HistoricalAcademicCycleDetailView,
@@ -169,6 +171,16 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/recovery-eligibility/",
         RecoveryEligibilityView.as_view(),
         name="recovery-eligibility",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/sections/<uuid:section_id>/recovery-eligibility/",
+        SectionRecoveryEligibilityView.as_view(),
+        name="section-recovery-eligibility",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/frozen-results/",
+        FrozenSubjectResultListView.as_view(),
+        name="frozen-subject-results",
     ),
     path(
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/recovery-grades/",

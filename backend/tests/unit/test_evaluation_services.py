@@ -2003,8 +2003,8 @@ class TestBulkRegisterUnitGrades:
 
         assert result.created == 0
         assert Grade.objects.count() == 0
-        assert [e["row"] for e in result.errors] == [2]
-        assert "seccion" in result.errors[0]["message"].lower()
+        assert [e["index"] for e in result.errors] == [1]
+        assert "sección" in result.errors[0]["message"].lower()
 
     def test_non_numeric_value_is_a_row_error(self):
         unit, section, subject, teacher, enrolments = self._setup()
