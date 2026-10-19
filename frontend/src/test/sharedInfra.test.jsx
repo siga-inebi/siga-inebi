@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, screen, waitFor } from "@testing-library/react";
+import { renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -129,6 +129,68 @@ describe("Mi cuenta (MC1)", () => {
     expect(
       screen.getByText(/60 minutos \(el mayor de sus roles\)/)
     ).toBeInTheDocument();
+  });
+});
+
+describe("Mi horario como reja semanal (S4)", () => {
+  test("pinta cada clase en su día y bloque", async () => {
+    authServiceMock.myAccount.mockResolvedValue({
+      account: {
+        public_id: "a",
+        username: "ana.lopez",
+        status: "active",
+        status_display: "Activa",
+      },
+      person: { first_name: "Ana", last_name: "López" },
+      roles: [],
+      sessions: [],
+      session_idle_timeout_minutes: 30,
+      permissions: [],
+    });
+    const block = {
+      public_id: "b-1",
+      number: 1,
+      name: "Bloque 1",
+      starts_on: "07:30:00",
+      ends_on: "08:15:00",
+    };
+    authServiceMock.mySchedule.mockResolvedValue({
+      count: 1,
+      results: [
+        {
+          public_id: "cs-1",
+          day_of_week: 3,
+          day_of_week_display: "Miércoles",
+          schedule_block: block,
+          subject: { public_id: "m", name: "Matemática" },
+          section: { public_id: "s", name: "A", grade: { name: "Primero" } },
+        },
+      ],
+    });
+    renderWithSession(<MyAccountPage />, {
+      user: sessionUser(),
+      route: "/app/mi-cuenta",
+    });
+
+    const grid = await screen.findByRole("table", {
+      name: "Mi horario semanal",
+    });
+    const headers = within(grid).getAllByRole("columnheader");
+    expect(headers.map((header) => header.textContent)).toEqual([
+      "Bloque",
+      "Lunes",
+      "Martes",
+      "Miércoles",
+      "Jueves",
+      "Viernes",
+    ]);
+    const row = within(grid).getByRole("row", {
+      name: /Bloque 1 · 07:30–08:15/,
+    });
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[2]).toHaveTextContent("Matemática");
+    expect(cells[2]).toHaveTextContent("Primero A");
+    expect(cells[0]).toBeEmptyDOMElement();
   });
 });
 
