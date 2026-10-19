@@ -115,7 +115,7 @@ describe("navegacion de modulos", () => {
     renderWithRouter(<App />, { route: "/app/niveles" });
     expect(
       await screen.findByRole("heading", {
-        name: "Niveles, grados y plan de estudios",
+        name: "Niveles, grados y cursos del nivel",
       })
     ).toBeInTheDocument();
   });

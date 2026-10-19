@@ -1,16 +1,25 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 
-import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
+import { academicsService } from "@academics/academicsService.js";
+import {
+  CatalogFilters,
+  DetailToggleButton,
+} from "@academics/CatalogFilters.jsx";
+import { NAME_CODE_ORDERING } from "@academics/catalogOrdering.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
 import {
@@ -25,12 +34,12 @@ const CAMPUS_COLUMNS = [
   { key: "name", label: "Sede", render: (row) => row.name },
   {
     key: "code",
-    label: "Codigo",
+    label: "Código",
     render: (row) => <CodeCell value={row.code} />,
   },
   {
     key: "address",
-    label: "Direccion",
+    label: "Dirección",
     render: (row) => row.address || <MutedCell>Sin registrar</MutedCell>,
   },
   {
@@ -62,10 +71,10 @@ const CREATE_CAMPUS_FIELDS = [
   },
   {
     name: "code",
-    label: "Codigo",
-    help: "Se genera solo. Cambielo si la sede ya se conoce por otro codigo.",
+    label: "Código",
+    help: "Se genera solo. Cámbielo si la sede ya se conoce por otro código.",
   },
-  { name: "address", label: "Direccion (opcional)" },
+  { name: "address", label: "Dirección (opcional)" },
   {
     name: "is_main",
     label: "Es la sede principal",
@@ -76,25 +85,57 @@ const CREATE_CAMPUS_FIELDS = [
 
 const EDIT_CAMPUS_FIELDS = [
   { name: "name", label: "Nombre", required: true },
-  { name: "address", label: "Direccion (opcional)" },
+  { name: "address", label: "Dirección (opcional)" },
   { name: "is_main", label: "Es la sede principal", type: "checkbox" },
 ];
 
+/**
+ * Sedes y sus jornadas (A1–A3). Ambos listados se piden por página al servidor
+ * con búsqueda, orden e inactivas en la URL; la sede elegida también
+ * (`?sede=<id>`), así recargar o compartir el enlace conserva la vista.
+ */
 export function CampusesPage() {
-  const loadCampuses = useCallback(
-    (params) => academicsService.listCampuses(params),
-    []
-  );
-  const list = usePaginatedList(loadCampuses, { pageSize: PAGE_SIZE });
+  const { can } = usePermissions();
+  const canEdit = can(PERMISSION.SCOPE_ASSIGN);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const list = useServerList({
+    queryKey: queryKeys.academics.list("campuses"),
+    fetchPage: (params) => academicsService.listCampuses(params),
+    defaultOrdering: "name",
+    canIncludeInactive: true,
+  });
 
   const [editing, setEditing] = useState(null);
-  const [selectedId, setSelectedId] = useState("");
   const [actionError, setActionError] = useState("");
+  const selectedId = searchParams.get("sede") ?? "";
+  const setSelectedId = (campusId) =>
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        // Las jornadas de otra sede no comparten pagina ni busqueda.
+        for (const key of [...next.keys()]) {
+          if (key.startsWith("shifts_")) next.delete(key);
+        }
+        if (campusId) next.set("sede", campusId);
+        else next.delete("sede");
+        return next;
+      },
+      { replace: true }
+    );
+  const toggle = (campus) =>
+    setSelectedId(campus.public_id === selectedId ? "" : campus.public_id);
 
   // La sede seleccionada se re-lee del listado para que no quede desfasada
   // despues de editarla o de recargar la pagina de resultados.
-  const selected =
+  const inPage =
     list.items.find((campus) => campus.public_id === selectedId) || null;
+  // Un enlace compartido puede apuntar a una sede de otra pagina o filtro.
+  const fallback = useResourceQuery(
+    queryKeys.academics.list("campus", selectedId),
+    () => academicsService.getCampus(selectedId),
+    { enabled: Boolean(selectedId) && !inPage && !list.loading }
+  );
+  const selected = inPage ?? (selectedId ? fallback.data : null) ?? null;
 
   const handleCreate = async (payload) => {
     await academicsService.createCampus(payload);
@@ -124,77 +165,87 @@ export function CampusesPage() {
     <>
       <PageHeader
         breadcrumb="Estructura institucional"
-        subtitle="Registra las sedes del establecimiento y las jornadas que atiende cada una. Dar de baja una sede la desactiva junto con sus jornadas."
+        subtitle="Registre las sedes del establecimiento y las jornadas que atiende cada una. Dar de baja una sede la desactiva junto con sus jornadas."
         title="Sedes y jornadas"
       />
 
       <ListSection
         action={
-          <Button
-            onClick={async () =>
-              setEditing({
-                mode: "create",
-                values: {
-                  name: "",
-                  code: await suggestedOrBlank(academicsService.nextCampusCode),
-                  address: "",
-                  is_main: false,
-                },
-              })
-            }
-            size="small"
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nueva sede
-          </Button>
+          canEdit ? (
+            <Button
+              onClick={async () =>
+                setEditing({
+                  mode: "create",
+                  values: {
+                    name: "",
+                    code: await suggestedOrBlank(
+                      academicsService.nextCampusCode
+                    ),
+                    address: "",
+                    is_main: false,
+                  },
+                })
+              }
+              size="small"
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nueva sede
+            </Button>
+          ) : null
         }
         actionError={actionError}
         list={list}
         columns={CAMPUS_COLUMNS}
-        emptyMessage="Todavia no hay sedes registradas."
+        filters={
+          <CatalogFilters
+            list={list}
+            orderingOptions={NAME_CODE_ORDERING}
+            placeholder="Buscar sede por nombre o código"
+          />
+        }
+        onRowClick={toggle}
+        emptyMessage={
+          list.search
+            ? "Sin sedes para los filtros seleccionados."
+            : "Todavía no hay sedes registradas."
+        }
         getRowKey={(campus) => campus.public_id}
         renderActions={(campus) => (
           <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton
-              color={campus.public_id === selectedId ? "primary" : "default"}
-              label={
-                campus.public_id === selectedId
-                  ? "Ocultar jornadas"
-                  : "Ver jornadas"
-              }
-              onClick={() =>
-                setSelectedId(
-                  campus.public_id === selectedId ? "" : campus.public_id
-                )
-              }
-            >
-              <ScheduleOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            <ActionIconButton
-              label="Editar"
-              onClick={() => setEditing({ mode: "edit", campus })}
-            >
-              <EditOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            {campus.is_active ? (
+            <DetailToggleButton
+              count={campus.shift_count}
+              noun="jornadas"
+              onToggle={() => toggle(campus)}
+              open={campus.public_id === selectedId}
+            />
+            {canEdit ? (
+              <ActionIconButton
+                label="Editar"
+                onClick={() => setEditing({ mode: "edit", campus })}
+              >
+                <EditOutlinedIcon fontSize="small" />
+              </ActionIconButton>
+            ) : null}
+            {canEdit && campus.is_active ? (
               <ConfirmActionButton
-                confirmLabel="Si, desactivar"
+                confirmLabel="Sí, desactivar"
                 label="Desactivar"
                 onConfirm={() => handleDeactivate(campus)}
-                question={`Se desactivara "${campus.name}" junto con todas sus jornadas.`}
+                question={`Se desactivará "${campus.name}" junto con todas sus jornadas.`}
                 title="Desactivar sede"
               />
             ) : null}
           </Stack>
         )}
-        subtitle="Sedes de la institucion"
+        subtitle="Elija «Ver jornadas» o haga clic en una sede para administrar sus jornadas."
         title="Sedes registradas"
       />
 
       {selected ? (
         <CampusShiftsSection
           campus={selected}
+          canEdit={canEdit}
           key={selected.public_id}
           onChanged={list.refresh}
         />
@@ -202,7 +253,7 @@ export function CampusesPage() {
 
       {editing?.mode === "create" ? (
         <EntityFormWindow
-          description="El codigo se emite solo y no se puede cambiar despues de crear la sede."
+          description="El código se sugiere solo y no se puede cambiar después de crear la sede."
           fields={CREATE_CAMPUS_FIELDS}
           initialValues={editing.values}
           onCancel={() => setEditing(null)}
@@ -215,7 +266,7 @@ export function CampusesPage() {
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow
-          description={`El codigo ${editing.campus.code} es inmutable.`}
+          description={`El código ${editing.campus.code} no se puede cambiar.`}
           fields={EDIT_CAMPUS_FIELDS}
           initialValues={{
             name: editing.campus.name,
@@ -238,7 +289,7 @@ const SHIFT_COLUMNS = [
   { key: "name", label: "Jornada", render: (row) => row.name },
   {
     key: "code",
-    label: "Codigo",
+    label: "Código",
     render: (row) => <CodeCell value={row.code} />,
   },
   {
@@ -259,7 +310,7 @@ const CREATE_SHIFT_FIELDS = [
   },
   {
     name: "code",
-    label: "Codigo",
+    label: "Código",
     required: true,
     placeholder: "Ejemplo: MAT",
   },
@@ -271,12 +322,15 @@ const EDIT_SHIFT_FIELDS = [{ name: "name", label: "Nombre", required: true }];
  * Jornadas de una sede. Se remonta con `key` al cambiar de sede, de modo que la
  * paginacion y el formulario arrancan limpios.
  */
-function CampusShiftsSection({ campus, onChanged }) {
-  const loadShifts = useCallback(
-    (params) => academicsService.listCampusShifts(campus.public_id, params),
-    [campus.public_id]
-  );
-  const list = usePaginatedList(loadShifts, { pageSize: PAGE_SIZE });
+function CampusShiftsSection({ campus, canEdit, onChanged }) {
+  const list = useServerList({
+    queryKey: queryKeys.academics.list("shifts", campus.public_id),
+    fetchPage: (params) =>
+      academicsService.listCampusShifts(campus.public_id, params),
+    defaultOrdering: "name",
+    canIncludeInactive: true,
+    urlPrefix: "shifts_",
+  });
 
   const [editing, setEditing] = useState(null);
   const [actionError, setActionError] = useState("");
@@ -312,45 +366,62 @@ function CampusShiftsSection({ campus, onChanged }) {
     <>
       <ListSection
         action={
-          <Button
-            onClick={() => setEditing({ mode: "create" })}
-            size="small"
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nueva jornada
-          </Button>
+          canEdit ? (
+            <Button
+              onClick={() => setEditing({ mode: "create" })}
+              size="small"
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nueva jornada
+            </Button>
+          ) : null
         }
         actionError={actionError}
         list={list}
         columns={SHIFT_COLUMNS}
-        emptyMessage="Esta sede todavia no tiene jornadas."
+        filters={
+          <CatalogFilters
+            list={list}
+            orderingOptions={NAME_CODE_ORDERING}
+            placeholder="Buscar jornada por nombre o código"
+          />
+        }
+        emptyMessage={
+          list.search
+            ? "Sin jornadas para los filtros seleccionados."
+            : "Esta sede todavía no tiene jornadas."
+        }
         getRowKey={(shift) => shift.public_id}
-        renderActions={(shift) => (
-          <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton
-              label="Editar"
-              onClick={() => setEditing({ mode: "edit", shift })}
-            >
-              <EditOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            {shift.is_active ? (
-              <ConfirmActionButton
-                confirmLabel="Si, desactivar"
-                label="Desactivar"
-                onConfirm={() => handleDeactivate(shift)}
-                question={`Se desactivara la jornada "${shift.name}".`}
-                title="Desactivar jornada"
-              />
-            ) : null}
-          </Stack>
-        )}
+        renderActions={
+          canEdit
+            ? (shift) => (
+                <Stack direction="row" gap={0.5} justifyContent="flex-end">
+                  <ActionIconButton
+                    label="Editar"
+                    onClick={() => setEditing({ mode: "edit", shift })}
+                  >
+                    <EditOutlinedIcon fontSize="small" />
+                  </ActionIconButton>
+                  {shift.is_active ? (
+                    <ConfirmActionButton
+                      confirmLabel="Sí, desactivar"
+                      label="Desactivar"
+                      onConfirm={() => handleDeactivate(shift)}
+                      question={`Se desactivará la jornada "${shift.name}".`}
+                      title="Desactivar jornada"
+                    />
+                  ) : null}
+                </Stack>
+              )
+            : undefined
+        }
         subtitle={campus.name}
-        title="Jornadas de la sede"
+        title={`Jornadas de ${campus.name}`}
       />
 
       <EntityFormWindow
-        description="El codigo es unico dentro de la sede: dos sedes pueden tener MAT."
+        description="El código es único dentro de la sede: dos sedes pueden tener MAT."
         fields={CREATE_SHIFT_FIELDS}
         initialValues={{ name: "", code: "" }}
         key={
@@ -367,7 +438,7 @@ function CampusShiftsSection({ campus, onChanged }) {
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow
-          description="Solo se puede renombrar; el codigo es inmutable."
+          description="Solo se puede renombrar; el código no cambia."
           fields={EDIT_SHIFT_FIELDS}
           initialValues={{ name: editing.shift.name }}
           key={editing.shift.public_id}

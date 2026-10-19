@@ -1,14 +1,19 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
-import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
+import { academicsService } from "@academics/academicsService.js";
+import { CatalogFilters } from "@academics/CatalogFilters.jsx";
+import { NAME_CODE_ORDERING } from "@academics/catalogOrdering.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
@@ -18,7 +23,7 @@ const SUBJECT_COLUMNS = [
   { key: "name", label: "Curso", render: (row) => row.name },
   {
     key: "code",
-    label: "Codigo",
+    label: "Código",
     render: (row) => <CodeCell value={row.code} />,
   },
   {
@@ -38,12 +43,19 @@ const SUBJECT_COLUMNS = [
   },
 ];
 
+/**
+ * Catálogo de cursos de la institución. Listado en el servidor con búsqueda,
+ * orden e inactivos en la URL (docs/ux-ui.md 1.1, N1).
+ */
 export function SubjectsPage() {
-  const loadSubjects = useCallback(
-    (params) => academicsService.listSubjects(params),
-    []
-  );
-  const list = usePaginatedList(loadSubjects, { pageSize: PAGE_SIZE });
+  const { can } = usePermissions();
+  const canEdit = can(PERMISSION.SCOPE_ASSIGN);
+  const list = useServerList({
+    queryKey: queryKeys.academics.list("subjects"),
+    fetchPage: (params) => academicsService.listSubjects(params),
+    defaultOrdering: "name",
+    canIncludeInactive: true,
+  });
 
   const [editing, setEditing] = useState(null);
   const [actionError, setActionError] = useState("");
@@ -74,48 +86,65 @@ export function SubjectsPage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Estructura academica"
-        subtitle="Catalogo de cursos de la institucion. Los niveles en los que se imparte cada uno se declaran desde el plan de estudios del nivel."
+        breadcrumb="Estructura académica"
+        subtitle="Catálogo de cursos de la institución. Los niveles en los que se imparte cada uno se declaran en Niveles → «Cursos del nivel»."
         title="Cursos"
       />
 
       <ListSection
         action={
-          <Button
-            onClick={() => setEditing({ mode: "create" })}
-            size="small"
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nuevo curso
-          </Button>
+          canEdit ? (
+            <Button
+              onClick={() => setEditing({ mode: "create" })}
+              size="small"
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nuevo curso
+            </Button>
+          ) : null
         }
         actionError={actionError}
         list={list}
         columns={SUBJECT_COLUMNS}
-        emptyMessage="Todavia no hay cursos registrados."
+        emptyMessage={
+          list.search
+            ? "Sin cursos para los filtros seleccionados."
+            : "Todavía no hay cursos registrados."
+        }
+        filters={
+          <CatalogFilters
+            list={list}
+            orderingOptions={NAME_CODE_ORDERING}
+            placeholder="Buscar curso por nombre o código"
+          />
+        }
         fillHeight
         getRowKey={(subject) => subject.public_id}
-        renderActions={(subject) => (
-          <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton
-              label="Editar"
-              onClick={() => setEditing({ mode: "edit", subject })}
-            >
-              <EditOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            {subject.is_active ? (
-              <ConfirmActionButton
-                confirmLabel="Si, desactivar"
-                label="Desactivar"
-                onConfirm={() => handleDeactivate(subject)}
-                question={`Se desactivara "${subject.name}". Podra reactivarse despues, pero dejara de estar disponible en el plan de estudios.`}
-                title="Desactivar curso"
-              />
-            ) : null}
-          </Stack>
-        )}
-        subtitle="Cursos de la institucion"
+        renderActions={
+          canEdit
+            ? (subject) => (
+                <Stack direction="row" gap={0.5} justifyContent="flex-end">
+                  <ActionIconButton
+                    label="Editar"
+                    onClick={() => setEditing({ mode: "edit", subject })}
+                  >
+                    <EditOutlinedIcon fontSize="small" />
+                  </ActionIconButton>
+                  {subject.is_active ? (
+                    <ConfirmActionButton
+                      confirmLabel="Sí, desactivar"
+                      label="Desactivar"
+                      onConfirm={() => handleDeactivate(subject)}
+                      question={`Se desactivará "${subject.name}". Dejará de estar disponible para los cursos del nivel y el plan de estudios de los ciclos.`}
+                      title="Desactivar curso"
+                    />
+                  ) : null}
+                </Stack>
+              )
+            : undefined
+        }
+        subtitle="Cursos de la institución"
         title="Cursos registrados"
       />
 
@@ -123,7 +152,7 @@ export function SubjectsPage() {
           limpio; renovar la key al cerrar mostraria el form vacio durante la
           animacion de salida. */}
       <EntityFormWindow
-        description="El codigo es unico por institucion y no se puede cambiar despues."
+        description="El código es único por institución y no se puede cambiar después."
         fields={CREATE_FIELDS}
         initialValues={{ name: "", code: "" }}
         key={editing?.mode === "create" ? "create" : "create-closed"}
@@ -136,7 +165,7 @@ export function SubjectsPage() {
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow
-          description={`El codigo ${editing.subject.code} es inmutable.`}
+          description={`El código ${editing.subject.code} no se puede cambiar.`}
           fields={EDIT_FIELDS}
           initialValues={{ name: editing.subject.name }}
           key={editing.subject.public_id}
@@ -156,11 +185,11 @@ const CREATE_FIELDS = [
     name: "name",
     label: "Nombre",
     required: true,
-    placeholder: "Ejemplo: Matematica",
+    placeholder: "Ejemplo: Matemática",
   },
   {
     name: "code",
-    label: "Codigo",
+    label: "Código",
     required: true,
     placeholder: "Ejemplo: MAT",
   },

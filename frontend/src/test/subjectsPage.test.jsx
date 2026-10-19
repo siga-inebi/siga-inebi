@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -9,7 +9,14 @@ vi.mock("@academics/academicsService.js", async () => {
 
 import { SubjectsPage } from "@academics/SubjectsPage.jsx";
 import { artSubject, mathSubject, paginated } from "./fixtures/academics.js";
-import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
+import {
+  renderWithSession,
+  sessionUser,
+} from "./helpers/renderWithSession.jsx";
+
+function renderWithRouter(ui, { permissions = ["scope.assign"], route } = {}) {
+  return renderWithSession(ui, { user: sessionUser(permissions), route });
+}
 import {
   academicsServiceMock,
   resetAcademicsServiceMock,
@@ -46,8 +53,11 @@ describe("pantalla de cursos", () => {
     await screen.findByText("Matematica");
 
     await user.click(screen.getByRole("button", { name: "Nuevo curso" }));
-    await user.type(screen.getByLabelText(/^Nombre/), "  Comunicacion  ");
-    await user.type(screen.getByLabelText(/^Codigo/), "COM");
+    await user.type(
+      screen.getByRole("textbox", { name: /^Nombre/ }),
+      "  Comunicacion  "
+    );
+    await user.type(screen.getByLabelText(/^Código/), "COM");
     await user.click(screen.getByRole("button", { name: "Crear curso" }));
 
     await waitFor(() =>
@@ -67,10 +77,13 @@ describe("pantalla de cursos", () => {
     await screen.findByText("Matematica");
 
     await user.click(screen.getByRole("button", { name: "Editar" }));
-    expect(screen.queryByLabelText(/^Codigo/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Código/)).not.toBeInTheDocument();
 
-    await user.clear(screen.getByLabelText(/^Nombre/));
-    await user.type(screen.getByLabelText(/^Nombre/), "Matematicas");
+    await user.clear(screen.getByRole("textbox", { name: /^Nombre/ }));
+    await user.type(
+      screen.getByRole("textbox", { name: /^Nombre/ }),
+      "Matematicas"
+    );
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() =>
@@ -87,12 +100,57 @@ describe("pantalla de cursos", () => {
     await screen.findByText("Matematica");
 
     await user.click(screen.getByRole("button", { name: "Desactivar" }));
-    await user.click(screen.getByRole("button", { name: "Si, desactivar" }));
+    await user.click(screen.getByRole("button", { name: "Sí, desactivar" }));
 
     await waitFor(() =>
       expect(academicsServiceMock.deactivateSubject).toHaveBeenCalledWith(
         "subject-mat"
       )
     );
+  });
+
+  test("busca, ordena e incluye desactivados desde la URL", async () => {
+    renderWithRouter(<SubjectsPage />, {
+      route: "/app/cursos?search=mat&ordering=-code&include_inactive=1",
+    });
+    await screen.findByText("Matematica");
+    expect(academicsServiceMock.listSubjects).toHaveBeenCalledWith({
+      page: 1,
+      page_size: 25,
+      search: "mat",
+      ordering: "-code",
+      include_inactive: true,
+    });
+    expect(
+      screen.getByPlaceholderText("Buscar curso por nombre o código")
+    ).toHaveValue("mat");
+  });
+
+  test("envía la búsqueda al servidor", async () => {
+    renderWithRouter(<SubjectsPage />);
+    await screen.findByText("Matematica");
+    fireEvent.change(
+      screen.getByPlaceholderText("Buscar curso por nombre o código"),
+      { target: { value: "arte" } }
+    );
+    await waitFor(() =>
+      expect(academicsServiceMock.listSubjects).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 25,
+        ordering: "name",
+        search: "arte",
+      })
+    );
+  });
+
+  test("sin scope.assign solo consulta", async () => {
+    renderWithRouter(<SubjectsPage />, { permissions: [] });
+    await screen.findByText("Matematica");
+    expect(
+      screen.queryByRole("button", { name: "Nuevo curso" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Editar" })
+    ).not.toBeInTheDocument();
   });
 });

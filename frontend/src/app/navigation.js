@@ -131,7 +131,7 @@ export const NAV_GROUPS = [
       {
         key: "niveles",
         label: "Niveles",
-        description: "Niveles, grados y plan de estudios.",
+        description: "Niveles, grados y cursos del nivel.",
         path: "/app/niveles",
         icon: AccountTreeOutlinedIcon,
         load: () => import("@academics/LevelsPage.jsx"),
