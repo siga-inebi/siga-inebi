@@ -116,6 +116,7 @@ def test_record_actions_come_from_scope_and_relation_state(auth_client):
     )
     grant(auth_client.user, primary.student, "student_view_basic")
     rows = auth_client.get(record_url(primary)).json()["results"]
+    assert not AuditEvent.objects.filter(action="identity.authorization.denied").exists()
     assert all(not row["actions"][key] for row in rows for key in ("edit", "make_primary", "end"))
     grant(auth_client.user, primary.student, "student_edit_basic")
     rows = {

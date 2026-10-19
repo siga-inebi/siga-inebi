@@ -221,7 +221,9 @@ def deactivate_guardian(*, guardian, actor=None):
     return guardian
 
 
+@transaction.atomic
 def deactivate_emergency_contact(*, emergency_contact, actor=None):
+    emergency_contact = EmergencyContact.objects.select_for_update().get(pk=emergency_contact.pk)
     emergency_contact.is_active = False
     emergency_contact.save(update_fields=["is_active", "updated_at"])
     record_event(
@@ -408,6 +410,7 @@ def create_emergency_contact(*, student, name, phone_number, relationship_label,
     return contact
 
 
+@transaction.atomic
 def update_emergency_contact(
     *, emergency_contact, name=None, phone_number=None, relationship_label=None, actor=None
 ):
@@ -427,6 +430,7 @@ def update_emergency_contact(
     if not any(value is not None for value in candidates.values()):
         return emergency_contact
 
+    emergency_contact = EmergencyContact.objects.select_for_update().get(pk=emergency_contact.pk)
     return _changed(emergency_contact, actor, "students.emergency_contact.updated", **candidates)
 
 
@@ -444,7 +448,20 @@ def create_student_health_note(*, student, content, actor, recorded_on=None):
     return note
 
 
+def student_record_actions(*, record, can_manage):
+    return {"edit": can_manage, "deactivate": can_manage and record.is_active}
+
+
+@transaction.atomic
+def update_student_health_note(*, health_note, content, actor):
+    health_note = StudentHealthNote.objects.select_for_update().get(pk=health_note.pk)
+    content = _clean_text(content, field="content")
+    return _changed(health_note, actor, "students.health_note.updated", content=content)
+
+
+@transaction.atomic
 def deactivate_student_health_note(*, health_note, actor):
+    health_note = StudentHealthNote.objects.select_for_update().get(pk=health_note.pk)
     health_note.is_active = False
     health_note.save(update_fields=["is_active", "updated_at"])
     _audit(
@@ -470,7 +487,16 @@ def create_student_observation(*, student, description, actor, observed_on=None)
     return observation
 
 
+@transaction.atomic
+def update_student_observation(*, observation, description, actor):
+    observation = StudentObservation.objects.select_for_update().get(pk=observation.pk)
+    description = _clean_text(description, field="description")
+    return _changed(observation, actor, "students.observation.updated", description=description)
+
+
+@transaction.atomic
 def deactivate_student_observation(*, observation, actor):
+    observation = StudentObservation.objects.select_for_update().get(pk=observation.pk)
     observation.is_active = False
     observation.save(update_fields=["is_active", "updated_at"])
     _audit(

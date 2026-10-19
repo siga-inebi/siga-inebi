@@ -219,6 +219,14 @@ Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad edu
 
 ## Observaciones del estudiante
 
+E6 incorpora `PATCH /students/observations/{public_id}/` (`description`) y
+`PATCH /students/health-notes/{public_id}/` (`content`), antes 405. Exigen lectura
+sensible y edicion con alcance, conservan autor/fecha/estudiante y rechazan campos
+adicionales. `DELETE` conserva la desactivacion 204; `include_inactive=true` permite
+consultar su historial paginado. Los tres listados sensibles agregan `actions`
+de presentacion y conservan POST y sus respuestas anteriores. Ver
+[contratos, privacidad y evidencia E6](student-record-actions-ui.md).
+
 - `GET /api/v1/students/{public_id}/observations/` exige `student.view_sensitive` y alcance sobre
   estudiante. Las observaciones viven fuera del resumen general.
 - `POST` sobre misma ruta exige ademas `student.edit_basic`; autor se deriva de sesion y fecha no

@@ -15,6 +15,7 @@ from apps.students.services import (
     create_student,
     create_student_guardian_relation,
     guardian_relation_actions,
+    student_record_actions,
     update_student,
 )
 
@@ -281,3 +282,46 @@ class StudentObservationSerializer(serializers.ModelSerializer):
 class StudentObservationCreateSerializer(serializers.Serializer):
     description = serializers.CharField()
     observed_on = serializers.DateField(required=False)
+
+
+class StudentRecordContentUpdateSerializer(serializers.Serializer):
+    """Corrections may not rewrite author, dates, owner or active state."""
+
+    def validate(self, attrs):
+        if set(self.initial_data) - set(self.fields):
+            raise serializers.ValidationError("Solo se puede corregir el contenido del registro.")
+        return attrs
+
+
+class StudentHealthNoteUpdateSerializer(StudentRecordContentUpdateSerializer):
+    content = serializers.CharField()
+
+
+class StudentObservationUpdateSerializer(StudentRecordContentUpdateSerializer):
+    description = serializers.CharField()
+
+
+class StudentRecordActionsMixin:
+    def get_actions(self, instance) -> dict[str, bool]:
+        return student_record_actions(record=instance, can_manage=instance.record_can_manage)
+
+
+class StudentHealthNoteListSerializer(StudentRecordActionsMixin, StudentHealthNoteSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(StudentHealthNoteSerializer.Meta):
+        fields = [*StudentHealthNoteSerializer.Meta.fields, "actions"]
+
+
+class StudentObservationListSerializer(StudentRecordActionsMixin, StudentObservationSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(StudentObservationSerializer.Meta):
+        fields = [*StudentObservationSerializer.Meta.fields, "actions"]
+
+
+class EmergencyContactListSerializer(StudentRecordActionsMixin, EmergencyContactSerializer):
+    actions = serializers.SerializerMethodField()
+
+    class Meta(EmergencyContactSerializer.Meta):
+        fields = [*EmergencyContactSerializer.Meta.fields, "actions"]

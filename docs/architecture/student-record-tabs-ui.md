@@ -32,8 +32,9 @@ recarga la primera página de su colección, con los filtros del alumno conserva
   agrega edición de parentesco, cambio de principal y finalización con reemplazo;
   crear/buscar encargado E8 sigue pendiente.
 - **Salud/Observaciones/Contactos:** lectura y creación existentes, con carga, errores,
-  reintento y páginas; no se convierten denegaciones en «Sin registros». No añade editar
-  ni desactivar estos registros (E6).
+  reintento y páginas; no se convierten denegaciones en «Sin registros». La entrega
+  posterior [E6](student-record-actions-ui.md) agrega edición, desactivación con
+  confirmación y consulta paginada de desactivados.
 - **Matrículas:** historia completa con nombres de ciclo/grado/sección/jornada,
   estados y vigencias. `is_current` lo decide la lectura existente del servidor, no
   una comparación de fechas en React. No ejecuta movimientos ni reinscripciones.
