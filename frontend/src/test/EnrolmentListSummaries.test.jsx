@@ -134,9 +134,9 @@ test("defers creation catalogues until the user opens the form", async () => {
   renderWithRouter(<EnrolmentsPage />);
   await screen.findByText("Alumno Demo · EST-DEMO");
   expect(enrolmentCalls()).toHaveLength(1);
-  expect(
-    get.mock.calls.some(([url]) => url.startsWith("/students/"))
-  ).toBe(false);
+  expect(get.mock.calls.some(([url]) => url.startsWith("/students/"))).toBe(
+    false
+  );
   expect(
     get.mock.calls.some(([url]) => url.startsWith("/academics/sections/"))
   ).toBe(false);
@@ -150,7 +150,7 @@ test("defers creation catalogues until the user opens the form", async () => {
       get.mock.calls.some(([url]) => url.startsWith("/academics/sections/"))
     ).toBe(true)
   );
-  expect(
-    get.mock.calls.some(([url]) => url.startsWith("/students/"))
-  ).toBe(true);
+  expect(get.mock.calls.some(([url]) => url.startsWith("/students/"))).toBe(
+    true
+  );
 });

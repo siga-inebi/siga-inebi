@@ -187,6 +187,8 @@ class ActiveEnrolmentQuerySerializer(serializers.Serializer):
     academic_cycle_id = serializers.UUIDField(required=False)
     grade_id = serializers.UUIDField(required=False)
     section_id = serializers.UUIDField(required=False)
+
+
 class ReenrolmentCandidateQuerySerializer(serializers.Serializer):
     academic_cycle_id = serializers.UUIDField()
     grade_id = serializers.UUIDField(required=False)
