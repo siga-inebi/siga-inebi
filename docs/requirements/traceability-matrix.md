@@ -327,6 +327,20 @@ Todos requerimientos estan en estado `Planned`. Referencias de issue, diseno det
 
 | RF-MOV-006 | #238 | docs/architecture/{domain-map.md,initial-data-model.md,api-conventions.md,authorization-model.md}; docs/decisions/{ADR-0004-rest-api.md,ADR-0005-authentication-and-authorization.md,ADR-0006-soft-delete-and-history.md,ADR-0008-application-layer-boundaries.md} | backend/apps/academics/queries.py; backend/apps/enrolments/{services.py,api/serializers.py,api/views.py} | backend/tests/{unit/test_enrolments_services.py,api/test_enrolments_api.py,integration/test_enrolments.py} | TBD | Implemented | Extiende de forma aditiva la consulta de promocion: promovido avanza al siguiente grado activo segun orden pedagogico; no promovido repite el mismo grado; aprobar el ultimo grado produce graduated sin grado elegible. Los ciclos cerrados consumen el snapshot inmutable de RF-RES-007 y no recalculan notas; no crea la matricula siguiente |
 
+## Evidencia de traslados y cobertura conjunta de M3 — issue #632
+
+RF-MOV-001 y RF-MOV-003 agregan captura/revisión de ingreso y egreso, búsqueda
+paginada de expedientes y consulta de fechas separadas. Diseño y límites:
+`docs/architecture/student-transfers-ui.md`. Código:
+`frontend/src/enrolments/{StudentTransferWindow.jsx,EnrolmentsPage.jsx,enrolmentsService.js}`.
+Pruebas: `backend/tests/api/test_student_transfer_ui_contract.py` y
+`frontend/src/test/{studentTransfers.test.jsx,newModulePages.test.jsx,moduleServices.test.js}`.
+
+La cobertura de cinco operaciones de M3 se completa en código con el PR #639
+(cambio, retiro y anulación) y esta entrega (ambos traslados), sin cambiar los
+estados canónicos de RF ya implementados en backend. Integración en `develop`
+y aceptación institucional pendientes; #632 permanece abierto.
+
 ## Mantenimiento
 
 - Actualizar fila por cada requerimiento implementado o afectado.
