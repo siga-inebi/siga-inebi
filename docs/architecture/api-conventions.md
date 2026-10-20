@@ -499,6 +499,82 @@ estudiante, subárea y unidad: el número de consultas no crece con las filas.
 Cierre de unidad y clonado de configuración ya exigían el permiso; no cambian. Las acciones de
 configuración registran ahora al actor en la bitácora.
 
+## Asistencia (#631)
+
+Contratos de la entrega de Asistencia de #631 (hallazgos AS1–AS6 de docs/ux-ui.md 2.12). Todo
+es **aditivo** salvo un cambio de regla: `GET …/manual-registration-reasons/` lista por omisión
+solo los motivos vigentes (antes también los retirados, que el registro manual rechaza de todos
+modos). Las rutas cuelgan de `/api/v1/attendance/`. Las bandejas paginan con la paginación
+estándar (`page`, `page_size`, 25 por omisión) y aceptan `search` y `ordering` con
+`apps.common.listing`: un `ordering` desconocido conserva el orden propio.
+
+### Bandejas de justificaciones y permisos (AS3, AS4)
+
+| Método y ruta | Parámetros | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET justifications/` | `status` (`pending`, `approved`, `rejected`), `student_id`, `date_from`, `date_to` (sobre `absence_date`), `search` (código o nombre del estudiante), `ordering` (`absence_date`, `submitted_at`, `status`, `student`, con `-`) | 200 paginado de justificaciones. Por omisión, pendientes primero y luego de la más reciente a la más antigua. Un rango de fechas invertido o un `status` desconocido responde 400 | `attendance.justification.resolve` ve las de los estudiantes dentro de su alcance para ese permiso; cada actor ve además las que presentó. Sin `attendance.justification.request` ni `…resolve`, 403 |
+| `GET justifications/{id}/` | — | 200 una justificación; 404 si está fuera de lo que el actor puede ver | Igual que el listado |
+| `GET permits/` | `status`, `permit_type` (`early_exit`, `late_arrival`), `student_id`, `date_from`, `date_to` (sobre `permit_date`), `search`, `ordering` (`permit_date`, `submitted_at`, `status`, `student`) | 200 paginado de permisos con el mismo orden por omisión | `attendance.permit.resolve` con alcance ve los de su alcance; cada actor, los que solicitó. Sin `attendance.permit.request` ni `…resolve`, 403 |
+| `GET permits/{id}/` | — | 200 un permiso; 404 fuera de lo visible | Igual que el listado |
+
+Campos de cada fila. Los `*_id` anteriores no cambian (`submitted_by_id` y `resolved_by_id`
+siguen siendo el pk interno, por compatibilidad); lo nuevo se agrega también a las respuestas
+de alta y de resolución:
+
+- Justificación: `student: {public_id, student_code, full_name}`, `situation_type_display`,
+  `reason_catalog: {public_id, name} | null`, `status_display`, `has_attachment`,
+  `submitted_by: {public_id, name}`, `submitted_at`, `resolved_by: {public_id, name} | null`.
+- Permiso: `student`, `permit_type_display`, `status_display`, `submitted_by`, `submitted_at`,
+  `resolved_by`.
+- `submitted_by` y `resolved_by` son la cuenta (`UserAccount.public_id`) con el nombre de su
+  persona; no llevan datos de contacto.
+- El número de consultas no crece con las filas: estudiante, motivo y cuentas se precargan y
+  `has_attachment` sale de una subconsulta.
+- Un revisor sin ningún alcance vigente para el permiso de resolución solo ve lo que presentó:
+  el permiso no abre por sí solo toda la institución. La resolución (`POST …/resolve/`) no
+  cambia de regla.
+- Las bandejas no auditan la lectura. El documento adjunto, que puede traer información de
+  salud, sigue leyéndose solo por `GET justifications/{id}/attachment/`, que sí la audita
+  (RF-JUS-007).
+
+### Estado de la credencial (AS2)
+
+| Método y ruta | Parámetros | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET credentials/status/` | `student_id` (obligatorio) | 200 `{student_id, status: "active" \| "revoked" \| "none", public_id \| null, issued_at \| null, revoked_at \| null, revocation_reason \| null}` de la credencial más reciente | `attendance.credential.issue` con alcance sobre el estudiante, como la emisión |
+
+- Nunca devuelve `opaque_identifier` ni el QR. Solo la respuesta de emisión los trae, una vez.
+- **Reimpresión**: no hay endpoint para volver a generar el QR. Aunque el identificador se
+  guarda, exponerlo de nuevo convertiría cualquier lectura en una copia del pase. Para
+  reimprimir se revoca la credencial (`POST credentials/revoke/`) y se emite una nueva
+  (`POST credentials/`), que trae su QR; la anterior queda como historia (RF-CRE-003/004). El
+  contenido imprimible sin QR sigue en `GET credentials/print-content/`.
+- `revoked_at` es la última actualización de la credencial revocada: la revocación es su última
+  escritura. No hay campo propio ni migración.
+
+### Turno de captura, motivos y cobertura (AS1, AS5)
+
+- `GET capture-batches/current/` ya devolvía `expires_at` en `capture_batch`; sin cambio.
+- `GET manual-registration-reasons/` acepta `is_active` (`true` por omisión; `false` lista los
+  retirados). El alta de un movimiento `manual` sigue exigiendo `manual_reason_id` de un motivo
+  vigente.
+- `GET section-closures/coverage-ratio/` no cambia (`attendance.jornada.configure`).
+
+### Nombre del estudiante en las filas (AS6)
+
+- `GET events/`, `GET alerts/`, `GET presence/` y los `events` de
+  `GET capture-batches/current/` agregan `student: {public_id, student_code, full_name}`
+  junto a `student_id`, que no cambia. Así la interfaz nombra al estudiante de cada fila sin
+  descargar el padrón completo. Es aditivo: las respuestas de escritura y los movimientos
+  anidados (escaneo, estado del día, cierre de jornada) no cambian.
+- Estudiante, persona y demás referencias se precargan: el número de consultas no crece con
+  las filas.
+- **Notificaciones de inasistencia**: `GET absence-notifications/` sigue siendo solo para la
+  cuenta de encargado (al personal le responde 403 y queda auditado). Por D9 de
+  [ADR-0011](../decisions/ADR-0011-decisiones-ux-ui.md) el portal de encargados está fuera del
+  alcance actual, así que la interfaz del personal no las muestra ni se agrega una vista para
+  el personal hasta que exista un requerimiento de portal de encargados (PD-004).
+
 ## Inscripciones activas
 
 - `GET /api/v1/enrolments/active/` expone las inscripciones con estado `active` y registro

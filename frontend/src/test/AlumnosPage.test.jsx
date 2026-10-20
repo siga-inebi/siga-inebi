@@ -13,6 +13,7 @@ import {
 
 const studentsServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
+  listPage: vi.fn(),
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
@@ -44,6 +45,14 @@ vi.mock("@guardians/guardiansService.js", () => ({
 const downloadCsvMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@shared/utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
+
+/** Sobre paginado de DRF: la pantalla solo pide la pagina visible. */
+const page = (rows, count = rows.length) => ({
+  count,
+  next: null,
+  previous: null,
+  results: rows,
+});
 
 const SAMPLE = [
   {
@@ -80,6 +89,7 @@ const SAMPLE = [
 describe("AlumnosPage", () => {
   beforeEach(() => {
     studentsServiceMock.list.mockReset();
+    studentsServiceMock.listPage.mockReset();
     studentsServiceMock.create.mockReset();
     studentsServiceMock.update.mockReset();
     studentsServiceMock.listHealthNotes.mockReset();
@@ -98,22 +108,24 @@ describe("AlumnosPage", () => {
     downloadCsvMock.mockReset();
   });
 
-  test("exports the currently filtered rows as CSV", async () => {
+  test("exports every page of the current search as CSV", async () => {
+    studentsServiceMock.listPage.mockResolvedValue(page(SAMPLE));
     studentsServiceMock.list.mockResolvedValue(SAMPLE);
     const user = userEvent.setup();
-    renderWithRouter(<AlumnosPage />);
+    renderWithRouter(<AlumnosPage />, { route: "/?search=Lopez" });
 
     await screen.findByText("Maria Jose Lopez Garcia");
     await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
 
-    expect(downloadCsvMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(downloadCsvMock).toHaveBeenCalledTimes(1));
+    expect(studentsServiceMock.list).toHaveBeenCalledWith({ search: "Lopez" });
     const [filename, , rows] = downloadCsvMock.mock.calls[0];
     expect(filename).toBe("alumnos.csv");
     expect(rows).toEqual(SAMPLE);
   });
 
-  test("renders the list once loaded", async () => {
-    studentsServiceMock.list.mockResolvedValue(SAMPLE);
+  test("asks the server only for the visible page and shows its total", async () => {
+    studentsServiceMock.listPage.mockResolvedValue(page(SAMPLE, 100));
     renderWithRouter(<AlumnosPage />);
 
     expect(
@@ -122,24 +134,42 @@ describe("AlumnosPage", () => {
     expect(
       within(screen.getByRole("table")).getByText("EST-2026-014")
     ).toBeInTheDocument();
-    expect(screen.getByText(/Mostrando 1–2 de 2/)).toBeInTheDocument();
+    expect(studentsServiceMock.listPage).toHaveBeenCalledTimes(1);
+    expect(studentsServiceMock.listPage).toHaveBeenCalledWith({
+      page: 1,
+      page_size: 25,
+    });
+    expect(studentsServiceMock.list).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("100 registros dentro de tu alcance.")
+    ).toBeInTheDocument();
   });
 
-  test("shows an empty state when the search does not match", async () => {
-    studentsServiceMock.list.mockResolvedValue(SAMPLE);
+  test("sends the search to the server and shows its empty state", async () => {
+    studentsServiceMock.listPage.mockImplementation(async (params) =>
+      params.search ? page([]) : page(SAMPLE)
+    );
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 
     await screen.findByText("Maria Jose Lopez Garcia");
-    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "Nadie");
+    await user.type(
+      screen.getByPlaceholderText("Buscar por nombre, codigo o CUI…"),
+      "Nadie"
+    );
 
     expect(
       await screen.findByText("Sin resultados para la busqueda.")
     ).toBeInTheDocument();
+    expect(studentsServiceMock.listPage).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 25,
+      search: "Nadie",
+    });
   });
 
   test("shows the service error instead of the table", async () => {
-    studentsServiceMock.list.mockRejectedValue(
+    studentsServiceMock.listPage.mockRejectedValue(
       new Error("Solicitud no completada.")
     );
     renderWithRouter(<AlumnosPage />);
@@ -163,9 +193,9 @@ describe("AlumnosPage", () => {
       status: "pre_enrolled",
       photo: "",
     };
-    studentsServiceMock.list
-      .mockResolvedValueOnce(SAMPLE)
-      .mockResolvedValueOnce([...SAMPLE, createdStudent]);
+    studentsServiceMock.listPage
+      .mockResolvedValueOnce(page(SAMPLE))
+      .mockResolvedValueOnce(page([...SAMPLE, createdStudent]));
     studentsServiceMock.nextCode.mockResolvedValue("EST-2026-0101");
     studentsServiceMock.create.mockResolvedValue(createdStudent);
     const user = userEvent.setup();
@@ -203,14 +233,14 @@ describe("AlumnosPage", () => {
       })
     );
     await waitFor(() =>
-      expect(studentsServiceMock.list).toHaveBeenCalledTimes(2)
+      expect(studentsServiceMock.listPage).toHaveBeenCalledTimes(2)
     );
     expect(await screen.findByText("Nueva Alumna")).toBeInTheDocument();
     // Ver el presupuesto homonimo en DocentesPage.test.jsx.
   }, 15000);
 
   test("previews a newly selected photo in the create form", async () => {
-    studentsServiceMock.list.mockResolvedValue(SAMPLE);
+    studentsServiceMock.listPage.mockResolvedValue(page(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 
@@ -231,7 +261,7 @@ describe("AlumnosPage", () => {
   });
 
   test("requires the mandatory fields before submitting", async () => {
-    studentsServiceMock.list.mockResolvedValue(SAMPLE);
+    studentsServiceMock.listPage.mockResolvedValue(page(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<AlumnosPage />);
 
@@ -244,7 +274,7 @@ describe("AlumnosPage", () => {
   });
 
   test("abre el expediente desde el listado mediante una ruta propia", async () => {
-    studentsServiceMock.list.mockResolvedValue(SAMPLE);
+    studentsServiceMock.listPage.mockResolvedValue(page(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(
       <Routes>

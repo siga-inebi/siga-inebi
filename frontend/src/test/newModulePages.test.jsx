@@ -58,21 +58,6 @@ const documentsServiceMock = vi.hoisted(() => ({
   issuanceEligibility: vi.fn(),
 }));
 
-const attendanceServiceMock = vi.hoisted(() => ({
-  listJornadaParameters: vi.fn(),
-  createJornadaParameters: vi.fn(),
-  listEvents: vi.fn(),
-  createEvent: vi.fn(),
-  eventResolution: vi.fn(),
-  dayStatus: vi.fn(),
-  closeJornada: vi.fn(),
-  listAlerts: vi.fn(),
-  listControlPoints: vi.fn(),
-  recordScan: vi.fn(),
-  listPresence: vi.fn(),
-  attendancePercentage: vi.fn(),
-}));
-
 const reportingServiceMock = vi.hoisted(() => ({
   listAlerts: vi.fn(),
   acknowledge: vi.fn(),
@@ -96,11 +81,6 @@ vi.mock("@documents/documentsService.js", async () => {
   return { ...actual, documentsService: documentsServiceMock };
 });
 
-vi.mock("@attendance/attendanceService.js", async () => {
-  const actual = await vi.importActual("@attendance/attendanceService.js");
-  return { ...actual, attendanceService: attendanceServiceMock };
-});
-
 vi.mock("@reporting/reportingService.js", async () => {
   const actual = await vi.importActual("@reporting/reportingService.js");
   return { ...actual, reportingService: reportingServiceMock };
@@ -122,11 +102,9 @@ vi.mock("@academics/academicsService.js", async () => {
 });
 
 import { AlertsPage } from "@reporting/AlertsPage.jsx";
-import { AttendancePage } from "@attendance/AttendancePage.jsx";
 import { EnrolmentsPage } from "@enrolments/EnrolmentsPage.jsx";
 import { DocumentTypesPage } from "@documents/DocumentTypesPage.jsx";
 import { TemplatesPage } from "@documents/TemplatesPage.jsx";
-import { todayInputValue } from "@shared/utils/format.js";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import { selectOption } from "./helpers/selectOption.jsx";
 import {
@@ -361,21 +339,6 @@ describe("pantallas de los modulos con backend previo", () => {
       marker_count: 0,
     });
     documentsServiceMock.uploadRecord.mockReset().mockResolvedValue({});
-
-    attendanceServiceMock.listEvents.mockReset().mockResolvedValue(paged([]));
-    attendanceServiceMock.listAlerts.mockReset().mockResolvedValue(paged([]));
-    attendanceServiceMock.listJornadaParameters
-      .mockReset()
-      .mockResolvedValue(paged([]));
-    attendanceServiceMock.dayStatus
-      .mockReset()
-      .mockResolvedValue({ status: "presente", entry_event: null });
-    attendanceServiceMock.listControlPoints
-      .mockReset()
-      .mockResolvedValue(paged([]));
-    attendanceServiceMock.listPresence.mockReset().mockResolvedValue(paged([]));
-    attendanceServiceMock.attendancePercentage.mockReset();
-    attendanceServiceMock.recordScan.mockReset();
 
     reportingServiceMock.listAlerts
       .mockReset()
@@ -1153,154 +1116,6 @@ describe("pantallas de los modulos con backend previo", () => {
     });
   });
 
-  describe("AttendancePage", () => {
-    test("abre la vista previa de camara sin registrar movimientos", async () => {
-      const user = userEvent.setup();
-      renderWithRouter(<AttendancePage />);
-
-      await user.click(screen.getByRole("button", { name: "Abrir camara" }));
-
-      expect(
-        await screen.findByRole("dialog", { name: "Vista previa de camara" })
-      ).toBeInTheDocument();
-      expect(attendanceServiceMock.createEvent).not.toHaveBeenCalled();
-    });
-
-    test("el estado del dia arranca en hoy y solo pide estudiante y jornada", async () => {
-      const user = userEvent.setup();
-      studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
-      academicsServiceMock.listCampuses.mockResolvedValue(paged([CAMPUS]));
-      academicsServiceMock.listCampusShifts.mockResolvedValue(paged([SHIFT]));
-      renderWithRouter(<AttendancePage />);
-
-      // Escopado a la tarjeta: "Porcentaje de asistencia" repite los mismos
-      // campos y boton ("Estudiante", "Jornada", "Consultar").
-      const card = (
-        await screen.findByRole("heading", { name: "Estado del dia" })
-      ).closest("section");
-      const scoped = within(card);
-
-      // La fecha ya viene puesta en hoy, que es lo que se consulta casi siempre.
-      expect(scoped.getByLabelText(/^Fecha/)).toHaveValue(todayInputValue());
-      expect(scoped.getByRole("button", { name: /Consultar/ })).toBeDisabled();
-
-      await user.click(scoped.getByRole("combobox", { name: /Estudiante/ }));
-      await user.click(
-        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
-      );
-      await user.click(scoped.getByRole("combobox", { name: /Jornada/ }));
-      await user.click(
-        await screen.findByRole("option", { name: "Matutina · Sede Central" })
-      );
-
-      expect(scoped.getByRole("button", { name: /Consultar/ })).toBeEnabled();
-      expect(attendanceServiceMock.dayStatus).not.toHaveBeenCalled();
-    });
-
-    test("el estado del dia no consulta sin fecha", async () => {
-      const user = userEvent.setup();
-      studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
-      academicsServiceMock.listCampuses.mockResolvedValue(paged([CAMPUS]));
-      academicsServiceMock.listCampusShifts.mockResolvedValue(paged([SHIFT]));
-      renderWithRouter(<AttendancePage />);
-
-      const card = (
-        await screen.findByRole("heading", { name: "Estado del dia" })
-      ).closest("section");
-      const scoped = within(card);
-
-      await user.click(scoped.getByRole("combobox", { name: /Estudiante/ }));
-      await user.click(
-        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
-      );
-      await user.click(scoped.getByRole("combobox", { name: /Jornada/ }));
-      await user.click(
-        await screen.findByRole("option", { name: "Matutina · Sede Central" })
-      );
-      await user.clear(scoped.getByLabelText(/^Fecha/));
-
-      // El endpoint exige los tres: consultar con dos devolveria un 400 en vez
-      // de un resultado.
-      expect(scoped.getByRole("button", { name: /Consultar/ })).toBeDisabled();
-      expect(attendanceServiceMock.dayStatus).not.toHaveBeenCalled();
-    });
-
-    test('el boton "Hoy" repone la fecha del dia', async () => {
-      const user = userEvent.setup();
-      renderWithRouter(<AttendancePage />);
-
-      const card = (
-        await screen.findByRole("heading", { name: "Estado del dia" })
-      ).closest("section");
-      const scoped = within(card);
-      const dateInput = scoped.getByLabelText(/^Fecha/);
-
-      await user.clear(dateInput);
-      expect(dateInput).toHaveValue("");
-
-      await user.click(
-        scoped.getByRole("button", { name: "Usar la fecha de hoy" })
-      );
-
-      expect(dateInput).toHaveValue(todayInputValue());
-    });
-
-    test("el movimiento se registra eligiendo estudiante y jornada", async () => {
-      const user = userEvent.setup();
-      studentsServiceMock.listPage.mockResolvedValue(paged([STUDENT]));
-      academicsServiceMock.listCampuses.mockResolvedValue(paged([CAMPUS]));
-      academicsServiceMock.listCampusShifts.mockResolvedValue(paged([SHIFT]));
-      renderWithRouter(<AttendancePage />);
-      await screen.findByRole("heading", { name: "Movimientos" });
-
-      await user.click(
-        screen.getByRole("button", { name: "Registrar movimiento" })
-      );
-      const form = await screen.findByRole("dialog", {
-        name: "Nuevo movimiento de asistencia",
-      });
-
-      await user.click(
-        within(form).getByRole("combobox", { name: /Estudiante/ })
-      );
-      await user.click(
-        await screen.findByRole("option", { name: "Luis Perez · EST-1" })
-      );
-      await user.click(within(form).getByRole("combobox", { name: /Jornada/ }));
-      await user.click(
-        await screen.findByRole("option", { name: "Matutina · Sede Central" })
-      );
-      // Las dos fechas llegan en hoy: un movimiento se registra el dia que
-      // ocurre, y tipearlas dos veces era el paso mas repetido del formulario.
-      await user.click(
-        within(form).getByRole("button", { name: "Registrar movimiento" })
-      );
-
-      expect(attendanceServiceMock.createEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          student_id: "student-1",
-          shift_id: "shift-1",
-          event_date: todayInputValue(),
-          captured_at: todayInputValue(),
-        })
-      );
-    });
-
-    test("muestra el registro de movimientos y sus alertas", async () => {
-      renderWithRouter(<AttendancePage />);
-
-      expect(
-        await screen.findByRole("heading", { name: "Movimientos" })
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText("Todavia no hay movimientos registrados.")
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText("Sin alertas de asistencia registradas.")
-      ).toBeInTheDocument();
-    });
-  });
-
   describe("AlertsPage", () => {
     test("arranca filtrando las alertas sin atender", async () => {
       renderWithRouter(<AlertsPage />);
@@ -1318,6 +1133,35 @@ describe("pantallas de los modulos con backend previo", () => {
         within(table).getByText("Frecuencia de ausencias")
       ).toBeInTheDocument();
       expect(within(table).getByText("Sin atender")).toBeInTheDocument();
+    });
+
+    test("los indicadores piden una sola fila y muestran el count del backend", async () => {
+      reportingServiceMock.listAlerts.mockImplementation(async (params) => {
+        if (params.page_size !== 1) return paged([ALERT]);
+        const count =
+          params.acknowledged === false
+            ? 37
+            : params.alert_type === "frecuencia_ausencias"
+              ? 41
+              : 58;
+        return { count, results: [ALERT] };
+      });
+      renderWithRouter(<AlertsPage />);
+
+      expect(await screen.findByText("37")).toBeInTheDocument();
+      expect(screen.getByText("58")).toBeInTheDocument();
+      expect(screen.getByText("41")).toBeInTheDocument();
+      expect(reportingServiceMock.listAlerts).toHaveBeenCalledWith({
+        acknowledged: false,
+        page_size: 1,
+      });
+      expect(reportingServiceMock.listAlerts).toHaveBeenCalledWith({
+        page_size: 1,
+      });
+      expect(reportingServiceMock.listAlerts).toHaveBeenCalledWith({
+        alert_type: "frecuencia_ausencias",
+        page_size: 1,
+      });
     });
 
     test("atender pide confirmacion y luego llama al backend", async () => {

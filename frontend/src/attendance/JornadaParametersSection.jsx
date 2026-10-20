@@ -1,25 +1,43 @@
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
-import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
 
-import { PAGE_SIZE } from "@academics/academicsService.js";
-import { attendanceService } from "@attendance/attendanceService.js";
+import {
+  attendanceService,
+  withoutBlank,
+} from "@attendance/attendanceService.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
 import {
   labelIndex,
   useCycleCatalog,
   useShiftCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { ListSection } from "@shared/crud/ListSection.jsx";
+import { useServerList } from "@shared/crud/useServerList.js";
 import { formatDate } from "@shared/utils/format.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
-import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
-import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
-import { DataTable } from "@ui/table/DataTable.jsx";
 import { CodeCell, MutedCell } from "@ui/table/cells.jsx";
+
+/** "07:00:00" → "07:00". */
+const shortTime = (value) => (value ? String(value).slice(0, 5) : "");
+
+/** Días lectivos: 1 = lunes … 7 = domingo (RF-JOR-001). */
+const SCHOOL_DAY_PRESETS = [
+  { value: "1,2,3,4,5", label: "Lunes a viernes" },
+  { value: "1,2,3,4,5,6", label: "Lunes a sábado" },
+  { value: "1,2,3,4,5,6,7", label: "Todos los días" },
+];
+const DAY_NAMES = ["", "lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
+
+function schoolDaysLabel(days) {
+  const key = (days ?? []).join(",");
+  return (
+    SCHOOL_DAY_PRESETS.find((preset) => preset.value === key)?.label ??
+    (days ?? []).map((day) => DAY_NAMES[day]).join(", ")
+  );
+}
 
 const parameterColumns = (shiftNames) => [
   {
@@ -35,8 +53,8 @@ const parameterColumns = (shiftNames) => [
   },
   {
     key: "entry_limit_time",
-    label: "Limite de entrada",
-    render: (row) => row.entry_limit_time,
+    label: "Límite de entrada",
+    render: (row) => shortTime(row.entry_limit_time),
   },
   {
     key: "tolerance_minutes",
@@ -44,10 +62,19 @@ const parameterColumns = (shiftNames) => [
     align: "right",
     render: (row) => `${row.tolerance_minutes} min`,
   },
-  { key: "closing_time", label: "Cierre", render: (row) => row.closing_time },
+  {
+    key: "closing_time",
+    label: "Cierre",
+    render: (row) => shortTime(row.closing_time),
+  },
+  {
+    key: "school_days",
+    label: "Días lectivos",
+    render: (row) => schoolDaysLabel(row.school_days),
+  },
   {
     key: "duplicate_suppression_minutes",
-    label: "Supresion de duplicados",
+    label: "Supresión de duplicados",
     align: "right",
     render: (row) => `${row.duplicate_suppression_minutes} min`,
   },
@@ -92,8 +119,14 @@ const parameterFields = ({ cycles, shifts }) => [
   {
     // Campo de hora nativo en vez de texto con formato dictado: el navegador ya
     // sabe validar una hora, y "HH:MM" como instruccion es un error esperando.
+    name: "opening_time",
+    label: "Hora de apertura",
+    type: "time",
+    help: "Desde cuándo se reciben escaneos. Si se deja vacía, desde las 00:00.",
+  },
+  {
     name: "entry_limit_time",
-    label: "Hora limite de entrada",
+    label: "Hora límite de entrada",
     type: "time",
     required: true,
   },
@@ -112,29 +145,35 @@ const parameterFields = ({ cycles, shifts }) => [
   },
   {
     name: "duplicate_suppression_minutes",
-    label: "Supresion de duplicados (minutos)",
+    label: "Supresión de duplicados (minutos)",
     type: "number",
     min: 0,
     required: true,
     help: "Dos lecturas del mismo estudiante dentro de esta ventana cuentan como una.",
   },
   {
+    name: "school_days",
+    label: "Días lectivos",
+    type: "select",
+    options: SCHOOL_DAY_PRESETS,
+    required: true,
+  },
+  {
     name: "effective_from",
     label: "Vigente desde",
     type: "date",
     required: true,
-    span: "full",
   },
 ];
 
 /**
- * Parametros de jornada por sede y ciclo (RF-JOR-001).
+ * Parámetros de jornada por sede y ciclo (RF-JOR-001).
  *
- * No hay edicion: registrar parametros nuevos con una fecha de vigencia posterior
- * es lo que los reemplaza, y los anteriores se conservan como historia. Por eso la
- * tabla muestra tambien los reemplazados en vez de esconderlos.
+ * No hay edición: registrar parámetros nuevos con una vigencia posterior es lo
+ * que los reemplaza, y los anteriores se conservan como historia. Por eso la
+ * tabla muestra también los reemplazados.
  */
-export function JornadaParametersWindow({ onClose }) {
+export function JornadaParametersSection() {
   const cycles = useCycleCatalog();
   const shifts = useShiftCatalog();
   const shiftNames = useMemo(
@@ -142,78 +181,63 @@ export function JornadaParametersWindow({ onClose }) {
     [shifts.options]
   );
 
-  const loadParameters = useCallback(
-    (params) => attendanceService.listJornadaParameters(params),
-    []
-  );
-  const list = usePaginatedList(loadParameters, {
-    canIncludeInactive: false,
-    pageSize: PAGE_SIZE,
+  const list = useServerList({
+    queryKey: queryKeys.attendance("jornada-parameters"),
+    fetchPage: (params) => attendanceService.listJornadaParameters(params),
+    urlPrefix: "par_",
   });
 
   const [creating, setCreating] = useState(false);
 
-  const handleCreate = async (payload) => {
-    await attendanceService.createJornadaParameters(payload);
+  const handleCreate = async ({ school_days, ...payload }) => {
+    await attendanceService.createJornadaParameters({
+      ...withoutBlank(payload),
+      school_days: school_days.split(",").map(Number),
+    });
     setCreating(false);
-    list.refresh();
   };
 
   return (
     <>
-      <FloatingWindow
-        description="Horarios y tolerancias que usa el calculo de asistencia. Un registro nuevo con vigencia posterior reemplaza al anterior; nada se borra."
-        footer={
-          <>
-            <Button onClick={onClose} variant="text">
-              Cerrar
-            </Button>
-            <Button
-              onClick={() => setCreating(true)}
-              startIcon={<AddIcon fontSize="small" />}
-              variant="contained"
-            >
-              Nuevos parametros
-            </Button>
-          </>
+      <ListSection
+        action={
+          <Button
+            onClick={() => setCreating(true)}
+            startIcon={<AddIcon fontSize="small" />}
+            variant="contained"
+          >
+            Nuevos parámetros
+          </Button>
         }
-        onClose={onClose}
-        open
-        title="Parametros de jornada"
-        width={WINDOW_WIDTH.wide}
-      >
-        <Stack gap={2}>
-          {list.error ? <Alert severity="error">{list.error}</Alert> : null}
-          <DataTable
-            columns={parameterColumns(shiftNames)}
-            emptyMessage="Todavia no hay parametros de jornada registrados."
-            getRowKey={(row) => row.public_id}
-            loading={list.loading}
-            pagination={list.pagination}
-            rows={list.items}
-          />
-        </Stack>
-      </FloatingWindow>
+        columns={parameterColumns(shiftNames)}
+        emptyMessage="Todavía no hay parámetros de jornada registrados."
+        getRowKey={(row) => row.public_id}
+        list={list}
+        showInactiveToggle={false}
+        subtitle="Horarios y tolerancias del cálculo de asistencia. Un registro nuevo con vigencia posterior reemplaza al anterior; nada se borra."
+        title="Parámetros de jornada"
+      />
 
       {creating ? (
         <EntityFormWindow
-          description="Estos valores definen desde cuando una entrada cuenta como tardanza y cuando se cierra la jornada."
+          description="Estos valores definen desde cuándo una entrada cuenta como tardanza, qué días se reciben escaneos y cuándo se cierra la jornada."
           fields={parameterFields({ cycles, shifts })}
           initialValues={{
             shift_id: "",
             academic_cycle_id: "",
+            opening_time: "",
             entry_limit_time: "",
             tolerance_minutes: 0,
             closing_time: "",
             duplicate_suppression_minutes: 0,
+            school_days: "1,2,3,4,5",
             effective_from: "",
           }}
-          key="parameters-create"
           onCancel={() => setCreating(false)}
           onSubmit={handleCreate}
           open
-          submitLabel="Registrar parametros"
-          title="Nuevos parametros de jornada"
+          submitLabel="Registrar parámetros"
+          title="Nuevos parámetros de jornada"
         />
       ) : null}
     </>

@@ -18,8 +18,14 @@ vi.mock("@people/peopleService.js", async () => {
 });
 
 const studentsServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
-const teachersServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
-const guardiansServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const teachersServiceMock = vi.hoisted(() => ({
+  list: vi.fn(),
+  listPage: vi.fn(),
+}));
+const guardiansServiceMock = vi.hoisted(() => ({
+  list: vi.fn(),
+  listPage: vi.fn(),
+}));
 
 vi.mock("@students/studentsService.js", () => ({
   studentsService: studentsServiceMock,
@@ -48,6 +54,10 @@ describe("navegacion de modulos", () => {
     studentsServiceMock.list.mockReset().mockResolvedValue([]);
     teachersServiceMock.list.mockReset().mockResolvedValue([]);
     guardiansServiceMock.list.mockReset().mockResolvedValue([]);
+    // Docentes y Padres piden solo la pagina visible.
+    const emptyPage = { count: 0, next: null, previous: null, results: [] };
+    teachersServiceMock.listPage.mockReset().mockResolvedValue(emptyPage);
+    guardiansServiceMock.listPage.mockReset().mockResolvedValue(emptyPage);
     authServiceMock.me.mockResolvedValue(authenticatedSession);
     vi.spyOn(apiClient, "get").mockImplementation(async (url) =>
       url === "/documents/templates/issuance-uses/"

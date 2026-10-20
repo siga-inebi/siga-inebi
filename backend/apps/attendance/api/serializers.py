@@ -19,6 +19,52 @@ from apps.attendance.models import (
 from apps.common.qr import generate_qr_png_base64
 
 
+class StudentReferenceSerializer(serializers.Serializer):
+    """Nombre del estudiante para pintar una fila sin otro catálogo (docs/ux-ui.md 1.1)."""
+
+    public_id = serializers.UUIDField(read_only=True)
+    student_code = serializers.CharField(read_only=True)
+    full_name = serializers.SerializerMethodField()
+
+    def get_full_name(self, student) -> str:
+        return f"{student.person.first_name} {student.person.last_name}".strip()
+
+
+class AccountReferenceSerializer(serializers.Serializer):
+    """Cuenta (``UserAccount.public_id``) y nombre de su persona; sin datos de contacto."""
+
+    public_id = serializers.UUIDField(read_only=True)
+    name = serializers.SerializerMethodField()
+
+    def get_name(self, account) -> str:
+        return str(account.person)
+
+
+class CatalogueReferenceSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+
+class ReviewQueueQuerySerializer(serializers.Serializer):
+    """Filtros comunes de las bandejas de justificaciones y permisos (#631)."""
+
+    student_id = serializers.UUIDField(required=False, help_text="Public ID del estudiante.")
+    date_from = serializers.DateField(required=False)
+    date_to = serializers.DateField(required=False)
+    search = serializers.CharField(
+        required=False, allow_blank=True, help_text="Código o nombre del estudiante."
+    )
+    ordering = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        date_from, date_to = attrs.get("date_from"), attrs.get("date_to")
+        if date_from and date_to and date_from > date_to:
+            raise serializers.ValidationError(
+                {"date_to": "La fecha final no puede ser anterior a la inicial."}
+            )
+        return attrs
+
+
 class JornadaParametersSerializer(serializers.ModelSerializer):
     shift_id = serializers.UUIDField(source="shift.public_id", read_only=True)
     academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
@@ -104,6 +150,19 @@ class AttendanceEventSerializer(serializers.ModelSerializer):
         ]
 
 
+class AttendanceEventRowSerializer(AttendanceEventSerializer):
+    """
+    #631 (AS6): a movement as a listing row. ``student`` is additive so the
+    staff UI names the student without downloading the whole roster; the
+    write and nested responses keep ``AttendanceEventSerializer`` unchanged.
+    """
+
+    student = StudentReferenceSerializer(read_only=True)
+
+    class Meta(AttendanceEventSerializer.Meta):
+        fields = [*AttendanceEventSerializer.Meta.fields, "student"]
+
+
 class AttendanceEventCreateSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
     shift_id = serializers.UUIDField(help_text="Public ID de la jornada (Shift).")
@@ -161,6 +220,15 @@ class AttendanceAlertSerializer(serializers.ModelSerializer):
             "context",
             "created_at",
         ]
+
+
+class AttendanceAlertRowSerializer(AttendanceAlertSerializer):
+    """#631 (AS6): an alert as a listing row, with the student's name (additive)."""
+
+    student = StudentReferenceSerializer(read_only=True)
+
+    class Meta(AttendanceAlertSerializer.Meta):
+        fields = [*AttendanceAlertSerializer.Meta.fields, "student"]
 
 
 class JornadaClosureRequestSerializer(serializers.Serializer):
@@ -250,6 +318,8 @@ class AttendancePresenceQuerySerializer(serializers.Serializer):
 
 class PresentStudentSerializer(serializers.Serializer):
     student_id = serializers.UUIDField(source="student.public_id")
+    # #631 (AS6): additive, so the presence table names the student.
+    student = StudentReferenceSerializer(read_only=True)
     section_id = serializers.UUIDField(source="section.public_id")
     entry_event = AttendanceEventSerializer(allow_null=True)
 
@@ -288,6 +358,15 @@ class ControlPointSerializer(serializers.ModelSerializer):
             "allows_exit",
             "is_active",
         ]
+
+
+class ManualRegistrationReasonListQuerySerializer(serializers.Serializer):
+    # allow_null: a missing boolean in a QueryDict would otherwise read as False.
+    is_active = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Por omisión, solo los motivos vigentes; `false` lista los retirados.",
+    )
 
 
 class ManualRegistrationReasonSerializer(serializers.ModelSerializer):
@@ -407,7 +486,7 @@ class CaptureBatchRecoverySerializer(serializers.Serializer):
     """
 
     capture_batch = CaptureBatchSerializer(allow_null=True)
-    events = AttendanceEventSerializer(many=True)
+    events = AttendanceEventRowSerializer(many=True)
 
 
 class StudentCredentialSerializer(serializers.ModelSerializer):
@@ -446,6 +525,23 @@ class StudentCredentialSerializer(serializers.ModelSerializer):
 
     def get_qr_code(self, credential):
         return generate_qr_png_base64(data=credential.opaque_identifier)
+
+
+class CredentialStatusSerializer(serializers.Serializer):
+    """
+    #631 (AS2): state of the student's latest credential. Never carries
+    ``opaque_identifier`` nor the QR: see ``StudentCredentialSerializer``.
+    """
+
+    student_id = serializers.UUIDField()
+    status = serializers.ChoiceField(
+        choices=["active", "revoked", "none"],
+        help_text="`none` cuando el estudiante nunca tuvo credencial.",
+    )
+    public_id = serializers.UUIDField(allow_null=True)
+    issued_at = serializers.DateTimeField(allow_null=True)
+    revoked_at = serializers.DateTimeField(allow_null=True)
+    revocation_reason = serializers.CharField(allow_null=True)
 
 
 class StudentCredentialIssueSerializer(serializers.Serializer):
@@ -569,7 +665,28 @@ class JustificationRequestSerializer(serializers.Serializer):
     )
 
 
+class JustificationListQuerySerializer(ReviewQueueQuerySerializer):
+    status = serializers.ChoiceField(choices=Justification.Status.choices, required=False)
+
+
 class JustificationSerializer(serializers.ModelSerializer):
+    """
+    #631 (AS3): the ``*_id`` fields stay as they were; ``student``,
+    ``reason_catalog``, ``submitted_by``, ``resolved_by``, the ``*_display``
+    labels, ``has_attachment`` and ``submitted_at`` are additive, so a row
+    renders without another lookup.
+    """
+
+    student = StudentReferenceSerializer(read_only=True)
+    reason_catalog = CatalogueReferenceSerializer(read_only=True, allow_null=True)
+    submitted_by = AccountReferenceSerializer(read_only=True)
+    resolved_by = AccountReferenceSerializer(read_only=True, allow_null=True)
+    situation_type_display = serializers.CharField(
+        source="get_situation_type_display", read_only=True
+    )
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    has_attachment = serializers.SerializerMethodField()
+    submitted_at = serializers.DateTimeField(source="created_at", read_only=True)
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     submitted_by_id = serializers.IntegerField(source="submitted_by.pk", read_only=True)
     reason_catalog_id = serializers.UUIDField(
@@ -584,19 +701,34 @@ class JustificationSerializer(serializers.ModelSerializer):
         fields = [
             "public_id",
             "student_id",
+            "student",
             "absence_date",
             "situation_type",
+            "situation_type_display",
             "reason",
             "reason_catalog_id",
+            "reason_catalog",
             "status",
+            "status_display",
+            "has_attachment",
             "submitted_by_id",
+            "submitted_by",
+            "submitted_at",
             "is_exception",
             "exception_reason",
             "resolved_by_id",
+            "resolved_by",
             "resolved_at",
             "resolution_comment",
             "created_at",
         ]
+
+    def get_has_attachment(self, justification) -> bool:
+        # The queue annotates it (no query per row); a single instance asks.
+        annotated = getattr(justification, "attachment_exists", None)
+        if annotated is not None:
+            return annotated
+        return JustificationAttachment.objects.filter(justification=justification).exists()
 
 
 class JustificationResolutionRequestSerializer(serializers.Serializer):
@@ -666,7 +798,26 @@ class AttendancePermitRequestSerializer(serializers.Serializer):
     reason = serializers.CharField(help_text="Motivo del permiso.")
 
 
+class AttendancePermitListQuerySerializer(ReviewQueueQuerySerializer):
+    status = serializers.ChoiceField(choices=AttendancePermit.Status.choices, required=False)
+    permit_type = serializers.ChoiceField(
+        choices=AttendancePermit.PermitType.choices, required=False
+    )
+
+
 class AttendancePermitSerializer(serializers.ModelSerializer):
+    """
+    #631 (AS4): ``student``, ``submitted_by``, ``resolved_by``, the
+    ``*_display`` labels and ``submitted_at`` are additive to the ``*_id``
+    fields, also in the create and resolve responses.
+    """
+
+    student = StudentReferenceSerializer(read_only=True)
+    submitted_by = AccountReferenceSerializer(read_only=True)
+    resolved_by = AccountReferenceSerializer(read_only=True, allow_null=True)
+    permit_type_display = serializers.CharField(source="get_permit_type_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    submitted_at = serializers.DateTimeField(source="created_at", read_only=True)
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
     submitted_by_id = serializers.IntegerField(source="submitted_by.pk", read_only=True)
     resolved_by_id = serializers.IntegerField(
@@ -678,13 +829,19 @@ class AttendancePermitSerializer(serializers.ModelSerializer):
         fields = [
             "public_id",
             "student_id",
+            "student",
             "permit_type",
+            "permit_type_display",
             "permit_date",
             "scheduled_time",
             "reason",
             "status",
+            "status_display",
             "submitted_by_id",
+            "submitted_by",
+            "submitted_at",
             "resolved_by_id",
+            "resolved_by",
             "resolved_at",
             "resolution_comment",
             "created_at",

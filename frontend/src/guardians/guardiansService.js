@@ -6,9 +6,16 @@ export const guardiansService = {
   /** Pagina cruda del listado, con su `count` total. */
   listPage: (params) =>
     apiClient.get(withQuery("/students/guardians/", params)),
-  // Ver studentsService.list: la pantalla pagina del lado del cliente y
-  // necesita la lista completa, no la primera pagina.
-  list: () => collectAllPages(guardiansService.listPage),
+  /**
+   * Listado completo con los filtros dados, recorriendo todas las paginas.
+   *
+   * Solo para la exportacion CSV que la persona pide: GuardiansPage pide al
+   * servidor unicamente la pagina visible (`listPage`).
+   */
+  list: (params = {}) =>
+    collectAllPages((page) =>
+      guardiansService.listPage({ ...params, ...page })
+    ),
   get: (id) => apiClient.get(`/students/guardians/${id}/`),
   create: (data) => apiClient.post("/students/guardians/", data),
   // GuardianSerializer intentionally rejects nested `person` writes on update

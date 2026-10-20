@@ -90,6 +90,11 @@ export const queryKeys = {
     cycleId,
     ...rest,
   ],
+  /**
+   * Asistencia: toda escritura bajo `/attendance` invalida `["attendance"]`
+   * (`invalidation.js`), así que cada key del módulo empieza por ese dominio.
+   */
+  attendance: (...rest) => ["attendance", ...rest],
   reporting: {
     all: ["reporting"],
     alerts: (params = {}) => ["reporting", "alerts", params],

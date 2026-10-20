@@ -15,10 +15,14 @@ export const studentsService = {
     apiClient.get(withQuery(`/students/${id}/emergency-contacts/`, params)),
   /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
   listPage: (params) => apiClient.get(withQuery("/students/", params)),
-  // AlumnosPage pagina, busca y exporta del lado del cliente, asi que necesita
-  // la lista completa: con solo la primera pagina su paginador anunciaba
-  // "25 de 25" y el resto de los estudiantes no existia para quien buscaba.
-  list: () => collectAllPages(studentsService.listPage),
+  /**
+   * Listado completo con los filtros dados, recorriendo todas las paginas.
+   *
+   * Solo para la exportacion CSV que la persona pide: AlumnosPage pide al
+   * servidor unicamente la pagina visible (`listPage`).
+   */
+  list: (params = {}) =>
+    collectAllPages((page) => studentsService.listPage({ ...params, ...page })),
   get: (id) => apiClient.get(`/students/${id}/`),
   /**
    * Siguiente codigo de estudiante libre, para prellenar el alta.

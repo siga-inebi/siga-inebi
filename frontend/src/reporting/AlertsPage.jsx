@@ -49,9 +49,11 @@ const TYPE_FILTER_OPTIONS = [
 /**
  * Conteo total de alertas que cumplen un filtro.
  *
- * Consulta la primera pagina solo para leer `count`: el endpoint pagina, asi que
- * contar en el cliente sobre la pagina visible daria un numero equivocado en
- * cuanto haya mas de una pagina.
+ * Pide una pagina de una sola fila solo para leer `count` (igual que los
+ * contadores del menu, `useModuleCounts`): el endpoint pagina, asi que contar
+ * en el cliente sobre la pagina visible daria un numero equivocado en cuanto
+ * haya mas de una pagina, y traer la pagina entera seria descargar filas que
+ * nadie mira.
  *
  * Las tres tarjetas KPI de la pantalla llaman a este hook con filtros
  * distintos, asi que siguen siendo tres peticiones legitimas — lo que la
@@ -62,7 +64,7 @@ function useAlertCount(params, token) {
   const key = queryKeys.reporting.alerts({ ...params, countsToken: token });
   const { data } = useResourceQuery(
     key,
-    () => reportingService.listAlerts(params),
+    () => reportingService.listAlerts({ ...params, page_size: 1 }),
     { defaultData: null }
   );
 

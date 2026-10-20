@@ -450,6 +450,102 @@ describe("servicios de los modulos", () => {
         { shift_id: SHIFT }
       );
     });
+
+    test("turno de captura, motivos manuales y cobertura (AS1, AS5)", async () => {
+      await attendanceService.currentCaptureBatch();
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/capture-batches/current/"
+      );
+      await attendanceService.openCaptureBatch();
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/attendance/capture-batches/",
+        {}
+      );
+      await attendanceService.confirmCaptureBatch("batch-1");
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/attendance/capture-batches/batch-1/confirm/",
+        {}
+      );
+      await attendanceService.listManualReasons({ page_size: 100 });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/manual-registration-reasons/?page_size=100"
+      );
+      await attendanceService.coverageRatio({
+        section_id: "section-1",
+        date_from: "",
+        date_to: "2026-10-31",
+      });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/section-closures/coverage-ratio/?section_id=section-1&date_to=2026-10-31"
+      );
+    });
+
+    test("carné: estado, emisión, contenido imprimible y revocación (AS2)", async () => {
+      await attendanceService.cardStatus(STUDENT);
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/attendance/credentials/status/?student_id=${STUDENT}`
+      );
+      await attendanceService.issueCard(STUDENT);
+      expect(apiClient.post).toHaveBeenCalledWith("/attendance/credentials/", {
+        student_id: STUDENT,
+      });
+      await attendanceService.cardPrintContent(STUDENT);
+      expect(apiClient.get).toHaveBeenCalledWith(
+        `/attendance/credentials/print-content/?student_id=${STUDENT}`
+      );
+      await attendanceService.revokeCard(STUDENT, "Extravío");
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/attendance/credentials/revoke/",
+        { student_id: STUDENT, reason: "Extravío" }
+      );
+    });
+
+    test("justificaciones y permisos (AS3, AS4)", async () => {
+      await attendanceService.listJustifications({ status: "pending" });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/justifications/?status=pending"
+      );
+      await attendanceService.getJustification("j-1");
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/justifications/j-1/"
+      );
+      await attendanceService.resolveJustification("j-1", {
+        approved: false,
+        comment: "No",
+      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/attendance/justifications/j-1/resolve/",
+        { approved: false, comment: "No" }
+      );
+      await attendanceService.getJustificationAttachment("j-1");
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/justifications/j-1/attachment/"
+      );
+      const file = new File(["x"], "a.pdf", { type: "application/pdf" });
+      await attendanceService.uploadJustificationAttachment("j-1", file);
+      const [path, body] = apiClient.post.mock.calls.at(-1);
+      expect(path).toBe("/attendance/justifications/j-1/attachment/");
+      expect(body).toBeInstanceOf(FormData);
+      expect(body.get("file")).toBe(file);
+      await attendanceService.listJustificationReasons();
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/justification-reasons/"
+      );
+
+      await attendanceService.listPermits({ permit_type: "early_exit" });
+      expect(apiClient.get).toHaveBeenCalledWith(
+        "/attendance/permits/?permit_type=early_exit"
+      );
+      await attendanceService.createPermit({ student_id: STUDENT });
+      expect(apiClient.post).toHaveBeenCalledWith("/attendance/permits/", {
+        student_id: STUDENT,
+      });
+      await attendanceService.resolvePermit("p-1", { approved: true });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/attendance/permits/p-1/resolve/",
+        { approved: true }
+      );
+    });
   });
 
   describe("evaluationService", () => {

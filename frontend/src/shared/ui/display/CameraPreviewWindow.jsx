@@ -84,7 +84,7 @@ export function CameraPreviewWindow({
       }
       onClose={onClose}
       open
-      title="Vista previa de camara"
+      title="Vista previa de cámara"
       width={WINDOW_WIDTH.medium}
     >
       {result.status === "loading" ? (
@@ -97,7 +97,7 @@ export function CameraPreviewWindow({
         >
           <CircularProgress size={32} />
           <Typography color="text.secondary" variant="body2">
-            Solicitando acceso a la camara…
+            Solicitando acceso a la cámara…
           </Typography>
         </Stack>
       ) : null}
@@ -111,7 +111,7 @@ export function CameraPreviewWindow({
 
       {result.status === "active" ? (
         <Box
-          aria-label="Vista previa en vivo de la camara"
+          aria-label="Vista previa en vivo de la cámara"
           autoPlay
           component="video"
           muted
