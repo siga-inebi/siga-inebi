@@ -41,6 +41,11 @@ describe("servicios de los modulos", () => {
       "/teachers/?page=2&page_size=50&search=DOC-001&position=Orientador%2Fa&include_inactive=true"
     );
   });
+
+  test("desactivar docente conserva el contrato DELETE sin cuerpo", async () => {
+    await teachersService.deactivate(632);
+    expect(apiClient.del).toHaveBeenCalledWith("/teachers/632/");
+  });
   beforeEach(() => {
     vi.spyOn(apiClient, "get").mockResolvedValue({ count: 0, results: [] });
     vi.spyOn(apiClient, "post").mockResolvedValue({});

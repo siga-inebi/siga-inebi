@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.people.api.serializers import PersonSerializer, validate_institutional_person
+from apps.teachers import queries
 from apps.teachers.models import Teacher
 from apps.teachers.services import create_teacher
 
@@ -23,6 +24,12 @@ class SuggestedEmployeeCodeSerializer(serializers.Serializer):
 
 class TeacherSerializer(serializers.ModelSerializer):
     person = PersonSerializer()
+    actions = serializers.SerializerMethodField()
+
+    def get_actions(self, instance) -> dict[str, bool]:
+        return queries.teacher_actions(
+            teacher=instance, permissions=self.context.get("teacher_action_permissions", {})
+        )
 
     class Meta:
         model = Teacher
@@ -38,6 +45,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "updated_at",
+            "actions",
         ]
         read_only_fields = ["id", "public_id", "is_active", "created_at", "updated_at"]
         extra_kwargs = {

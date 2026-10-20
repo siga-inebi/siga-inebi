@@ -18,6 +18,7 @@ PERMISSION_GROUPS = (
     ("accounts", "Cuentas y accesos"),
     ("people", "Personas"),
     ("students", "Estudiantes"),
+    ("teachers", "Docentes"),
     ("enrolment", "Matrícula"),
     ("attendance", "Asistencia"),
     ("evaluation", "Evaluación"),
@@ -32,6 +33,12 @@ PERMISSION_GROUP_LABELS = dict(PERMISSION_GROUPS)
 
 #: (codigo publico, etiqueta, descripcion, grupo)
 PERMISSION_CATALOGUE = (
+    (
+        "teacher.deactivate",
+        "Desactivar docentes",
+        "Permite desactivar el perfil docente conservando su historial, con alcance teachers.",
+        "teachers",
+    ),
     ("auth.login", "Iniciar sesión", "Permite entrar al sistema con su cuenta.", "accounts"),
     ("auth.logout", "Cerrar sesión", "Permite cerrar su propia sesión.", "accounts"),
     (

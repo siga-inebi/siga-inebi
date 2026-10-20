@@ -1,11 +1,18 @@
 import pytest
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
 from django.urls import reverse
 
 from apps.people.models import Person
 from apps.teachers.models import Teacher
-from tests.factories.identity import UserFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+    UserFactory,
+)
 from tests.factories.teachers import TeacherFactory
 
 
@@ -162,6 +169,11 @@ def test_update_teacher(logged_in_client):
 @pytest.mark.django_db
 def test_deactivate_teacher_via_delete_is_soft(logged_in_client):
     teacher = TeacherFactory()
+    user = get_user_model().objects.get(pk=logged_in_client.session["_auth_user_id"])
+    assignment = RoleAssignmentFactory(
+        user=user, role=RoleFactory(permissions=[PermissionFactory(codename="teacher_deactivate")])
+    )
+    ScopeGrantFactory(assignment=assignment, module_key="teachers")
 
     response = logged_in_client.delete(reverse("teacher-detail", args=[teacher.pk]))
 

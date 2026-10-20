@@ -1,12 +1,22 @@
 """Read-side queries for the teachers domain."""
 
 from apps.common.exceptions import DomainError, ResourceNotFoundError
+from apps.teachers.authorization import may_deactivate_teacher
 from apps.teachers.models import Teacher
 
 
 def teacher_positions():
     """Published position choices; no duplicate catalogue in the UI."""
     return [{"value": value, "label": label} for value, label in Teacher.Position.choices]
+
+
+def teacher_action_permissions(*, actor):
+    """Resolve module-level access once per response, never once per list row."""
+    return {"deactivate": may_deactivate_teacher(actor)}
+
+
+def teacher_actions(*, teacher, permissions):
+    return {"deactivate": bool(teacher.is_active and permissions.get("deactivate", False))}
 
 
 def teachers(*, include_inactive=True, position=None):

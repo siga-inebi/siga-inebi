@@ -1003,6 +1003,24 @@ PL4/PL6/PL10 y continúan pendientes.
 
 Decisión y evidencia: [ADR-0011, aporte D7](../decisions/ADR-0011-template-issuance-use.md) y
 [entrega de plantillas](../development/632-template-issuance-use.md).
+## Desactivación autorizada del perfil docente (#632: T3)
+
+`DELETE /api/v1/teachers/{id}/` mantiene 204 sin cuerpo y ahora exige
+`teacher.deactivate` con `module_key="teachers"` vigente (o superusuario).
+Sin permiso/alcance devuelve 403 auditado; no alcanza con una sesión abierta.
+Este endurecimiento fue aprobado explícitamente por el responsable del proyecto.
+
+Las representaciones de docente agregan `actions: {deactivate: boolean}` de solo
+lectura. Se calcula una vez el permiso del módulo por respuesta y se combina con
+la actividad del perfil, sin consultas de permisos por cada fila ni auditoría de
+escrituras no intentadas. El DELETE vuelve a comprobar la autorización.
+
+La baja y `teachers.teacher.deactivated` son atómicos. Repetir una baja autorizada
+no duplica evento ni cambia fecha. No desactiva persona/cuenta, finaliza asignaciones
+ni altera documentos. Migración de datos `identity.0018_seed_teacher_deactivate_permission`:
+sin concesiones automáticas ni borrado de permisos en reversa. Contratos, despliegue,
+evidencia y reversión segura: [T3](teacher-deactivation-ui.md).
+
 ## Edición de persona desde comunidad educativa (#632: E1, T1, G1)
 
 - Los formularios de estudiantes, docentes y encargados envían los datos de persona a
