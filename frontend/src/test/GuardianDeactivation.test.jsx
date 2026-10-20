@@ -5,7 +5,11 @@ import { vi } from "vitest";
 import { GuardiansPage } from "@guardians/GuardiansPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 
-const service = vi.hoisted(() => ({ list: vi.fn(), deactivate: vi.fn() }));
+const service = vi.hoisted(() => ({
+  list: vi.fn(),
+  listPage: vi.fn(),
+  deactivate: vi.fn(),
+}));
 vi.mock("@guardians/guardiansService.js", () => ({
   guardiansService: service,
 }));
@@ -40,6 +44,12 @@ async function openConfirmation(user) {
 describe("G3 desactivación de encargados", () => {
   beforeEach(() => {
     service.list.mockReset().mockResolvedValue([guardian]);
+    // El listado pide páginas al servidor; `list` sigue siendo la fuente de
+    // las filas para contar cada recarga.
+    service.listPage.mockReset().mockImplementation(async () => {
+      const results = await service.list();
+      return { results, count: results.length, next: null, previous: null };
+    });
     service.deactivate.mockReset().mockResolvedValue(undefined);
   });
 
@@ -97,7 +107,7 @@ describe("G3 desactivación de encargados", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     );
     expect(
-      await screen.findByText("Todavia no hay encargados registrados.")
+      await screen.findByText("No hay encargados registrados.")
     ).toBeInTheDocument();
   });
 
