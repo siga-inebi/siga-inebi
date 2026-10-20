@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useState } from "react";
 
@@ -6,7 +6,8 @@ import Avatar from "@mui/material/Avatar";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import AddIcon from "@mui/icons-material/Add";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
 import {
@@ -18,11 +19,12 @@ import {
 } from "./studentPresentation.js";
 
 import { studentsService } from "@students/studentsService.js";
-import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { useServerList } from "@shared/crud/useServerList.js";
-import { downloadCsv } from "@shared/utils/csv.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { ExportCsvButton } from "@ui/buttons/ExportCsvButton.jsx";
+import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
@@ -32,44 +34,21 @@ import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 
 export function AlumnosPage() {
-  // Solo la pagina visible: la busqueda (nombre, codigo o CUI) y la
-  // paginacion las resuelve el backend, no el navegador.
   const list = useServerList({
-    queryKey: queryKeys.students.all,
+    queryKey: [...queryKeys.students.all, "list"],
     fetchPage: studentsService.listPage,
+    defaultFilters: { status: "" },
+    canIncludeInactive: true,
   });
-
+  const searchPending = list.search.trim() !== (list.params.search ?? "");
+  const updating = list.loading || list.fetching || searchPending;
+  const location = useLocation();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState("");
   const handleSelect = (student) =>
-    navigate(`/app/alumnos/${student.public_id}`);
-
-  // La exportacion si recorre todas las paginas, con la busqueda vigente.
-  const handleExport = async () => {
-    setExporting(true);
-    setExportError("");
-    try {
-      const rows = await studentsService.list(list.exportParams);
-      downloadCsv(
-        "alumnos.csv",
-        [
-          { label: "Nombre", value: fullName },
-          { label: "Codigo", value: (item) => item.student_code },
-          {
-            label: "Estado",
-            value: (item) => STATUS_LABEL[item.status] ?? item.status,
-          },
-        ],
-        rows
-      );
-    } catch (requestError) {
-      setExportError(requestError.message);
-    } finally {
-      setExporting(false);
-    }
-  };
+    navigate(`/app/alumnos/${student.public_id}`, {
+      state: { studentListLocation: `/app/alumnos${location.search}` },
+    });
 
   const handleCreate = async (values) => {
     await studentsService.create({
@@ -103,7 +82,7 @@ export function AlumnosPage() {
     { key: "nombre", label: "Nombre completo", render: fullName },
     {
       key: "codigo",
-      label: "Codigo",
+      label: "Código",
       render: (student) => student.student_code,
     },
     {
@@ -147,56 +126,83 @@ export function AlumnosPage() {
           </Button>
         }
         breadcrumb="Comunidad educativa"
-        subtitle={`${list.count} registros dentro de tu alcance.`}
+        subtitle={
+          list.error
+            ? "No se pudo consultar el listado."
+            : updating
+              ? "Consultando estudiantes…"
+              : `${list.count} estudiantes encontrados dentro de su alcance.`
+        }
         title="Estudiantes"
       />
 
       <SectionCard fillHeight>
         <FilterBar
           actions={
-            <Button
-              disabled={exporting}
-              onClick={handleExport}
-              size="small"
-              startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              {exporting ? "Exportando…" : "Exportar CSV"}
-            </Button>
+            <ExportCsvButton
+              fetchPage={studentsService.listPage}
+              params={list.exportParams}
+              columns={CSV_COLUMNS}
+              filename="alumnos.csv"
+              disabled={updating || Boolean(list.error)}
+            />
           }
         >
           <SearchField
+            debounceMs={0}
             onChange={list.setSearch}
-            placeholder="Buscar por nombre, codigo o CUI…"
+            placeholder="Buscar por nombre, código o CUI…"
             value={list.search}
+          />
+          <FilterSelect
+            label="Estado del expediente"
+            emptyLabel="Todos los estados"
+            options={STATUS_OPTIONS}
+            value={list.filters.status}
+            onChange={(value) => list.setFilter("status", value)}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={list.includeInactive}
+                onChange={(event) =>
+                  list.setIncludeInactive(event.target.checked)
+                }
+                size="small"
+              />
+            }
+            label="Mostrar desactivados"
           />
         </FilterBar>
 
-        {list.error || exportError ? (
+        {list.error ? (
           <Alert
             role="alert"
             severity="error"
             sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
           >
-            {list.error || exportError}
+            {list.error}
+            <Button onClick={list.refresh}>Reintentar</Button>
           </Alert>
         ) : null}
 
-        <SectionTableArea>
-          <DataTable
-            columns={columns}
-            emptyMessage={
-              list.search
-                ? "Sin resultados para la busqueda."
-                : "Todavia no hay estudiantes registrados."
-            }
-            fillHeight
-            loading={list.loading}
-            onRowClick={handleSelect}
-            pagination={list.pagination}
-            rows={list.items}
-          />
-        </SectionTableArea>
+        {!list.error ? (
+          <SectionTableArea>
+            <DataTable
+              columns={columns}
+              emptyMessage={
+                list.search || list.filters.status || list.includeInactive
+                  ? "Sin estudiantes para los filtros seleccionados."
+                  : "No hay estudiantes registrados."
+              }
+              fillHeight
+              loading={updating}
+              onRowClick={handleSelect}
+              pagination={list.pagination}
+              rows={list.items}
+            />
+          </SectionTableArea>
+        ) : null}
       </SectionCard>
 
       {creating ? (
@@ -230,3 +236,16 @@ const EMPTY_STUDENT = {
   student_code: "",
   photo: null,
 };
+
+const STATUS_OPTIONS = Object.entries(STATUS_LABEL).map(([value, label]) => ({
+  value,
+  label,
+}));
+const CSV_COLUMNS = [
+  { label: "Nombre", value: fullName },
+  { label: "Código", value: (item) => item.student_code },
+  {
+    label: "Estado",
+    value: (item) => STATUS_LABEL[item.status] ?? item.status,
+  },
+];

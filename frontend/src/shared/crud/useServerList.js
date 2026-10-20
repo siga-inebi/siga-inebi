@@ -74,9 +74,10 @@ export function useServerList({
   const filterNames = Object.keys(defaultsRef.current);
 
   const page = toPositiveInt(searchParams.get(param("page")), 1);
-  const pageSize = toPositiveInt(
-    searchParams.get(param("page_size")),
-    defaultPageSize
+  // Debe coincidir con el máximo de StandardPagination, incluso con una URL manual.
+  const pageSize = Math.min(
+    100,
+    toPositiveInt(searchParams.get(param("page_size")), defaultPageSize)
   );
   const search = searchParams.get(param("search")) ?? "";
   const ordering = searchParams.get(param("ordering")) ?? defaultOrdering;
