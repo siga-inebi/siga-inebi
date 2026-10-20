@@ -448,7 +448,7 @@ describe("Ficha del docente: qué imparte (AD4)", () => {
 
   test("lista las asignaciones vigentes del docente", async () => {
     const user = userEvent.setup();
-    teachersServiceMock.list.mockResolvedValue([TEACHER]);
+    teachersServiceMock.listPage.mockResolvedValue(paginated([TEACHER]));
     renderWithSession(<DocentesPage />, { user: MANAGER });
 
     await user.click(
@@ -467,7 +467,7 @@ describe("Ficha del docente: qué imparte (AD4)", () => {
 
   test("sin scope.assign no consulta las asignaciones", async () => {
     const user = userEvent.setup();
-    teachersServiceMock.list.mockResolvedValue([TEACHER]);
+    teachersServiceMock.listPage.mockResolvedValue(paginated([TEACHER]));
     renderWithSession(<DocentesPage />, { user: sessionUser([]) });
 
     await user.click(
