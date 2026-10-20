@@ -14,6 +14,7 @@ import {
 
 const guardiansServiceMock = vi.hoisted(() => ({
   list: vi.fn(),
+  listPage: vi.fn(),
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
@@ -26,6 +27,14 @@ vi.mock("@guardians/guardiansService.js", () => ({
 const downloadCsvMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@shared/utils/csv.js", () => ({ downloadCsv: downloadCsvMock }));
+
+/** Sobre paginado de DRF: la pantalla solo pide la pagina visible. */
+const page = (rows, count = rows.length) => ({
+  count,
+  next: null,
+  previous: null,
+  results: rows,
+});
 
 const SAMPLE = [
   {
@@ -54,27 +63,32 @@ const SAMPLE = [
 describe("GuardiansPage", () => {
   beforeEach(() => {
     guardiansServiceMock.list.mockReset();
+    guardiansServiceMock.listPage.mockReset();
     guardiansServiceMock.create.mockReset();
     guardiansServiceMock.update.mockReset();
     downloadCsvMock.mockReset();
   });
 
-  test("exports the currently filtered rows as CSV", async () => {
+  test("exports every page of the current search as CSV", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE));
     guardiansServiceMock.list.mockResolvedValue(SAMPLE);
     const user = userEvent.setup();
-    renderWithRouter(<GuardiansPage />);
+    renderWithRouter(<GuardiansPage />, { route: "/?search=Garcia" });
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
 
-    expect(downloadCsvMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(downloadCsvMock).toHaveBeenCalledTimes(1));
+    expect(guardiansServiceMock.list).toHaveBeenCalledWith({
+      search: "Garcia",
+    });
     const [filename, , rows] = downloadCsvMock.mock.calls[0];
     expect(filename).toBe("padres-de-familia.csv");
     expect(rows).toEqual(SAMPLE);
   });
 
-  test("renders the list once loaded", async () => {
-    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
+  test("asks the server only for the visible page and shows its total", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE, 100));
     renderWithRouter(<GuardiansPage />);
 
     expect(
@@ -83,24 +97,40 @@ describe("GuardiansPage", () => {
     expect(
       within(screen.getByRole("table")).getByText("rosa@example.test")
     ).toBeInTheDocument();
-    expect(screen.getByText(/Mostrando 1–2 de 2/)).toBeInTheDocument();
+    expect(guardiansServiceMock.listPage).toHaveBeenCalledTimes(1);
+    expect(guardiansServiceMock.listPage).toHaveBeenCalledWith({
+      page: 1,
+      page_size: 25,
+    });
+    expect(guardiansServiceMock.list).not.toHaveBeenCalled();
+    expect(screen.getByText("100 encargados registrados.")).toBeInTheDocument();
   });
 
-  test("shows an empty state when the search does not match", async () => {
-    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
+  test("sends the search to the server and shows its empty state", async () => {
+    guardiansServiceMock.listPage.mockImplementation(async (params) =>
+      params.search ? page([]) : page(SAMPLE)
+    );
     const user = userEvent.setup();
     renderWithRouter(<GuardiansPage />);
 
     await screen.findByText("Rosa Elvira Garcia Mendez");
-    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "Nadie");
+    await user.type(
+      screen.getByPlaceholderText("Buscar por nombre o CUI…"),
+      "Nadie"
+    );
 
     expect(
       await screen.findByText("Sin resultados para la busqueda.")
     ).toBeInTheDocument();
+    expect(guardiansServiceMock.listPage).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 25,
+      search: "Nadie",
+    });
   });
 
   test("shows the service error instead of the table", async () => {
-    guardiansServiceMock.list.mockRejectedValue(
+    guardiansServiceMock.listPage.mockRejectedValue(
       new Error("Solicitud no completada.")
     );
     renderWithRouter(<GuardiansPage />);
@@ -111,7 +141,7 @@ describe("GuardiansPage", () => {
   });
 
   test("opens the detail panel for a row", async () => {
-    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
+    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<GuardiansPage />);
 
@@ -126,8 +156,7 @@ describe("GuardiansPage", () => {
   });
 
   test("submits the create form against the service", async () => {
-    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
-    guardiansServiceMock.create.mockResolvedValue({
+    const createdGuardian = {
       id: 3,
       person: {
         public_id: "person-33",
@@ -136,7 +165,11 @@ describe("GuardiansPage", () => {
         email: "",
         phone_number: "",
       },
-    });
+    };
+    guardiansServiceMock.listPage
+      .mockResolvedValueOnce(page(SAMPLE))
+      .mockResolvedValueOnce(page([...SAMPLE, createdGuardian]));
+    guardiansServiceMock.create.mockResolvedValue(createdGuardian);
     const user = userEvent.setup();
     renderWithRouter(<GuardiansPage />);
 
@@ -160,11 +193,14 @@ describe("GuardiansPage", () => {
         },
       })
     );
+    await waitFor(() =>
+      expect(guardiansServiceMock.listPage).toHaveBeenCalledTimes(2)
+    );
     expect(await screen.findByText("Nuevo Encargado")).toBeInTheDocument();
   }, 10000);
 
   test("edits a guardian via the detail panel", async () => {
-    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
+    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE));
     guardiansServiceMock.update.mockResolvedValue({
       id: 1,
       person: {
@@ -218,7 +254,7 @@ describe("GuardiansPage", () => {
   });
 
   test("requires the mandatory fields before submitting", async () => {
-    guardiansServiceMock.list.mockResolvedValue(SAMPLE);
+    guardiansServiceMock.listPage.mockResolvedValue(page(SAMPLE));
     const user = userEvent.setup();
     renderWithRouter(<GuardiansPage />);
 

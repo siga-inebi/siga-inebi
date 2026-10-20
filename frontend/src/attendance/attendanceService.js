@@ -126,4 +126,121 @@ export const attendanceService = {
    */
   attendancePercentage: (params) =>
     apiClient.get(withQuery(`${ROOT}/attendance-percentage/`, params)),
+
+  /**
+   * Motivos del registro manual (RF-ASI-012). Por omisión el backend lista
+   * solo los vigentes: el alta de un movimiento `manual` exige uno.
+   */
+  listManualReasons: (params) =>
+    apiClient.get(withQuery(`${ROOT}/manual-registration-reasons/`, params)),
+
+  /** Turno de captura del operador (RF-ASI-009, RF-AUT-005). */
+  currentCaptureBatch: () => apiClient.get(`${ROOT}/capture-batches/current/`),
+  openCaptureBatch: () => apiClient.post(`${ROOT}/capture-batches/`, {}),
+  confirmCaptureBatch: (batchId) =>
+    apiClient.post(`${ROOT}/capture-batches/${batchId}/confirm/`, {}),
+
+  /** Proporción de cierres por cobertura (RF-ASI-013). */
+  coverageRatio: (params) =>
+    apiClient.get(
+      withQuery(`${ROOT}/section-closures/coverage-ratio/`, params)
+    ),
+
+  /**
+   * Carné del estudiante (RF-CRE-001..004). Solo la respuesta de emisión trae
+   * el QR (`qr_code`, PNG en base64): no hay forma de pedirlo otra vez, así que
+   * reimprimir es revocar y emitir de nuevo.
+   */
+  cardStatus: (studentId) =>
+    apiClient.get(
+      withQuery(`${ROOT}/credentials/status/`, { student_id: studentId })
+    ),
+  issueCard: (studentId) =>
+    apiClient.post(`${ROOT}/credentials/`, { student_id: studentId }),
+  cardPrintContent: (studentId) =>
+    apiClient.get(
+      withQuery(`${ROOT}/credentials/print-content/`, { student_id: studentId })
+    ),
+  revokeCard: (studentId, reason) =>
+    apiClient.post(`${ROOT}/credentials/revoke/`, {
+      student_id: studentId,
+      reason,
+    }),
+
+  /** Justificaciones (RF-JUS-001..007). */
+  listJustifications: (params) =>
+    apiClient.get(withQuery(`${ROOT}/justifications/`, params)),
+  getJustification: (id) => apiClient.get(`${ROOT}/justifications/${id}/`),
+  createJustification: (payload) =>
+    apiClient.post(`${ROOT}/justifications/`, payload),
+  resolveJustification: (id, payload) =>
+    apiClient.post(`${ROOT}/justifications/${id}/resolve/`, payload),
+  listJustificationReasons: (params) =>
+    apiClient.get(withQuery(`${ROOT}/justification-reasons/`, params)),
+  /** Metadatos del adjunto; la lectura queda auditada (RF-JUS-007). */
+  getJustificationAttachment: (id) =>
+    apiClient.get(`${ROOT}/justifications/${id}/attachment/`),
+  uploadJustificationAttachment: (id, file) => {
+    const payload = new FormData();
+    payload.set("file", file);
+    return apiClient.post(`${ROOT}/justifications/${id}/attachment/`, payload);
+  },
+
+  /** Permisos de salida anticipada o ingreso tardío (RF-JUS-008). */
+  listPermits: (params) => apiClient.get(withQuery(`${ROOT}/permits/`, params)),
+  getPermit: (id) => apiClient.get(`${ROOT}/permits/${id}/`),
+  createPermit: (payload) => apiClient.post(`${ROOT}/permits/`, payload),
+  resolvePermit: (id, payload) =>
+    apiClient.post(`${ROOT}/permits/${id}/resolve/`, payload),
 };
+
+/** Estado de una justificación o un permiso → variante del chip. */
+export const REQUEST_STATUS_VARIANT = {
+  pending: "warning",
+  approved: "success",
+  rejected: "danger",
+};
+
+/** Respaldo si el backend no trae `status_display`. */
+export const JUSTIFICATION_STATUS_LABEL = {
+  pending: "Pendiente",
+  approved: "Aprobada",
+  rejected: "Rechazada",
+};
+
+export const PERMIT_STATUS_LABEL = {
+  pending: "Pendiente",
+  approved: "Aprobado",
+  rejected: "Rechazado",
+};
+
+export const SITUATION_TYPE_LABEL = {
+  absence: "Inasistencia",
+  late_arrival: "Llegada tardía",
+};
+
+export const PERMIT_TYPE_LABEL = {
+  early_exit: "Salida anticipada",
+  late_arrival: "Ingreso tardío",
+};
+
+export const CARD_STATUS_LABEL = {
+  active: "Vigente",
+  revoked: "Revocado",
+  none: "Sin carné",
+};
+
+export const CARD_STATUS_VARIANT = {
+  active: "success",
+  revoked: "danger",
+  none: "neutral",
+};
+
+/** Quita los campos vacíos opcionales: el backend rechaza un UUID "". */
+export function withoutBlank(payload) {
+  return Object.fromEntries(
+    Object.entries(payload).filter(
+      ([, value]) => value !== "" && value !== null && value !== undefined
+    )
+  );
+}

@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import time, timedelta
 
 import factory
 from django.utils import timezone
@@ -6,9 +6,11 @@ from django.utils import timezone
 from apps.attendance.models import (
     AttendanceAlert,
     AttendanceEvent,
+    AttendancePermit,
     CaptureBatch,
     ControlPoint,
     JornadaParameters,
+    Justification,
     ManualRegistrationReason,
     StudentCredential,
 )
@@ -94,3 +96,27 @@ class CaptureBatchFactory(factory.django.DjangoModelFactory):
 
     operator = factory.SubFactory(UserFactory)
     status = CaptureBatch.Status.OPEN
+
+
+class JustificationFactory(factory.django.DjangoModelFactory):
+    """A stored justification, without the submission-window rules (RF-JUS-003)."""
+
+    class Meta:
+        model = Justification
+
+    student = factory.SubFactory(StudentFactory)
+    absence_date = factory.LazyFunction(lambda: timezone.localdate() - timedelta(days=1))
+    reason = "Cita medica"
+    submitted_by = factory.SubFactory(UserFactory)
+
+
+class AttendancePermitFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = AttendancePermit
+
+    student = factory.SubFactory(StudentFactory)
+    permit_type = AttendancePermit.PermitType.EARLY_EXIT
+    permit_date = factory.LazyFunction(timezone.localdate)
+    scheduled_time = time(13, 0)
+    reason = "Cita medica"
+    submitted_by = factory.SubFactory(UserFactory)

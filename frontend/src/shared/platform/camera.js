@@ -15,13 +15,13 @@ export class CameraAccessError extends Error {
 
 export const CAMERA_ERROR_MESSAGES = Object.freeze({
   [CAMERA_ERROR.insecure]:
-    "La camara solo esta disponible desde una conexion segura (HTTPS).",
+    "La cámara solo está disponible desde una conexión segura (HTTPS).",
   [CAMERA_ERROR.permissionDenied]:
-    "No se pudo acceder a la camara. Habilita el permiso en el navegador y vuelve a intentarlo.",
+    "No se pudo acceder a la cámara. Habilite el permiso en el navegador y vuelva a intentarlo.",
   [CAMERA_ERROR.unavailable]:
-    "No hay una camara disponible o esta siendo usada por otra aplicacion.",
+    "No hay una cámara disponible o está siendo usada por otra aplicación.",
   [CAMERA_ERROR.unsupported]:
-    "Este navegador no admite el acceso requerido a la camara.",
+    "Este navegador no admite el acceso requerido a la cámara.",
 });
 
 export function stopCameraStream(stream) {

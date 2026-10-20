@@ -423,6 +423,158 @@ Solo considera asignaciones vigentes del origen.
 
 Cada llave admite su versión descendente con `-`. Se mantiene `include_inactive`.
 
+## Evaluación (#631)
+
+Contratos de la entrega de Evaluación de #631 (hallazgos V1–V8 de docs/ux-ui.md 2.11). Los
+campos nuevos son **aditivos**. Cambian dos cosas: los endpoints de configuración que solo
+pedían sesión ahora exigen permiso (ver la tabla y
+[permisos-en-ui.md](../development/permisos-en-ui.md), #643) y la carga CSV responde
+`{created, updated}` en vez de `{created}`, donde `created` cuenta solo las notas nuevas. Las
+rutas cuelgan de `/api/v1/academics/cycles/{cycle_id}`; `…/units/{u}` abrevia
+`…/evaluation-units/{unit_id}`.
+
+### Notas de la unidad y planilla
+
+`GradeSerializer` se publica como componente `UnitGrade` (antes chocaba con el `Grade` de
+academics) y agrega, sin cambiar `enrolment`, `subject` ni `evaluation_unit` (pk interno):
+`student: {public_id, student_code, full_name}`, `subject_detail: {public_id, name}` (se llama
+así porque `subject` ya es el public_id) y `evaluation_unit_id` (public_id). Aplica al listado,
+al alta y a la boleta `GET …/enrolments/{id}/grades/`. El listado y la boleta precargan
+estudiante, subárea y unidad: el número de consultas no crece con las filas.
+
+| Método y ruta | Parámetros o cuerpo | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET …/units/{u}/grades/` | `section_id?`, `student_id?`, `subject_id?` (public_id), `page`, `page_size` | 200 paginado de `UnitGrade`, por apellido, nombre y subárea. Un identificador inexistente deja la lista vacía; uno mal formado responde 400 | Sesión; el docente ve solo sus asignaciones (RF-CAL-006, sin cambio) |
+| `POST …/units/{u}/grades/` | `{enrolment, subject, value, teacher?}` | 201 `UnitGrade`. Sin `teacher` se toma la persona de la asignación vigente de la sección y la subárea; si no hay, 400 «La sección «…» no tiene docente asignado en «…». …» | `grade.write` sobre sección y subárea |
+| `POST …/units/{u}/grades/bulk/` | multipart: `file` (CSV `student_code,value`), `subject`, `section`, `teacher?` | 200 `{created, updated}`; 400 `{errors: [{row, field, message}], created: 0}` | `grade.write` sobre sección y subárea |
+| `GET …/units/{u}/sheet/` | `section_id`, `subject_id` (obligatorios) | 200 `{unit: {public_id, name, status, window_open, can_capture, capture_exception_expires_at}, section: {public_id, name}, subject: {public_id, name}, teacher: {public_id, name} \| null, rows: [{enrolment_id, student: {public_id, student_code, full_name}, grade: {public_id, value} \| null}]}`. Una fila por matrícula activa de la sección, por apellido y nombre. `can_capture` aplica la misma regla que el guardado: ventana abierta y unidad abierta, o un permiso excepcional vigente (RF-EVC-004) del docente al que se atribuye la captura, cuyo vencimiento va en `capture_exception_expires_at` (null si no aplica). 404 si la sección no es del ciclo de la unidad | `grade.write` sobre sección y subárea, o `evaluation.configure_units` sobre la institución (solo lectura) |
+| `POST …/units/{u}/grades/sheet/` | `{section_id, subject_id, teacher_id?, grades: [{enrolment_id \| student_code, value}]}` (1 a 200) | 200 `{created, updated}`; 400 `{errors: [{index, student_code, field, message}]}` | `grade.write` sobre sección y subárea |
+
+- La planilla responde en **una sola página** con tope de 200 filas (una sección real tiene
+  unas 35). Una sección con más responde 400 en vez de cortar: no hay tope silencioso.
+- `teacher` del `GET` es la persona docente (`Person.public_id`), la misma que acepta
+  `teacher_id`; no es el perfil `Teacher` que usa `teacher_id` en las asignaciones.
+- Guardado: la carga CSV y la planilla usan el mismo servicio, `bulk_register_unit_grades`.
+  Es **todo o nada**: se validan todas las filas (matrícula activa en la sección, entero de 0 a
+  100 sin decimales ni booleanos, sin estudiantes repetidos) y si alguna falla no se escribe
+  nada. `index` empieza en 0, en el orden recibido; la carga CSV conserva su `row` (desde 1).
+  Las condiciones de lote (sección de otro ciclo, sin docente, ventana cerrada) responden 400
+  con el sobre habitual (`error.detail`).
+- **Correcciones**: una fila de un estudiante que ya tiene nota la corrige (RF-CAL-005) por la
+  misma vía que una corrección individual, `register_unit_grade`: exige ventana de captura
+  abierta y unidad abierta, o brecha excepcional vigente, y la bitácora registra
+  `evaluation.grade_updated` con el valor anterior y el nuevo. No pide motivo porque RF-CAL-005
+  no lo exige; `grade.correct` con motivo sigue siendo solo para resultados congelados.
+  `updated` cuenta esas correcciones. El evento resumen `evaluation.grades_bulk_registered`
+  lleva `teacher_id`, `created` y `updated`.
+
+### Avance, recuperación y resultados
+
+| Método y ruta | Parámetros o cuerpo | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET …/units/{u}/capture-progress/` | — | Sin cambio de forma | `evaluation.configure_units` sobre la institución ve todas las filas; con `grade.write` y asignaciones vigentes en el ciclo, solo las propias (y `overall_progress_pct` sobre ellas); si no, 403 |
+| `GET …/enrolments/{e}/recovery-eligibility/` | — | Sin cambio de forma | `student.view_basic` sobre el estudiante (mismo criterio que la boleta) |
+| `POST …/enrolments/{e}/recovery-grades/` | Sin cambio | Sin cambio | `grade.write` sobre la sección de la matrícula y la subárea; denegación auditada `evaluation.grade_write_denied` |
+| `GET …/sections/{s}/recovery-eligibility/` | `page`, `page_size` | 200 paginado de `{enrolment_id, student, eligible, reasons, attendance_percentage, failed_count, failed_limit, recovery_already_used, failed_subjects: [{public_id, name, final_grade}]}` por apellido y nombre | `student.view_basic` con alcance sobre la sección |
+| `GET …/enrolments/{e}/frozen-results/` | — | 200 lista sin paginar de `FrozenSubjectResult` (la fila vigente de cada subárea, por nombre de subárea); vacía antes del cierre | Sesión, igual que `…/subjects/{s}/frozen-result/` (hueco seguido en #643) |
+
+- En el listado por sección `failed_subjects` es la **lista** de subáreas reprobadas y
+  `failed_count` el conteo; en el endpoint por matrícula `failed_subjects` sigue siendo el
+  conteo. Cada fila reutiliza `assess_recovery_eligibility`: no se repiten reglas. Su costo
+  es de una evaluación por matrícula de la página (asistencia y nota final de cada subárea
+  del plan), acotado por `page_size` (25 por omisión, 100 como máximo).
+- El avance de captura lee siempre cuatro consultas (plan, secciones con su conteo de
+  matrículas activas, notas agrupadas por sección y subárea, asignaciones vigentes).
+
+### Configuración
+
+| Método y ruta | Cambio | Permiso |
+| --- | --- | --- |
+| `POST …/evaluation-units/` | Acepta `recovery_starts_on` y `recovery_ends_on` opcionales (las dos o ninguna; con una sola, 400 y no se crea la unidad). Responde `academic_cycle_id` (public_id) además de `academic_cycle` | `evaluation.configure_units` sobre la institución del ciclo (antes solo sesión) |
+| `PATCH …/units/{u}/recovery-window/` | — | ídem (antes solo sesión) |
+| `GET`/`POST …/units/{u}/capture-exceptions/` | — | ídem para listar y otorgar (antes solo sesión) |
+| `PATCH /academics/evaluation-config/` | — | ídem sobre la institución del sistema (antes solo sesión); el `GET` sigue con sesión |
+| `PATCH …/evaluation-config/` (del ciclo) | — | ídem sobre la institución del ciclo (antes solo sesión); el `GET` sigue con sesión |
+
+Cierre de unidad y clonado de configuración ya exigían el permiso; no cambian. Las acciones de
+configuración registran ahora al actor en la bitácora.
+
+## Asistencia (#631)
+
+Contratos de la entrega de Asistencia de #631 (hallazgos AS1–AS6 de docs/ux-ui.md 2.12). Todo
+es **aditivo** salvo un cambio de regla: `GET …/manual-registration-reasons/` lista por omisión
+solo los motivos vigentes (antes también los retirados, que el registro manual rechaza de todos
+modos). Las rutas cuelgan de `/api/v1/attendance/`. Las bandejas paginan con la paginación
+estándar (`page`, `page_size`, 25 por omisión) y aceptan `search` y `ordering` con
+`apps.common.listing`: un `ordering` desconocido conserva el orden propio.
+
+### Bandejas de justificaciones y permisos (AS3, AS4)
+
+| Método y ruta | Parámetros | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET justifications/` | `status` (`pending`, `approved`, `rejected`), `student_id`, `date_from`, `date_to` (sobre `absence_date`), `search` (código o nombre del estudiante), `ordering` (`absence_date`, `submitted_at`, `status`, `student`, con `-`) | 200 paginado de justificaciones. Por omisión, pendientes primero y luego de la más reciente a la más antigua. Un rango de fechas invertido o un `status` desconocido responde 400 | `attendance.justification.resolve` ve las de los estudiantes dentro de su alcance para ese permiso; cada actor ve además las que presentó. Sin `attendance.justification.request` ni `…resolve`, 403 |
+| `GET justifications/{id}/` | — | 200 una justificación; 404 si está fuera de lo que el actor puede ver | Igual que el listado |
+| `GET permits/` | `status`, `permit_type` (`early_exit`, `late_arrival`), `student_id`, `date_from`, `date_to` (sobre `permit_date`), `search`, `ordering` (`permit_date`, `submitted_at`, `status`, `student`) | 200 paginado de permisos con el mismo orden por omisión | `attendance.permit.resolve` con alcance ve los de su alcance; cada actor, los que solicitó. Sin `attendance.permit.request` ni `…resolve`, 403 |
+| `GET permits/{id}/` | — | 200 un permiso; 404 fuera de lo visible | Igual que el listado |
+
+Campos de cada fila. Los `*_id` anteriores no cambian (`submitted_by_id` y `resolved_by_id`
+siguen siendo el pk interno, por compatibilidad); lo nuevo se agrega también a las respuestas
+de alta y de resolución:
+
+- Justificación: `student: {public_id, student_code, full_name}`, `situation_type_display`,
+  `reason_catalog: {public_id, name} | null`, `status_display`, `has_attachment`,
+  `submitted_by: {public_id, name}`, `submitted_at`, `resolved_by: {public_id, name} | null`.
+- Permiso: `student`, `permit_type_display`, `status_display`, `submitted_by`, `submitted_at`,
+  `resolved_by`.
+- `submitted_by` y `resolved_by` son la cuenta (`UserAccount.public_id`) con el nombre de su
+  persona; no llevan datos de contacto.
+- El número de consultas no crece con las filas: estudiante, motivo y cuentas se precargan y
+  `has_attachment` sale de una subconsulta.
+- Un revisor sin ningún alcance vigente para el permiso de resolución solo ve lo que presentó:
+  el permiso no abre por sí solo toda la institución. La resolución (`POST …/resolve/`) no
+  cambia de regla.
+- Las bandejas no auditan la lectura. El documento adjunto, que puede traer información de
+  salud, sigue leyéndose solo por `GET justifications/{id}/attachment/`, que sí la audita
+  (RF-JUS-007).
+
+### Estado de la credencial (AS2)
+
+| Método y ruta | Parámetros | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET credentials/status/` | `student_id` (obligatorio) | 200 `{student_id, status: "active" \| "revoked" \| "none", public_id \| null, issued_at \| null, revoked_at \| null, revocation_reason \| null}` de la credencial más reciente | `attendance.credential.issue` con alcance sobre el estudiante, como la emisión |
+
+- Nunca devuelve `opaque_identifier` ni el QR. Solo la respuesta de emisión los trae, una vez.
+- **Reimpresión**: no hay endpoint para volver a generar el QR. Aunque el identificador se
+  guarda, exponerlo de nuevo convertiría cualquier lectura en una copia del pase. Para
+  reimprimir se revoca la credencial (`POST credentials/revoke/`) y se emite una nueva
+  (`POST credentials/`), que trae su QR; la anterior queda como historia (RF-CRE-003/004). El
+  contenido imprimible sin QR sigue en `GET credentials/print-content/`.
+- `revoked_at` es la última actualización de la credencial revocada: la revocación es su última
+  escritura. No hay campo propio ni migración.
+
+### Turno de captura, motivos y cobertura (AS1, AS5)
+
+- `GET capture-batches/current/` ya devolvía `expires_at` en `capture_batch`; sin cambio.
+- `GET manual-registration-reasons/` acepta `is_active` (`true` por omisión; `false` lista los
+  retirados). El alta de un movimiento `manual` sigue exigiendo `manual_reason_id` de un motivo
+  vigente.
+- `GET section-closures/coverage-ratio/` no cambia (`attendance.jornada.configure`).
+
+### Nombre del estudiante en las filas (AS6)
+
+- `GET events/`, `GET alerts/`, `GET presence/` y los `events` de
+  `GET capture-batches/current/` agregan `student: {public_id, student_code, full_name}`
+  junto a `student_id`, que no cambia. Así la interfaz nombra al estudiante de cada fila sin
+  descargar el padrón completo. Es aditivo: las respuestas de escritura y los movimientos
+  anidados (escaneo, estado del día, cierre de jornada) no cambian.
+- Estudiante, persona y demás referencias se precargan: el número de consultas no crece con
+  las filas.
+- **Notificaciones de inasistencia**: `GET absence-notifications/` sigue siendo solo para la
+  cuenta de encargado (al personal le responde 403 y queda auditado). Por D9 de
+  [ADR-0011](../decisions/ADR-0011-decisiones-ux-ui.md) el portal de encargados está fuera del
+  alcance actual, así que la interfaz del personal no las muestra ni se agrega una vista para
+  el personal hasta que exista un requerimiento de portal de encargados (PD-004).
+
 ## Inscripciones activas
 
 - `GET /api/v1/enrolments/active/` expone las inscripciones con estado `active` y registro

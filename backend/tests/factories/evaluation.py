@@ -36,3 +36,36 @@ class CaptureExceptionGrantFactory(factory.django.DjangoModelFactory):
     teacher = factory.SubFactory("tests.factories.people.PersonFactory")
     reason = "Docente no alcanzó a subir notas por falla de conectividad."
     expires_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=1))
+
+
+def open_unit(cycle, **kwargs):
+    """A unit whose capture window brackets today (the factory dates drift)."""
+    today = timezone.localdate()
+    kwargs.setdefault("starts_on", today - timedelta(days=5))
+    kwargs.setdefault("ends_on", today + timedelta(days=5))
+    kwargs.setdefault("capture_starts_on", today - timedelta(days=5))
+    kwargs.setdefault("capture_ends_on", today + timedelta(days=5))
+    return EvaluationUnitFactory(academic_cycle=cycle, **kwargs)
+
+
+def grant_scoped_permission(user, codename, **scope):
+    """
+    Role with one atomic permission for ``user``; ``scope`` (``institution=``,
+    ``section=``…) becomes its ScopeGrant. Without scope the role has none:
+    the permission alone, as a teacher whose scope is the teaching assignment.
+    """
+    from tests.factories.identity import (
+        PermissionFactory,
+        RoleAssignmentFactory,
+        RoleFactory,
+        ScopeGrantFactory,
+    )
+
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[PermissionFactory(codename=codename)]),
+        identity_scope=False,
+    )
+    if scope:
+        ScopeGrantFactory(assignment=assignment, **scope)
+    return assignment

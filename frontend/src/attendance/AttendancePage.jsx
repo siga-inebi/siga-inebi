@@ -1,308 +1,135 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import Alert from "@mui/material/Alert";
-import Button from "@mui/material/Button";
-import CircularProgress from "@mui/material/CircularProgress";
-import Grid from "@mui/material/Grid";
+import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
-import AddIcon from "@mui/icons-material/Add";
-import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
-import PhotoCameraOutlinedIcon from "@mui/icons-material/PhotoCameraOutlined";
-import QrCodeScannerOutlinedIcon from "@mui/icons-material/QrCodeScannerOutlined";
-import TaskAltOutlinedIcon from "@mui/icons-material/TaskAltOutlined";
-import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import Typography from "@mui/material/Typography";
 
-import {
-  ATTENDANCE_ALERT_LABEL,
-  ATTENDANCE_ALERT_VARIANT,
-  attendanceService,
-  MOVEMENT_LABEL,
-  MOVEMENT_VARIANT,
-  ORIGIN_LABEL,
-  ORIGIN_VARIANT,
-  TRANSMISSION_LABEL,
-} from "@attendance/attendanceService.js";
-import { PAGE_SIZE } from "@academics/academicsService.js";
-import {
-  labelIndex,
-  useSectionCatalog,
-  useShiftCatalog,
-  useStudentCatalog,
-} from "@shared/catalogs/academicCatalogs.js";
-import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import {
   CAMERA_ERROR_MESSAGES,
   CameraAccessError,
   createCameraSession,
 } from "@shared/platform/camera.js";
-import {
-  formatDate,
-  formatDateTime,
-  todayInputValue,
-} from "@shared/utils/format.js";
-import { StatusChip } from "@ui/display/StatusChip.jsx";
-import { DataTable } from "@ui/table/DataTable.jsx";
-import { MutedCell, NameCell } from "@ui/table/cells.jsx";
+import { EmptyState } from "@ui/feedback/EmptyState.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
-import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
-import { AttendancePercentageProbe } from "./AttendancePercentageProbe.jsx";
-import { DayStatusProbe } from "./DayStatusProbe.jsx";
+import { SectionCard } from "@ui/layout/SectionCard.jsx";
 
-// Keep the optional closure workflow out of the route's initial download.
-// Service callbacks are passed as props so its chunk does not import this route.
+const named = (load, name) =>
+  lazy(() => load().then((m) => ({ default: m[name] })));
 
-// Los dialogos se descargan cuando el operador los abre. Asi, la ruta inicial
-// de asistencia no paga por modulos de acciones que la mayoria de consultas no
-// necesita, sin cambiar el flujo ni los contratos de cada ventana.
-const AttendancePresenceWindow = lazy(() =>
-  import("./AttendancePresenceWindow.jsx").then(
-    ({ AttendancePresenceWindow: Window }) => ({ default: Window })
-  )
+// Cada pestaña es un chunk aparte: la ruta solo descarga la que se abre.
+const TodayTab = named(() => import("./tabs/TodayTab.jsx"), "TodayTab");
+const MovementsTab = named(
+  () => import("./tabs/MovementsTab.jsx"),
+  "MovementsTab"
 );
-const CameraPreviewWindow = lazy(() =>
-  import("@ui/display/CameraPreviewWindow.jsx").then(
-    ({ CameraPreviewWindow: Window }) => ({ default: Window })
-  )
+const ClosuresTab = named(
+  () => import("./tabs/ClosuresTab.jsx"),
+  "ClosuresTab"
 );
-const JornadaParametersWindow = lazy(() =>
-  import("./JornadaParametersWindow.jsx").then(
-    ({ JornadaParametersWindow: Window }) => ({ default: Window })
-  )
+const RequestsTab = named(
+  () => import("./tabs/RequestsTab.jsx"),
+  "RequestsTab"
 );
-const ScanCaptureWindow = lazy(() =>
-  import("./ScanCaptureWindow.jsx").then(({ ScanCaptureWindow: Window }) => ({
-    default: Window,
-  }))
-);
-const SectionClosureWindow = lazy(() =>
-  import("./SectionClosureWindow.jsx").then((module) => ({
-    default: module.SectionClosureWindow,
-  }))
+const CardsTab = named(() => import("./tabs/CardsTab.jsx"), "CardsTab");
+const SettingsTab = named(
+  () => import("./tabs/SettingsTab.jsx"),
+  "SettingsTab"
 );
 
-const eventColumns = (names) => [
-  {
-    key: "student_id",
-    label: "Estudiante",
-    render: (row) => <NameCell id={row.student_id} index={names.students} />,
-  },
-  {
-    key: "shift_id",
-    label: "Jornada",
-    render: (row) => <NameCell id={row.shift_id} index={names.shifts} />,
-  },
-  {
-    key: "event_date",
-    label: "Fecha",
-    render: (row) => formatDate(row.event_date),
-  },
-  {
-    key: "movement_type",
-    label: "Movimiento",
-    render: (row) => (
-      <StatusChip
-        label={MOVEMENT_LABEL[row.movement_type] ?? row.movement_type}
-        variant={MOVEMENT_VARIANT[row.movement_type] ?? "neutral"}
-      />
-    ),
-  },
-  {
-    key: "origin",
-    label: "Origen",
-    render: (row) => (
-      <StatusChip
-        label={ORIGIN_LABEL[row.origin] ?? row.origin}
-        variant={ORIGIN_VARIANT[row.origin] ?? "neutral"}
-      />
-    ),
-  },
-  {
-    key: "transmission",
-    label: "Transmision",
-    render: (row) =>
-      row.transmission ? (
-        (TRANSMISSION_LABEL[row.transmission] ?? row.transmission)
-      ) : (
-        <MutedCell>Sin dato</MutedCell>
-      ),
-  },
-  {
-    key: "captured_at",
-    label: "Capturado",
-    render: (row) => formatDateTime(row.captured_at),
-  },
-  {
-    key: "is_active",
-    label: "Vigente",
-    render: (row) =>
-      row.is_active === false ? (
-        <StatusChip label="Suprimido" variant="neutral" />
-      ) : (
-        <StatusChip label="Vigente" variant="success" />
-      ),
-  },
-];
+const P = PERMISSION;
 
-const alertColumns = (names) => [
-  {
-    key: "alert_type",
-    label: "Alerta",
-    render: (row) => (
-      <StatusChip
-        label={ATTENDANCE_ALERT_LABEL[row.alert_type] ?? row.alert_type}
-        variant={ATTENDANCE_ALERT_VARIANT[row.alert_type] ?? "warning"}
-      />
-    ),
-  },
-  {
-    key: "student_id",
-    label: "Estudiante",
-    render: (row) => <NameCell id={row.student_id} index={names.students} />,
-  },
-  {
-    key: "event_date",
-    label: "Fecha",
-    render: (row) => formatDate(row.event_date),
-  },
-  {
-    key: "section_id",
-    label: "Seccion",
-    render: (row) =>
-      row.section_id ? (
-        <NameCell id={row.section_id} index={names.sections} />
-      ) : (
-        <MutedCell>Sin seccion</MutedCell>
-      ),
-  },
-  {
-    key: "created_at",
-    label: "Emitida",
-    render: (row) => formatDateTime(row.created_at),
-  },
-];
-
-const eventFields = ({ shifts, students }) => [
-  {
-    name: "student_id",
-    label: "Estudiante",
-    type: "select",
-    options: students.options,
-    loading: students.loading,
-    optionsError: students.error,
-    emptyHint: "No hay estudiantes registrados.",
-    required: true,
-  },
-  {
-    name: "shift_id",
-    label: "Jornada",
-    type: "select",
-    options: shifts.options,
-    loading: shifts.loading,
-    optionsError: shifts.error,
-    emptyHint: "No hay jornadas registradas.",
-    required: true,
-  },
-  {
-    name: "event_date",
-    label: "Fecha del movimiento",
-    type: "date",
-    required: true,
-  },
-  {
-    name: "movement_type",
-    label: "Movimiento",
-    type: "select",
-    options: [
-      { value: "entry", label: "Entrada" },
-      { value: "exit", label: "Salida" },
+/** Pestañas y los permisos que bastan para verlas (basta uno). */
+const TABS = [
+  ["hoy", "Hoy", [P.ATTENDANCE_SCAN, P.STUDENT_VIEW_BASIC]],
+  [
+    "movimientos",
+    "Movimientos",
+    [
+      P.STUDENT_VIEW_BASIC,
+      P.ATTENDANCE_RECORD_MANUAL,
+      P.ATTENDANCE_SCAN,
+      P.ATTENDANCE_DECLARED_CLOSE,
     ],
-    required: true,
-  },
-  {
-    name: "origin",
-    label: "Origen",
-    type: "select",
-    options: [
-      { value: "manual", label: "Manual" },
-      { value: "scan", label: "Lectura" },
-      { value: "declared", label: "Declarada" },
+  ],
+  [
+    "cierres",
+    "Cierres",
+    [P.ATTENDANCE_DECLARED_CLOSE, P.ATTENDANCE_JORNADA_CONFIGURE],
+  ],
+  [
+    "solicitudes",
+    "Justificaciones y permisos",
+    [
+      P.ATTENDANCE_JUSTIFICATION_REQUEST,
+      P.ATTENDANCE_JUSTIFICATION_RESOLVE,
+      P.ATTENDANCE_PERMIT_REQUEST,
+      P.ATTENDANCE_PERMIT_RESOLVE,
     ],
-    required: true,
-  },
-  {
-    name: "captured_at",
-    label: "Momento de captura",
-    type: "date",
-    required: true,
-    help: "El backend registra la hora de captura; la fecha del movimiento puede ser anterior.",
-  },
+  ],
+  ["carnes", "Carnés", [P.ATTENDANCE_CREDENTIAL_ISSUE]],
+  [
+    "configuracion",
+    "Configuración",
+    [P.ATTENDANCE_JORNADA_CONFIGURE, P.ATTENDANCE_SCAN],
+  ],
 ];
+
+function TabPanel({ id }) {
+  switch (id) {
+    case "movimientos":
+      return <MovementsTab />;
+    case "cierres":
+      return <ClosuresTab />;
+    case "solicitudes":
+      return <RequestsTab />;
+    case "carnes":
+      return <CardsTab />;
+    case "configuracion":
+      return <SettingsTab />;
+    default:
+      return <TodayTab />;
+  }
+}
 
 /**
- * Asistencia: eventos de entrada y salida, alertas de la jornada y consulta del
- * estado del dia.
+ * Asistencia (docs/ux-ui.md 2.12, AS6): una ruta con pestañas (`?tab=`) en vez
+ * de seis botones que abrían ventanas sueltas. Cada pestaña se descarga al
+ * abrirla y solo aparece con su permiso; el backend vuelve a autorizar cada
+ * operación.
  *
- * Los eventos NO se editan ni se borran: el backend suprime duplicados marcando
- * `is_active=false` y conserva el registro. La columna "Vigente" existe para que
- * eso sea visible en vez de parecer que un movimiento desaparecio.
+ * RNF-PRI-003: nada de lo que se consulta aquí se guarda en el dispositivo; el
+ * estado vive en memoria y en la URL solo van filtros e identificadores.
  */
 export function AttendancePage() {
-  const students = useStudentCatalog();
-  const shifts = useShiftCatalog();
-  const sections = useSectionCatalog();
+  const { can } = usePermissions();
+  const [params, setParams] = useSearchParams();
+  const canScan = can(P.ATTENDANCE_SCAN);
 
-  const names = useMemo(
-    () => ({
-      students: labelIndex(students.options),
-      shifts: labelIndex(shifts.options),
-      sections: labelIndex(sections.options),
-    }),
-    [students.options, shifts.options, sections.options]
-  );
+  const tabs = TABS.filter(([, , codes]) => can(codes));
+  const requested = params.get("tab");
+  const current = tabs.some(([id]) => id === requested)
+    ? requested
+    : (tabs[0]?.[0] ?? "hoy");
+  const [visited, setVisited] = useState([current]);
+  useEffect(() => {
+    setVisited((list) => (list.includes(current) ? list : [...list, current]));
+  }, [current]);
 
-  const loadEvents = useCallback(
-    (params) => attendanceService.listEvents(params),
-    []
-  );
-  const loadAlerts = useCallback(
-    (params) => attendanceService.listAlerts(params),
-    []
-  );
-
-  // Paginacion del servidor: el registro de movimientos crece con cada dia de
-  // clases, asi que traerlo completo para filtrar en memoria no escala.
-  const events = usePaginatedList(loadEvents, {
-    canIncludeInactive: false,
-    pageSize: PAGE_SIZE,
-  });
-  const alerts = usePaginatedList(loadAlerts, {
-    canIncludeInactive: false,
-    pageSize: PAGE_SIZE,
-  });
-
-  const [creating, setCreating] = useState(false);
-  const [showCamera, setShowCamera] = useState(false);
-  const [showParameters, setShowParameters] = useState(false);
-  const [showScan, setShowScan] = useState(false);
-  const [showPresence, setShowPresence] = useState(false);
-  const [showSectionClosure, setShowSectionClosure] = useState(false);
   const [cameraPreflightError, setCameraPreflightError] = useState(null);
 
-  // RNF-USA-001: el permiso de camara se verifica al entrar a la captura de
-  // asistencia, no en el primer escaneo. La sesion se libera de inmediato --
-  // solo importa que el navegador haya resuelto el permiso, no mantener el
-  // hardware ocupado antes de que el operador abra la vista previa.
+  // RNF-USA-001: el permiso de cámara se verifica al entrar a la captura de
+  // asistencia, no en el primer escaneo. La sesión se libera de inmediato: solo
+  // importa que el navegador haya resuelto el permiso. Solo para quien escanea:
+  // a quien revisa justificaciones no se le pide la cámara.
   useEffect(() => {
+    if (!canScan) return undefined;
     let disposed = false;
-
     createCameraSession()
       .then((session) => {
         session.stop();
@@ -310,75 +137,27 @@ export function AttendancePage() {
       })
       .catch((error) => {
         if (disposed) return;
-        const code =
-          error instanceof CameraAccessError ? error.code : "unavailable";
-        setCameraPreflightError(code);
+        setCameraPreflightError(
+          error instanceof CameraAccessError ? error.code : "unavailable"
+        );
       });
-
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [canScan]);
 
-  const handleCreateEvent = async (payload) => {
-    await attendanceService.createEvent(payload);
-    setCreating(false);
-    events.refresh();
-    // Un movimiento nuevo puede resolver o generar alertas del dia.
-    alerts.refresh();
-  };
+  const goTo = (tab) =>
+    setParams((existing) => {
+      const next = new URLSearchParams(existing);
+      next.set("tab", tab);
+      return next;
+    });
 
   return (
     <>
       <PageHeader
-        action={
-          <Stack direction="row" flexWrap="wrap" gap={1}>
-            <Button
-              onClick={() => setShowPresence(true)}
-              startIcon={<GroupsOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Presencia en tiempo real
-            </Button>
-            <Button
-              onClick={() => setShowCamera(true)}
-              startIcon={<PhotoCameraOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Abrir camara
-            </Button>
-            <Button
-              onClick={() => setShowParameters(true)}
-              startIcon={<TuneOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Parametros de jornada
-            </Button>
-            <Button
-              onClick={() => setCreating(true)}
-              startIcon={<AddIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Registrar movimiento
-            </Button>
-            <Button
-              onClick={() => setShowSectionClosure(true)}
-              startIcon={<TaskAltOutlinedIcon fontSize="small" />}
-              variant="outlined"
-            >
-              Cerrar seccion
-            </Button>
-            <Button
-              onClick={() => setShowScan(true)}
-              startIcon={<QrCodeScannerOutlinedIcon fontSize="small" />}
-              variant="contained"
-            >
-              Registrar por escaneo
-            </Button>
-          </Stack>
-        }
         breadcrumb="Control de asistencia"
-        subtitle="Movimientos de entrada y salida, alertas de la jornada y consulta del estado del dia de un estudiante."
+        subtitle="Captura del día, movimientos, cierres, justificaciones y permisos, carnés y configuración de la jornada."
         title="Asistencia"
       />
 
@@ -393,126 +172,49 @@ export function AttendancePage() {
         </Alert>
       ) : null}
 
-      <Grid container spacing={2} sx={{ mb: 1 }}>
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <DayStatusProbe />
-        </Grid>
-        <Grid size={{ xs: 12, lg: 6 }}>
-          <AttendancePercentageProbe />
-        </Grid>
-      </Grid>
-
-      <SectionCard
-        subtitle="Emitidas por el cierre de jornada"
-        sx={{ mb: 2 }}
-        title="Alertas de asistencia"
-      >
-        {alerts.error ? (
-          <Alert severity="error" sx={{ m: 2 }}>
-            {alerts.error}
-          </Alert>
-        ) : null}
-        <SectionTableArea>
-          <DataTable
-            columns={alertColumns(names)}
-            emptyMessage="Sin alertas de asistencia registradas."
-            getRowKey={(row) => row.public_id}
-            loading={alerts.loading}
-            pagination={alerts.pagination}
-            rows={alerts.items}
-          />
-        </SectionTableArea>
+      <SectionCard sx={{ p: { xs: 2, sm: 3 } }}>
+        {tabs.length === 0 ? (
+          <EmptyState message="Su cuenta no tiene permisos de asistencia. Pídalos a administración." />
+        ) : (
+          <Stack gap={2}>
+            <Tabs
+              allowScrollButtonsMobile
+              aria-label="Partes de la asistencia"
+              onChange={(_event, next) => goTo(next)}
+              scrollButtons="auto"
+              value={current}
+              variant="scrollable"
+            >
+              {tabs.map(([id, label]) => (
+                <Tab
+                  aria-controls={`attendance-panel-${id}`}
+                  id={`attendance-tab-${id}`}
+                  key={id}
+                  label={label}
+                  value={id}
+                />
+              ))}
+            </Tabs>
+            <Suspense
+              fallback={
+                <Typography role="status">Cargando sección…</Typography>
+              }
+            >
+              {[...new Set([...visited, current])].map((id) => (
+                <Box
+                  aria-labelledby={`attendance-tab-${id}`}
+                  hidden={id !== current}
+                  id={`attendance-panel-${id}`}
+                  key={id}
+                  role="tabpanel"
+                >
+                  <TabPanel id={id} />
+                </Box>
+              ))}
+            </Suspense>
+          </Stack>
+        )}
       </SectionCard>
-
-      <SectionCard
-        fillHeight
-        subtitle="Registro completo, duplicados incluidos"
-        title="Movimientos"
-      >
-        {events.error ? (
-          <Alert severity="error" sx={{ m: 2 }}>
-            {events.error}
-          </Alert>
-        ) : null}
-        <SectionTableArea>
-          <DataTable
-            columns={eventColumns(names)}
-            emptyMessage="Todavia no hay movimientos registrados."
-            fillHeight
-            getRowKey={(row) => row.public_id}
-            loading={events.loading}
-            pagination={events.pagination}
-            rows={events.items}
-          />
-        </SectionTableArea>
-      </SectionCard>
-
-      <EntityFormWindow
-        description="Un movimiento manual queda marcado con origen distinto al de lectura, para poder auditarlo despues."
-        fields={eventFields({ shifts, students })}
-        // Las dos fechas arrancan en hoy: un movimiento se registra el dia que
-        // ocurre, y las dos se pueden corregir con el mismo campo si se esta
-        // cargando algo atrasado.
-        initialValues={{
-          student_id: "",
-          shift_id: "",
-          event_date: todayInputValue(),
-          movement_type: "entry",
-          origin: "manual",
-          captured_at: todayInputValue(),
-        }}
-        key={creating ? "event-create-open" : "event-create-closed"}
-        onCancel={() => setCreating(false)}
-        onSubmit={handleCreateEvent}
-        open={creating}
-        submitLabel="Registrar movimiento"
-        title="Nuevo movimiento de asistencia"
-      />
-
-      <Suspense fallback={null}>
-        {showParameters ? (
-          <JornadaParametersWindow onClose={() => setShowParameters(false)} />
-        ) : null}
-
-        {showCamera ? (
-          <CameraPreviewWindow onClose={() => setShowCamera(false)} />
-        ) : null}
-
-        {showScan ? (
-          <ScanCaptureWindow
-            onClose={() => setShowScan(false)}
-            onRecorded={() => {
-              events.refresh();
-              alerts.refresh();
-            }}
-          />
-        ) : null}
-
-        {showPresence ? (
-          <AttendancePresenceWindow onClose={() => setShowPresence(false)} />
-        ) : null}
-
-        {showSectionClosure ? (
-          <Suspense
-            fallback={
-              <CircularProgress
-                aria-label="Cargando cierre de seccion"
-                size={24}
-              />
-            }
-          >
-            <SectionClosureWindow
-              onClosed={() => {
-                events.refresh();
-                alerts.refresh();
-              }}
-              onClose={() => setShowSectionClosure(false)}
-              previewClosure={attendanceService.previewSectionClosure}
-              submitClosure={attendanceService.closeSection}
-            />
-          </Suspense>
-        ) : null}
-      </Suspense>
     </>
   );
 }

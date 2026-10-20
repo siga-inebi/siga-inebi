@@ -80,6 +80,21 @@ export const queryKeys = {
       params,
     ],
   },
+  /**
+   * Evaluacion: sus rutas cuelgan de `/academics/cycles/{id}/`, asi que la key
+   * empieza por `academics` para que esas escrituras la invaliden.
+   */
+  evaluation: (cycleId, ...rest) => [
+    "academics",
+    "evaluation",
+    cycleId,
+    ...rest,
+  ],
+  /**
+   * Asistencia: toda escritura bajo `/attendance` invalida `["attendance"]`
+   * (`invalidation.js`), así que cada key del módulo empieza por ese dominio.
+   */
+  attendance: (...rest) => ["attendance", ...rest],
   reporting: {
     all: ["reporting"],
     alerts: (params = {}) => ["reporting", "alerts", params],

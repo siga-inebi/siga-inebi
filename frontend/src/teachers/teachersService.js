@@ -5,9 +5,14 @@ import { withQuery } from "@shared/api/query.js";
 export const teachersService = {
   /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
   listPage: (params) => apiClient.get(withQuery("/teachers/", params)),
-  // Ver studentsService.list: la pantalla pagina del lado del cliente y
-  // necesita la lista completa, no la primera pagina.
-  list: () => collectAllPages(teachersService.listPage),
+  /**
+   * Listado completo con los filtros dados, recorriendo todas las paginas.
+   *
+   * Solo para la exportacion CSV que la persona pide: DocentesPage pide al
+   * servidor unicamente la pagina visible (`listPage`).
+   */
+  list: (params = {}) =>
+    collectAllPages((page) => teachersService.listPage({ ...params, ...page })),
   get: (id) => apiClient.get(`/teachers/${id}/`),
   /** Siguiente codigo de empleado libre. Ver `studentsService.nextCode`. */
   nextCode: () =>
