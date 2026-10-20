@@ -1135,6 +1135,35 @@ describe("pantallas de los modulos con backend previo", () => {
       expect(within(table).getByText("Sin atender")).toBeInTheDocument();
     });
 
+    test("los indicadores piden una sola fila y muestran el count del backend", async () => {
+      reportingServiceMock.listAlerts.mockImplementation(async (params) => {
+        if (params.page_size !== 1) return paged([ALERT]);
+        const count =
+          params.acknowledged === false
+            ? 37
+            : params.alert_type === "frecuencia_ausencias"
+              ? 41
+              : 58;
+        return { count, results: [ALERT] };
+      });
+      renderWithRouter(<AlertsPage />);
+
+      expect(await screen.findByText("37")).toBeInTheDocument();
+      expect(screen.getByText("58")).toBeInTheDocument();
+      expect(screen.getByText("41")).toBeInTheDocument();
+      expect(reportingServiceMock.listAlerts).toHaveBeenCalledWith({
+        acknowledged: false,
+        page_size: 1,
+      });
+      expect(reportingServiceMock.listAlerts).toHaveBeenCalledWith({
+        page_size: 1,
+      });
+      expect(reportingServiceMock.listAlerts).toHaveBeenCalledWith({
+        alert_type: "frecuencia_ausencias",
+        page_size: 1,
+      });
+    });
+
     test("atender pide confirmacion y luego llama al backend", async () => {
       const user = userEvent.setup();
       renderWithRouter(<AlertsPage />);
