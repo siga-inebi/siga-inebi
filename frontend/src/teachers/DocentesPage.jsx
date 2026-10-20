@@ -24,7 +24,6 @@ import { formatDate } from "@shared/utils/format.js";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
-import { ImageDialog } from "@ui/display/ImageDialog.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { ViewDetailButton } from "@ui/table/ViewDetailButton.jsx";
@@ -44,6 +43,13 @@ const TeacherAssignments = lazy(() =>
 const TeacherDocumentsWindow = lazy(() =>
   import("@teachers/TeacherDocumentsWindow.jsx").then((module) => ({
     default: module.TeacherDocumentsWindow,
+  }))
+);
+
+// La foto ampliada solo se abre a demanda: fuera del chunk de la ruta.
+const ImageDialog = lazy(() =>
+  import("@ui/display/ImageDialog.jsx").then((module) => ({
+    default: module.ImageDialog,
   }))
 );
 
@@ -538,13 +544,17 @@ export function DocentesPage() {
         </Suspense>
       ) : null}
 
-      <ImageDialog
-        alt={selected ? fullName(selected) : ""}
-        downloadName={viewingPhoto?.split("/").pop()}
-        onClose={() => setViewingPhoto(null)}
-        open={Boolean(viewingPhoto)}
-        src={viewingPhoto}
-      />
+      {viewingPhoto ? (
+        <Suspense fallback={null}>
+          <ImageDialog
+            alt={selected ? fullName(selected) : ""}
+            downloadName={viewingPhoto.split("/").pop()}
+            onClose={() => setViewingPhoto(null)}
+            open
+            src={viewingPhoto}
+          />
+        </Suspense>
+      ) : null}
 
       {creating ? (
         <EntityFormWindow
