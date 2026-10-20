@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { useLocation } from "react-router-dom";
@@ -477,17 +477,23 @@ describe("DocentesPage", () => {
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
     await user.click(screen.getByRole("button", { name: /Nuevo registro/ }));
 
-    await user.type(screen.getByLabelText(/^Nombres/), "Nueva");
-    await user.type(screen.getByLabelText(/^Apellidos/), "Docente");
-    await fillInstitutionalPerson(user);
-    await user.type(screen.getByLabelText(/^Especialidad/), "Fisica");
-    await selectOption(user, /^Puesto/, "Docente Interino");
-    const codeField = screen.getByLabelText(/^Código de empleado/i);
+    // Un `change` por campo y no tecleo letra por letra: cada pulsación vuelve
+    // a renderizar el formulario entero. Las etiquetas se buscan dentro del
+    // diálogo, no en toda la pantalla (ver `fillInstitutionalPerson`). Así la
+    // prueba cabe holgada en el límite global aun con la suite en paralelo.
+    const dialog = screen.getByRole("dialog");
+    const form = within(dialog);
+    const fill = (label, value) =>
+      fireEvent.change(form.getByLabelText(label), { target: { value } });
+    fill(/^Nombres/, "Nueva");
+    fill(/^Apellidos/, "Docente");
+    await fillInstitutionalPerson(user, dialog);
+    fill(/^Especialidad/, "Fisica");
+    await selectOption(user, /^Puesto/, "Docente Interino", dialog);
     // Llega prellenado con la sugerencia del backend, y se puede sobreescribir.
-    expect(codeField).toHaveValue("DOC-013");
-    await user.clear(codeField);
-    await user.type(codeField, "EMP-0300");
-    await user.click(screen.getByRole("button", { name: /Crear registro/ }));
+    expect(form.getByLabelText(/^Código de empleado/i)).toHaveValue("DOC-013");
+    fill(/^Código de empleado/i, "EMP-0300");
+    await user.click(form.getByRole("button", { name: /Crear registro/ }));
 
     await waitFor(() =>
       expect(teachersServiceMock.create).toHaveBeenCalledTimes(1)
@@ -505,10 +511,7 @@ describe("DocentesPage", () => {
       })
     );
     expect(await screen.findByText("Nueva Docente")).toBeInTheDocument();
-    // 15s y no los 5 por omision: son mas de treinta pulsaciones a traves de
-    // `userEvent`, y con la instrumentacion de cobertura del CI no caben en el
-    // presupuesto normal. Misma convencion que AttendancePage.test.jsx.
-  }, 15000);
+  });
 
   test("previews a newly selected photo in the create form", async () => {
     teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
