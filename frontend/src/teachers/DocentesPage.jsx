@@ -14,7 +14,6 @@ import { PERMISSION } from "@auth/permissions.js";
 import { usePermissions } from "@auth/usePermissions.js";
 import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
 import { teachersService } from "@teachers/teachersService.js";
-import { TeacherDocumentsWindow } from "@teachers/TeacherDocumentsWindow.jsx";
 import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
@@ -37,6 +36,13 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 const TeacherAssignments = lazy(() =>
   import("@teachers/TeacherAssignments.jsx").then((module) => ({
     default: module.TeacherAssignments,
+  }))
+);
+
+// Los documentos solo se consultan a demanda: fuera del chunk de la ruta.
+const TeacherDocumentsWindow = lazy(() =>
+  import("@teachers/TeacherDocumentsWindow.jsx").then((module) => ({
+    default: module.TeacherDocumentsWindow,
   }))
 );
 
@@ -422,12 +428,14 @@ export function DocentesPage() {
       </DetailWindow>
 
       {documentsFor ? (
-        <TeacherDocumentsWindow
-          key={documentsFor.public_id}
-          onClose={() => setDocumentsFor(null)}
-          teacher={documentsFor}
-          teacherName={fullName(documentsFor)}
-        />
+        <Suspense fallback={null}>
+          <TeacherDocumentsWindow
+            key={documentsFor.public_id}
+            onClose={() => setDocumentsFor(null)}
+            teacher={documentsFor}
+            teacherName={fullName(documentsFor)}
+          />
+        </Suspense>
       ) : null}
 
       <ImageDialog
