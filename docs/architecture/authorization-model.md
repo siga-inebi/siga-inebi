@@ -219,6 +219,16 @@ Las pruebas en `backend/tests/permissions/test_identity_permissions.py` y
 - Tanto la operacion exitosa como el intento denegado generan un evento de auditoria.
 - Este contrato es interno del dominio; no agrega ni modifica endpoints de la API publica.
 
+## Desactivacion del perfil de encargado (G3, #632)
+
+`guardian.deactivate` (`guardian_deactivate`) exige alcance del modulo `students`
+o superusuario activo. Un alcance sobre un estudiante individual no autoriza la
+baja de un perfil del padron. La migracion registra el permiso sin concederlo a
+roles existentes. La API reevalua autorizacion en cada DELETE y audita rechazos.
+Se conservan persona, cuenta y vinculos; el perfil desactivado deja de otorgar
+acceso derivado a estudiantes, manteniendo permisos de otros roles vigentes.
+Contrato y evidencia: [desactivacion G3](guardian-deactivation-ui.md).
+
 ## Bloqueo temporal de autenticacion
 
 - Cinco intentos fallidos consecutivos bloquean temporalmente la cuenta durante diez minutos.

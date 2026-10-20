@@ -1,6 +1,8 @@
 """Read-side queries for the student-records domain."""
 
 from apps.common.exceptions import ResourceNotFoundError
+from apps.identity.scopes import authorized_student_queryset, effective_student_queryset
+from apps.students.authorization import may_deactivate_guardian
 from apps.students.models import EmergencyContact, Student, StudentHealthNote, StudentObservation
 
 
@@ -224,3 +226,75 @@ def student_status_context(*, student, actor, selected_status=None):
         ),
         "last_change": last_change,
     }
+
+
+def guardian_action_permissions(*, actor):
+    """Resolve module access once per response, including nested guardians."""
+    return {"deactivate": may_deactivate_guardian(actor)}
+
+
+def guardian_actions(*, guardian, permissions):
+    return {"deactivate": bool(guardian.is_active and permissions.get("deactivate", False))}
+
+
+def guardian_or_404(pk):
+    from apps.students.models import Guardian
+
+    try:
+        return Guardian.objects.select_related("person").get(pk=pk)
+    except Guardian.DoesNotExist as exc:
+        raise ResourceNotFoundError("No se encontro el encargado.") from exc
+
+
+def guardian_readable_students(actor):
+    return authorized_student_queryset(user=actor, codename="student_view_basic")
+
+
+def guardian_record_relations(*, actor, guardian):
+    from apps.students.models import StudentGuardianRelation
+
+    return (
+        StudentGuardianRelation.objects.filter(
+            guardian=guardian, student__in=guardian_readable_students(actor)
+        )
+        .select_related("student__person")
+        .order_by("-starts_at", "-pk")
+    )
+
+
+def _guardian_eligible_students(*, guardian, readable, editable):
+    from apps.students.models import StudentGuardianRelation
+
+    return (
+        readable.filter(pk__in=editable, is_active=True, status=Student.StudentStatus.ACTIVE)
+        .exclude(
+            pk__in=StudentGuardianRelation.objects.filter(
+                guardian=guardian, is_active=True, ends_at__isnull=True
+            ).values("student_id")
+        )
+        .select_related("person")
+        .order_by("student_code", "pk")
+    )
+
+
+def guardian_record_actions(*, actor, guardian):
+    can_link = False
+    if (
+        guardian.is_active
+        and guardian.person.is_active
+        and actor.has_atomic_permission("student_edit_basic")
+    ):
+        can_link = _guardian_eligible_students(
+            guardian=guardian,
+            readable=effective_student_queryset(user=actor, codename="student_view_basic"),
+            editable=effective_student_queryset(user=actor, codename="student_edit_basic"),
+        ).exists()
+    return {"link_student": can_link}
+
+
+def guardian_student_candidates(*, actor, guardian):
+    readable = guardian_readable_students(actor)
+    editable = authorized_student_queryset(user=actor, codename="student_edit_basic")
+    if not guardian.is_active or not guardian.person.is_active:
+        return Student.objects.none()
+    return _guardian_eligible_students(guardian=guardian, readable=readable, editable=editable)

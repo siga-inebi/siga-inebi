@@ -6,6 +6,7 @@ from apps.common.codes import create_with_generated_code, next_sequential_code
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
 from apps.people.models import Person
+from apps.students.authorization import require_guardian_deactivation
 from apps.students.images import normalize_student_photo
 from apps.students.models import (
     EmergencyContact,
@@ -210,16 +211,24 @@ def student_deactivation_action(*, student, can_manage):
     return {"deactivate": can_manage and student.is_active}
 
 
-def deactivate_guardian(*, guardian, actor=None):
-    guardian.is_active = False
-    guardian.save(update_fields=["is_active", "updated_at"])
-    record_event(
-        actor=actor,
-        action="students.guardian.deactivated",
-        resource="Guardian",
-        resource_identifier=str(guardian.pk),
-        context={"public_id": str(guardian.public_id)},
-    )
+def deactivate_guardian(*, guardian, actor):
+    require_guardian_deactivation(actor=actor, guardian=guardian)
+    with transaction.atomic():
+        guardian = Guardian.objects.select_for_update().get(pk=guardian.pk)
+        if not guardian.is_active:
+            return guardian
+        guardian.is_active = False
+        guardian.save(update_fields=["is_active", "updated_at"])
+        record_event(
+            actor=actor,
+            action="students.guardian.deactivated",
+            resource="Guardian",
+            resource_identifier=str(guardian.pk),
+            context={
+                "public_id": str(guardian.public_id),
+                "is_active": {"old": True, "new": False},
+            },
+        )
     return guardian
 
 
@@ -574,3 +583,43 @@ def student_dossier_actions(*, student, can_manage):
         **student_deactivation_action(student=student, can_manage=can_manage),
         "link_guardian": can_manage and student_allows_interaction(student),
     }
+
+
+def link_student_from_guardian(*, actor, guardian_id, student_public_id, relationship_label):
+    from apps.common.exceptions import ResourceNotFoundError
+    from apps.identity.scopes import authorized_student_queryset
+    from apps.students.queries import guardian_or_404, guardian_readable_students
+
+    # Authorize before the transaction so denied-attempt audits survive.
+    guardian = guardian_or_404(guardian_id)
+    allowed = guardian_readable_students(actor).filter(
+        pk__in=authorized_student_queryset(user=actor, codename="student_edit_basic")
+    )
+    try:
+        student = allowed.get(public_id=student_public_id)
+    except Student.DoesNotExist as exc:
+        record_event(
+            actor=actor,
+            action="identity.authorization.denied",
+            resource="Student",
+            resource_identifier=str(student_public_id),
+            context={
+                "permission": "student_edit_basic",
+                "required_permissions": ["student_view_basic", "student_edit_basic"],
+                "reason": "not_found_or_outside_scope",
+                "result": "denied",
+            },
+        )
+        raise ResourceNotFoundError("No se encontro el estudiante en su alcance.") from exc
+    with transaction.atomic():
+        student = Student.objects.select_for_update().get(pk=student.pk)
+        guardian = Guardian.objects.select_for_update().select_related("person").get(pk=guardian.pk)
+        if not guardian.is_active or not guardian.person.is_active:
+            raise DomainError("El encargado y su persona deben estar activos para vincular.")
+        if StudentGuardianRelation.objects.filter(
+            student=student, guardian=guardian, is_active=True, ends_at__isnull=True
+        ).exists():
+            raise DomainError("Este encargado ya tiene un vinculo vigente con el estudiante.")
+        return create_student_guardian_relation(
+            student=student, guardian=guardian, relationship_label=relationship_label, actor=actor
+        )

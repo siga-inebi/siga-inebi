@@ -145,6 +145,18 @@ class GuardianListCreateView(generics.ListCreateAPIView):
         return queries.guardians(**params.validated_data)
 
 
+@extend_schema_view(
+    delete=extend_schema(
+        summary="Desactivar el perfil de encargado",
+        description=(
+            "Requiere guardian.deactivate con alcance students (o superusuario). "
+            "Conserva persona, cuenta y relaciones, "
+            "pero retira el acceso derivado de esos vinculos. "
+            "Es idempotente; baja y auditoria se confirman en una transaccion."
+        ),
+        responses={204: None},
+    )
+)
 class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = GuardianSerializer
 

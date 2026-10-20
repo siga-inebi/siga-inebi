@@ -219,8 +219,8 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 |---|---|---|
 | G1 | **P0 · Bug** | La edición descarta sexo, nacionalidad, dirección, departamento y municipio (ver 1.2.2). |
 | G2 | **P1 · Rendimiento** | Se descarga todo el padrón (ver 1.1.2). El backend no tiene `?search=`. **Resuelto en #631:** paginación y búsqueda (nombre o CUI) en el servidor. **Seguimiento #632:** Listado migrado a paginación y búsqueda del servidor, actividad optativa, URL y CSV completo sin tope de 1.000. Seguimiento: [listado de encargados G2](architecture/guardian-server-list-ui.md); pruebas locales aprobadas, integración y aceptación pendientes. El backend admite `search` desde #635. |
-| G3 | **P1 · Sin UI** | **Desactivar encargado** (`DELETE /students/guardians/<id>/`). |
-| G4 | **P1 · Claridad** | La ficha del encargado no muestra a qué estudiantes está vinculado, ni permite vincularlo desde aquí. |
+| G3 | **P1 · Sin UI** | **Desactivar encargado** (`DELETE /students/guardians/<id>/`). **Seguimiento:** Desactivación implementada con confirmación, `guardian.deactivate` y alcance `students`, auditoría atómica e historial conservado. [Entrega G3](architecture/guardian-deactivation-ui.md); integración y aceptación pendientes. |
+| G4 | **P1 · Claridad** | La ficha del encargado no muestra a qué estudiantes está vinculado, ni permite vincularlo desde aquí. **Seguimiento:** Ficha con estudiantes vinculados, historial paginado, acceso al expediente y vinculación por búsqueda bajo permiso/alcance del alumno. [Entrega G4](architecture/guardian-students-record-ui.md); integración y aceptación pendientes. |
 
 ### 2.9 Personas
 

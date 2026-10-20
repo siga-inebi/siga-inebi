@@ -16,8 +16,17 @@ export const guardiansService = {
     collectAllPages((page) =>
       guardiansService.listPage({ ...params, ...page })
     ),
+  linkedStudents: (id, params) =>
+    apiClient.get(withQuery(`/students/guardians/${id}/students/`, params)),
+  studentCandidates: (id, params) =>
+    apiClient.get(
+      withQuery(`/students/guardians/${id}/student-candidates/`, params)
+    ),
+  linkStudent: (id, payload) =>
+    apiClient.post(`/students/guardians/${id}/students/`, payload),
   get: (id) => apiClient.get(`/students/guardians/${id}/`),
   create: (data) => apiClient.post("/students/guardians/", data),
+  deactivate: (id) => apiClient.del(`/students/guardians/${id}/`),
   // GuardianSerializer intentionally rejects nested `person` writes on update
   // (see backend/apps/students/api/serializers.py), so name/email/phone
   // edits go to /people/<public_id>/ — Guardian has no other own field to patch.
