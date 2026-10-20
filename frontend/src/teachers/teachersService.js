@@ -3,7 +3,8 @@ import { collectAllPages } from "@shared/api/pages.js";
 import { withQuery } from "@shared/api/query.js";
 
 export const teachersService = {
-  /** Pagina cruda del listado. La usan los selectores, que recorren todas. */
+  listPositions: () => apiClient.get("/teachers/positions/"),
+  /** Página del servidor para el listado y recorridos explícitos. */
   listPage: (params) => apiClient.get(withQuery("/teachers/", params)),
   /**
    * Listado completo con los filtros dados, recorriendo todas las paginas.

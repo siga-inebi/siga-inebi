@@ -507,27 +507,23 @@ Django 5.2.17, pytest 8.4.1 y Vitest 3.2.7. Se utilizaron las dependencias previ
 la CI con las versiones fijadas en los archivos de dependencias y el perfil Docker queda pendiente.
 
 ## Entrega UX ciclo escolar y estructura (#631)
-
 Primera entrega de #631 (backend). Cubre los hallazgos C2, C3, C7, C8, C10, 1.2.1, A1, N1,
 AD2, AD3, AD4 y S3 de [docs/ux-ui.md](../ux-ui.md) y las decisiones D1, D2, D3 y D6
 ([aporte al ADR-0011](../decisions/ADR-0011-ciclo-escolar-d1-d2-d3-d6.md)). La segunda tabla
 cubre la parte de frontend de la misma entrega.
-
 | Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
 | --- | --- | --- | --- |
-| RF-CIC-007; C2; D2 | `clone_academic_cycle` (`backend/apps/academics/services.py`) | `backend/tests/unit/test_academics_services.py` (origen activo, borrador rechazado, atomicidad) | Clonar desde activo o cerrado; transacción única |
+| RF-CIC-007; C2; D2 | `useCycleActions.jsx` | `cyclesPage.test.jsx` | Clonar deshabilitado en borradores con el motivo; el ciclo clonado abre su detalle |
 | RF-CIC-001; C3 | `update_academic_cycle`; `PATCH /academics/cycles/{id}/` | `test_academic_cycle_lifecycle_services.py`; `test_academic_cycle_lifecycle_api.py` | Solo borradores; mismas reglas que el alta; auditado con antes y después |
-| RF-CIC-008; C10; D3; D6 | `revert_academic_cycle_to_draft`; `queries.academic_cycle_revert_blockers`; `POST …/revert-to-draft/` | `test_academic_cycle_lifecycle_services.py`; `test_academic_cycle_lifecycle_api.py`; `permissions/test_academic_cycle_permissions.py` | Motivo, permiso `academic_cycle.revert`, cinco tipos de actividad |
+| RF-CIC-008; C10; D3; D6 | `useCycleActions.jsx` (`ReasonDialog`); `GET readiness/` | `cyclesPage.test.jsx` | Volver a borrador con motivo y permiso `academic_cycle.revert`; deshabilitado con los bloqueos («Tiene 312 matrículas.») |
 | RF-CIC-003; C7; D1 | `queries.academic_cycle_opening_gaps`, `academic_cycle_readiness`; `GET …/readiness/` | mismas pruebas; activación y cierre existentes | Faltantes estructurados y mensaje de activación equivalente |
-| RF-JOR-010; C8 | `declare_non_computable_day`, `remove_non_computable_day`; `…/non-computable-days/` | `test_academic_cycle_lifecycle_services.py`; `test_academic_cycle_lifecycle_api.py` | Listado, alta y retiro auditado |
+| RF-JOR-010; C8 | `tabs/NonComputableDaysTab.jsx` | `cycleDetailPage.test.jsx` | Listar, declarar y quitar |
 | 1.2.1; A1; N1 | `CATALOGUE_CACHE_SECONDS = 0` (`backend/apps/academics/api/views.py`) | `test_academic_structure_ux_api.py`; `test_academics_catalog_api.py` | Sedes, jornadas, niveles, cursos y secciones se revalidan con ETag/304 |
-| RF-EST-009; AD2; AD4 | `GET /academics/teaching-assignments/`; `…/teaching-assignments/clone-preview/`; `…/teaching-assignments/batch/`; nombres en `TeachingAssignmentSerializer` | `test_teaching_assignment_planning.py`; `test_academic_structure_ux_api.py` (incluye conteo de consultas) | Filtros y diferencias calculados en el servidor |
+| RF-EST-009; AD2; AD4 | `academics/TeachingAssignmentsPage.jsx`, `BulkAssignmentWindow.jsx`, `CloneAssignmentsWindow.jsx`; `teachers/TeacherAssignments.jsx` | `frontend/src/test/teachingAssignments.test.jsx`; `DocentesPage.test.jsx` | Listado filtrable con nombres del servidor; lotes y clonado sin `collectAllPages`; «Qué imparte» en la ficha del docente |
 | RF-EST-010; AD3 | `GET /academics/cycles/{id}/assignment-matrix/` | `test_teaching_assignment_planning.py`; `test_academic_structure_ux_api.py` | Matriz sección × curso paginada por sección |
 | RF-HOR-003/004; RF-AUL-002; S3 | `teacher` y `classroom` en sesiones; `default_classroom` en secciones | `test_academic_structure_ux_api.py` (sin N+1 por docente) | Campos aditivos |
 | Listados (api-conventions) | `apps/common/listing.py`; `search` y `ordering` en sedes, jornadas, aulas, niveles, grados, cursos, secciones y plan de estudios | `test_academic_structure_ux_api.py`; `test_teaching_assignment_planning.py` | Búsqueda por nombre y código; orden con lista blanca |
-
 Frontend de la entrega (C1–C10, S1–S5, A1–A3, N1–N3, AD1–AD4, 1.6):
-
 | Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
 | --- | --- | --- | --- |
 | RF-CIC-001/003/004; C3; C5; D1 | `frontend/src/cycles/CyclesPage.jsx`, `useCycleActions.jsx`, `CycleFormWindow.jsx` | `frontend/src/test/cyclesPage.test.jsx` | Listado con `useServerList`; Editar en borrador; Activar deshabilitado con «Cierre primero el ciclo «X»» y enlace al ciclo activo; textos de activación y cierre veraces |
@@ -542,9 +538,7 @@ Frontend de la entrega (C1–C10, S1–S5, A1–A3, N1–N3, AD1–AD4, 1.6):
 | RF-JOR-010; C8 | `tabs/NonComputableDaysTab.jsx` | `cycleDetailPage.test.jsx` | Listar, declarar y quitar |
 | RF-EST-009; AD2; AD4 | `academics/TeachingAssignmentsPage.jsx`, `BulkAssignmentWindow.jsx`, `CloneAssignmentsWindow.jsx`; `teachers/TeacherAssignments.jsx` | `frontend/src/test/teachingAssignments.test.jsx`; `DocentesPage.test.jsx` | Listado filtrable con nombres del servidor; lotes y clonado sin `collectAllPages`; «Qué imparte» en la ficha del docente |
 | A1–A3; N1–N3; 1.1; 1.3 | `academics/CampusesPage.jsx`, `RoomsPage.jsx`, `LevelsPage.jsx`, `SubjectsPage.jsx`, `CatalogFilters.jsx` | `campusesPage.test.jsx`; `RoomsPage.test.jsx`; `levelsPage.test.jsx`; `subjectsPage.test.jsx` | Búsqueda, orden e inactivos en la URL; «Ver jornadas (n)» / «Ver grados (n)»; «Cursos del nivel»; acciones con `scope.assign` |
-
 ## Entrega UX evaluación (#631)
-
 Segunda entrega de #631. Cubre los hallazgos V1–V8 de
 [docs/ux-ui.md](../ux-ui.md) 2.11 y cierra en Evaluación los huecos "Sin control de permiso"
 de [permisos-en-ui.md](../development/permisos-en-ui.md) (seguimiento en #643). Contratos en
@@ -553,19 +547,16 @@ primera tabla es el backend; la segunda, la interfaz. Con las dos, el catálogo 
 «Implemented» los requerimientos que tienen backend, interfaz y pruebas; RF-CAL-004 sigue «In
 progress» porque la carga de archivo CSV no tiene pantalla (la planilla usa el mismo
 servicio).
-
 | Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
 | --- | --- | --- | --- |
 | RF-CAL-001/004/005; V2 | `bulk_register_unit_grades` (CSV y planilla), `build_grade_sheet` (`backend/apps/evaluation/services.py`); `GET …/sheet/`, `POST …/grades/sheet/` | `api/test_evaluation_grade_sheet_api.py`; `unit/test_evaluation_grade_sheet_services.py`; `integration/test_evaluation_grade_sheet_flow.py` | Planilla en una llamada (tope 200 filas, sin corte silencioso); guardado todo o nada con `created`/`updated`; una nota existente se corrige por `register_unit_grade` (ventana o brecha, bitácora antes/después) |
 | RF-CAL-001; V2; V5 | `GradeSerializer` (componente `UnitGrade`): `student`, `subject_detail`, `evaluation_unit_id`; filtros `section_id`, `subject_id`, `student_id` | `api/test_evaluation_grade_sheet_api.py` (conteo de consultas constante) | Campos aditivos; también en la boleta `…/enrolments/{id}/grades/` |
 | RF-CAL-001/004; V8 | `resolve_capture_teacher` reutiliza `current_teaching_assignment` | mismas pruebas | `teacher` opcional en nota individual, CSV y planilla; 400 si no hay asignación vigente |
-| RF-CAL-008; V3 | `queries.capture_progress_rows` agregado en memoria; `UnitCaptureProgressView` con permiso | `api/test_evaluation_grade_sheet_api.py`; `permissions/test_evaluation_permissions.py` | Cuatro consultas fijas; docente ve solo sus asignaciones |
-| RF-RES-004/005; V4 | `section_recovery_eligibility`, `RecoveryEligibility.failed_subject_list`; `GET …/sections/{id}/recovery-eligibility/` | mismas pruebas | Listado paginado por sección; permisos en elegibilidad (`student.view_basic`) y registro (`grade.write`) |
+| RF-CAL-008; V3 | `evaluation/tabs/CaptureProgressTab.jsx` | `gradeSheet.test.jsx` | Avance general y por sección × subárea; «Abrir planilla» con sección y subárea en la URL |
+| RF-RES-004/005; V4 | `evaluation/tabs/RecoveryTab.jsx` | `frontend/src/test/evaluationResults.test.jsx` | Elegibilidad paginada por sección con motivos y subáreas reprobadas; «Registrar recuperación» por subárea, solo elegibles y con `grade.write` |
 | RF-RES-007; V5 | `queries.current_frozen_subject_results`; `GET …/enrolments/{id}/frozen-results/` | `api/test_evaluation_grade_sheet_api.py` | Resultado vigente de cada subárea en una llamada |
 | RF-EVC-001/003/004/005 | `require_evaluation_configuration` en crear unidad, ventana de recuperación, excepciones de captura y configuración global/del ciclo | `permissions/test_evaluation_permissions.py`; `api/test_evaluation_api.py` | `evaluation.configure_units` sobre la institución; ventana de recuperación aceptada al crear; `academic_cycle_id` aditivo |
-
 Frontend de la entrega (V1–V8, 1.1, 1.3, 1.5, 1.6):
-
 | Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
 | --- | --- | --- | --- |
 | 1.5; 1.6 | `frontend/src/evaluation/EvaluationPage.jsx` (pestañas en `?tab=`, ciclo en `?ciclo=`, cada pestaña en su propio chunk), `evaluationData.js` | `frontend/src/test/evaluationPage.test.jsx`; `moduleNavigation.test.jsx` | Unidades, Planilla, Avance, Recuperación y Resultados; pestañas según permisos; textos con tildes |
@@ -577,9 +568,7 @@ Frontend de la entrega (V1–V8, 1.1, 1.3, 1.5, 1.6):
 | RF-RES-004/005; V4 | `evaluation/tabs/RecoveryTab.jsx` | `frontend/src/test/evaluationResults.test.jsx` | Elegibilidad paginada por sección con motivos y subáreas reprobadas; «Registrar recuperación» por subárea, solo elegibles y con `grade.write` |
 | RF-CAL-003; RF-RES-001/002/003/007/009; V5; V7 | `evaluation/tabs/ResultsTab.jsx` | `evaluationResults.test.jsx` (incluye la regresión INC-008) | Estudiante buscado en el servidor y su matrícula del ciclo por historial; boleta unidad × subárea con nota final y condición del backend; con el ciclo cerrado, resultados congelados, promoción, «Corregir» (`grade.correct`) y «Ver trazabilidad» (`audit.read`) |
 | V7 | `frontend/src/shared/catalogs/academicCatalogs.js` | suite completa | Se elimina `useEnrolmentCatalog` (descargaba todas las matrículas, estudiantes y secciones); se retiran `GradesWindow`, `FinalGradeWindow` y `CurrentAverageWindow` |
-
 ## Entrega UX asistencia (#631)
-
 Tercera entrega de #631. Cubre los hallazgos AS1–AS6 de
 [docs/ux-ui.md](../ux-ui.md) 2.12. Contratos en
 [api-conventions.md](../architecture/api-conventions.md), sección «Asistencia (#631)»; permisos
@@ -588,19 +577,16 @@ segunda, la interfaz. Con las dos, el catálogo pasa a «Implemented» RF-ASI-01
 RF-JUS-008, RF-CRE-001 y RF-CRE-003. RF-JUS-001 sigue «In progress»: el personal presenta la
 justificación desde la bandeja, pero la presentación por el propio encargado depende del portal
 de encargados (D9, PD-004).
-
 | Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
 | --- | --- | --- | --- |
 | RF-JUS-001/004; AS3 | `queries.visible_justifications`/`visible_justification` (`backend/apps/attendance/queries.py`); `GET justifications/`, `GET justifications/{id}/`; `JustificationSerializer` con campos aditivos | `unit/test_attendance_review_queries.py`; `api/test_attendance_review_queue_api.py` (conteo de consultas constante); `permissions/test_attendance_permissions.py` | Pendientes primero; filtros `status`, `student_id`, `date_from`, `date_to`, `search`, `ordering`; revisor ve su alcance, solicitante lo propio, sin permiso 403, fuera de lo visible 404 |
-| RF-JUS-008; AS4 | `queries.visible_attendance_permits`/`visible_attendance_permit`; `GET permits/`, `GET permits/{id}/`; `AttendancePermitSerializer` con nombres | mismas pruebas | Mismo criterio que justificaciones más `permit_type`; nombres también en alta y resolución |
+| RF-JUS-008; AS4 | `attendance/requests/{permits.jsx,PermitForm.jsx}` | `attendanceRequests.test.jsx` | Bandeja con tipo, alta con hora prevista y resolución |
 | RF-CRE-001/003/004; AS2 | `queries.credential_status`; `GET credentials/status/` | mismas pruebas | Estado `active`/`revoked`/`none` sin identificador opaco ni QR; reimprimir = revocar y emitir (sin endpoint de regeneración) |
-| RF-ASI-012; AS5 | `queries.manual_registration_reasons(is_active=…)` | `unit/test_attendance_review_queries.py`; `api/test_attendance_review_queue_api.py` | Solo motivos vigentes por omisión; `is_active=false` lista los retirados |
-| RF-ASI-009, RF-AUT-005; AS1 | Sin cambio: `capture-batches/current/` ya devuelve `expires_at` | `api/test_attendance_review_queue_api.py` | Verificado |
+| RF-ASI-012; AS5 | `attendance/tabs/MovementsTab.jsx` | `AttendancePage.test.jsx` | Listados de movimientos y alertas con `useServerList` y filtro por estudiante; registro manual con «Motivo» vigente obligatorio (`manual_reason_id`), orígenes según permiso |
+| RF-ASI-009, RF-AUT-005; AS1 | `attendance/{CaptureShiftCard.jsx,ScanCaptureWindow.jsx,tabs/TodayTab.jsx}` | `AttendancePage.test.jsx` | Abrir turno, vencimiento con cuenta regresiva, movimientos del turno, «Confirmar turno» con confirmación; el escaneo envía `capture_batch_id`; turno vencido con el mensaje de `capture_batch_expired` |
 | RF-JOR-007; AS5; D9 | Sin cambio: `absence-notifications/` sigue solo para encargados | pruebas existentes | Fuera de la interfaz del personal hasta que exista un requerimiento de portal de encargados (PD-004) |
 | AS6; 1.1; 1.3 | `AttendanceEventRowSerializer`, `AttendanceAlertRowSerializer` y `student` en `PresentStudentSerializer` (`backend/apps/attendance/api/serializers.py`); precarga en `queries.attendance_events`/`attendance_alerts` y en el turno | `api/test_attendance_listing_rows_api.py` (conteo de consultas constante) | `student: {public_id, student_code, full_name}` aditivo en movimientos, alertas, presencia y eventos del turno: la interfaz deja de descargar el padrón para nombrar filas |
-
 Frontend de la entrega (AS1–AS6, 1.1, 1.3, 1.5, 1.6):
-
 | Requerimiento / hallazgo | Diseño y código | Pruebas | Alcance |
 | --- | --- | --- | --- |
 | AS6; 1.5; 1.6 | `frontend/src/attendance/AttendancePage.jsx` (pestañas en `?tab=`, cada una en su chunk y según permiso) | `frontend/src/test/AttendancePage.test.jsx` | Hoy, Movimientos, Cierres, Justificaciones y permisos, Carnés y Configuración; verificación de cámara (RNF-USA-001) solo con `attendance.scan`; sin datos del estudiante en el dispositivo (RNF-PRI-003); textos con tildes |
@@ -613,3 +599,11 @@ Frontend de la entrega (AS1–AS6, 1.1, 1.3, 1.5, 1.6):
 | RF-JUS-008; AS4 | `attendance/requests/{permits.jsx,PermitForm.jsx}` | `attendanceRequests.test.jsx` | Bandeja con tipo, alta con hora prevista y resolución |
 | RF-JOR-001 | `attendance/{JornadaParametersSection.jsx,tabs/SettingsTab.jsx}` | `AttendancePage.test.jsx` | Parámetros en Configuración con apertura opcional y días lectivos (`school_days`), antes omitidos; prueba de cámara |
 | RF-JOR-007; D9 | — | — | Las notificaciones de inasistencia no tienen pantalla del personal |
+## Entrega UX T2/T4: listado docente y puestos (#632)
+Diseño y límites: [listado docente](../architecture/teacher-server-list-ui.md).
+Entrega: [PR #654](https://github.com/siga-inebi/siga-inebi/pull/654), hacia `develop`.
+No existe RF específico para búsqueda/puesto docente: se conserva la trazabilidad por hallazgo
+y no se cambian estados globales de RF/RNF. T3 continúa pendiente.
+| Hallazgo | Código / contrato | Pruebas verificables | Estado de esta entrega |
+| T2; 1.1 | `frontend/src/teachers/{DocentesPage.jsx,teachersService.js}`; `useServerList`; `ExportCsvButton`; `GET /teachers/` existente | `frontend/src/test/{DocentesPage.test.jsx,moduleServices.test.js,useServerList.test.jsx}`; `backend/tests/api/{test_teacher_server_list_ui_contract,test_community_list_filters_api}.py` | Página visible, total, tamaño, filtros, URL y CSV de 1.001 filas; integración/aceptación pendientes |
+| T4 | `backend/apps/teachers/{queries.py,api/serializers.py,api/views.py,api/urls.py}`; `GET /teachers/positions/`; formularios y filtro docente | `test_position_catalogue_matches_model_and_needs_no_teacher_rows`; `test_position_catalogue_rejects_anonymous_reads_and_authenticated_writes`; pruebas de catálogo dinámico/reintento frontend | Fuente canónica del backend, sin catálogo duplicado; integración/aceptación pendientes |

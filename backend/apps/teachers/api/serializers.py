@@ -5,6 +5,11 @@ from apps.teachers.models import Teacher
 from apps.teachers.services import create_teacher
 
 
+class TeacherPositionSerializer(serializers.Serializer):
+    value = serializers.CharField(read_only=True)
+    label = serializers.CharField(read_only=True)
+
+
 class TeacherListQuerySerializer(serializers.Serializer):
     include_inactive = serializers.BooleanField(default=False)
     position = serializers.ChoiceField(choices=Teacher.Position.choices, required=False)

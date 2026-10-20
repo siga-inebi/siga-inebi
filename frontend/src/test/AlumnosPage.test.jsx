@@ -1,5 +1,5 @@
 import { Route, Routes, useLocation } from "react-router-dom";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
@@ -323,17 +323,23 @@ describe("AlumnosPage", () => {
     await screen.findByText("Maria Jose Lopez Garcia");
     await user.click(screen.getByRole("button", { name: /Nuevo estudiante/ }));
 
-    await user.type(screen.getByLabelText(/^Nombres/), "Nueva");
-    await user.type(screen.getByLabelText(/^Apellidos/), "Alumna");
-    await fillInstitutionalPerson(user);
-    await user.type(screen.getByLabelText(/^Correo/), "nueva@example.test");
-    const codeField = screen.getByLabelText(/^Codigo de estudiante/);
+    // Ver el comentario homonimo en DocentesPage.test.jsx: un `change` por
+    // campo y etiquetas buscadas dentro del dialogo.
+    const dialog = screen.getByRole("dialog");
+    const form = within(dialog);
+    const fill = (label, value) =>
+      fireEvent.change(form.getByLabelText(label), { target: { value } });
+    fill(/^Nombres/, "Nueva");
+    fill(/^Apellidos/, "Alumna");
+    await fillInstitutionalPerson(user, dialog);
+    fill(/^Correo/, "nueva@example.test");
     // Llega prellenado con la sugerencia del backend, y se puede sobreescribir:
     // un traslado trae su codigo ya impreso en los papeles.
-    expect(codeField).toHaveValue("EST-2026-0101");
-    await user.clear(codeField);
-    await user.type(codeField, "EST-2026-099");
-    await user.click(screen.getByRole("button", { name: /Crear estudiante/ }));
+    expect(form.getByLabelText(/^Codigo de estudiante/)).toHaveValue(
+      "EST-2026-0101"
+    );
+    fill(/^Codigo de estudiante/, "EST-2026-099");
+    await user.click(form.getByRole("button", { name: /Crear estudiante/ }));
 
     await waitFor(() =>
       expect(studentsServiceMock.create).toHaveBeenCalledTimes(1)
@@ -355,8 +361,7 @@ describe("AlumnosPage", () => {
       expect(studentsServiceMock.listPage).toHaveBeenCalledTimes(2)
     );
     expect(await screen.findByText("Nueva Alumna")).toBeInTheDocument();
-    // Ver el presupuesto homonimo en DocentesPage.test.jsx.
-  }, 15000);
+  });
 
   test("previews a newly selected photo in the create form", async () => {
     studentsServiceMock.listPage.mockResolvedValue(paged(SAMPLE));

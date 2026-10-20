@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 
 import { selectOption } from "./selectOption.jsx";
 
@@ -39,24 +39,26 @@ export async function editInstitutionalPerson(user) {
   }
 }
 
-export async function fillInstitutionalPerson(user) {
-  fireEvent.change(screen.getByLabelText(/^CUI/), {
-    target: { value: institutionalPerson.cui },
-  });
-  fireEvent.change(screen.getByLabelText(/^Fecha de nacimiento/), {
-    target: { value: institutionalPerson.birth_date },
-  });
-  await selectOption(user, /^Sexo/, "Femenino");
-  fireEvent.change(screen.getByLabelText(/^Teléfono/), {
-    target: { value: institutionalPerson.phone_number },
-  });
-  fireEvent.change(screen.getByLabelText(/^Dirección/), {
-    target: { value: institutionalPerson.address },
-  });
-  fireEvent.change(screen.getByLabelText(/^Departamento/), {
-    target: { value: institutionalPerson.department },
-  });
-  fireEvent.change(screen.getByLabelText(/^Municipio/), {
-    target: { value: institutionalPerson.municipality },
-  });
+/**
+ * Llena los datos de persona institucional del formulario de alta.
+ *
+ * Con `container` (el dialogo del formulario) las etiquetas se buscan solo ahi:
+ * `getByLabelText` sobre `screen` recorre tambien la tabla de la pantalla y
+ * cuesta diez veces mas por campo, lo que bajo la suite completa en paralelo
+ * empuja las pruebas de alta hacia el limite de tiempo.
+ *
+ * @param {object} user  Instancia de `userEvent.setup()`.
+ * @param {HTMLElement} [container] Ambito donde buscar los campos.
+ */
+export async function fillInstitutionalPerson(user, container) {
+  const scope = container ? within(container) : screen;
+  const fill = (label, value) =>
+    fireEvent.change(scope.getByLabelText(label), { target: { value } });
+  fill(/^CUI/, institutionalPerson.cui);
+  fill(/^Fecha de nacimiento/, institutionalPerson.birth_date);
+  await selectOption(user, /^Sexo/, "Femenino", container);
+  fill(/^Teléfono/, institutionalPerson.phone_number);
+  fill(/^Dirección/, institutionalPerson.address);
+  fill(/^Departamento/, institutionalPerson.department);
+  fill(/^Municipio/, institutionalPerson.municipality);
 }

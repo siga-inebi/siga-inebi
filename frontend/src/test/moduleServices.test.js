@@ -27,6 +27,20 @@ const PERSON = "88888888-8888-8888-8888-888888888888";
  * queda vacia sin decir por que.
  */
 describe("servicios de los modulos", () => {
+  test("docentes consulta puestos y combina filtros codificados en la página solicitada", async () => {
+    await teachersService.listPositions();
+    expect(apiClient.get).toHaveBeenCalledWith("/teachers/positions/");
+    await teachersService.listPage({
+      page: 2,
+      page_size: 50,
+      search: "DOC-001",
+      position: "Orientador/a",
+      include_inactive: true,
+    });
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "/teachers/?page=2&page_size=50&search=DOC-001&position=Orientador%2Fa&include_inactive=true"
+    );
+  });
   beforeEach(() => {
     vi.spyOn(apiClient, "get").mockResolvedValue({ count: 0, results: [] });
     vi.spyOn(apiClient, "post").mockResolvedValue({});
