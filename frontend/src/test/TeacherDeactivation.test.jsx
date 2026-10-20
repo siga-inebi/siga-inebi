@@ -2,7 +2,12 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 
-const teachers = vi.hoisted(() => ({ list: vi.fn(), deactivate: vi.fn() }));
+const teachers = vi.hoisted(() => ({
+  list: vi.fn(),
+  listPage: vi.fn(),
+  listPositions: vi.fn(),
+  deactivate: vi.fn(),
+}));
 vi.mock("@teachers/teachersService.js", () => ({ teachersService: teachers }));
 
 import { DocentesPage } from "@teachers/DocentesPage.jsx";
@@ -25,6 +30,15 @@ const TEACHER = {
 
 beforeEach(() => {
   teachers.list.mockReset().mockResolvedValue([TEACHER]);
+  // El listado pide páginas al servidor; `list` sigue siendo la fuente de las
+  // filas para contar cada recarga.
+  teachers.listPage.mockReset().mockImplementation(async () => {
+    const results = await teachers.list();
+    return { results, count: results.length, next: null, previous: null };
+  });
+  teachers.listPositions
+    .mockReset()
+    .mockResolvedValue([{ value: TEACHER.position, label: TEACHER.position }]);
   teachers.deactivate.mockReset().mockResolvedValue(null);
 });
 
