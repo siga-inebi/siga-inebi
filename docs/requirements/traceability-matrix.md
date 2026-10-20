@@ -87,17 +87,23 @@ Entrega y checks de integración: [PR #635](https://github.com/siga-inebi/siga-i
 con base `develop`; resultados locales completos en el documento de desarrollo enlazado.
 
 ## Entrega UX E3/E10 del listado de estudiantes (#632)
-
 Diseño y contrato existente: [listado de estudiantes](../architecture/student-server-list-ui.md).
 Entrega: [PR #653](https://github.com/siga-inebi/siga-inebi/pull/653), hacia `develop`.
 No se cambian estados globales de requisitos ni reglas del dominio.
-
 | Requerimiento / hallazgo | Código | Pruebas verificables | Alcance |
 | --- | --- | --- | --- |
 | E3; E10; 1.1 | `frontend/src/students/{AlumnosPage.jsx,studentsService.js}`; `shared/crud/useServerList.js`; `shared/ui/{filters/SearchField.jsx,buttons/ExportCsvButton.jsx}` | `frontend/src/test/{AlumnosPage.test.jsx,useServerList.test.jsx}`; `backend/tests/api/test_student_server_list_ui_contract.py` | Página visible, tamaño, búsqueda/código, estado, URL y CSV filtrado con 1.001 filas; integración/aceptación pendientes |
 | RF-EXP-003; RF-EXP-008 | `frontend/src/students/AlumnosPage.jsx`; contrato de lectura existente | `test_filtered_roster_beyond_one_thousand_and_server_page_size_limit`; `test_code_status_and_inactive_filters_keep_scope_and_private_fields`; pruebas de listado frontend | Estado y baja lógica independientes; historial consultable; no modifica estados ni desactiva |
 | RF-ALC-001 | `StudentListCreateView` existente; filtros/exportación de `AlumnosPage.jsx` | `test_code_status_and_inactive_filters_keep_scope_and_private_fields`; `test_student_search_requires_permission_and_scope` | Consulta y exportación permanecen bajo alcance; no expone CUI/nacimiento |
 | E3/E10; navegación | `frontend/src/students/StudentRecordPage.jsx` | `frontend/src/test/{AlumnosPage.test.jsx,StudentRecordPage.test.jsx}` | Regreso con búsqueda, página, tamaño y filtros, conservados al cambiar pestañas |
+## Entrega G2: listado de encargados (#632)
+Se completa la adopcion UI del contrato backend G2 de #635 y de los componentes
+compartidos de #651, sin cambiar estados globales de RF/RNF. G3 y G4 pendientes.
+| Hallazgo | Diseno y codigo | Evidencia | Estado de esta entrega |
+| G2; 1.1: paginacion, busqueda y CSV | `docs/architecture/guardian-server-list-ui.md`; `frontend/src/guardians/{GuardiansPage.jsx,guardiansService.js}`; `useServerList`, `SearchField`, `ExportCsvButton` | `frontend/src/test/{GuardiansPage.test.jsx,useServerList.test.jsx}`; `backend/tests/api/{test_guardian_server_list_ui_contract.py,test_community_list_filters_api.py}` | Probado localmente con PostgreSQL, 1.001 filas y navegador de escritorio/movil; integracion y aceptacion pendientes |
+No implementa RF-EXP-004 (vinculos de estudiantes), no modifica autorizacion y no
+cierra la brecha de permisos #643. Contratos y limites en el documento enlazado.
+Entrega: [PR #656](https://github.com/siga-inebi/siga-inebi/pull/656), hacia `develop`.
 
 ## Estado inicial
 
