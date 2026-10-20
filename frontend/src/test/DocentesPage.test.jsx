@@ -424,7 +424,7 @@ describe("DocentesPage", () => {
       )
     );
 
-    const lightbox = screen.getByRole("dialog", {
+    const lightbox = await screen.findByRole("dialog", {
       name: "Foto de Marvin Estuardo Lopez Cifuentes",
     });
     const downloadLink = within(lightbox).getByRole("link", {
