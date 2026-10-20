@@ -43,7 +43,7 @@ También se marca el tipo: **Sin UI** (el backend ya lo permite y no hay forma d
 
 | Patrón | Qué hace | Dónde se usa |
 |---|---|---|
-| `useLocalList` + `collectAllPages` | Descarga **todas** las páginas del backend, una tras otra, y pagina en el navegador. | Estudiantes, Docentes, Padres de familia |
+| `useLocalList` + `collectAllPages` | Descarga **todas** las páginas del backend, una tras otra, y pagina en el navegador. | Ninguna. **Resuelto en #631:** Estudiantes, Docentes y Padres de familia pasaron a `useServerList` y `useLocalList` se eliminó. |
 | `usePaginatedList` | Pide solo la página que se ve (paginación real en el servidor). | Personas, Ciclos, Sedes, Niveles, Cursos, Aulas, Plantillas, Tipos de documento, Asignaciones, Matrículas, Asistencia, Evaluación, Alertas, Cuentas |
 | Catálogos (`useCatalogOptions` + `collectAllPages`) | Descarga el catálogo completo para llenar un desplegable o traducir un UUID a un nombre. | Casi todos los formularios y Matrículas, Evaluación, Asignaciones |
 | Llamada directa a la primera página | Usa `page.results` e ignora las demás páginas. | Relaciones con encargados, notas de salud, observaciones y contactos de emergencia del estudiante |
@@ -51,7 +51,7 @@ También se marca el tipo: **Sin UI** (el backend ya lo permite y no hay forma d
 **Problemas que provoca:**
 
 1. **P0 · Bug — El selector "Filas por página" no funciona en ninguna tabla.** [DataTable.jsx](../frontend/src/shared/ui/table/DataTable.jsx) siempre muestra las opciones `[10, 25, 50, 100]`, pero solo cambia algo si la pantalla le pasa `onRowsPerPageChange`, y **ninguna pantalla lo pasa**. Al elegir 50 no ocurre nada. Además, el backend ignora `?page_size=`: usa `PageNumberPagination` sin `page_size_query_param` ([base.py:219-220](../backend/config/settings/base.py#L219-L220)). El `listTypes({ page_size: 100 })` de [TemplatesPage.jsx](../frontend/src/documents/TemplatesPage.jsx) tampoco tiene efecto.
-2. **P1 · Rendimiento — Estudiantes, Docentes y Padres descargan todo el padrón.** [studentsService.js:11](../frontend/src/students/studentsService.js#L11), [teachersService.js:10](../frontend/src/teachers/teachersService.js#L10) y [guardiansService.js:11](../frontend/src/guardians/guardiansService.js#L11) recorren todas las páginas. La tabla muestra "página 1", pero todas las páginas ya se pidieron en peticiones seguidas. Es lo que se ve en la pestaña Red.
+2. **P1 · Rendimiento — Estudiantes, Docentes y Padres descargan todo el padrón.** **Resuelto en #631:** las tres pantallas piden solo la página visible con `useServerList`; `collectAllPages` queda solo para su exportación CSV. [studentsService.js:11](../frontend/src/students/studentsService.js#L11), [teachersService.js:10](../frontend/src/teachers/teachersService.js#L10) y [guardiansService.js:11](../frontend/src/guardians/guardiansService.js#L11) recorren todas las páginas. La tabla muestra "página 1", pero todas las páginas ya se pidieron en peticiones seguidas. Es lo que se ve en la pestaña Red.
 3. **P0 · Bug — Corte silencioso en 1 000 registros.** [pages.js:2](../frontend/src/shared/api/pages.js#L2) limita el recorrido a 40 páginas × 25 = 1 000 filas. Con más registros, el resto deja de existir para la búsqueda, la exportación CSV y los desplegables, sin ningún aviso.
 4. **P0 · Bug — Listas truncadas a 25.** `listGuardianRelations`, `listHealthNotes`, `listObservations` y `listEmergencyContacts` en [studentsService.js](../frontend/src/students/studentsService.js) devuelven solo `page.results` de la primera página. En el caso de los encargados es peor: se piden **todas las relaciones del sistema** (sin filtrar por estudiante) y se filtran en el navegador. En cuanto el sistema tiene más de 25 relaciones, los encargados de muchos estudiantes "desaparecen" de su ficha.
 5. **P1 · Rendimiento — Las pantallas cargan catálogos ajenos para traducir UUIDs.** Ver Matrículas (2.9) y Evaluación (2.11). El backend responde solo identificadores (`student_id`, `section_id`…) y el frontend descarga los padrones completos para mostrar nombres.
@@ -194,7 +194,7 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 |---|---|---|
 | E1 | **P0 · Bug** | La edición descarta sexo, nacionalidad, dirección, departamento y municipio (ver 1.2.2). |
 | E2 | **P0 · Bug** | Los encargados del estudiante salen de la primera página de **todas** las relaciones del sistema (ver 1.1.4). Con más de 25 relaciones, faltan encargados. |
-| E3 | **P1 · Rendimiento** | Se descarga todo el padrón para paginar en el navegador (ver 1.1.2), con tope de 1 000 (ver 1.1.3). |
+| E3 | **P1 · Rendimiento** | Se descarga todo el padrón para paginar en el navegador (ver 1.1.2), con tope de 1 000 (ver 1.1.3). **Resuelto en #631:** paginación y búsqueda (nombre, código o CUI) en el servidor. |
 | E4 | **P1 · Clics** | El detalle abre ventanas encadenadas: Detalle → Salud → Nueva nota. Para consultar salud, observaciones y contactos de un mismo estudiante hacen falta 6 o más clics y tres ventanas superpuestas. Ver la propuesta de expediente con pestañas (1.5).  **Seguimiento #632:** [expediente con pestanas](architecture/student-record-tabs-ui.md), ruta propia, ocho secciones, lecturas diferidas/paginadas y formularios en linea; integracion y aceptacion pendientes. |
 | E5 | **P1 · Sin UI** | **Encargados:** marcar como principal (`/guardian-relations/<id>/make-primary/`), finalizar la relación (`/guardian-relations/<id>/end/`) y editarla. Solo se puede vincular.  Seguimiento: [acciones de vinculos E5](architecture/guardian-relation-actions-ui.md), implementadas y probadas; dependen del expediente #647, con integracion y aceptacion pendientes. |
 | E6 | **P1 · Sin UI** | **Notas de salud, observaciones y contactos de emergencia:** editar y desactivar (`PATCH/DELETE` en `/health-notes/<id>/`, `/observations/<id>/` y `/emergency-contacts/<id>/`). Solo se puede crear.  Seguimiento: [acciones del expediente E6](architecture/student-record-actions-ui.md), edicion, desactivacion con confirmacion e historial paginado; integracion y aceptacion pendientes. |
@@ -209,7 +209,7 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
 | T1 | **P0 · Bug** | La edición descarta sexo, nacionalidad, dirección, departamento y municipio (ver 1.2.2). |
-| T2 | **P1 · Rendimiento** | Se descarga todo el padrón (ver 1.1.2). El backend no tiene `?search=` ni filtro por puesto: el filtro "Puesto" funciona solo sobre lo descargado. |
+| T2 | **P1 · Rendimiento** | Se descarga todo el padrón (ver 1.1.2). El backend no tiene `?search=` ni filtro por puesto: el filtro "Puesto" funciona solo sobre lo descargado. **Resuelto en #631:** el backend ya acepta `search` y `position`; la pantalla pagina, busca y filtra por puesto en el servidor. |
 | T3 | **P1 · Sin UI** | **Desactivar docente** (`DELETE /teachers/<id>/`). |
 | T4 | **P2 · Claridad** | Los puestos están fijos en [teachersMock.js](../frontend/src/teachers/teachersMock.js). Coinciden con el backend hoy, pero el nombre del archivo ("Mock") confunde y la lista se duplica. Conviene leerlos del backend (OPTIONS o endpoint de catálogo). |
 
@@ -218,7 +218,7 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
 | G1 | **P0 · Bug** | La edición descarta sexo, nacionalidad, dirección, departamento y municipio (ver 1.2.2). |
-| G2 | **P1 · Rendimiento** | Se descarga todo el padrón (ver 1.1.2). El backend no tiene `?search=`. |
+| G2 | **P1 · Rendimiento** | Se descarga todo el padrón (ver 1.1.2). El backend no tiene `?search=`. **Resuelto en #631:** paginación y búsqueda (nombre o CUI) en el servidor. |
 | G3 | **P1 · Sin UI** | **Desactivar encargado** (`DELETE /students/guardians/<id>/`). |
 | G4 | **P1 · Claridad** | La ficha del encargado no muestra a qué estudiantes está vinculado, ni permite vincularlo desde aquí. |
 
@@ -457,7 +457,7 @@ Como cambian reglas del dominio, cada una debe registrarse como ADR en [docs/dec
 1. `StandardPagination` + `page_size` + `search` + `include_inactive` en el backend.
 2. Nombres incluidos en serializadores (matrículas, aulas, notas, asignaciones).
 3. `useServerList` único en el frontend + selector de filas funcionando + estado en la URL.
-4. Migrar Estudiantes, Docentes, Padres y Matrículas; eliminar `useLocalList`.
+4. Migrar Estudiantes, Docentes, Padres y Matrículas; eliminar `useLocalList`. *(Estudiantes, Docentes y Padres migrados y `useLocalList` eliminado en #631; queda Matrículas.)*
 5. Selectores con búsqueda en el servidor dentro de `EntityFormWindow`.
 
 **Fase 3 — Dar acceso al sistema (usuarios)**

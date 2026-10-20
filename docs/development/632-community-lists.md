@@ -94,6 +94,8 @@ La referencia del PR y sus checks completan la evidencia de integración.
 2. Adoptar `useServerList`, tamaño de página, URL e invalidación de caché entregados por #630.
 3. Migrar Estudiantes, Docentes y Encargados para enviar búsqueda/filtros al servidor y retirar
    `useLocalList`/`collectAllPages`; conectar los filtros correspondientes en Personas.
+   *(Hecho en #631 para Estudiantes, Docentes y Encargados: `useServerList` y `useLocalList`
+   eliminado. Los filtros de Personas siguen pendientes.)*
 4. Verificar exportaciones y selectores: los consumidores históricos deben pedir
    `include_inactive=true` cuando corresponda; no marcar E3 ni T2/G2 completos antes de esto.
 5. Continuar los bloques restantes del issue, incluidos plantillas y expediente con pestañas.
