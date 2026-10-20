@@ -85,7 +85,7 @@ describe("navegacion de modulos", () => {
     renderWithRouter(<App />, { route: "/" });
 
     expect(
-      await screen.findByRole("link", { name: /Iniciar sesión/i })
+      await screen.findByRole("heading", { name: /Iniciar sesión/i })
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("navigation", { name: "Estructura académica" })
