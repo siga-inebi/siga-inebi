@@ -17,6 +17,7 @@ const attendanceServiceMock = vi.hoisted(() => ({
 const studentsServiceMock = vi.hoisted(() => ({
   listPage: vi.fn(),
   getRecord: vi.fn(),
+  getRecordStatus: vi.fn(),
 }));
 
 vi.mock("@attendance/attendanceService.js", async () => {
@@ -228,6 +229,13 @@ describe("Carné en el expediente del estudiante", () => {
       status: "active",
       photo: "",
       person: { ...STUDENT.person, public_id: "person-1" },
+    });
+    studentsServiceMock.getRecordStatus.mockResolvedValue({
+      status: "active",
+      can_change: false,
+      last_change: null,
+      warnings: [],
+      options: [],
     });
     const user = userEvent.setup();
     const page = (
