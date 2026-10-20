@@ -8,6 +8,7 @@ import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 
 const service = vi.hoisted(() => ({
   list: vi.fn(),
+  listPage: vi.fn(),
   linkedStudents: vi.fn(),
   studentCandidates: vi.fn(),
   linkStudent: vi.fn(),
@@ -57,6 +58,12 @@ async function chooseStudent(user) {
 describe("G4 estudiantes del encargado", () => {
   beforeEach(() => {
     service.list.mockReset().mockResolvedValue([guardian]);
+    // El listado pide páginas al servidor; `list` sigue siendo la fuente de
+    // las filas.
+    service.listPage.mockReset().mockImplementation(async () => {
+      const results = await service.list();
+      return { results, count: results.length, next: null, previous: null };
+    });
     service.linkedStudents.mockReset().mockResolvedValue(page());
     service.studentCandidates
       .mockReset()
