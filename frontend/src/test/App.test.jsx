@@ -35,13 +35,27 @@ describe("app shell", () => {
     authServiceMock.logoutAll.mockResolvedValue(undefined);
   });
 
-  test("renders home screen", async () => {
+  test("redirects the public root directly to login", async () => {
     authServiceMock.me.mockResolvedValueOnce(anonymousSession);
     renderWithRouter(<App />);
 
     expect(
-      await screen.findByText(/Control academico, administrativo y operativo/i)
+      await screen.findByRole("heading", { name: /Iniciar sesión/i })
     ).toBeInTheDocument();
+  });
+
+  test("redirects the authenticated root to the operational dashboard", async () => {
+    authServiceMock.me.mockResolvedValueOnce(authenticatedSession);
+    const apiSpy = vi
+      .spyOn(apiClient, "get")
+      .mockResolvedValue({ count: 0, results: [] });
+
+    renderWithRouter(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: /Buen día, Demo/i })
+    ).toBeInTheDocument();
+    apiSpy.mockRestore();
   });
 
   test("public shell offers login and hides the module navigation", async () => {

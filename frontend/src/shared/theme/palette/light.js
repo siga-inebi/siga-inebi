@@ -39,6 +39,13 @@ export const lightPalette = {
     /** Marcador dorado del encabezado de seccion: la firma visual del sistema. */
     sectionMarker: raw.gold400,
     sunken: raw.bone200,
+    dashboardHeroStart: raw.navy500,
+    dashboardHeroEnd: raw.navy300,
+    dashboardHeroText: raw.white,
+    dashboardHeroAccent: raw.gold300,
+    dashboardHeroAction: raw.gold300,
+    dashboardHeroActionHover: raw.gold100,
+    dashboardHeroActionText: raw.navy500,
   },
   /** Colores de chip de estado, resueltos por variante semantica. */
   chipVariants: variantsLight,

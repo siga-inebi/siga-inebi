@@ -37,6 +37,13 @@ export const darkPalette = {
     inputHoverBorder: raw.gold400,
     sectionMarker: raw.gold_d_main,
     sunken: raw.dark_surface2,
+    dashboardHeroStart: raw.dark_surface2,
+    dashboardHeroEnd: raw.dark_surface,
+    dashboardHeroText: raw.dark_text_primary,
+    dashboardHeroAccent: raw.gold_d_main,
+    dashboardHeroAction: raw.gold_d_main,
+    dashboardHeroActionHover: raw.gold100,
+    dashboardHeroActionText: raw.navy500,
   },
   chipVariants: variantsDark,
 };

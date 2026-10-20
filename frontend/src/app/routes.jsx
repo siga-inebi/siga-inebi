@@ -38,9 +38,6 @@ const ForbiddenPage = lazy(() =>
     default: m.ForbiddenPage,
   }))
 );
-const HomePage = lazy(() =>
-  import("@dashboard/HomePage.jsx").then((m) => ({ default: m.HomePage }))
-);
 const StudentRecordPage = lazy(() =>
   import("@students/StudentRecordPage.jsx").then((module) => ({
     default: module.StudentRecordPage,
@@ -116,6 +113,17 @@ function PublicRoute({ children }) {
   return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
 }
 
+/**
+ * `/` no es una portada de marketing: SIGA es una herramienta institucional.
+ * La raiz lleva a la siguiente accion util segun la sesion, sin mostrar una
+ * pantalla intermedia que obligue a hacer otro clic.
+ */
+function RootRedirect() {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return <RouteFallback />;
+  return <Navigate replace to={isAuthenticated ? "/app" : "/login"} />;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -129,16 +137,7 @@ export function AppRoutes() {
           </PrivateRoute>
         }
       />
-      <Route
-        element={
-          <PublicShell>
-            <Suspense fallback={<RouteFallback />}>
-              <HomePage />
-            </Suspense>
-          </PublicShell>
-        }
-        path="/"
-      />
+      <Route element={<RootRedirect />} path="/" />
       <Route
         element={
           <PublicRoute>

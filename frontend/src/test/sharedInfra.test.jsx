@@ -15,6 +15,9 @@ const guardiansServiceMock = vi.hoisted(() => ({
   listPage: vi.fn(),
   list: vi.fn(),
 }));
+const cyclesServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const enrolmentsServiceMock = vi.hoisted(() => ({ listActive: vi.fn() }));
+const reportingServiceMock = vi.hoisted(() => ({ listAlerts: vi.fn() }));
 vi.mock("@students/studentsService.js", () => ({
   studentsService: studentsServiceMock,
 }));
@@ -23,6 +26,15 @@ vi.mock("@teachers/teachersService.js", () => ({
 }));
 vi.mock("@guardians/guardiansService.js", () => ({
   guardiansService: guardiansServiceMock,
+}));
+vi.mock("@cycles/cyclesService.js", () => ({
+  cyclesService: cyclesServiceMock,
+}));
+vi.mock("@enrolments/enrolmentsService.js", () => ({
+  enrolmentsService: enrolmentsServiceMock,
+}));
+vi.mock("@reporting/reportingService.js", () => ({
+  reportingService: reportingServiceMock,
 }));
 const authServiceMock = vi.hoisted(() => ({
   myAccount: vi.fn(),
@@ -33,7 +45,6 @@ vi.mock("@auth/authService.js", () => ({ authService: authServiceMock }));
 
 import { MyAccountPage } from "@auth/MyAccountPage.jsx";
 import { DashboardPage } from "@dashboard/DashboardPage.jsx";
-import { apiClient } from "@shared/api/apiClient.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import {
   defineCatalog,
@@ -49,15 +60,38 @@ beforeEach(() => {
   studentsServiceMock.listPage.mockReset().mockResolvedValue({ count: 1250 });
   teachersServiceMock.listPage.mockReset().mockResolvedValue({ count: 40 });
   guardiansServiceMock.listPage.mockReset().mockResolvedValue({ count: 900 });
+  cyclesServiceMock.list.mockReset().mockResolvedValue({
+    count: 2,
+    results: [
+      {
+        public_id: "cycle-active",
+        name: "Ciclo 2026",
+        year: 2026,
+        status: "active",
+        starts_on: "2026-01-15",
+        ends_on: "2026-10-31",
+      },
+      {
+        public_id: "cycle-draft",
+        name: "Ciclo 2027",
+        year: 2027,
+        status: "draft",
+        starts_on: "2027-01-15",
+        ends_on: "2027-10-31",
+      },
+    ],
+  });
+  enrolmentsServiceMock.listActive
+    .mockReset()
+    .mockResolvedValue({ count: 1180 });
+  reportingServiceMock.listAlerts
+    .mockReset()
+    .mockResolvedValue({ count: 0, results: [] });
   studentsServiceMock.list.mockReset();
 });
 
 describe("Panel principal (1.7, MC3)", () => {
-  test("cuenta con una fila por modulo, sin descargar padrones, y traduce el estado", async () => {
-    vi.spyOn(apiClient, "get").mockResolvedValue({
-      status: "ok",
-      service: "api",
-    });
+  test("resume la operacion sin descargar padrones y enlaza el ciclo activo", async () => {
     renderWithSession(<DashboardPage />, {
       user: sessionUser(["student.view_basic"]),
       route: "/app",
@@ -67,8 +101,37 @@ describe("Panel principal (1.7, MC3)", () => {
     expect(screen.getByText("40")).toBeInTheDocument();
     expect(studentsServiceMock.listPage).toHaveBeenCalledWith({ page_size: 1 });
     expect(studentsServiceMock.list).not.toHaveBeenCalled();
-    expect(screen.getByText("Activa")).toBeInTheDocument();
-    expect(screen.queryByText("active")).not.toBeInTheDocument();
+    expect(await screen.findByText("1180")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Ciclo 2026" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Abrir ciclo activo/i })
+    ).toHaveAttribute("href", "/app/ciclos/cycle-active");
+    expect(screen.queryByText(/Estado del servicio/i)).not.toBeInTheDocument();
+  });
+
+  test("prioriza alertas activas para una cuenta autorizada", async () => {
+    reportingServiceMock.listAlerts.mockResolvedValue({
+      count: 2,
+      results: [
+        {
+          public_id: "alert-1",
+          alert_type: "inconsistencia",
+          event_date: "2026-10-18",
+        },
+      ],
+    });
+    renderWithSession(<DashboardPage />, {
+      user: sessionUser(["student.view_basic", "reporting.alert.view"]),
+      route: "/app",
+    });
+
+    expect(await screen.findByText("2 alertas")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Atender alertas/i })
+    ).toHaveAttribute("href", "/app/alertas");
+    expect(screen.getByText("Inconsistencia")).toBeInTheDocument();
   });
 });
 

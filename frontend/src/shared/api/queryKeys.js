@@ -101,7 +101,9 @@ export const queryKeys = {
   },
   dashboard: {
     all: ["dashboard"],
-    health: () => ["dashboard", "health"],
+    cycles: () => ["dashboard", "cycles"],
+    activeEnrolments: (cycleId) => ["dashboard", "active-enrolments", cycleId],
+    pendingAlerts: () => ["dashboard", "pending-alerts"],
   },
   identity: {
     all: ["identity"],
