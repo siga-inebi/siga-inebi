@@ -5,6 +5,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const students = vi.hoisted(() => ({
   getRecord: vi.fn(),
+  getRecordStatus: vi.fn(),
+  changeRecordStatus: vi.fn(),
+  linkRecordGuardian: vi.fn(),
   update: vi.fn(),
   deactivate: vi.fn(),
   listRecordGuardians: vi.fn(),
@@ -73,10 +76,62 @@ beforeEach(() => {
   for (const group of [students, guardians, enrolments, documents, attendance])
     for (const mock of Object.values(group))
       mock.mockReset().mockResolvedValue(paged());
-  students.getRecord.mockResolvedValue(RECORD);
+  students.getRecord.mockResolvedValue({
+    ...RECORD,
+    actions: { link_guardian: true },
+  });
   students.update.mockResolvedValue(RECORD);
 });
 afterEach(() => vi.restoreAllMocks());
+
+test("cambiar estado recarga capacidades y no repite POST si falla esa lectura", async () => {
+  const statusContext = {
+    status: "active",
+    can_change: true,
+    last_change: null,
+    warnings: [],
+    options: [
+      { value: "active", label: "Activo" },
+      { value: "withdrawn", label: "Retirado" },
+    ],
+  };
+  students.getRecord
+    .mockResolvedValueOnce({ ...RECORD, actions: { link_guardian: true } })
+    .mockRejectedValueOnce(new Error("No se pudo recargar la ficha"))
+    .mockResolvedValue({
+      ...RECORD,
+      status: "withdrawn",
+      actions: { link_guardian: false },
+    });
+  students.getRecordStatus.mockResolvedValue(statusContext);
+  students.changeRecordStatus.mockResolvedValue({
+    ...statusContext,
+    status: "withdrawn",
+  });
+  const user = userEvent.setup();
+  renderRecord();
+  await user.click(
+    await screen.findByRole("button", { name: "Cambiar estado" })
+  );
+  await user.click(screen.getByLabelText("Nuevo estado"));
+  await user.click(screen.getByRole("option", { name: "Retirado" }));
+  await user.click(screen.getByRole("button", { name: "Revisar cambio" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Confirmar cambio" })
+  );
+  await screen.findByText("No se pudo recargar la ficha");
+  expect(
+    screen.getByText("Estado del expediente actualizado.")
+  ).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Reintentar" }));
+  await screen.findByText("Retirado");
+  expect(students.changeRecordStatus).toHaveBeenCalledOnce();
+  await openTab(user, "Encargados");
+  await screen.findByText("Sin encargados vinculados");
+  expect(
+    screen.queryByRole("button", { name: "Vincular encargado" })
+  ).not.toBeInTheDocument();
+});
 
 function renderRecord(route = "/app/alumnos/student-1") {
   return renderWithRouter(
@@ -276,6 +331,7 @@ test("edita todos los campos disponibles en línea sin incluir CUI ni nacimiento
   await screen.findByText(RECORD.person.address);
   await user.click(screen.getByRole("button", { name: "Editar" }));
   expect(screen.queryByLabelText(/^CUI/)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/^Estado/)).not.toBeInTheDocument();
   await editInstitutionalPerson(user);
   await user.clear(screen.getByLabelText(/^Apellidos/));
   await user.type(screen.getByLabelText(/^Apellidos/), "Nuevo");
@@ -314,13 +370,12 @@ test("consulta encargados y vincula usando catálogo paginado", async () => {
   );
   await user.click(screen.getByRole("button", { name: "Vincular encargado" }));
   await waitFor(() =>
-    expect(students.createGuardianRelation).toHaveBeenCalledWith({
-      student: 1,
-      guardian: 7,
+    expect(students.linkRecordGuardian).toHaveBeenCalledWith("student-1", {
+      guardian_id: 7,
       relationship_label: "Familiar",
     })
   );
-  expect(guardians.listPage).toHaveBeenCalledWith({ page: 1 });
+  expect(guardians.listPage).toHaveBeenCalledWith({ page: 1, search: "" });
 });
 
 test("muestra matrícula vigente e historial con nombres del servidor", async () => {

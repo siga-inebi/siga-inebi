@@ -74,7 +74,7 @@ def test_deactivation_keeps_person_relations_academic_and_sensitive_history(auth
     response = auth_client.get(dossier(student))
     assert response.status_code == 200
     assert response.json()["status"] == "inactive"
-    assert response.json()["actions"] == {"deactivate": False}
+    assert response.json()["actions"] == {"deactivate": False, "link_guardian": False}
     event = AuditEvent.objects.get(action="students.student.deactivated")
     assert event.actor == auth_client.user
 
@@ -84,11 +84,14 @@ def test_dossier_capabilities_do_not_audit_an_unattempted_write(auth_client):
     grant(auth_client.user, student, "student_view_basic")
     response = auth_client.get(dossier(student))
     assert response.status_code == 200
-    assert response.json()["actions"] == {"deactivate": False}
+    assert response.json()["actions"] == {"deactivate": False, "link_guardian": False}
     assert auth_client.head(dossier(student)).status_code == 200
     assert not AuditEvent.objects.filter(action="identity.authorization.denied").exists()
     grant(auth_client.user, student, "student_edit_basic")
-    assert auth_client.get(dossier(student)).json()["actions"] == {"deactivate": True}
+    assert auth_client.get(dossier(student)).json()["actions"] == {
+        "deactivate": True,
+        "link_guardian": True,
+    }
 
 
 def test_delete_revalidates_permission_and_scope(auth_client):

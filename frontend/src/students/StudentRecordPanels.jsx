@@ -1,3 +1,4 @@
+import { GuardianLinkForm } from "./GuardianLinkForm.jsx";
 import { useCallback, useState } from "react";
 
 import Alert from "@mui/material/Alert";
@@ -8,7 +9,6 @@ import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 
 import { studentsService } from "@students/studentsService.js";
-import { guardiansService } from "@guardians/guardiansService.js";
 import {
   enrolmentsService,
   ENROLMENT_STATUS_LABEL,
@@ -227,61 +227,6 @@ export function RelatedRecordsPanel({ student, kind, onBusy }) {
   );
 }
 
-function GuardianLinkForm({ student, onCancel, onSaved, onBusy }) {
-  const load = useCallback(
-    (params) => guardiansService.listPage({ page: params.page }),
-    []
-  );
-  const list = usePaginatedList(load, { canIncludeInactive: false });
-  const [chosen, setChosen] = useState(null);
-  return (
-    <Stack gap={2}>
-      <Typography component="h2" variant="h6">
-        Vincular encargado
-      </Typography>
-      {!chosen ? (
-        <>
-          <RecordCollection
-            list={list}
-            emptyMessage="No hay encargados registrados."
-            renderRow={(row) => (
-              <Button onClick={() => setChosen(row)}>
-                Elegir {fullName(row)}
-              </Button>
-            )}
-          />
-          <Button onClick={onCancel}>Cancelar</Button>
-        </>
-      ) : (
-        <>
-          <Typography>Encargado: {fullName(chosen)}</Typography>
-          <RecordForm
-            title="Vincular encargado"
-            fields={[
-              {
-                name: "relationship_label",
-                label: "Parentesco o responsabilidad",
-                required: true,
-              },
-            ]}
-            onCancel={onCancel}
-            onBusy={onBusy}
-            submitLabel="Vincular encargado"
-            onSubmit={async (values) => {
-              await studentsService.createGuardianRelation({
-                student: student.id,
-                guardian: chosen.id,
-                ...values,
-              });
-              onSaved();
-            }}
-          />
-        </>
-      )}
-    </Stack>
-  );
-}
-
 export function GuardiansPanel({ student, onBusy }) {
   const [linking, setLinking] = useState(false);
   const [selection, setSelection] = useState(null);
@@ -334,7 +279,7 @@ export function GuardiansPanel({ student, onBusy }) {
             list.refresh();
           }}
         />
-      ) : (
+      ) : student.actions?.link_guardian ? (
         <Button
           sx={{ alignSelf: "flex-start" }}
           variant="outlined"
@@ -345,7 +290,7 @@ export function GuardiansPanel({ student, onBusy }) {
         >
           Vincular encargado
         </Button>
-      )}
+      ) : null}
       <RecordCollection
         list={list}
         busy={busy}

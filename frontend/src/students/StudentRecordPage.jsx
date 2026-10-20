@@ -19,6 +19,7 @@ import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { ImageDialog } from "@ui/display/ImageDialog.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { formatDateTime } from "@shared/utils/format.js";
+import { StudentStatusAction } from "./StudentStatusAction.jsx";
 import { RecordForm } from "./RecordForm.jsx";
 import { StudentDeactivationForm } from "./StudentDeactivationForm.jsx";
 import {
@@ -57,8 +58,15 @@ const TABS = [
   ["card", "Carné", PERMISSION.ATTENDANCE_CREDENTIAL_ISSUE],
 ];
 
-function DataPanel({ student, onSaved, onBusy, onDeactivated }) {
+function DataPanel({
+  student,
+  onSaved,
+  onBusy,
+  onDeactivated,
+  onStatusChanged,
+}) {
   const [editing, setEditing] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
   const [photo, setPhoto] = useState(false);
   if (deactivating)
@@ -78,14 +86,13 @@ function DataPanel({ student, onSaved, onBusy, onDeactivated }) {
         initialValues={{
           ...student.person,
           student_code: student.student_code,
-          status: student.status,
           photo: null,
         }}
         onBusy={onBusy}
         onCancel={() => setEditing(false)}
         submitLabel="Guardar cambios"
         onSubmit={async (values) => {
-          const { student_code, status, photo: file } = values;
+          const { student_code, photo: file } = values;
           const person = Object.fromEntries(
             [
               "first_name",
@@ -102,7 +109,6 @@ function DataPanel({ student, onSaved, onBusy, onDeactivated }) {
           const updated = await studentsService.update(student.id, {
             person: { public_id: student.person.public_id, ...person },
             student_code,
-            status,
             photo: file,
           });
           onSaved(updated);
@@ -136,16 +142,29 @@ function DataPanel({ student, onSaved, onBusy, onDeactivated }) {
         <Button
           sx={{ alignSelf: "flex-start" }}
           variant="outlined"
+          disabled={statusBusy}
           onClick={() => setEditing(true)}
         >
           Editar
         </Button>
         {student.actions?.deactivate ? (
-          <Button color="error" onClick={() => setDeactivating(true)}>
+          <Button
+            disabled={statusBusy}
+            color="error"
+            onClick={() => setDeactivating(true)}
+          >
             Desactivar estudiante
           </Button>
         ) : null}
       </Stack>
+      <StudentStatusAction
+        student={student}
+        onBusy={(value) => {
+          setStatusBusy(value);
+          onBusy?.(value);
+        }}
+        onChanged={onStatusChanged}
+      />
       <Box
         component="dl"
         sx={{
@@ -296,6 +315,11 @@ function StudentRecord({ publicId }) {
                         }))
                       }
                       onBusy={setBusy}
+                      onStatusChanged={() => {
+                        setSuccess("Estado del expediente actualizado.");
+                        setStudent(null);
+                        setVersion((value) => value + 1);
+                      }}
                       onDeactivated={() => {
                         setSuccess(
                           "Estudiante desactivado. El historial se conserva."

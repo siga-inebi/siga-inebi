@@ -1,5 +1,9 @@
 from django.urls import path
 
+from apps.students.api.record_workflows import (
+    StudentRecordGuardianLinkView,
+    StudentRecordStatusView,
+)
 from apps.students.api.views import (
     EmergencyContactDetailView,
     GuardianDetailView,
@@ -21,6 +25,16 @@ from apps.students.api.views import (
 )
 
 urlpatterns = [
+    path(
+        "records/<uuid:public_id>/guardians/link/",
+        StudentRecordGuardianLinkView.as_view(),
+        name="student-record-guardian-link",
+    ),
+    path(
+        "records/<uuid:public_id>/status/",
+        StudentRecordStatusView.as_view(),
+        name="student-record-status",
+    ),
     path(
         "records/<uuid:public_id>/",
         StudentDossierDetailView.as_view(),

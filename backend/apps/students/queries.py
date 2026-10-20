@@ -149,3 +149,78 @@ def observation_or_404(public_id):
         public_id,
         "la observación",
     )
+
+
+def student_record_for_action(*, actor, public_id, permission="student_edit_basic"):
+    from apps.identity.scopes import authorized_student_queryset
+
+    return _get(
+        authorized_student_queryset(user=actor, codename=permission, queryset=students()),
+        public_id,
+        "Student",
+    )
+
+
+def guardian_for_link(guardian_id):
+    from apps.students.models import Guardian
+
+    try:
+        return Guardian.objects.select_related("person").get(pk=guardian_id)
+    except Guardian.DoesNotExist as exc:
+        raise ResourceNotFoundError("Encargado no encontrado.") from exc
+
+
+def student_status_context(*, student, actor, selected_status=None):
+    from django.db.models import F, Q
+
+    from apps.audit.models import AuditEvent
+    from apps.enrolments.services import active_enrolments
+    from apps.students.services import student_status_warnings
+
+    has_active_enrolment = active_enrolments(student=student).exists()
+    event = (
+        AuditEvent.objects.filter(resource="Student", resource_identifier=str(student.pk))
+        .filter(
+            Q(action="students.student.status_changed")
+            | (
+                Q(
+                    action="students.student.updated",
+                    context__fields__contains=["status"],
+                    context__before__has_key="status",
+                    context__after__has_key="status",
+                )
+                & ~Q(context__before__status=F("context__after__status"))
+            )
+            | Q(action="students.student.deactivated")
+        )
+        .order_by("-created_at", "-pk")
+        .first()
+    )
+    last_change = None
+    if event is not None:
+        last_change = {
+            "previous_status": event.context.get("before", {}).get("status"),
+            "status": event.context.get("after", {}).get("status", "inactive"),
+            "actor_label": event.actor_label or "Autor no registrado",
+            "changed_at": event.created_at,
+        }
+    labels = {
+        "pre_enrolled": "Preinscrito",
+        "active": "Activo",
+        "inactive": "Inactivo",
+        "withdrawn": "Retirado",
+        "graduated": "Graduado",
+        "transferred": "Trasladado",
+    }
+    return {
+        "status": student.status,
+        "can_change": student.is_active and student_record_can_manage(actor=actor, student=student),
+        "options": [
+            {"value": value, "label": labels[value]} for value in Student.StudentStatus.values
+        ],
+        "has_active_enrolment": has_active_enrolment,
+        "warnings": student_status_warnings(
+            status=selected_status or student.status, has_active_enrolment=has_active_enrolment
+        ),
+        "last_change": last_change,
+    }

@@ -22,6 +22,20 @@ describe("toda mutacion invalida lo que muestra (ux-ui 1.2.3)", () => {
   });
 
   test("cada ruta de escritura sabe que keys toca", () => {
+    expect(
+      keysForMutation("/students/records/student-1/guardians/link/")
+    ).toEqual(
+      expect.arrayContaining([
+        ["guardians"],
+        ["people"],
+        ["students"],
+        ["search", "guardians"],
+        ["search", "people"],
+      ])
+    );
+    expect(
+      keysForMutation("/students/records/student-1/status/")
+    ).not.toContainEqual(["guardians"]);
     expect(keysForMutation("/teachers/abc/")).toEqual(
       expect.arrayContaining([
         ["teachers"],

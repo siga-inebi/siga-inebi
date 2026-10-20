@@ -79,8 +79,10 @@ def create_student(*, person_data, student_code=None, status=None, actor=None):
     return student
 
 
+@transaction.atomic
 def update_student(*, student, actor=None, **changes):
     """Update basic student data through the domain layer and audit supplied fields."""
+    student = Student.objects.select_for_update().get(pk=student.pk)
     allowed_fields = {"student_code", "status", "photo"}
     supplied = {name: value for name, value in changes.items() if name in allowed_fields}
     if "student_code" in supplied:
@@ -506,3 +508,69 @@ def deactivate_student_observation(*, observation, actor):
         student_id=observation.student_id,
     )
     return observation
+
+
+@transaction.atomic
+def link_guardian_from_record(*, student, relationship_label, actor, guardian_id=None, person=None):
+    from apps.students.queries import guardian_for_link
+
+    student = Student.objects.select_for_update().get(pk=student.pk)
+    _require_student_interaction(student)
+    if (guardian_id is None) == (person is None):
+        raise DomainError("Seleccione un encargado o complete uno nuevo.")
+    if guardian_id is not None:
+        guardian = guardian_for_link(guardian_id)
+        _require_active(guardian, "el encargado")
+        _require_active(guardian.person, "la persona")
+        if StudentGuardianRelation.objects.filter(
+            student=student, guardian=guardian, is_active=True, ends_at__isnull=True
+        ).exists():
+            raise DomainError("Este encargado ya tiene un vínculo vigente con el estudiante.")
+    else:
+        with unique_violation_as(
+            {"people_person_cui_key": "El CUI ya esta registrado. Busque la persona existente."}
+        ):
+            guardian = create_guardian(person_data=person, actor=actor)
+    return create_student_guardian_relation(
+        student=student, guardian=guardian, relationship_label=relationship_label, actor=actor
+    )
+
+
+def student_status_warnings(*, status, has_active_enrolment):
+    if status == Student.StudentStatus.ACTIVE and not has_active_enrolment:
+        return ["El estado Activo no coincide con la ausencia de una matrícula vigente."]
+    if status != Student.StudentStatus.ACTIVE and has_active_enrolment:
+        return ["El estado elegido no es Activo, pero el estudiante tiene una matrícula vigente."]
+    return []
+
+
+@transaction.atomic
+def change_student_record_status(*, student, status, expected_status, actor):
+    from apps.students.queries import student_status_context
+
+    student = Student.objects.select_for_update().get(pk=student.pk)
+    _require_active(student, "el perfil del estudiante")
+    if status not in Student.StudentStatus.values:
+        raise DomainError("El estado del estudiante no es válido.")
+    if student.status != expected_status:
+        raise DomainError("El estado cambió desde que abrió la confirmación. Recargue la ficha.")
+    if student.status == status:
+        raise DomainError("Seleccione un estado diferente del actual.")
+    previous = student.status
+    student.status = status
+    student.save(update_fields=["status", "updated_at"])
+    record_event(
+        actor=actor,
+        action="students.student.status_changed",
+        resource="Student",
+        resource_identifier=str(student.pk),
+        context={"before": {"status": previous}, "after": {"status": status}},
+    )
+    return student_status_context(student=student, actor=actor)
+
+
+def student_dossier_actions(*, student, can_manage):
+    return {
+        **student_deactivation_action(student=student, can_manage=can_manage),
+        "link_guardian": can_manage and student_allows_interaction(student),
+    }
