@@ -32,7 +32,7 @@ export function positionOptions(siblings, excludeId) {
     { value: AT_START, label: "Al inicio" },
     ...others.map((item) => ({
       value: item.public_id,
-      label: `Despues de ${item.name}`,
+      label: `Después de ${item.name}`,
     })),
   ];
 }
@@ -69,13 +69,13 @@ export function positionPayload(value) {
 export function positionField(siblings, excludeId) {
   return {
     name: "insert_after",
-    label: "Posicion",
+    label: "Posición",
     type: "select",
     options: positionOptions(siblings, excludeId),
     // Sin opcion vacia: siempre hay una posicion, y "Seleccione una opcion"
     // arriba de "Al final" solo suma una fila que no significa nada.
     placeholder: "",
-    help: "Define el orden pedagogico. Los demas se renumeran solos.",
+    help: "Define el orden pedagógico. Los demás se renumeran solos.",
   };
 }
 

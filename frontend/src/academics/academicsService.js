@@ -106,11 +106,58 @@ export const academicsService = {
   // es justo lo que necesita un selector para etiquetarse sin pedir mas datos.
   listSections: (params) =>
     apiClient.get(withQuery(`${ROOT}/sections/`, params)),
+  createSection: (payload) => apiClient.post(`${ROOT}/sections/`, payload),
+  updateSection: (sectionId, payload) =>
+    apiClient.patch(`${ROOT}/sections/${sectionId}/`, payload),
+  deactivateSection: (sectionId) =>
+    apiClient.del(`${ROOT}/sections/${sectionId}/`),
+
+  // plan de estudios del ciclo (por grado). No es "Cursos del nivel".
+  listCurriculumPlans: (params) =>
+    apiClient.get(withQuery(`${ROOT}/curriculum-plans/`, params)),
+  createCurriculumPlan: (payload) =>
+    apiClient.post(`${ROOT}/curriculum-plans/`, payload),
+  updateCurriculumPlan: (planId, payload) =>
+    apiClient.patch(`${ROOT}/curriculum-plans/${planId}/`, payload),
+  deactivateCurriculumPlan: (planId) =>
+    apiClient.del(`${ROOT}/curriculum-plans/${planId}/`),
+
+  // horarios: bloques por jornada y sesiones por seccion (RF-HOR-*)
+  listScheduleBlocks: (shiftId, params) =>
+    apiClient.get(
+      withQuery(`${ROOT}/shifts/${shiftId}/schedule-blocks/`, params)
+    ),
+  createScheduleBlock: (shiftId, payload) =>
+    apiClient.post(`${ROOT}/shifts/${shiftId}/schedule-blocks/`, payload),
+  updateScheduleBlock: (blockId, payload) =>
+    apiClient.patch(`${ROOT}/schedule-blocks/${blockId}/`, payload),
+  deactivateScheduleBlock: (blockId) =>
+    apiClient.del(`${ROOT}/schedule-blocks/${blockId}/`),
+  listClassSessions: (sectionId, params) =>
+    apiClient.get(
+      withQuery(`${ROOT}/sections/${sectionId}/class-sessions/`, params)
+    ),
+  createClassSession: (sectionId, payload) =>
+    apiClient.post(`${ROOT}/sections/${sectionId}/class-sessions/`, payload),
+  deactivateClassSession: (sessionId) =>
+    apiClient.del(`${ROOT}/class-sessions/${sessionId}/`),
+  cloneClassSessions: (sectionId, sourceSectionId) =>
+    apiClient.post(`${ROOT}/sections/${sectionId}/class-sessions/clone/`, {
+      source_section_id: sourceSectionId,
+    }),
+  sectionWeeklyLoad: (sectionId) =>
+    apiClient.get(`${ROOT}/sections/${sectionId}/weekly-load/`),
 
   // asignaciones docentes
   //
   // No hay endpoint de "asignaciones vigentes": el listado es el historial, y la
   // vigencia se lee de `ends_on`. Reasignar no edita, cierra y abre.
+  /**
+   * Listado filtrable con nombres (`academic_cycle_id`, `section_id`,
+   * `subject_id`, `teacher_id`, `current`), paginado en el servidor.
+   */
+  listTeachingAssignments: (params) =>
+    apiClient.get(withQuery(`${ROOT}/teaching-assignments/`, params)),
   listTeachingAssignmentHistory: (params) =>
     apiClient.get(withQuery(`${ROOT}/teaching-assignments/history/`, params)),
   createTeachingAssignment: (payload) =>

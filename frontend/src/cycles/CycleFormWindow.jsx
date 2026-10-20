@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -53,6 +53,7 @@ function yearOptions(now = new Date()) {
  */
 export function CycleFormWindow({
   description,
+  initialValues = null,
   initialYear,
   onCancel,
   onSubmit,
@@ -61,16 +62,19 @@ export function CycleFormWindow({
   withAssignmentsToggle = false,
 }) {
   const years = yearOptions();
-  const [year, setYear] = useState(String(initialYear));
+  const [year, setYear] = useState(String(initialValues?.year ?? initialYear));
   const [values, setValues] = useState({
-    name: "",
-    starts_on: "",
-    ends_on: "",
-    description: "",
+    name: initialValues?.name ?? "",
+    starts_on: initialValues?.starts_on ?? "",
+    ends_on: initialValues?.ends_on ?? "",
+    description: initialValues?.description ?? "",
   });
+  // Al editar (C3) se respetan el nombre y las fechas guardados: solo un cambio
+  // de anio vuelve a proponer los derivados.
+  const keepSaved = useRef(Boolean(initialValues));
   const [includeAssignments, setIncludeAssignments] = useState(false);
 
-  const [loadingDefaults, setLoadingDefaults] = useState(true);
+  const [loadingDefaults, setLoadingDefaults] = useState(!initialValues);
   const [defaultsError, setDefaultsError] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -78,6 +82,10 @@ export function CycleFormWindow({
   // Los derivados se releen en cada cambio de anio. La descripcion NO se toca:
   // es texto institucional que alguien escribio, no un valor calculado.
   useEffect(() => {
+    if (keepSaved.current) {
+      keepSaved.current = false;
+      return undefined;
+    }
     let active = true;
     setLoadingDefaults(true);
     setDefaultsError("");
@@ -184,7 +192,7 @@ export function CycleFormWindow({
           >
             <FormSelect
               fullWidth
-              label="Ano del ciclo"
+              label="Año del ciclo"
               onChange={(event) => setYear(event.target.value)}
               options={years}
               required
@@ -192,7 +200,7 @@ export function CycleFormWindow({
             />
             <FormTextField
               fullWidth
-              helperText="Se deriva del ano; puede ajustarlo."
+              helperText="Se deriva del año; puede ajustarlo."
               label="Nombre del ciclo"
               onChange={(event) => setValue("name", event.target.value)}
               required
@@ -203,7 +211,7 @@ export function CycleFormWindow({
               helperText={
                 values.starts_on
                   ? `Inicio: ${formatDate(values.starts_on)}`
-                  : "Se deriva del ano."
+                  : "Se deriva del año."
               }
               label="Inicio"
               onChange={(event) => setValue("starts_on", event.target.value)}
@@ -217,7 +225,7 @@ export function CycleFormWindow({
               helperText={
                 values.ends_on
                   ? `Cierre: ${formatDate(values.ends_on)}`
-                  : "Se deriva del ano."
+                  : "Se deriva del año."
               }
               label="Cierre"
               onChange={(event) => setValue("ends_on", event.target.value)}
@@ -229,7 +237,7 @@ export function CycleFormWindow({
             <Box sx={{ gridColumn: { sm: "1 / -1" } }}>
               <FormTextField
                 fullWidth
-                label="Descripcion (opcional)"
+                label="Descripción (opcional)"
                 onChange={(event) =>
                   setValue("description", event.target.value)
                 }
@@ -249,7 +257,7 @@ export function CycleFormWindow({
                   }
                 />
               }
-              label="Copiar tambien las asignaciones docentes"
+              label="Copiar también las asignaciones docentes"
             />
           ) : null}
         </Stack>

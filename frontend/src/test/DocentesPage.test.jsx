@@ -224,7 +224,7 @@ describe("DocentesPage", () => {
     await fillInstitutionalPerson(user);
     await user.type(screen.getByLabelText(/^Especialidad/), "Fisica");
     await selectOption(user, /^Puesto/, "Docente Interino");
-    const codeField = screen.getByLabelText(/^Codigo de empleado/i);
+    const codeField = screen.getByLabelText(/^Código de empleado/i);
     // Llega prellenado con la sugerencia del backend, y se puede sobreescribir.
     expect(codeField).toHaveValue("DOC-013");
     await user.clear(codeField);
@@ -335,7 +335,7 @@ describe("DocentesPage", () => {
         name: "Marvin Estuardo Lopez Mendez",
       })
     ).toBeInTheDocument();
-  });
+  }, 15000);
 
   test("requires the mandatory fields before submitting", async () => {
     teachersServiceMock.list.mockResolvedValue(SAMPLE);

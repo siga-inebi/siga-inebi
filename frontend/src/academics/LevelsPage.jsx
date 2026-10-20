@@ -1,24 +1,33 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import UnfoldMoreOutlinedIcon from "@mui/icons-material/UnfoldMoreOutlined";
 
-import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
+import { academicsService } from "@academics/academicsService.js";
+import {
+  CatalogFilters,
+  DetailToggleButton,
+} from "@academics/CatalogFilters.jsx";
+import { SEQUENCE_ORDERING } from "@academics/catalogOrdering.js";
 import {
   AT_END,
   currentPosition,
   positionField,
   positionPayload,
 } from "@academics/orderPosition.js";
-import { useSubjectOptions } from "@academics/useSubjectOptions.js";
+import { SUBJECT_SEARCH } from "@academics/searchOptions.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
 import {
@@ -28,6 +37,23 @@ import {
   MutedCell,
 } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
+
+/**
+ * Hermanos para el campo "Posición": una sola página, en orden pedagógico.
+ * Los niveles y los grados de un nivel son pocos; el listado visible puede
+ * estar buscado, reordenado o paginado y no sirve para ubicar uno nuevo.
+ */
+const SIBLINGS_PAGE = { page: 1, page_size: 100, ordering: "sequence" };
+
+async function loadSiblings(fetchPage) {
+  try {
+    const page = await fetchPage(SIBLINGS_PAGE);
+    return page?.results ?? [];
+  } catch {
+    // Sin hermanos el formulario igual abre: "Al final" siempre es válido.
+    return [];
+  }
+}
 
 const LEVEL_COLUMNS = [
   {
@@ -39,18 +65,12 @@ const LEVEL_COLUMNS = [
   { key: "name", label: "Nivel", render: (row) => row.name },
   {
     key: "code",
-    label: "Codigo",
+    label: "Código",
     render: (row) => <CodeCell value={row.code} />,
   },
   {
-    key: "grade_count",
-    label: "Grados",
-    align: "right",
-    render: (row) => row.grade_count,
-  },
-  {
     key: "subject_count",
-    label: "Cursos",
+    label: "Cursos del nivel",
     align: "right",
     render: (row) => row.subject_count,
   },
@@ -65,13 +85,13 @@ const NAME_FIELD = {
   name: "name",
   label: "Nombre",
   required: true,
-  placeholder: "Ejemplo: Basico",
+  placeholder: "Ejemplo: Básico",
 };
 
 const CODE_FIELD = {
   name: "code",
-  label: "Codigo",
-  help: "Se genera solo. Cambielo si el nivel ya se conoce por otro codigo.",
+  label: "Código",
+  help: "Se genera solo. Cámbielo si el nivel ya se conoce por otro código.",
 };
 
 const createLevelFields = (levels) => [
@@ -85,19 +105,65 @@ const editLevelFields = (levels, level) => [
   positionField(levels, level.public_id),
 ];
 
+/** Cambia el elemento elegido en la URL y limpia la vista de su detalle. */
+function useSelectedParam(name, detailPrefixes) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedId = searchParams.get(name) ?? "";
+  const setSelectedId = (id) =>
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        for (const key of [...next.keys()]) {
+          if (detailPrefixes.some((prefix) => key.startsWith(prefix))) {
+            next.delete(key);
+          }
+        }
+        if (id) next.set(name, id);
+        else next.delete(name);
+        return next;
+      },
+      { replace: true }
+    );
+  return [selectedId, setSelectedId];
+}
+
+/**
+ * Niveles, sus grados y sus cursos (N1–N3). Los tres listados se piden por
+ * página al servidor; el nivel elegido vive en la URL (`?nivel=<id>`).
+ *
+ * "Cursos del nivel" es el vínculo nivel ↔ curso con sus horas semanales. NO es
+ * el plan de estudios de un ciclo, que se define por grado dentro de cada ciclo
+ * escolar y es el que exige la activación (N2).
+ */
 export function LevelsPage() {
-  const loadLevels = useCallback(
-    (params) => academicsService.listLevels(params),
-    []
-  );
-  const list = usePaginatedList(loadLevels, { pageSize: PAGE_SIZE });
+  const { can } = usePermissions();
+  const canEdit = can(PERMISSION.SCOPE_ASSIGN);
+  const list = useServerList({
+    queryKey: queryKeys.academics.list("levels"),
+    fetchPage: (params) => academicsService.listLevels(params),
+    defaultOrdering: "sequence",
+    canIncludeInactive: true,
+  });
 
   const [editing, setEditing] = useState(null);
-  const [selectedId, setSelectedId] = useState("");
   const [actionError, setActionError] = useState("");
+  const [selectedId, setSelectedId] = useSelectedParam("nivel", [
+    "grades_",
+    "level_subjects_",
+  ]);
+  const toggle = (level) =>
+    setSelectedId(level.public_id === selectedId ? "" : level.public_id);
 
-  const selected =
+  const inPage =
     list.items.find((level) => level.public_id === selectedId) || null;
+  const fallback = useResourceQuery(
+    queryKeys.academics.list("level", selectedId),
+    () => academicsService.getLevel(selectedId),
+    { enabled: Boolean(selectedId) && !inPage && !list.loading }
+  );
+  const selected = inPage ?? (selectedId ? fallback.data : null) ?? null;
+
+  const siblings = () => loadSiblings(academicsService.listLevels);
 
   const handleCreate = async ({ insert_after: position, ...payload }) => {
     await academicsService.createLevel({
@@ -132,76 +198,96 @@ export function LevelsPage() {
   return (
     <>
       <PageHeader
-        breadcrumb="Estructura academica"
-        subtitle="Cada nivel ordena su secuencia pedagogica, agrupa sus grados y declara los cursos que se imparten en el."
-        title="Niveles, grados y plan de estudios"
+        breadcrumb="Estructura académica"
+        subtitle="Cada nivel ordena su secuencia pedagógica, agrupa sus grados y declara los cursos que se imparten en él."
+        title="Niveles, grados y cursos del nivel"
       />
 
       <ListSection
         action={
-          <Button
-            onClick={async () =>
-              setEditing({
-                mode: "create",
-                values: {
-                  name: "",
-                  code: await suggestedOrBlank(academicsService.nextLevelCode),
-                  insert_after: AT_END,
-                },
-              })
-            }
-            size="small"
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nuevo nivel
-          </Button>
+          canEdit ? (
+            <Button
+              onClick={async () => {
+                const [code, levels] = await Promise.all([
+                  suggestedOrBlank(academicsService.nextLevelCode),
+                  siblings(),
+                ]);
+                setEditing({
+                  mode: "create",
+                  siblings: levels,
+                  values: { name: "", code, insert_after: AT_END },
+                });
+              }}
+              size="small"
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nuevo nivel
+            </Button>
+          ) : null
         }
         actionError={actionError}
         list={list}
         columns={LEVEL_COLUMNS}
-        emptyMessage="Todavia no hay niveles registrados."
+        emptyMessage={
+          list.search
+            ? "Sin niveles para los filtros seleccionados."
+            : "Todavía no hay niveles registrados."
+        }
+        filters={
+          <CatalogFilters
+            list={list}
+            orderingOptions={SEQUENCE_ORDERING}
+            placeholder="Buscar nivel por nombre o código"
+          />
+        }
         getRowKey={(level) => level.public_id}
+        onRowClick={toggle}
         renderActions={(level) => (
-          <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton
-              color={level.public_id === selectedId ? "primary" : "default"}
-              label={
-                level.public_id === selectedId
-                  ? "Ocultar detalle"
-                  : "Abrir detalle"
-              }
-              onClick={() =>
-                setSelectedId(
-                  level.public_id === selectedId ? "" : level.public_id
-                )
-              }
-            >
-              <UnfoldMoreOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            <ActionIconButton
-              label="Editar"
-              onClick={() => setEditing({ mode: "edit", level })}
-            >
-              <EditOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            {level.is_active ? (
+          <Stack
+            alignItems="center"
+            direction="row"
+            gap={0.5}
+            justifyContent="flex-end"
+          >
+            <DetailToggleButton
+              count={level.grade_count}
+              noun="grados"
+              onToggle={() => toggle(level)}
+              open={level.public_id === selectedId}
+            />
+            {canEdit ? (
+              <ActionIconButton
+                label="Editar"
+                onClick={async () =>
+                  setEditing({
+                    mode: "edit",
+                    level,
+                    siblings: await siblings(),
+                  })
+                }
+              >
+                <EditOutlinedIcon fontSize="small" />
+              </ActionIconButton>
+            ) : null}
+            {canEdit && level.is_active ? (
               <ConfirmActionButton
-                confirmLabel="Si, desactivar"
+                confirmLabel="Sí, desactivar"
                 label="Desactivar"
                 onConfirm={() => handleDeactivate(level)}
-                question={`Se desactivara "${level.name}" junto con todos sus grados.`}
+                question={`Se desactivará "${level.name}" junto con todos sus grados.`}
                 title="Desactivar nivel"
               />
             ) : null}
           </Stack>
         )}
-        subtitle="Niveles de la institucion"
+        subtitle="Elija «Ver grados» o haga clic en un nivel para ver sus grados y los cursos del nivel."
         title="Niveles registrados"
       />
 
       {selected ? (
         <LevelGradesSection
+          canEdit={canEdit}
           key={`grades-${selected.public_id}`}
           level={selected}
           onChanged={list.refresh}
@@ -210,6 +296,7 @@ export function LevelsPage() {
 
       {selected ? (
         <LevelSubjectsSection
+          canEdit={canEdit}
           key={`subjects-${selected.public_id}`}
           level={selected}
           onChanged={list.refresh}
@@ -218,8 +305,8 @@ export function LevelsPage() {
 
       {editing?.mode === "create" ? (
         <EntityFormWindow
-          description="La posicion define el orden pedagogico; los demas niveles se renumeran solos."
-          fields={createLevelFields(list.items)}
+          description="La posición define el orden pedagógico; los demás niveles se renumeran solos."
+          fields={createLevelFields(editing.siblings)}
           initialValues={editing.values}
           onCancel={() => setEditing(null)}
           onSubmit={handleCreate}
@@ -231,11 +318,14 @@ export function LevelsPage() {
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow
-          description={`El codigo ${editing.level.code} es inmutable.`}
-          fields={editLevelFields(list.items, editing.level)}
+          description={`El código ${editing.level.code} no se puede cambiar.`}
+          fields={editLevelFields(editing.siblings, editing.level)}
           initialValues={{
             name: editing.level.name,
-            insert_after: currentPosition(list.items, editing.level.public_id),
+            insert_after: currentPosition(
+              editing.siblings,
+              editing.level.public_id
+            ),
           }}
           key={editing.level.public_id}
           onCancel={() => setEditing(null)}
@@ -259,7 +349,7 @@ const GRADE_COLUMNS = [
   { key: "name", label: "Grado", render: (row) => row.name },
   {
     key: "code",
-    label: "Codigo",
+    label: "Código",
     render: (row) => <CodeCell value={row.code} />,
   },
   {
@@ -274,12 +364,12 @@ const createGradeFields = (grades) => [
     name: "name",
     label: "Nombre",
     required: true,
-    placeholder: "Ejemplo: Primero Basico",
+    placeholder: "Ejemplo: Primero Básico",
   },
   {
     name: "code",
-    label: "Codigo",
-    help: "Se deriva del codigo del nivel. Cambielo solo si hace falta.",
+    label: "Código",
+    help: "Se deriva del código del nivel. Cámbielo solo si hace falta.",
   },
   positionField(grades),
 ];
@@ -289,15 +379,23 @@ const editGradeFields = (grades, grade) => [
   positionField(grades, grade.public_id),
 ];
 
-function LevelGradesSection({ level, onChanged }) {
-  const loadGrades = useCallback(
-    (params) => academicsService.listLevelGrades(level.public_id, params),
-    [level.public_id]
-  );
-  const list = usePaginatedList(loadGrades, { pageSize: PAGE_SIZE });
+function LevelGradesSection({ canEdit, level, onChanged }) {
+  const list = useServerList({
+    queryKey: queryKeys.academics.list("grades", level.public_id),
+    fetchPage: (params) =>
+      academicsService.listLevelGrades(level.public_id, params),
+    defaultOrdering: "sequence",
+    canIncludeInactive: true,
+    urlPrefix: "grades_",
+  });
 
   const [editing, setEditing] = useState(null);
   const [actionError, setActionError] = useState("");
+
+  const siblings = () =>
+    loadSiblings((params) =>
+      academicsService.listLevelGrades(level.public_id, params)
+    );
 
   const afterChange = () => {
     setEditing(null);
@@ -336,58 +434,82 @@ function LevelGradesSection({ level, onChanged }) {
     <>
       <ListSection
         action={
-          <Button
-            onClick={async () =>
-              setEditing({
-                mode: "create",
-                values: {
-                  name: "",
-                  code: await suggestedOrBlank(() =>
+          canEdit ? (
+            <Button
+              onClick={async () => {
+                const [code, grades] = await Promise.all([
+                  suggestedOrBlank(() =>
                     academicsService.nextGradeCode(level.public_id)
                   ),
-                  insert_after: AT_END,
-                },
-              })
-            }
-            size="small"
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nuevo grado
-          </Button>
+                  siblings(),
+                ]);
+                setEditing({
+                  mode: "create",
+                  siblings: grades,
+                  values: { name: "", code, insert_after: AT_END },
+                });
+              }}
+              size="small"
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nuevo grado
+            </Button>
+          ) : null
         }
         actionError={actionError}
         list={list}
         columns={GRADE_COLUMNS}
-        emptyMessage="Este nivel todavia no tiene grados."
+        emptyMessage={
+          list.search
+            ? "Sin grados para los filtros seleccionados."
+            : "Este nivel todavía no tiene grados."
+        }
+        filters={
+          <CatalogFilters
+            list={list}
+            orderingOptions={SEQUENCE_ORDERING}
+            placeholder="Buscar grado por nombre o código"
+          />
+        }
         getRowKey={(grade) => grade.public_id}
-        renderActions={(grade) => (
-          <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton
-              label="Editar"
-              onClick={() => setEditing({ mode: "edit", grade })}
-            >
-              <EditOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            {grade.is_active ? (
-              <ConfirmActionButton
-                confirmLabel="Si, desactivar"
-                label="Desactivar"
-                onConfirm={() => handleDeactivate(grade)}
-                question={`Se desactivara el grado "${grade.name}".`}
-                title="Desactivar grado"
-              />
-            ) : null}
-          </Stack>
-        )}
+        renderActions={
+          canEdit
+            ? (grade) => (
+                <Stack direction="row" gap={0.5} justifyContent="flex-end">
+                  <ActionIconButton
+                    label="Editar"
+                    onClick={async () =>
+                      setEditing({
+                        mode: "edit",
+                        grade,
+                        siblings: await siblings(),
+                      })
+                    }
+                  >
+                    <EditOutlinedIcon fontSize="small" />
+                  </ActionIconButton>
+                  {grade.is_active ? (
+                    <ConfirmActionButton
+                      confirmLabel="Sí, desactivar"
+                      label="Desactivar"
+                      onConfirm={() => handleDeactivate(grade)}
+                      question={`Se desactivará el grado "${grade.name}".`}
+                      title="Desactivar grado"
+                    />
+                  ) : null}
+                </Stack>
+              )
+            : undefined
+        }
         subtitle={level.name}
-        title="Grados del nivel"
+        title={`Grados de ${level.name}`}
       />
 
       {editing?.mode === "create" ? (
         <EntityFormWindow
-          description="El codigo del grado es unico en toda la institucion y se deriva del nivel."
-          fields={createGradeFields(list.items)}
+          description="El código del grado es único en toda la institución y se deriva del nivel."
+          fields={createGradeFields(editing.siblings)}
           initialValues={editing.values}
           onCancel={() => setEditing(null)}
           onSubmit={handleCreate}
@@ -399,11 +521,14 @@ function LevelGradesSection({ level, onChanged }) {
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow
-          description="Solo cambian el nombre y el orden; el codigo es inmutable."
-          fields={editGradeFields(list.items, editing.grade)}
+          description="Solo cambian el nombre y el orden; el código no se puede cambiar."
+          fields={editGradeFields(editing.siblings, editing.grade)}
           initialValues={{
             name: editing.grade.name,
-            insert_after: currentPosition(list.items, editing.grade.public_id),
+            insert_after: currentPosition(
+              editing.siblings,
+              editing.grade.public_id
+            ),
           }}
           key={editing.grade.public_id}
           onCancel={() => setEditing(null)}
@@ -421,7 +546,7 @@ const LEVEL_SUBJECT_COLUMNS = [
   { key: "subject", label: "Curso", render: (row) => row.subject.name },
   {
     key: "code",
-    label: "Codigo",
+    label: "Código",
     render: (row) => <CodeCell value={row.subject.code} />,
   },
   {
@@ -442,28 +567,38 @@ const LINK_FIELDS = [
   { name: "weekly_hours", label: "Horas semanales", type: "number", min: 0 },
 ];
 
+const LINK_CREATE_FIELDS = [
+  {
+    name: "subject_id",
+    label: "Curso",
+    type: "search-select",
+    required: true,
+    search: SUBJECT_SEARCH,
+    help: "Escriba el nombre o el código del curso.",
+    span: "full",
+  },
+  ...LINK_FIELDS,
+];
+
 /**
- * Plan de estudios del nivel. El endpoint de vinculos no acepta
+ * Cursos del nivel (antes "Plan de estudios", N2): que cursos se imparten en
+ * el nivel y con cuantas horas semanales. El endpoint de vinculos no acepta
  * `include_inactive`: desvincular borra el vinculo, no lo desactiva.
+ *
+ * El curso se elige con busqueda en el servidor: ya no se descarga el catalogo
+ * completo de cursos. Si el curso ya estaba vinculado, el backend lo rechaza y
+ * el motivo se muestra en el formulario.
  */
-function LevelSubjectsSection({ level, onChanged }) {
-  const loadLevelSubjects = useCallback(
-    (params) => academicsService.listLevelSubjects(level.public_id, params),
-    [level.public_id]
-  );
-  const list = usePaginatedList(loadLevelSubjects, {
-    canIncludeInactive: false,
-    pageSize: PAGE_SIZE,
+function LevelSubjectsSection({ canEdit, level, onChanged }) {
+  const list = useServerList({
+    queryKey: queryKeys.academics.list("level-subjects", level.public_id),
+    fetchPage: (params) =>
+      academicsService.listLevelSubjects(level.public_id, params),
+    urlPrefix: "level_subjects_",
   });
-  const { subjects, error: subjectsError } = useSubjectOptions();
 
   const [editing, setEditing] = useState(null);
   const [actionError, setActionError] = useState("");
-
-  const linkedIds = new Set(list.items.map((link) => link.subject.public_id));
-  const available = subjects.filter(
-    (subject) => subject.is_active && !linkedIds.has(subject.public_id)
-  );
 
   const afterChange = () => {
     setEditing(null);
@@ -501,76 +636,73 @@ function LevelSubjectsSection({ level, onChanged }) {
 
   return (
     <>
+      <Alert severity="info" variant="outlined">
+        «Cursos del nivel» dice qué cursos se imparten en {level.name} y con
+        cuántas horas. El plan de estudios que exige la activación se define por
+        grado en cada ciclo: Ciclo escolar → detalle del ciclo → pestaña «Plan
+        de estudios».
+      </Alert>
+
       <ListSection
         action={
-          <Button
-            disabled={!available.length}
-            onClick={() => setEditing({ mode: "create" })}
-            size="small"
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Vincular curso
-          </Button>
+          canEdit ? (
+            <Button
+              onClick={() => setEditing({ mode: "create" })}
+              size="small"
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Vincular curso
+            </Button>
+          ) : null
         }
-        actionError={actionError || subjectsError}
+        actionError={actionError}
         list={list}
         columns={LEVEL_SUBJECT_COLUMNS}
-        emptyMessage="Este nivel todavia no tiene cursos vinculados."
+        emptyMessage="Este nivel todavía no tiene cursos vinculados."
         getRowKey={(link) => link.public_id}
-        renderActions={(link) => (
-          <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton
-              label="Editar"
-              onClick={() => setEditing({ mode: "edit", link })}
-            >
-              <EditOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            <ConfirmActionButton
-              confirmLabel="Si, desvincular"
-              label="Desvincular"
-              onConfirm={() => handleUnlink(link)}
-              question={`Se quitara "${link.subject.name}" del plan de estudios de ${level.name}. El curso sigue existiendo en el catalogo.`}
-              title="Desvincular curso"
-            />
-          </Stack>
-        )}
+        renderActions={
+          canEdit
+            ? (link) => (
+                <Stack direction="row" gap={0.5} justifyContent="flex-end">
+                  <ActionIconButton
+                    label="Editar"
+                    onClick={() => setEditing({ mode: "edit", link })}
+                  >
+                    <EditOutlinedIcon fontSize="small" />
+                  </ActionIconButton>
+                  <ConfirmActionButton
+                    confirmLabel="Sí, desvincular"
+                    label="Desvincular"
+                    onConfirm={() => handleUnlink(link)}
+                    question={`Se quitará "${link.subject.name}" de los cursos de ${level.name}. El curso sigue existiendo en el catálogo.`}
+                    title="Desvincular curso"
+                  />
+                </Stack>
+              )
+            : undefined
+        }
         showInactiveToggle={false}
         subtitle={level.name}
-        title="Plan de estudios"
+        title="Cursos del nivel"
       />
 
-      {!available.length && !list.loading ? (
-        <Alert severity="info" variant="outlined">
-          Todos los cursos activos ya estan vinculados a este nivel.
-        </Alert>
+      {editing?.mode === "create" ? (
+        <EntityFormWindow
+          description="Declara que el curso se imparte en este nivel. 0 horas significa sin definir."
+          fields={LINK_CREATE_FIELDS}
+          initialValues={{
+            subject_id: "",
+            is_required: true,
+            weekly_hours: 0,
+          }}
+          onCancel={() => setEditing(null)}
+          onSubmit={handleLink}
+          open
+          submitLabel="Vincular"
+          title={`Vincular curso a ${level.name}`}
+        />
       ) : null}
-
-      <EntityFormWindow
-        description="Declara que el curso se imparte en este nivel. 0 horas significa sin definir."
-        fields={[
-          {
-            name: "subject_id",
-            label: "Curso",
-            type: "select",
-            required: true,
-            options: available.map((subject) => ({
-              value: subject.public_id,
-              label: `${subject.name} (${subject.code})`,
-            })),
-          },
-          ...LINK_FIELDS,
-        ]}
-        initialValues={{ subject_id: "", is_required: true, weekly_hours: 0 }}
-        key={
-          editing?.mode === "create" ? "link-create-open" : "link-create-closed"
-        }
-        onCancel={() => setEditing(null)}
-        onSubmit={handleLink}
-        open={editing?.mode === "create"}
-        submitLabel="Vincular"
-        title={`Vincular curso a ${level.name}`}
-      />
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow

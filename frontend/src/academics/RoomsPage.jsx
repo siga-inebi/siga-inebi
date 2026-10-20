@@ -1,30 +1,43 @@
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
-import { academicsService, PAGE_SIZE } from "@academics/academicsService.js";
-import { collectAllPages } from "@shared/api/pages.js";
-import { useCatalogOptions } from "@shared/catalogs/useCatalogOptions.js";
+import { academicsService } from "@academics/academicsService.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useResourceQuery } from "@shared/api/useResourceQuery.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
+import { FilterBar } from "@ui/filters/FilterBar.jsx";
+import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
+import { SearchField } from "@ui/filters/SearchField.jsx";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
 import { ActiveCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 
-const CREATE_FIELDS = (campuses) => [
+/** Sedes con búsqueda en el servidor: no se descarga el catálogo completo. */
+const CAMPUS_SEARCH = {
+  name: "campuses",
+  fetchPage: (params) => academicsService.listCampuses(params),
+  mapResult: (campus) => ({
+    value: campus.public_id,
+    label: `${campus.name} (${campus.code})`,
+  }),
+};
+
+const CREATE_FIELDS = [
   {
     name: "campus_id",
     label: "Sede",
-    type: "select",
-    options: campuses.options,
-    loading: campuses.loading,
-    optionsError: campuses.error,
-    emptyHint: "Registre primero una sede activa.",
+    type: "search-select",
+    search: CAMPUS_SEARCH,
+    help: "Escriba el nombre o el código de la sede.",
     required: true,
     span: "full",
   },
@@ -36,13 +49,13 @@ const CREATE_FIELDS = (campuses) => [
   },
   {
     name: "code",
-    label: "Codigo",
+    label: "Código",
     required: true,
     placeholder: "Ejemplo: A-101",
   },
   {
     name: "location",
-    label: "Ubicacion",
+    label: "Ubicación",
     placeholder: "Ejemplo: Edificio A, primer nivel",
   },
   {
@@ -50,7 +63,7 @@ const CREATE_FIELDS = (campuses) => [
     label: "Capacidad",
     type: "number",
     min: 0,
-    help: "Cantidad maxima de estudiantes; use 0 si aun no esta definida.",
+    help: "Cantidad máxima de estudiantes; use 0 si aún no está definida.",
   },
 ];
 
@@ -62,7 +75,7 @@ const SERVICE_STATUS_OPTIONS = [
 
 const EDIT_FIELDS = [
   { name: "name", label: "Nombre", required: true },
-  { name: "location", label: "Ubicacion" },
+  { name: "location", label: "Ubicación" },
   { name: "capacity", label: "Capacidad", type: "number", min: 0 },
   {
     name: "service_status",
@@ -86,7 +99,7 @@ const COLUMNS = [
   },
   {
     key: "code",
-    label: "Codigo",
+    label: "Código",
     render: (row) => <CodeCell value={row.code} />,
   },
   {
@@ -96,7 +109,7 @@ const COLUMNS = [
   },
   {
     key: "location",
-    label: "Ubicacion",
+    label: "Ubicación",
     render: (row) => row.location || <MutedCell>Sin registrar</MutedCell>,
   },
   {
@@ -114,28 +127,47 @@ const COLUMNS = [
   },
 ];
 
-async function loadCampusOptions() {
-  const campuses = await collectAllPages(academicsService.listCampuses);
-  return campuses
-    .sort((left, right) => left.name.localeCompare(right.name, "es"))
-    .map((campus) => ({
-      value: campus.public_id,
-      label: `${campus.name} (${campus.code})`,
-    }));
-}
+const ROOM_ORDERING = [
+  { value: "name", label: "Nombre (A–Z)" },
+  { value: "-name", label: "Nombre (Z–A)" },
+  { value: "code", label: "Código (A–Z)" },
+  { value: "campus", label: "Sede" },
+  { value: "-capacity", label: "Capacidad (mayor primero)" },
+  { value: "capacity", label: "Capacidad (menor primero)" },
+];
 
-/** Catalogo institucional de aulas, laboratorios y otros espacios fisicos. */
+/** Una sola página de sedes basta para el filtro: son pocas por definición. */
+const CAMPUS_FILTER_PAGE = { page: 1, page_size: 100 };
+
+/**
+ * Catálogo institucional de aulas, laboratorios y otros espacios físicos.
+ *
+ * Listado en el servidor (página, búsqueda, orden, sede e inactivas en la
+ * URL). La sede viene anidada en cada aula (A2): no se descargan las sedes para
+ * pintar su nombre.
+ */
 export function RoomsPage() {
-  const loadRooms = useCallback(
-    (params) => academicsService.listClassrooms(params),
-    []
+  const { can } = usePermissions();
+  const canEdit = can(PERMISSION.SCOPE_ASSIGN);
+  const list = useServerList({
+    queryKey: queryKeys.academics.list("classrooms"),
+    fetchPage: (params) => academicsService.listClassrooms(params),
+    defaultFilters: { campus_id: "" },
+    defaultOrdering: "name",
+    canIncludeInactive: true,
+  });
+  const campuses = useResourceQuery(
+    queryKeys.academics.list("campuses", "filter"),
+    () => academicsService.listCampuses(CAMPUS_FILTER_PAGE),
+    { defaultData: null }
   );
-  const list = usePaginatedList(loadRooms, { pageSize: PAGE_SIZE });
-  const campuses = useCatalogOptions(loadCampusOptions);
+  const campusOptions = (campuses.data?.results ?? []).map((campus) => ({
+    value: campus.public_id,
+    label: campus.name,
+  }));
   const [editing, setEditing] = useState(null);
   const [actionError, setActionError] = useState("");
-
-  const createFields = useMemo(() => CREATE_FIELDS(campuses), [campuses]);
+  const hasFilters = Boolean(list.search || list.filters.campus_id);
 
   const afterChange = () => {
     setEditing(null);
@@ -157,64 +189,107 @@ export function RoomsPage() {
     <>
       <PageHeader
         breadcrumb="Estructura institucional"
-        subtitle="Registre los espacios fisicos donde se desarrollan las actividades academicas. La baja conserva el historial y solo desactiva el aula."
+        subtitle="Registre los espacios físicos donde se desarrollan las actividades académicas. La baja conserva el historial y solo desactiva el aula."
         title="Aulas y espacios"
       />
 
       <ListSection
         action={
-          <Button
-            onClick={() =>
-              setEditing({
-                mode: "create",
-                values: {
-                  campus_id: "",
-                  name: "",
-                  code: "",
-                  location: "",
-                  capacity: 0,
-                },
-              })
-            }
-            size="small"
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nueva aula
-          </Button>
+          canEdit ? (
+            <Button
+              onClick={() =>
+                setEditing({
+                  mode: "create",
+                  values: {
+                    campus_id: "",
+                    name: "",
+                    code: "",
+                    location: "",
+                    capacity: 0,
+                  },
+                })
+              }
+              size="small"
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nueva aula
+            </Button>
+          ) : null
         }
         actionError={actionError}
         columns={COLUMNS}
-        emptyMessage="Todavia no hay aulas ni espacios registrados."
+        emptyMessage={
+          hasFilters
+            ? "Sin aulas para los filtros seleccionados."
+            : "Todavía no hay aulas ni espacios registrados."
+        }
+        filters={
+          <FilterBar
+            onClear={
+              hasFilters
+                ? () => {
+                    list.setSearch("");
+                    list.setFilter("campus_id", "");
+                  }
+                : undefined
+            }
+          >
+            <SearchField
+              debounceMs={0}
+              onChange={list.setSearch}
+              placeholder="Buscar por nombre o código"
+              value={list.search}
+            />
+            <FilterSelect
+              emptyLabel="Todas las sedes"
+              label="Sede"
+              loading={campuses.loading}
+              onChange={(value) => list.setFilter("campus_id", value)}
+              options={campusOptions}
+              value={list.filters.campus_id}
+            />
+            <FilterSelect
+              label="Ordenar por"
+              onChange={list.setOrdering}
+              options={ROOM_ORDERING}
+              value={list.ordering}
+            />
+          </FilterBar>
+        }
         getRowKey={(room) => room.public_id}
         list={list}
-        renderActions={(room) => (
-          <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton
-              label="Editar"
-              onClick={() => setEditing({ mode: "edit", room })}
-            >
-              <EditOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            {room.is_active ? (
-              <ConfirmActionButton
-                confirmLabel="Si, desactivar"
-                label="Desactivar"
-                onConfirm={() => handleDeactivate(room)}
-                question={`Se desactivara "${room.name}". El historial se conservara.`}
-                title="Desactivar aula"
-              />
-            ) : null}
-          </Stack>
-        )}
-        subtitle="Catalogo de espacios fisicos por sede"
+        renderActions={
+          canEdit
+            ? (room) => (
+                <Stack direction="row" gap={0.5} justifyContent="flex-end">
+                  <ActionIconButton
+                    label="Editar"
+                    onClick={() => setEditing({ mode: "edit", room })}
+                  >
+                    <EditOutlinedIcon fontSize="small" />
+                  </ActionIconButton>
+                  {room.is_active ? (
+                    <ConfirmActionButton
+                      confirmLabel="Sí, desactivar"
+                      label="Desactivar"
+                      onConfirm={() => handleDeactivate(room)}
+                      question={`Se desactivará "${room.name}". El historial se conservará.`}
+                      title="Desactivar aula"
+                    />
+                  ) : null}
+                </Stack>
+              )
+            : undefined
+        }
+        subtitle="Catálogo de espacios físicos por sede"
         title="Aulas registradas"
       />
 
       {editing?.mode === "create" ? (
         <EntityFormWindow
-          description="El codigo identifica el aula dentro de la sede y no puede cambiarse despues de registrarla."
-          fields={createFields}
+          description="El código identifica el aula dentro de la sede y no puede cambiarse después de registrarla."
+          fields={CREATE_FIELDS}
           initialValues={editing.values}
           onCancel={() => setEditing(null)}
           onSubmit={async (payload) => {
@@ -229,7 +304,7 @@ export function RoomsPage() {
 
       {editing?.mode === "edit" ? (
         <EntityFormWindow
-          description={`El codigo ${editing.room.code} y la sede son inmutables para preservar la trazabilidad.`}
+          description={`El código ${editing.room.code} y la sede no cambian, para preservar la trazabilidad.`}
           fields={EDIT_FIELDS}
           initialValues={{
             name: editing.room.name,

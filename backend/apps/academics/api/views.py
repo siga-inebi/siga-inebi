@@ -24,6 +24,7 @@ from rest_framework.response import Response
 from apps.academics import queries, services
 from apps.common.api.caching import CacheableListMixin
 from apps.common.exceptions import AuthorizationError, DomainError, ResourceNotFoundError
+from apps.common.listing import descending_too, search_and_order
 from apps.evaluation import queries as evaluation_queries
 from apps.teachers import queries as teacher_queries
 
@@ -31,8 +32,12 @@ from .serializers import (
     AcademicCycleCloneSerializer,
     AcademicCycleCreateSerializer,
     AcademicCycleDefaultsSerializer,
+    AcademicCycleReadinessSerializer,
     AcademicCycleReopenSerializer,
+    AcademicCycleRevertSerializer,
     AcademicCycleSerializer,
+    AcademicCycleUpdateSerializer,
+    AssignmentMatrixRowSerializer,
     CampusCreateSerializer,
     CampusSerializer,
     CampusUpdateSerializer,
@@ -46,6 +51,7 @@ from .serializers import (
     ClassSchedulePublicationSerializer,
     ClassSessionCreateSerializer,
     ClassSessionSerializer,
+    CloneAssignmentPreviewSerializer,
     CurriculumPlanCreateSerializer,
     CurriculumPlanSerializer,
     CurriculumPlanUpdateSerializer,
@@ -63,6 +69,8 @@ from .serializers import (
     LevelSubjectUpdateSerializer,
     LevelUpdateSerializer,
     LevelWithGradesSerializer,
+    NonComputableDayCreateSerializer,
+    NonComputableDaySerializer,
     SectionCreateSerializer,
     SectionSerializer,
     SectionUpdateSerializer,
@@ -73,6 +81,8 @@ from .serializers import (
     SubjectSerializer,
     SubjectUpdateSerializer,
     SuggestedCodeSerializer,
+    TeachingAssignmentBatchResultSerializer,
+    TeachingAssignmentBatchSerializer,
     TeachingAssignmentCreateSerializer,
     TeachingAssignmentReassignSerializer,
     TeachingAssignmentSerializer,
@@ -80,11 +90,66 @@ from .serializers import (
 )
 
 CATALOGUE = ["academics: catalogue"]
+CYCLES = ["academics: cycles"]
 
-# Cuanto puede un navegador servir un catalogo de baja rotacion sin volver a
-# pedirlo: niveles, secciones, ciclos, cursos y sedes cambian poco, y cada
-# navegacion los volvia a traer completos aunque nada hubiera cambiado.
-CATALOGUE_CACHE_SECONDS = 300
+# Los catalogos editables (sedes, jornadas, niveles, cursos, secciones) se
+# revalidan siempre: con ETag y 304 el navegador no vuelve a descargar un
+# listado que no cambio, pero tampoco sirve uno viejo sin preguntar. Antes era
+# max-age=300 y un curso recien creado tardaba hasta 5 minutos en verse
+# (docs/ux-ui.md 1.2.1, A1, N1).
+CATALOGUE_CACHE_SECONDS = 0
+
+SEARCH = OpenApiParameter(
+    name="search",
+    type=str,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Texto a buscar (sin distinguir mayúsculas) en nombre y código.",
+)
+
+
+def ordering_parameter(orderings):
+    return OpenApiParameter(
+        name="ordering",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        enum=sorted(orderings),
+        description="Orden del listado. Un valor no admitido conserva el orden por omisión.",
+    )
+
+
+NAME_CODE_SEARCH = ("name", "code")
+NAME_CODE_ORDERINGS = descending_too({"name": ("name",), "code": ("code",)})
+SEQUENCE_ORDERINGS = descending_too(
+    {"sequence": ("sequence", "name"), "name": ("name",), "code": ("code",)}
+)
+CLASSROOM_ORDERINGS = descending_too(
+    {
+        "name": ("name",),
+        "code": ("code",),
+        "campus": ("campus__name", "name"),
+        "capacity": ("capacity", "name"),
+    }
+)
+# Las secciones no tienen codigo: se buscan por su nombre y el de su grado.
+SECTION_SEARCH = ("name", "offering__grade__name", "offering__grade__code")
+SECTION_ORDERINGS = descending_too(
+    {
+        "grade": ("offering__grade__level__sequence", "offering__grade__sequence", "name"),
+        "name": ("name",),
+        "shift": ("offering__shift__name", "name"),
+        "capacity": ("capacity", "name"),
+    }
+)
+# Una entrada del plan se reconoce por su curso y su grado.
+CURRICULUM_PLAN_SEARCH = ("subject__name", "subject__code", "grade__name", "grade__code")
+CURRICULUM_PLAN_ORDERINGS = descending_too(
+    {
+        "subject": ("subject__name",),
+        "grade": ("grade__level__sequence", "grade__sequence", "subject__name"),
+    }
+)
 
 INCLUDE_INACTIVE = OpenApiParameter(
     name="include_inactive",
@@ -151,6 +216,16 @@ class CatalogueView(GenericAPIView):
                 "El actor no tiene el permiso requerido o el alcance sobre la institución."
             )
 
+    def require_revert_scope(self):
+        # Mismo razonamiento que require_reopen_scope: alcance de institucion,
+        # sin "academic_cycle" en el alcance (D6, RF-CIC-008).
+        if not self.request.user.has_scoped_permission(
+            "academic_cycle_revert", scope={"institution": self.institution}
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre la institución."
+            )
+
     def require_reopen_scope(self):
         # No "academic_cycle" key in the scope: scope_matches() would deny a
         # closed cycle outright for any write-permission codename before the
@@ -175,14 +250,27 @@ class CatalogueListCreateView(CatalogueView):
 
     list_serializer = None
     create_serializer = None
+    # `search` y `ordering` (api-conventions.md): cada listado declara en que
+    # campos se busca y que ordenes admite; apps.common.listing los aplica.
+    search_fields = ()
+    orderings = {}
 
     def get_serializer_class(self):
         if self.request.method == "POST":
             return self.create_serializer
         return self.list_serializer
 
+    def listing(self, request, **kwargs):
+        return search_and_order(
+            self.list_queryset(request, **kwargs),
+            search=request.query_params.get("search"),
+            ordering=request.query_params.get("ordering"),
+            search_fields=self.search_fields,
+            orderings=self.orderings,
+        )
+
     def get(self, request, **kwargs):
-        page = self.paginate_queryset(self.list_queryset(request, **kwargs))
+        page = self.paginate_queryset(self.listing(request, **kwargs))
         return self.get_paginated_response(self.list_serializer(page, many=True).data)
 
     def post(self, request, **kwargs):
@@ -282,6 +370,24 @@ class HistoricalAcademicCycleDetailView(CatalogueView):
         cycle = queries.historical_cycle_or_404(self.institution, public_id)
         return Response(self.get_serializer(cycle).data)
 
+    @extend_schema(
+        summary="Editar ciclo escolar en preparación",
+        description=(
+            "C3: corrige año, nombre, descripción y vigencia de un ciclo en borrador. "
+            "Mismas reglas que al crearlo (año igual al de la fecha de inicio, nombre y año "
+            "únicos, sin traslape). Un ciclo activo o cerrado se rechaza con 400."
+        ),
+        tags=CYCLES,
+        request=AcademicCycleUpdateSerializer,
+        responses={200: AcademicCycleSerializer},
+    )
+    def patch(self, request, public_id):
+        self.require_assignment_scope()
+        payload = self.validated(AcademicCycleUpdateSerializer, request)
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        updated = services.update_academic_cycle(cycle=cycle, actor=request.user, **payload)
+        return Response(AcademicCycleSerializer(updated).data)
+
 
 class AcademicCycleActivateView(CatalogueView):
     @extend_schema(
@@ -337,6 +443,95 @@ class AcademicCycleReopenView(CatalogueView):
         return Response(AcademicCycleSerializer(reopened).data)
 
 
+class AcademicCycleRevertToDraftView(CatalogueView):
+    @extend_schema(
+        summary="Volver a borrador un ciclo activo",
+        description=(
+            "D3/D6 (RF-CIC-008): devuelve a borrador un ciclo activado por error. Exige el "
+            "permiso academic_cycle_revert sobre la institución y un motivo obligatorio. Se "
+            "rechaza si el ciclo ya tiene matrículas, notas, movimientos de asistencia, "
+            "unidades de evaluación cerradas o documentos emitidos. Conserva estructura y "
+            "asignaciones docentes."
+        ),
+        tags=CYCLES,
+        request=AcademicCycleRevertSerializer,
+        responses={200: AcademicCycleSerializer},
+    )
+    def post(self, request, public_id):
+        self.require_revert_scope()
+        payload = self.validated(AcademicCycleRevertSerializer, request)
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        reverted = services.revert_academic_cycle_to_draft(
+            academic_cycle=cycle, reason=payload["reason"], actor=request.user
+        )
+        return Response(AcademicCycleSerializer(reverted).data)
+
+
+class AcademicCycleReadinessView(CatalogueView):
+    serializer_class = AcademicCycleReadinessSerializer
+
+    @extend_schema(
+        summary="Consultar qué permite hoy el ciclo",
+        description=(
+            "C7/D1/D6: lista de verificación para activar, bloqueos para volver a borrador, "
+            "pendientes para cerrar y el otro ciclo activo de la institución, si existe."
+        ),
+        tags=CYCLES,
+        responses={200: AcademicCycleReadinessSerializer},
+    )
+    def get(self, request, public_id):
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        readiness = queries.academic_cycle_readiness(cycle)
+        return Response(AcademicCycleReadinessSerializer(readiness).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar días no computables del ciclo",
+        description="RF-JOR-010: días excluidos del cálculo de asistencia, ordenados por fecha.",
+        tags=CYCLES,
+        responses={200: NonComputableDaySerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Declarar día no computable",
+        description="RF-JOR-010: la fecha debe caer dentro de la vigencia del ciclo.",
+        tags=CYCLES,
+        request=NonComputableDayCreateSerializer,
+        responses={201: NonComputableDaySerializer},
+    ),
+)
+class CycleNonComputableDayListCreateView(CatalogueListCreateView):
+    list_serializer = NonComputableDaySerializer
+    create_serializer = NonComputableDayCreateSerializer
+
+    def list_queryset(self, request, public_id):
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        return queries.non_computable_days(cycle)
+
+    def create(self, request, payload, public_id):
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        return services.declare_non_computable_day(
+            academic_cycle=cycle, day=payload["day"], reason=payload["reason"], actor=request.user
+        )
+
+
+class NonComputableDayDetailView(CatalogueView):
+    @extend_schema(
+        summary="Quitar día no computable",
+        description=(
+            "RF-JOR-010: el día vuelve a contar para asistencia. Se desactiva (no se borra) y "
+            "queda en la bitácora. Se rechaza si el ciclo está cerrado."
+        ),
+        tags=CYCLES,
+        responses={204: None},
+    )
+    def delete(self, request, public_id):
+        self.require_assignment_scope()
+        record = queries.non_computable_day_or_404(self.institution, public_id)
+        services.remove_non_computable_day(record=record, actor=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class AcademicCycleCloneView(CatalogueView):
     serializer_class = AcademicCycleCloneSerializer
 
@@ -368,7 +563,7 @@ class AcademicCycleCloneView(CatalogueView):
         summary="Listar sedes",
         description="Sedes de la institucion. Solo activas salvo `include_inactive=true`.",
         tags=CATALOGUE,
-        parameters=[INCLUDE_INACTIVE],
+        parameters=[INCLUDE_INACTIVE, SEARCH, ordering_parameter(NAME_CODE_ORDERINGS)],
         responses={200: CampusSerializer(many=True)},
     ),
     post=extend_schema(
@@ -386,6 +581,8 @@ class CampusListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = CampusSerializer
     create_serializer = CampusCreateSerializer
     cache_seconds = CATALOGUE_CACHE_SECONDS
+    search_fields = NAME_CODE_SEARCH
+    orderings = NAME_CODE_ORDERINGS
 
     def list_queryset(self, request):
         return queries.campuses(self.institution, include_inactive=_include_inactive(request))
@@ -437,7 +634,7 @@ class CampusDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDet
     get=extend_schema(
         summary="Listar aulas",
         tags=CATALOGUE,
-        parameters=[INCLUDE_INACTIVE],
+        parameters=[INCLUDE_INACTIVE, SEARCH, ordering_parameter(CLASSROOM_ORDERINGS)],
         responses={200: ClassroomSerializer(many=True)},
     ),
     post=extend_schema(
@@ -450,6 +647,8 @@ class CampusDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDet
 class ClassroomListCreateView(CatalogueListCreateView):
     list_serializer = ClassroomSerializer
     create_serializer = ClassroomCreateSerializer
+    search_fields = NAME_CODE_SEARCH
+    orderings = CLASSROOM_ORDERINGS
 
     def list_queryset(self, request):
         return queries.classrooms(
@@ -498,7 +697,7 @@ class ClassroomDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, Catalogue
     get=extend_schema(
         summary="Listar jornadas de una sede",
         tags=CATALOGUE,
-        parameters=[INCLUDE_INACTIVE],
+        parameters=[INCLUDE_INACTIVE, SEARCH, ordering_parameter(NAME_CODE_ORDERINGS)],
         responses={200: ShiftSerializer(many=True)},
     ),
     post=extend_schema(
@@ -515,6 +714,8 @@ class CampusShiftListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = ShiftSerializer
     create_serializer = ShiftCreateSerializer
     cache_seconds = CATALOGUE_CACHE_SECONDS
+    search_fields = NAME_CODE_SEARCH
+    orderings = NAME_CODE_ORDERINGS
 
     def list_queryset(self, request, public_id):
         return queries.shifts(
@@ -638,7 +839,7 @@ class ClassScheduleBlockDetailView(
         summary="Listar niveles",
         description="Niveles ordenados por su secuencia pedagogica.",
         tags=CATALOGUE,
-        parameters=[INCLUDE_INACTIVE],
+        parameters=[INCLUDE_INACTIVE, SEARCH, ordering_parameter(SEQUENCE_ORDERINGS)],
         responses={200: LevelSerializer(many=True)},
     ),
     post=extend_schema(
@@ -656,6 +857,8 @@ class LevelListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = LevelSerializer
     create_serializer = LevelCreateSerializer
     cache_seconds = CATALOGUE_CACHE_SECONDS
+    search_fields = NAME_CODE_SEARCH
+    orderings = SEQUENCE_ORDERINGS
 
     def list_queryset(self, request):
         return queries.levels(self.institution, include_inactive=_include_inactive(request))
@@ -669,7 +872,7 @@ class LevelListCreateView(CacheableListMixin, CatalogueListCreateView):
         if request.query_params.get("expand") != "grades":
             return super().get(request, **kwargs)
 
-        levels = list(self.list_queryset(request, **kwargs))
+        levels = list(self.listing(request, **kwargs))
         page = self.paginate_queryset(levels)
 
         grades_by_level = defaultdict(list)
@@ -731,7 +934,7 @@ class LevelDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDeta
     get=extend_schema(
         summary="Listar grados de un nivel",
         tags=CATALOGUE,
-        parameters=[INCLUDE_INACTIVE],
+        parameters=[INCLUDE_INACTIVE, SEARCH, ordering_parameter(SEQUENCE_ORDERINGS)],
         responses={200: GradeSerializer(many=True)},
     ),
     post=extend_schema(
@@ -745,6 +948,8 @@ class LevelDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDeta
 class LevelGradeListCreateView(CatalogueListCreateView):
     list_serializer = GradeSerializer
     create_serializer = GradeCreateSerializer
+    search_fields = NAME_CODE_SEARCH
+    orderings = SEQUENCE_ORDERINGS
 
     def list_queryset(self, request, public_id):
         return queries.grades(
@@ -798,7 +1003,7 @@ class GradeDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDeta
         summary="Listar cursos",
         description="Cursos de la institucion, con los niveles en los que se imparten.",
         tags=CATALOGUE,
-        parameters=[INCLUDE_INACTIVE],
+        parameters=[INCLUDE_INACTIVE, SEARCH, ordering_parameter(NAME_CODE_ORDERINGS)],
         responses={200: SubjectSerializer(many=True)},
     ),
     post=extend_schema(
@@ -812,6 +1017,8 @@ class SubjectListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = SubjectSerializer
     create_serializer = SubjectCreateSerializer
     cache_seconds = CATALOGUE_CACHE_SECONDS
+    search_fields = NAME_CODE_SEARCH
+    orderings = NAME_CODE_ORDERINGS
 
     def list_queryset(self, request):
         return queries.subjects(self.institution, include_inactive=_include_inactive(request))
@@ -944,6 +1151,8 @@ class LevelSubjectDetailView(UpdateMixin, DeactivateMixin, CatalogueDetailView):
         tags=CATALOGUE,
         parameters=[
             INCLUDE_INACTIVE,
+            SEARCH,
+            ordering_parameter(SECTION_ORDERINGS),
             OpenApiParameter("academic_cycle_id", str, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("grade_id", str, OpenApiParameter.QUERY, required=False),
         ],
@@ -964,6 +1173,8 @@ class SectionListCreateView(CacheableListMixin, CatalogueListCreateView):
     list_serializer = SectionSerializer
     create_serializer = SectionCreateSerializer
     cache_seconds = CATALOGUE_CACHE_SECONDS
+    search_fields = SECTION_SEARCH
+    orderings = SECTION_ORDERINGS
 
     def list_queryset(self, request):
         return queries.sections(
@@ -1220,6 +1431,8 @@ class ClassSchedulePublicationView(CatalogueView):
         tags=CATALOGUE,
         parameters=[
             INCLUDE_INACTIVE,
+            SEARCH,
+            ordering_parameter(CURRICULUM_PLAN_ORDERINGS),
             OpenApiParameter("academic_cycle_id", str, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("grade_id", str, OpenApiParameter.QUERY, required=False),
         ],
@@ -1236,6 +1449,8 @@ class ClassSchedulePublicationView(CatalogueView):
 class CurriculumPlanListCreateView(CatalogueListCreateView):
     list_serializer = CurriculumPlanSerializer
     create_serializer = CurriculumPlanCreateSerializer
+    search_fields = CURRICULUM_PLAN_SEARCH
+    orderings = CURRICULUM_PLAN_ORDERINGS
 
     def list_queryset(self, request):
         return queries.curriculum_plans(
@@ -1302,7 +1517,34 @@ class CurriculumPlanDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, Cata
 # --------------------------------------------------------------------------- #
 
 
+def _optional_bool(value):
+    """`true`/`false` (y 1/0, yes/no) del query string; cualquier otra cosa es "sin filtro"."""
+    normalized = str(value or "").strip().lower()
+    if normalized in {"1", "true", "yes"}:
+        return True
+    if normalized in {"0", "false", "no"}:
+        return False
+    return None
+
+
 @extend_schema_view(
+    get=extend_schema(
+        summary="Listar asignaciones docentes",
+        description=(
+            "AD2/AD4: filtra en el servidor por ciclo, sección, curso, docente y vigencia "
+            "(`current=true` solo vigentes, `current=false` solo finalizadas). Cada fila "
+            "trae los nombres de sección, curso y docente."
+        ),
+        tags=CATALOGUE,
+        parameters=[
+            OpenApiParameter("academic_cycle_id", str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("section_id", str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("subject_id", str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("teacher_id", str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("current", bool, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: TeachingAssignmentSerializer(many=True)},
+    ),
     post=extend_schema(
         summary="Crear asignacion docente",
         description=(
@@ -1315,6 +1557,31 @@ class CurriculumPlanDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, Cata
     ),
 )
 class TeachingAssignmentListCreateView(CatalogueView):
+    def get(self, request):
+        self.require_assignment_scope()
+        params = request.query_params
+        academic_cycle_id = params.get("academic_cycle_id")
+        section_id = params.get("section_id")
+        subject_id = params.get("subject_id")
+        teacher_id = params.get("teacher_id")
+        page = self.paginate_queryset(
+            queries.teaching_assignments(
+                self.institution,
+                academic_cycle=(
+                    queries.academic_cycle_for_payload(academic_cycle_id)
+                    if academic_cycle_id
+                    else None
+                ),
+                section=queries.section_for_payload(section_id) if section_id else None,
+                subject=queries.subject_for_payload(subject_id) if subject_id else None,
+                teacher=(
+                    teacher_queries.teacher_for_payload(teacher_id).person if teacher_id else None
+                ),
+                current=_optional_bool(params.get("current")),
+            )
+        )
+        return self.get_paginated_response(TeachingAssignmentSerializer(page, many=True).data)
+
     def post(self, request):
         self.require_assignment_scope()
         payload = self.validated(TeachingAssignmentCreateSerializer, request)
@@ -1391,6 +1658,88 @@ class TeachingAssignmentHistoryView(CatalogueView):
             )
         )
         return self.get_paginated_response(TeachingAssignmentSerializer(page, many=True).data)
+
+
+class CycleAssignmentMatrixView(CatalogueView):
+    @extend_schema(
+        summary="Matriz sección × curso del ciclo",
+        description=(
+            "AD3: una fila por sección activa del ciclo (paginada por sección) con una celda "
+            "por curso del plan de estudios de su grado y la asignación vigente de esa celda, "
+            "o `null` si falta docente. `grade_id` limita a un grado."
+        ),
+        tags=CATALOGUE,
+        parameters=[OpenApiParameter("grade_id", str, OpenApiParameter.QUERY, required=False)],
+        responses={200: AssignmentMatrixRowSerializer(many=True)},
+    )
+    def get(self, request, public_id):
+        self.require_assignment_scope()
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        grade_id = request.query_params.get("grade_id")
+        grade = queries.grade_for_payload(self.institution, grade_id) if grade_id else None
+        page = self.paginate_queryset(queries.assignment_matrix_sections(cycle, grade=grade))
+        rows = queries.assignment_matrix_rows(cycle, page)
+        return self.get_paginated_response(AssignmentMatrixRowSerializer(rows, many=True).data)
+
+
+class CycleTeachingAssignmentClonePreviewView(CatalogueView):
+    @extend_schema(
+        summary="Previsualizar el clonado de asignaciones hacia este ciclo",
+        description=(
+            "AD2: compara las asignaciones vigentes del ciclo `source_cycle_id` con este "
+            "ciclo y devuelve, por fila, la sección equivalente (mismo grado, jornada y "
+            "nombre) y si queda `pending`, `already_assigned` o `unmatched`. No escribe nada; "
+            "se aplica con `POST …/teaching-assignments/batch/`."
+        ),
+        tags=CATALOGUE,
+        parameters=[
+            OpenApiParameter("source_cycle_id", str, OpenApiParameter.QUERY, required=True)
+        ],
+        responses={200: CloneAssignmentPreviewSerializer},
+    )
+    def get(self, request, public_id):
+        self.require_assignment_scope()
+        target = queries.academic_cycle_or_404(self.institution, public_id)
+        source_id = request.query_params.get("source_cycle_id")
+        if not source_id:
+            raise DomainError("Indique el ciclo de origen (source_cycle_id).")
+        source = queries.academic_cycle_for_payload(source_id)
+        if source.institution_id != self.institution.id:
+            raise DomainError("El ciclo de origen debe pertenecer a la institución actual.")
+        if source.pk == target.pk:
+            raise DomainError("Elija un ciclo de origen distinto al ciclo destino.")
+        preview = queries.teaching_assignment_clone_preview(
+            source_cycle=source, target_cycle=target
+        )
+        return Response(CloneAssignmentPreviewSerializer(preview).data)
+
+
+class CycleTeachingAssignmentBatchView(CatalogueView):
+    @extend_schema(
+        summary="Crear varias asignaciones docentes del ciclo",
+        description=(
+            "AD2: alta por lotes para «Asignar por lotes» y «Clonar asignaciones». Cada "
+            "elemento se valida y se guarda por separado: uno rechazado no cancela los demás. "
+            "Responde 201 con las creadas y los rechazos con su motivo."
+        ),
+        tags=CATALOGUE,
+        request=TeachingAssignmentBatchSerializer,
+        responses={201: TeachingAssignmentBatchResultSerializer},
+    )
+    def post(self, request, public_id):
+        self.require_assignment_scope()
+        payload = self.validated(TeachingAssignmentBatchSerializer, request)
+        cycle = queries.academic_cycle_or_404(self.institution, public_id)
+        created, failed = services.create_teaching_assignments_batch(
+            academic_cycle=cycle,
+            items=payload["items"],
+            starts_on=payload.get("starts_on"),
+            actor=request.user,
+        )
+        return Response(
+            TeachingAssignmentBatchResultSerializer({"created": created, "failed": failed}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # --------------------------------------------------------------------------- #

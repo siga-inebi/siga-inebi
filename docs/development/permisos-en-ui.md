@@ -68,14 +68,22 @@ institución, módulo).
 | Ciclo escolar | Activar | `POST /academics/cycles/{id}/activate/` | `scope.assign` con alcance sobre la institución |
 | Ciclo escolar | Cerrar ciclo | `POST /academics/cycles/{id}/close/` | `scope.assign` con alcance sobre la institución |
 | Ciclo escolar | Clonar estructura | `POST /academics/cycles/{id}/clone/` | `scope.assign` con alcance sobre la institución |
-| Ciclo escolar | Reabrir (aún sin UI) | `POST /academics/cycles/{id}/reopen/` | `academic_cycle.reopen` con alcance sobre la institución |
-| Ciclo escolar | Volver a borrador (D3, aún no existe) | `POST /academics/cycles/{id}/revert-to-draft/` | `academic_cycle.revert` (ya en el catálogo) |
+| Ciclo escolar | Editar (borrador) | `PATCH /academics/cycles/{id}/` | `scope.assign` con alcance sobre la institución |
+| Ciclo escolar | Reabrir (ciclo cerrado; listado y detalle) | `POST /academics/cycles/{id}/reopen/` | `academic_cycle.reopen` con alcance sobre la institución |
+| Ciclo escolar | Volver a borrador (D3; ciclo activo; listado y detalle) | `POST /academics/cycles/{id}/revert-to-draft/` | `academic_cycle.revert` con alcance sobre la institución (ni `scope.assign` ni `academic_cycle.reopen` lo sustituyen) |
+| Ciclo escolar | Lista de verificación y botones deshabilitados | `GET /academics/cycles/{id}/readiness/` | **Sin control de permiso** (lectura, igual que el detalle) |
+| Ciclo escolar → Secciones | Nueva sección / Editar / Desactivar (solo en borrador) | `POST /academics/sections/`, `PATCH`/`DELETE /academics/sections/{id}/` | `scope.assign` con alcance sobre la institución |
+| Ciclo escolar → Plan de estudios | Agregar curso / Generar desde cursos del nivel / Marcar obligatorio u optativo / Quitar (solo en borrador) | `/academics/curriculum-plans/…` | `scope.assign` con alcance sobre la institución |
+| Ciclo escolar → Asignaciones | Matriz; Asignar por celda; Reemplazar docente | `GET …/assignment-matrix/`, `POST …/teaching-assignments/batch/`, `POST /teaching-assignments/{id}/reassignments/` | `scope.assign` con alcance sobre la institución (sin el permiso la pestaña lo explica y no consulta) |
+| Ciclo escolar → Horarios | Nuevo bloque / Editar / Desactivar; Agregar y quitar clase; Copiar horario; Publicar / Despublicar | `/shifts/{id}/schedule-blocks/`, `/schedule-blocks/{id}/`, `/sections/{id}/class-sessions/…`, `/class-sessions/{id}/`, `/cycles/{id}/schedule-publication/` | `scope.assign` con alcance sobre la institución (las lecturas solo exigen sesión) |
+| Ciclo escolar | Días no computables: ver / declarar / quitar | `GET`/`POST /academics/cycles/{id}/non-computable-days/`, `DELETE /academics/non-computable-days/{id}/` | Ver: sesión. Declarar y quitar: `scope.assign` con alcance sobre la institución |
 | Ciclo escolar | Ver detalle histórico | `GET /academics/cycles/{id}/` | **Sin control de permiso** (lectura) |
 | Sedes | Nueva sede / Editar / Desactivar; Nueva jornada / Editar / Desactivar | `/academics/campuses/`, `/campuses/{id}/shifts/`, `/shifts/{id}/` | `scope.assign` con alcance sobre la institución |
 | Aulas | Nueva aula / Editar / Desactivar | `/academics/classrooms/` | `scope.assign` con alcance sobre la institución |
 | Niveles | Nuevo nivel / Editar / Desactivar; Nuevo grado / Editar / Desactivar; Vincular / Desvincular curso | `/academics/levels/…`, `/grades/…`, `/level-subjects/…` | `scope.assign` con alcance sobre la institución |
 | Cursos | Nuevo curso / Editar / Desactivar | `/academics/subjects/` | `scope.assign` con alcance sobre la institución |
-| Asignaciones docentes | Nueva asignación / Asignar por lotes / Clonar en ciclo nuevo | `POST /academics/teaching-assignments/` | `scope.assign` con alcance sobre la institución |
+| Asignaciones docentes | Nueva asignación / Asignar por lotes / Clonar en ciclo nuevo | `POST /academics/teaching-assignments/`, `POST /academics/cycles/{id}/teaching-assignments/batch/` | `scope.assign` con alcance sobre la institución |
+| Asignaciones docentes | Listado, matriz sección × curso, vista previa del clonado | `GET /academics/teaching-assignments/`, `GET /academics/cycles/{id}/assignment-matrix/`, `GET /academics/cycles/{id}/teaching-assignments/clone-preview/` | `scope.assign` con alcance sobre la institución |
 | Asignaciones docentes | Reasignar a otro docente | `POST /academics/teaching-assignments/{id}/reassignments/` | `scope.assign` con alcance sobre la institución |
 | Evaluación | Nueva unidad / Crear unidad | `POST /evaluation/cycles/{id}/evaluation-units/` | **Sin control de permiso** (`check_director_permission` solo exige sesión; TODO en el código: `evaluation.configure_units`) |
 | Evaluación | Ajustar ventana de recuperación | `PATCH …/evaluation-units/{id}/recovery-window/` | **Sin control de permiso** (mismo TODO) |
@@ -107,7 +115,9 @@ resume qué toca a cada dueño.
 Evaluación, Asistencia):
 
 - Aplicar `<Can>` / `usePermissions` a **todas** las acciones de sus módulos
-  según la tabla: ningún botón visible sin su permiso.
+  según la tabla: ningún botón visible sin su permiso. Hecho en #631 para
+  Ciclo escolar (con sus pestañas), Sedes, Aulas, Niveles, Cursos y
+  Asignaciones docentes; quedan Evaluación y Asistencia.
 - Cerrar en el backend los huecos marcados "Sin control de permiso" en
   Evaluación (`check_director_permission` → `evaluation.configure_units`) y en
   la previsualización del cierre de sección, con denegación por defecto.

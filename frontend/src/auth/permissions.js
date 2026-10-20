@@ -23,6 +23,8 @@ export const PERMISSION = Object.freeze({
   ACCOUNT_DISABLE: "account.disable",
   ROLE_ASSIGN: "role.assign",
   SCOPE_ASSIGN: "scope.assign",
+  ACADEMIC_CYCLE_REOPEN: "academic_cycle.reopen",
+  ACADEMIC_CYCLE_REVERT: "academic_cycle.revert",
   STUDENT_VIEW_BASIC: "student.view_basic",
   STUDENT_EDIT_BASIC: "student.edit_basic",
   ENROLLMENT_CREATE: "enrollment.create",

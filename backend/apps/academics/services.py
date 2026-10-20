@@ -22,7 +22,7 @@ from django.db import transaction
 from django.db.models import F, Max
 from django.utils import timezone
 
-from apps.academics import school_calendar
+from apps.academics import queries, school_calendar
 from apps.academics.cycle_policies import (
     require_cycle_academic_writes,
     require_cycle_planning_writes,
@@ -60,6 +60,7 @@ from apps.enrolments.services import determine_promotion
 from apps.evaluation import queries as evaluation_queries
 from apps.evaluation.models import GRADE_MAX_VALUE, GRADE_MIN_VALUE
 from apps.evaluation.services import SUBJECT_APPROVAL_THRESHOLD, get_final_subject_grade
+from apps.teachers import queries as teacher_queries
 from apps.teachers.models import Teacher
 
 # --------------------------------------------------------------------------- #
@@ -333,80 +334,173 @@ def create_academic_cycle(
     return cycle
 
 
-def _academic_cycle_opening_gaps(cycle):
-    offerings = list(
-        cycle.grade_offerings.filter(is_active=True)
-        .select_related("grade", "shift")
-        .prefetch_related("sections")
-    )
-    if not offerings:
-        return ["at least one grade offering"]
+def join_gap_messages(gaps):
+    """
+    One readable sentence out of structured gaps, for a ``DomainError``.
 
-    gaps = []
-    subjects_by_grade = {}
-    for plan in cycle.curriculum_plans.filter(is_active=True).select_related("subject"):
-        subjects_by_grade.setdefault(plan.grade_id, []).append(plan.subject)
-
-    # Current (ends_on is null) teaching assignments, keyed by the pair every
-    # subarea of a section must clear (RF-EST-010): no partial credit for a
-    # closed, superseded assignment.
-    assigned_pairs = set(
-        cycle.teaching_assignments.filter(ends_on__isnull=True).values_list(
-            "section_id", "subject_id"
-        )
-    )
-
-    reported_plan_gaps = set()
-    for offering in offerings:
-        active_sections = [section for section in offering.sections.all() if section.is_active]
-        if not active_sections:
-            gaps.append(
-                f"faltan secciones del grado '{offering.grade.name}' en la jornada "
-                f"'{offering.shift.name}'"
-            )
-        subjects = subjects_by_grade.get(offering.grade_id)
-        if subjects is None:
-            if offering.grade_id not in reported_plan_gaps:
-                gaps.append(f"falta el plan de estudios del grado '{offering.grade.name}'")
-                reported_plan_gaps.add(offering.grade_id)
-            continue
-        for section in active_sections:
-            for subject in subjects:
-                if (section.id, subject.id) not in assigned_pairs:
-                    gaps.append(
-                        f"falta asignar docente para '{subject.name}' en la seccion "
-                        f"'{section.name}' del grado '{offering.grade.name}'"
-                    )
-    return gaps
+    Each gap message is a full sentence ("Falta el plan de estudios del grado
+    'X'."); inside a longer error they read as clauses separated by "; ".
+    """
+    clauses = []
+    for gap in gaps:
+        message = gap["message"].rstrip(".")
+        clauses.append(message[:1].lower() + message[1:])
+    return "; ".join(clauses)
 
 
 @transaction.atomic
+def update_academic_cycle(
+    *,
+    cycle,
+    year=None,
+    name=None,
+    description=None,
+    starts_on=None,
+    ends_on=None,
+    actor=None,
+):
+    """
+    Correct a cycle that is still in preparation (C3).
+
+    Only DRAFT cycles: once a cycle is active its dates anchor enrolments,
+    attendance and evaluation, and changing them would silently move history.
+    Same rules as ``create_academic_cycle``: valid range, year matching the
+    start date, unique name and year, no overlap with another cycle.
+    """
+    locked = AcademicCycle.objects.select_for_update().get(pk=cycle.pk)
+    if locked.status != AcademicCycle.CycleStatus.DRAFT:
+        raise DomainError("Solo se puede editar un ciclo escolar en preparación.")
+
+    candidates = {}
+    if year is not None:
+        candidates["year"] = year
+    if name is not None:
+        candidates["name"] = _clean_name(name, field="el nombre del ciclo escolar")
+    if description is not None:
+        candidates["description"] = description.strip()
+    if starts_on is not None:
+        candidates["starts_on"] = starts_on
+    if ends_on is not None:
+        candidates["ends_on"] = ends_on
+
+    final = {
+        field: candidates.get(field, getattr(locked, field))
+        for field in ("year", "name", "starts_on", "ends_on")
+    }
+    if final["starts_on"] > final["ends_on"]:
+        raise DomainError(
+            "La fecha de fin del ciclo escolar no puede ser anterior a su fecha de inicio."
+        )
+    if final["starts_on"].year != final["year"]:
+        raise DomainError(
+            "El año del ciclo escolar debe coincidir con el año de su fecha de inicio."
+        )
+
+    changes = {
+        field: {"before": getattr(locked, field), "after": value}
+        for field, value in candidates.items()
+        if getattr(locked, field) != value
+    }
+    if not changes:
+        return locked
+
+    for field, change in changes.items():
+        setattr(locked, field, change["after"])
+    with unique_violation_as(_cycle_conflicts(year=final["year"], name=final["name"])):
+        locked.save(update_fields=[*changes, "updated_at"])
+    record_event(
+        actor=actor,
+        action="academics.cycle.updated",
+        resource=type(locked).__name__,
+        resource_identifier=str(locked.pk),
+        changes={
+            field: {
+                key: value.isoformat() if hasattr(value, "isoformat") else value
+                for key, value in change.items()
+            }
+            for field, change in changes.items()
+        },
+    )
+    return locked
+
+
 @transaction.atomic
 def declare_non_computable_day(*, academic_cycle, day, reason, actor=None):
-    """RF-JOR-010: exclude an approved institutional date from attendance."""
+    """
+    RF-JOR-010: exclude an approved institutional date from attendance.
+
+    A day removed earlier stays as an inactive row (its declaration is
+    history); declaring it again reactivates that same row with the new
+    reason instead of tripping the one-row-per-day constraint.
+    """
     if not academic_cycle.starts_on <= day <= academic_cycle.ends_on:
         raise DomainError("El día no computable debe pertenecer al ciclo escolar.")
     reason = _clean_name(reason, field="el motivo")
-    with unique_violation_as(
-        {
-            "unique_non_computable_day_per_cycle": (
-                "Ese día ya está declarado como no computable para el ciclo."
+    previous = (
+        NonComputableDay.objects.select_for_update()
+        .filter(academic_cycle=academic_cycle, day=day, is_active=False)
+        .first()
+    )
+    if previous is not None:
+        previous.reason = reason
+        previous.is_active = True
+        previous.save(update_fields=["reason", "is_active", "updated_at"])
+        record = previous
+    else:
+        with unique_violation_as(
+            {
+                "unique_non_computable_day_per_cycle": (
+                    "Ese día ya está declarado como no computable para el ciclo."
+                )
+            }
+        ):
+            record = NonComputableDay.objects.create(
+                academic_cycle=academic_cycle, day=day, reason=reason
             )
-        }
-    ):
-        record = NonComputableDay.objects.create(
-            academic_cycle=academic_cycle, day=day, reason=reason
-        )
     _audit(
         actor,
         "academics.non_computable_day.declared",
         record,
         academic_cycle_id=academic_cycle.pk,
         day=day.isoformat(),
+        reason=reason,
     )
     return record
 
 
+@transaction.atomic
+def remove_non_computable_day(*, record, actor=None):
+    """
+    RF-JOR-010: withdraw a non-computable day while its cycle is still open.
+
+    The row is deactivated, not deleted (ADR-0006): attendance already reads
+    only active days, and the audit trail keeps who removed it and why it had
+    been declared. A closed cycle keeps its days as they were: its attendance
+    percentages are history.
+    """
+    record = (
+        NonComputableDay.objects.select_for_update()
+        .select_related("academic_cycle")
+        .get(pk=record.pk)
+    )
+    if record.academic_cycle.status == AcademicCycle.CycleStatus.CLOSED:
+        raise DomainError("No se puede quitar un día no computable de un ciclo escolar cerrado.")
+    if not record.is_active:
+        return record
+    record.is_active = False
+    record.save(update_fields=["is_active", "updated_at"])
+    _audit(
+        actor,
+        "academics.non_computable_day.removed",
+        record,
+        academic_cycle_id=record.academic_cycle_id,
+        day=record.day.isoformat(),
+        reason=record.reason,
+    )
+    return record
+
+
+@transaction.atomic
 def clone_academic_cycle(
     *,
     source_cycle,
@@ -418,10 +512,20 @@ def clone_academic_cycle(
     include_teaching_assignments=False,
     actor=None,
 ):
-    """Create an independent draft cycle from existing academic structure (RF-CIC-007)."""
+    """
+    Create an independent draft cycle from existing academic structure (RF-CIC-007).
+
+    D2 (ADR-0011): an ACTIVE cycle can be cloned to prepare the next one, as can
+    a CLOSED one. A DRAFT is rejected: its structure is still being written, so
+    a copy would freeze an unfinished plan into two places. Cloning copies the
+    current (``ends_on`` is null) teaching assignments only, whatever the
+    source status.
+    """
     source = AcademicCycle.objects.select_for_update().get(pk=source_cycle.pk)
-    if source.status != AcademicCycle.CycleStatus.CLOSED:
-        raise DomainError("Solo se puede clonar un ciclo escolar cerrado.")
+    if source.status == AcademicCycle.CycleStatus.DRAFT:
+        raise DomainError(
+            "No se puede clonar un ciclo en borrador; active o cierre el ciclo antes de clonarlo."
+        )
     target = create_academic_cycle(
         institution=source.institution,
         year=year,
@@ -513,10 +617,12 @@ def activate_academic_cycle(*, cycle, actor=None):
         .exists()
     ):
         raise DomainError("Hay que cerrar el ciclo activo antes de activar otro.")
-    opening_gaps = _academic_cycle_opening_gaps(locked)
+    opening_gaps = queries.academic_cycle_opening_gaps(locked)
     if opening_gaps:
         raise DomainError(
-            "La estructura del ciclo escolar esta incompleta: " + "; ".join(opening_gaps) + "."
+            "La estructura del ciclo escolar está incompleta: "
+            + join_gap_messages(opening_gaps)
+            + "."
         )
 
     locked.status = AcademicCycle.CycleStatus.ACTIVE
@@ -524,26 +630,6 @@ def activate_academic_cycle(*, cycle, actor=None):
         locked.save(update_fields=["status", "updated_at"])
     _audit(actor, "academics.cycle.activated", locked, status=locked.status)
     return locked
-
-
-def _cycle_closure_gaps(cycle):
-    """
-    Evaluation units that block closing the cycle (RF-CIC-004): still open, or
-    closed with a recovery window that has not expired yet.
-
-    Read through the reverse relation only (``cycle.evaluation_units``), the
-    same way ``Section.active_enrolment_count`` reads ``enrolments`` without
-    importing that domain's models — ``evaluation`` depends on ``academics``,
-    not the other way around (domain-map.md).
-    """
-    today = timezone.localdate()
-    gaps = []
-    for unit in cycle.evaluation_units.order_by("number"):
-        if unit.status != "closed":
-            gaps.append(f"la unidad de evaluacion '{unit.name}' sigue abierta")
-        elif unit.recovery_ends_on is not None and today <= unit.recovery_ends_on:
-            gaps.append(f"la ventana de recuperacion de la unidad '{unit.name}' aun no vence")
-    return gaps
 
 
 @transaction.atomic
@@ -562,9 +648,9 @@ def close_academic_cycle(*, cycle, actor=None):
     if locked.status != AcademicCycle.CycleStatus.ACTIVE:
         raise DomainError("Solo se puede cerrar un ciclo escolar activo.")
 
-    gaps = _cycle_closure_gaps(locked)
+    gaps = queries.academic_cycle_closure_gaps(locked)
     if gaps:
-        raise DomainError("No se puede cerrar el ciclo escolar: " + "; ".join(gaps) + ".")
+        raise DomainError("No se puede cerrar el ciclo escolar: " + join_gap_messages(gaps) + ".")
 
     locked.status = AcademicCycle.CycleStatus.CLOSED
     locked.save(update_fields=["status", "updated_at"])
@@ -612,6 +698,51 @@ def reopen_academic_cycle(*, cycle, reason, actor=None):
     locked.status = AcademicCycle.CycleStatus.ACTIVE
     locked.save(update_fields=["status", "updated_at"])
     _audit(actor, "academics.cycle.reopened", locked, status=locked.status, reason=reason)
+    return locked
+
+
+@transaction.atomic
+def revert_academic_cycle_to_draft(*, academic_cycle, reason, actor=None):
+    """
+    Send a cycle activated by mistake back to DRAFT (D3, RF-CIC-008).
+
+    D6 (ADR-0011): only while the cycle has no activity at all — no
+    enrolments, grades, attendance movements, closed evaluation units or
+    issued documents (``queries.academic_cycle_revert_blockers``). Once there
+    is activity the way back is closing and, if needed, reopening it
+    (RF-CIC-005), which keeps every trace.
+
+    Structure (offerings, sections, curriculum plans) and teaching
+    assignments are kept untouched: the point is fixing the cycle and
+    activating it again, not starting over. The ``academic_cycle.revert``
+    permission is checked by the view, same as reopening.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise DomainError("Se requiere un motivo para volver el ciclo escolar a borrador.")
+
+    locked = AcademicCycle.objects.select_for_update().get(pk=academic_cycle.pk)
+    if locked.status != AcademicCycle.CycleStatus.ACTIVE:
+        raise DomainError("Solo se puede volver a borrador un ciclo escolar activo.")
+
+    blockers = queries.academic_cycle_revert_blockers(locked)
+    if blockers:
+        raise DomainError(
+            "No se puede volver el ciclo escolar a borrador porque ya tiene actividad. "
+            + " ".join(blocker["message"] for blocker in blockers)
+            + " Ciérrelo y, si hace falta, reábralo."
+        )
+
+    locked.status = AcademicCycle.CycleStatus.DRAFT
+    locked.save(update_fields=["status", "updated_at"])
+    _audit(
+        actor,
+        "academics.cycle.reverted_to_draft",
+        locked,
+        status=locked.status,
+        previous_status=AcademicCycle.CycleStatus.ACTIVE,
+        reason=reason,
+    )
     return locked
 
 
@@ -1875,6 +2006,54 @@ def create_teaching_assignment(
 
 
 @transaction.atomic
+def create_teaching_assignments_batch(*, academic_cycle, items, starts_on=None, actor=None):
+    """
+    AD2: create several current assignments of one cycle in a single request.
+
+    Used by "Asignar por lotes" and "Clonar asignaciones": each item is
+    ``{"section_id", "subject_id", "teacher_id"}`` (public ids). Every item
+    goes through ``create_teaching_assignment`` -- same validation, same audit
+    event -- inside its own savepoint, so one rejected item does not cancel
+    the others. That is the behaviour those windows already had when they
+    sent one request per row, now without the round trips.
+
+    Returns ``(created, failed)``: the created assignments, and one
+    ``{"index", "section_id", "subject_id", "teacher_id", "detail"}`` per
+    rejected item, in request order.
+    """
+    if not items:
+        raise DomainError("Envíe al menos una asignación.")
+    created = []
+    failed = []
+    for index, item in enumerate(items):
+        try:
+            section = queries.section_for_payload(item["section_id"])
+            subject = queries.subject_for_payload(item["subject_id"])
+            teacher = teacher_queries.teacher_for_payload(item["teacher_id"]).person
+            created.append(
+                create_teaching_assignment(
+                    academic_cycle=academic_cycle,
+                    section=section,
+                    subject=subject,
+                    teacher=teacher,
+                    starts_on=starts_on,
+                    actor=actor,
+                )
+            )
+        except DomainError as exc:
+            failed.append(
+                {
+                    "index": index,
+                    "section_id": str(item["section_id"]),
+                    "subject_id": str(item["subject_id"]),
+                    "teacher_id": str(item["teacher_id"]),
+                    "detail": str(exc),
+                }
+            )
+    return created, failed
+
+
+@transaction.atomic
 def reassign_teaching_assignment(*, assignment, teacher, ends_on, actor=None):
     """Close a current assignment and open its successor on the following day."""
     assignment = (
@@ -2031,15 +2210,8 @@ def create_class_session(
         raise DomainError(
             "El aula ya tiene otra sesion agendada en ese dia y bloque: cruce de horario."
         )
-    current_assignment = (
-        TeachingAssignment.objects.filter(
-            academic_cycle=academic_cycle,
-            section=section,
-            subject=subject,
-            ends_on__isnull=True,
-        )
-        .select_related("teacher")
-        .first()
+    current_assignment = queries.current_teaching_assignment(
+        academic_cycle=academic_cycle, section=section, subject=subject
     )
     teacher = current_assignment.teacher if current_assignment else None
     if teacher is not None:

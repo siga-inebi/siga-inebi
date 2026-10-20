@@ -25,6 +25,13 @@
 - Parametros uniformes de listado: `page`, `page_size`, `search`, `ordering`,
   `include_inactive` y los filtros propios del dominio. Cada dominio adopta `search`,
   `ordering` e `include_inactive` en sus listados al migrar sus pantallas.
+- `apps.common.listing.search_and_order` aplica `search` y `ordering` sobre el queryset que ya
+  construyó la consulta del dominio. `search` busca sin distinguir mayúsculas, como subcadena, en
+  los campos que declara cada listado; vacío no filtra. `ordering` acepta solo las llaves de una
+  lista blanca (`"name"`, `"-name"`, …, generadas con `descending_too`); un valor desconocido
+  conserva el orden por omisión en vez de fallar. En `academics`, `CatalogueListCreateView`
+  declara `search_fields` y `orderings` por vista y lo aplica antes de paginar; se combina con
+  `include_inactive` y los filtros propios (#631).
 - Una exportacion completa recorre paginas de 100 o usa un endpoint `/export/` del
   backend (por ejemplo `GET /api/v1/audit/events/export/`), nunca un tope silencioso.
 
@@ -289,7 +296,7 @@ de presentacion y conservan POST y sus respuestas anteriores. Ver
 - `POST /api/v1/academics/cycles/{public_id}/activate/` activa un ciclo preparado solo cuando no
   existe otro ciclo activo. RF-CIC-003 ampliara este contrato con validacion de estructura completa.
 - `POST /api/v1/academics/cycles/{public_id}/clone/` crea un ciclo independiente en preparacion a
-  partir de un ciclo cerrado. Copia ofertas, jornadas referenciadas, secciones y planes; el campo
+  partir de un ciclo activo o cerrado (ADR-0011 D2, #631; un borrador se rechaza). Copia ofertas, jornadas referenciadas, secciones y planes; el campo
   `include_teaching_assignments` decide si tambien copia las asignaciones docentes vigentes.
   existe otro ciclo activo y la estructura disponible contiene grados ofertados, secciones y plan
   de estudios por grado. La validacion de unidades de evaluacion queda pendiente hasta que exista
@@ -306,6 +313,115 @@ de presentacion y conservan POST y sus respuestas anteriores. Ver
   con HTTP 400 y no puede usarse para escribir sobre un ciclo cerrado por la puerta de atras.
 - Crear o reasignar una asignacion docente de un ciclo cerrado devuelve HTTP 400. El historial de
   asignaciones permanece consultable y no se elimina.
+
+## Ciclo escolar y estructura académica (#631)
+
+Cambios de contrato de la entrega 1 de #631. Todos son **aditivos**: ningún campo existente
+cambia de nombre ni de forma, y los endpoints anteriores siguen respondiendo igual salvo el
+cambio de regla de clonado (D2) y la caché de catálogos. Decisiones en el
+[aporte D1–D3/D6 al ADR-0011](../decisions/ADR-0011-ciclo-escolar-d1-d2-d3-d6.md). Los mensajes
+de error viajan en `error.detail` con el sobre habitual.
+
+### Cambios de regla
+
+- `POST /api/v1/academics/cycles/{public_id}/clone/` acepta un origen **activo o cerrado**
+  (antes solo cerrado) y rechaza un borrador con HTTP 400: «No se puede clonar un ciclo en
+  borrador; active o cierre el ciclo antes de clonarlo.». Con origen activo se copian solo las
+  asignaciones vigentes. El clonado corre en una única transacción.
+- Sedes, jornadas, niveles, cursos y secciones responden `Cache-Control: private, max-age=0`
+  con `ETag` (antes `max-age=300`): el navegador revalida siempre y recibe 304 si nada cambió.
+- El error de activación conserva su forma («La estructura del ciclo escolar está incompleta:
+  …; ….»), ahora con tildes y con el faltante de ofertas en español.
+
+### Ciclo escolar
+
+| Método y ruta | Cuerpo | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `PATCH /academics/cycles/{id}/` | `{year?, name?, description?, starts_on?, ends_on?}` | 200 `AcademicCycle` (`public_id, year, name, description, starts_on, ends_on, status`). 400 si no está en borrador, si el año no coincide con `starts_on`, si las fechas se invierten, traslapan u ocupan nombre/año de otro ciclo | `scope.assign` sobre la institución |
+| `POST /academics/cycles/{id}/revert-to-draft/` | `{reason}` (obligatorio, máx. 500) | 200 `AcademicCycle` con `status: "draft"`. 400 sin motivo, si no está activo o si tiene actividad (el detalle lista «Tiene N …») | `academic_cycle.revert` sobre la institución |
+| `GET /academics/cycles/{id}/readiness/` | — | 200, ver forma abajo | Sesión (igual que el detalle del ciclo) |
+| `GET /academics/cycles/{id}/non-computable-days/` | `page`, `page_size` | 200 paginado de `{public_id, academic_cycle_id, day, reason}` por fecha; solo días vigentes | Sesión |
+| `POST /academics/cycles/{id}/non-computable-days/` | `{day, reason}` | 201 con la misma forma. 400 si la fecha está fuera del ciclo, si el motivo está vacío o si el día ya está declarado | `scope.assign` sobre la institución |
+| `DELETE /academics/non-computable-days/{id}/` | — | 204. Desactiva el día (no lo borra) y audita `academics.non_computable_day.removed`; 400 si el ciclo está cerrado; 404 si ya fue retirado. Volver a declarar la fecha reactiva la misma fila | `scope.assign` sobre la institución |
+
+`GET /academics/cycles/{id}/` (detalle histórico) no cambia. Auditoría nueva:
+`academics.cycle.updated` (con `changes` antes/después), `academics.cycle.reverted_to_draft`
+(con `reason` y `previous_status`) y `academics.non_computable_day.removed`.
+
+Forma de `readiness`:
+
+```json
+{
+  "activation": {
+    "ready": false,
+    "gaps": [
+      {
+        "code": "missing_teacher",
+        "message": "Falta asignar docente para 'Matemática' en la sección 'A' del grado 'Primero'.",
+        "grade": {"public_id": "…", "name": "Primero"},
+        "section": {"public_id": "…", "name": "A"},
+        "subject": {"public_id": "…", "name": "Matemática"}
+      }
+    ]
+  },
+  "revert": {
+    "allowed": false,
+    "blockers": [{"code": "enrolments", "count": 312, "message": "Tiene 312 matrículas."}]
+  },
+  "close": {"ready": false, "gaps": [{"code": "evaluation_unit_open", "message": "…"}]},
+  "active_cycle": {"public_id": "…", "name": "Ciclo 2026"}
+}
+```
+
+- `activation.gaps[].code`: `active_cycle_exists` (D1, hay otro ciclo activo),
+  `no_grade_offerings`, `missing_sections`, `missing_curriculum_plan`, `missing_teacher` o
+  `invalid_status` (el ciclo no está en borrador). `grade`, `section` y `subject` son `null`
+  cuando no aplican.
+- `revert.blockers[].code`: `enrolments`, `grades`, `attendance_events`,
+  `closed_evaluation_units`, `issued_documents` o `invalid_status` (no está activo; `count`
+  es `null`).
+- `close.gaps[].code`: `evaluation_unit_open`, `recovery_window_open` o `invalid_status`.
+- `active_cycle`: el otro ciclo activo de la institución, o `null`.
+
+### Asignaciones docentes
+
+`TeachingAssignmentSerializer` (creación, reasignación, historial, detalle histórico del ciclo
+y los listados nuevos) agrega, sin quitar los `*_id`:
+`section: {public_id, name, grade_name}`, `subject: {public_id, name, code}` y
+`teacher: {public_id, name}` (el `public_id` es el del perfil Teacher, igual que `teacher_id`).
+
+| Método y ruta | Parámetros o cuerpo | Respuesta | Permiso |
+| --- | --- | --- | --- |
+| `GET /academics/teaching-assignments/` | `academic_cycle_id`, `section_id`, `subject_id`, `teacher_id` (perfil Teacher), `current` (`true` vigentes, `false` finalizadas), `page`, `page_size` | 200 paginado de `TeachingAssignment`, ordenado por ciclo, grado, sección y curso. 400 si un identificador no existe | `scope.assign` (igual que el historial) |
+| `GET /academics/cycles/{id}/assignment-matrix/` | `grade_id?`, `page`, `page_size` (por sección) | 200 paginado de `{section: {public_id, name, grade: {public_id, name}, shift: {public_id, name}}, cells: [{subject: {public_id, name}, assignment: {public_id, teacher: {public_id, name}, starts_on} \| null}]}`. Una fila por sección activa; las columnas son los cursos del plan del ciclo para su grado, por nombre | `scope.assign` |
+| `GET /academics/cycles/{id}/teaching-assignments/clone-preview/` | `source_cycle_id` (obligatorio, otro ciclo de la institución) | 200 `{source_cycle: {public_id, name}, target_cycle: {public_id, name}, suggested_starts_on, summary: {total, pending, already_assigned, unmatched}, results: [{source_assignment_id, section, subject, teacher, target_section \| null, status}]}` con `section`/`target_section` como `{public_id, name, grade_name}`. No pagina ni escribe | `scope.assign` |
+| `POST /academics/cycles/{id}/teaching-assignments/batch/` | `{starts_on?, items: [{section_id, subject_id, teacher_id}]}` | 201 `{created: [TeachingAssignment], failed: [{index, section_id, subject_id, teacher_id, detail}]}`. Cada elemento se guarda por separado: uno rechazado no cancela los demás. 400 si `items` viene vacío o mal formado | `scope.assign` |
+
+La vista previa empareja secciones por grado, jornada y nombre (los identificadores cambian al
+clonar la estructura) y marca cada fila `pending`, `already_assigned` (el destino ya tiene
+docente vigente para esa sección y curso) o `unmatched` (no hay sección activa equivalente).
+Solo considera asignaciones vigentes del origen.
+
+### Horarios y secciones
+
+- Sesión de clase (`/sections/{id}/class-sessions/`, `/class-sessions/{id}/`) agrega
+  `teacher: {public_id, name} | null` (derivado de la asignación vigente, RF-HOR-004) y
+  `classroom: {public_id, name} | null`, además de `teacher_id` y `classroom_id`. El listado
+  calcula el docente en la misma consulta, sin una consulta por fila.
+- Sección (`/sections/`, `/sections/{id}/`) agrega `default_classroom: {public_id, name} | null`
+  junto a `default_classroom_id`.
+
+### Búsqueda y orden en catálogos
+
+| Listado | `search` en | `ordering` |
+| --- | --- | --- |
+| `/academics/campuses/`, `/campuses/{id}/shifts/`, `/subjects/` | nombre, código | `name`, `code` |
+| `/academics/classrooms/` | nombre, código | `name`, `code`, `campus`, `capacity` |
+| `/academics/levels/` (también con `expand=grades`), `/levels/{id}/grades/` | nombre, código | `sequence`, `name`, `code` |
+| `/academics/sections/` | nombre de la sección, nombre y código del grado | `grade`, `name`, `shift`, `capacity` |
+| `/academics/curriculum-plans/` | nombre y código del curso y del grado | `subject`, `grade` |
+
+Cada llave admite su versión descendente con `-`. Se mantiene `include_inactive`.
 
 ## Inscripciones activas
 
