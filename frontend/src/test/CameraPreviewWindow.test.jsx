@@ -20,7 +20,7 @@ describe("CameraPreviewWindow", () => {
     );
 
     const video = await screen.findByLabelText(
-      "Vista previa en vivo de la camara"
+      "Vista previa en vivo de la cámara"
     );
     expect(video).toHaveAttribute("playsinline");
     expect(video.srcObject).toBe(stream);
@@ -46,12 +46,12 @@ describe("CameraPreviewWindow", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      /Habilita el permiso/
+      /Habilite el permiso/
     );
     await user.click(screen.getByRole("button", { name: "Reintentar" }));
 
     expect(
-      await screen.findByLabelText("Vista previa en vivo de la camara")
+      await screen.findByLabelText("Vista previa en vivo de la cámara")
     ).toBeInTheDocument();
     expect(requestSession).toHaveBeenCalledTimes(2);
     unmount();
@@ -70,7 +70,7 @@ describe("CameraPreviewWindow", () => {
       <CameraPreviewWindow onClose={vi.fn()} requestSession={requestSession} />
     );
 
-    await screen.findByLabelText("Vista previa en vivo de la camara");
+    await screen.findByLabelText("Vista previa en vivo de la cámara");
     await user.click(screen.getByRole("button", { name: "Reenfocar cámara" }));
 
     await waitFor(() => expect(requestSession).toHaveBeenCalledTimes(2));
@@ -81,9 +81,9 @@ describe("CameraPreviewWindow", () => {
   });
 
   test.each([
-    [CAMERA_ERROR.insecure, /conexion segura/],
+    [CAMERA_ERROR.insecure, /conexión segura/],
     [CAMERA_ERROR.unsupported, /no admite/],
-    [CAMERA_ERROR.unavailable, /No hay una camara disponible/],
+    [CAMERA_ERROR.unavailable, /No hay una cámara disponible/],
   ])("shows an actionable %s state", async (code, message) => {
     renderWithRouter(
       <CameraPreviewWindow

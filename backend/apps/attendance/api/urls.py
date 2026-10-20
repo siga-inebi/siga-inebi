@@ -7,6 +7,7 @@ from apps.attendance.api.views import (
     AttendanceEventListCreateView,
     AttendanceEventResolutionView,
     AttendancePercentageView,
+    AttendancePermitDetailView,
     AttendancePermitResolveView,
     AttendancePermitSubmitView,
     AttendancePresenceListView,
@@ -18,9 +19,11 @@ from apps.attendance.api.views import (
     CoverageClosureRatioView,
     CredentialPrintContentView,
     CredentialRevocationView,
+    CredentialStatusView,
     JornadaClosureView,
     JornadaParametersListCreateView,
     JustificationAttachmentView,
+    JustificationDetailView,
     JustificationNotificationListView,
     JustificationReasonListView,
     JustificationResolveView,
@@ -129,6 +132,11 @@ urlpatterns = [
         name="attendance-credential-print-content",
     ),
     path(
+        "credentials/status/",
+        CredentialStatusView.as_view(),
+        name="attendance-credential-status",
+    ),
+    path(
         "credentials/revoke/",
         CredentialRevocationView.as_view(),
         name="attendance-credential-revoke",
@@ -147,6 +155,11 @@ urlpatterns = [
         "justification-reasons/",
         JustificationReasonListView.as_view(),
         name="attendance-justification-reason-list",
+    ),
+    path(
+        "justifications/<uuid:public_id>/",
+        JustificationDetailView.as_view(),
+        name="attendance-justification-detail",
     ),
     path(
         "justifications/<uuid:public_id>/resolve/",
@@ -172,6 +185,11 @@ urlpatterns = [
         "permits/",
         AttendancePermitSubmitView.as_view(),
         name="attendance-permit-submit",
+    ),
+    path(
+        "permits/<uuid:public_id>/",
+        AttendancePermitDetailView.as_view(),
+        name="attendance-permit-detail",
     ),
     path(
         "permits/<uuid:public_id>/resolve/",

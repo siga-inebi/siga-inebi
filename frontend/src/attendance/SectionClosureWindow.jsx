@@ -9,7 +9,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { useSectionCatalog } from "@shared/catalogs/academicCatalogs.js";
-import { todayInputValue } from "@shared/utils/format.js";
+import { formatDate, todayInputValue } from "@shared/utils/format.js";
 import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
 import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
@@ -21,7 +21,7 @@ function ClosureSummary({ result }) {
   return (
     <Stack gap={1.25}>
       <Typography variant="subtitle2">
-        {result.grade_name} - cierre del {result.event_date}
+        {result.grade_name} · cierre del {formatDate(result.event_date)}
       </Typography>
       <Stack direction="row" flexWrap="wrap" gap={1}>
         <StatusChip
@@ -106,7 +106,7 @@ export function SectionClosureWindow({
   return (
     <>
       <FloatingWindow
-        description="Revise a quienes se declarara salida antes de confirmar. La cobertura exige una segunda confirmacion y queda auditada."
+        description="Revise a quiénes se declarará la salida antes de confirmar. La cobertura exige una segunda confirmación y queda auditada."
         footer={
           <Stack direction="row" gap={1}>
             <Button disabled={busy} onClick={onClose} variant="text">
@@ -125,7 +125,7 @@ export function SectionClosureWindow({
         }
         onClose={busy ? undefined : onClose}
         open
-        title="Cierre declarado por seccion"
+        title="Cierre declarado por sección"
         width={WINDOW_WIDTH.medium}
       >
         <Stack gap={2.5}>
@@ -139,7 +139,7 @@ export function SectionClosureWindow({
                     ? "No hay secciones registradas."
                     : undefined
                 }
-                label="Seccion"
+                label="Sección"
                 loading={sections.loading}
                 onChange={(event) => {
                   setSectionId(event.target.value);
@@ -147,7 +147,7 @@ export function SectionClosureWindow({
                   setCompleted(false);
                 }}
                 options={sections.options}
-                placeholder="Seleccione una seccion"
+                placeholder="Seleccione una sección"
                 required
                 value={sectionId}
               />
@@ -177,7 +177,7 @@ export function SectionClosureWindow({
           {error ? <Alert severity="error">{error}</Alert> : null}
           {completed ? (
             <Alert severity="success">
-              El cierre se registro y quedo en auditoria.
+              El cierre se registró y quedó en la bitácora de auditoría.
             </Alert>
           ) : null}
           {result ? (
@@ -193,7 +193,7 @@ export function SectionClosureWindow({
         confirmText="Confirmar cierre"
         message={
           result
-            ? `Actuara como docente de cobertura para ${result.grade_name}. Se declararan ${result.included.length} salidas y la accion quedara auditada.`
+            ? `Actuará como docente de cobertura para ${result.grade_name}. Se declararán ${result.included.length} salidas y la acción quedará auditada.`
             : "Confirme el cierre por cobertura."
         }
         onClose={() => setConfirmingCoverage(false)}

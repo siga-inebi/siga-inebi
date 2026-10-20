@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -6,8 +6,9 @@ import AddIcon from "@mui/icons-material/Add";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 
 import { guardiansService } from "@guardians/guardiansService.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
-import { useLocalList } from "@shared/crud/useLocalList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
 import { downloadCsv } from "@shared/utils/csv.js";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
@@ -120,34 +121,46 @@ function guardianColumns({ onView }) {
 }
 
 export function GuardiansPage() {
-  const loadGuardians = useCallback(() => guardiansService.list(), []);
-  const matches = useCallback(
-    (guardian, query) => fullName(guardian).toLowerCase().includes(query),
-    []
-  );
-  const list = useLocalList(loadGuardians, { matches });
+  // Solo la pagina visible: la busqueda (nombre o CUI) y la paginacion las
+  // resuelve el backend, no el navegador.
+  const list = useServerList({
+    queryKey: queryKeys.guardians.all,
+    fetchPage: guardiansService.listPage,
+  });
 
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
-  const handleExport = () => {
-    downloadCsv(
-      "padres-de-familia.csv",
-      [
-        { label: "Nombre", value: fullName },
-        { label: "Correo", value: (item) => item.person.email },
-        { label: "Telefono", value: (item) => item.person.phone_number },
-      ],
-      list.filtered
-    );
+  // La exportacion si recorre todas las paginas, con la busqueda vigente.
+  const handleExport = async () => {
+    setExporting(true);
+    setExportError("");
+    try {
+      const rows = await guardiansService.list(list.exportParams);
+      downloadCsv(
+        "padres-de-familia.csv",
+        [
+          { label: "Nombre", value: fullName },
+          { label: "Correo", value: (item) => item.person.email },
+          { label: "Telefono", value: (item) => item.person.phone_number },
+        ],
+        rows
+      );
+    } catch (requestError) {
+      setExportError(requestError.message);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleCreate = async (values) => {
-    const created = await guardiansService.create({
+    await guardiansService.create({
       person: personPayload(values),
     });
-    list.addItem(created);
+    list.refresh();
     setCreating(false);
   };
 
@@ -166,7 +179,7 @@ export function GuardiansPage() {
         municipality: values.municipality,
       },
     });
-    list.replaceItem(updated, (item) => item.id === updated.id);
+    list.refresh();
     setSelected(updated);
     setEditing(null);
   };
@@ -184,7 +197,7 @@ export function GuardiansPage() {
           </Button>
         }
         breadcrumb="Comunidad educativa"
-        subtitle={`${list.filtered.length} de ${list.all.length} encargados registrados.`}
+        subtitle={`${list.count} encargados registrados.`}
         title="Padres de familia"
       />
 
@@ -192,29 +205,30 @@ export function GuardiansPage() {
         <FilterBar
           actions={
             <Button
+              disabled={exporting}
               onClick={handleExport}
               size="small"
               startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
               variant="outlined"
             >
-              Exportar CSV
+              {exporting ? "Exportando…" : "Exportar CSV"}
             </Button>
           }
         >
           <SearchField
             onChange={list.setSearch}
-            placeholder="Buscar por nombre…"
+            placeholder="Buscar por nombre o CUI…"
             value={list.search}
           />
         </FilterBar>
 
-        {list.error ? (
+        {list.error || exportError ? (
           <Alert
             role="alert"
             severity="error"
             sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
           >
-            {list.error}
+            {list.error || exportError}
           </Alert>
         ) : null}
 

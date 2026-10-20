@@ -586,7 +586,7 @@ def test_undersized_classroom_warns_but_allows_section_and_session_assignments()
 def test_special_session_without_a_classroom_does_not_block_cycle_activation():
     """RF-AUL-003 (#101): un periodo especial (ej. Educacion Fisica) sin aula
     fija no es un hueco estructural -- no aparece entre lo que
-    _academic_cycle_opening_gaps exige para activar el ciclo (RF-CIC-003)."""
+    queries.academic_cycle_opening_gaps exige para activar el ciclo (RF-CIC-003)."""
     institution = InstitutionFactory()
     actor = UserFactory()
     cycle = create_academic_cycle(

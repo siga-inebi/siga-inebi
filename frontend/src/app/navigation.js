@@ -107,7 +107,7 @@ export const NAV_GROUPS = [
       {
         key: "ciclos",
         label: "Ciclo escolar",
-        description: "Registro, activación y clonado de ciclos.",
+        description: "Ciclos, su preparación, activación y cierre.",
         path: "/app/ciclos",
         icon: CalendarMonthOutlinedIcon,
         load: () => import("@cycles/CyclesPage.jsx"),
@@ -131,7 +131,7 @@ export const NAV_GROUPS = [
       {
         key: "niveles",
         label: "Niveles",
-        description: "Niveles, grados y plan de estudios.",
+        description: "Niveles, grados y cursos del nivel.",
         path: "/app/niveles",
         icon: AccountTreeOutlinedIcon,
         load: () => import("@academics/LevelsPage.jsx"),
@@ -279,6 +279,13 @@ export const NAV_GROUPS = [
  * cuenta" (se entra desde el menu de usuario).
  */
 export const EXTRA_ROUTES = [
+  {
+    // C9: detalle del ciclo y tablero de preparacion, con pestañas en `?tab=`.
+    key: "ciclo-detalle",
+    label: "Detalle del ciclo",
+    path: "/app/ciclos/:cycleId",
+    load: () => import("@cycles/CycleDetailPage.jsx"),
+  },
   {
     key: "cuenta-detalle",
     label: "Ficha de la cuenta",

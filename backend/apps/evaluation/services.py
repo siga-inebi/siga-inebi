@@ -230,6 +230,28 @@ def grant_capture_exception(
     return grant
 
 
+def active_capture_exception(
+    evaluation_unit: EvaluationUnit,
+    subject: Subject,
+    teacher: Person,
+    at: datetime = None,
+):
+    """The non-expired capture exception grant for this combination, or None."""
+    if at is None:
+        at = timezone.now()
+    return (
+        CaptureExceptionGrant.objects.filter(
+            evaluation_unit=evaluation_unit,
+            subject=subject,
+            teacher=teacher,
+            is_active=True,
+            expires_at__gt=at,
+        )
+        .order_by("-expires_at")
+        .first()
+    )
+
+
 def has_active_capture_exception(
     evaluation_unit: EvaluationUnit,
     subject: Subject,
@@ -237,15 +259,7 @@ def has_active_capture_exception(
     at: datetime = None,
 ) -> bool:
     """Check whether a non-expired capture exception grant covers this combination."""
-    if at is None:
-        at = timezone.now()
-    return CaptureExceptionGrant.objects.filter(
-        evaluation_unit=evaluation_unit,
-        subject=subject,
-        teacher=teacher,
-        is_active=True,
-        expires_at__gt=at,
-    ).exists()
+    return active_capture_exception(evaluation_unit, subject, teacher, at=at) is not None
 
 
 def validate_capture_allowed(
@@ -478,9 +492,15 @@ def create_evaluation_unit(
     capture_starts_on: date,
     capture_ends_on: date,
     actor=None,
+    recovery_starts_on: date | None = None,
+    recovery_ends_on: date | None = None,
 ) -> EvaluationUnit:
     """
     Create a new evaluation unit within a cycle.
+
+    The recovery window (RF-EVC-003) may be given at creation: both dates or
+    neither. It is applied through set_recovery_window in the same
+    transaction, so it keeps that function's validation and audit entry.
 
     Validates:
     - starts_on <= ends_on (evaluation period)
@@ -517,32 +537,43 @@ def create_evaluation_unit(
             f"ser posterior a la de fin ({capture_ends_on})."
         )
 
-    # Create unit; DB constraint will reject overlap
-    with unique_violation_as(_unit_conflicts(number=number)):
-        unit = EvaluationUnit.objects.create(
-            academic_cycle=academic_cycle,
-            number=number,
-            name=name,
-            starts_on=starts_on,
-            ends_on=ends_on,
-            capture_starts_on=capture_starts_on,
-            capture_ends_on=capture_ends_on,
-            status=EvaluationUnit.UnitStatus.OPEN,
+    if (recovery_starts_on is None) != (recovery_ends_on is None):
+        raise DomainError(
+            "Indique las dos fechas de la ventana de recuperación, o ninguna para "
+            "configurarla después."
         )
 
-    # Audit: record creation
-    _audit(
-        actor,
-        "evaluation.unit_created",
-        unit,
-        cycle_id=str(academic_cycle.public_id),
-        number=number,
-        name=name,
-        starts_on=str(starts_on),
-        ends_on=str(ends_on),
-        capture_starts_on=str(capture_starts_on),
-        capture_ends_on=str(capture_ends_on),
-    )
+    # One transaction: a rejected recovery window must not leave the unit behind.
+    with transaction.atomic():
+        # Create unit; DB constraint will reject overlap
+        with unique_violation_as(_unit_conflicts(number=number)):
+            unit = EvaluationUnit.objects.create(
+                academic_cycle=academic_cycle,
+                number=number,
+                name=name,
+                starts_on=starts_on,
+                ends_on=ends_on,
+                capture_starts_on=capture_starts_on,
+                capture_ends_on=capture_ends_on,
+                status=EvaluationUnit.UnitStatus.OPEN,
+            )
+
+        # Audit: record creation
+        _audit(
+            actor,
+            "evaluation.unit_created",
+            unit,
+            cycle_id=str(academic_cycle.public_id),
+            number=number,
+            name=name,
+            starts_on=str(starts_on),
+            ends_on=str(ends_on),
+            capture_starts_on=str(capture_starts_on),
+            capture_ends_on=str(capture_ends_on),
+        )
+
+        if recovery_starts_on is not None:
+            unit = set_recovery_window(unit, recovery_starts_on, recovery_ends_on, actor=actor)
 
     return unit
 
@@ -577,11 +608,41 @@ def close_evaluation_unit(unit: EvaluationUnit, actor=None) -> EvaluationUnit:
     return unit
 
 
+def resolve_capture_teacher(
+    *,
+    evaluation_unit: EvaluationUnit,
+    section: Section,
+    subject: Subject,
+    teacher: Person | None = None,
+) -> Person:
+    """
+    The teacher a grade capture is attributed to (V8 de docs/ux-ui.md 2.11).
+
+    An explicit ``teacher`` wins. Otherwise it is the person of the current
+    teaching assignment (``ends_on`` null) of ``section`` and ``subject`` in
+    the unit's cycle -- the same assignment the capture-progress panel shows.
+
+    Raises:
+        DomainError: when no teacher is given and nobody is assigned.
+    """
+    if teacher is not None:
+        return teacher
+    assigned = queries.current_teacher(
+        academic_cycle=evaluation_unit.academic_cycle, section=section, subject=subject
+    )
+    if assigned is None:
+        raise DomainError(
+            f"La sección «{section}» no tiene docente asignado en «{subject.name}». "
+            "Indique el docente o registre la asignación docente antes de capturar notas."
+        )
+    return assigned
+
+
 def register_unit_grade(
     enrolment: Enrolment,
     subject: Subject,
     evaluation_unit: EvaluationUnit,
-    teacher: Person,
+    teacher: Person | None,
     value: int,
     actor=None,
 ) -> Grade:
@@ -608,7 +669,8 @@ def register_unit_grade(
         subject: Subarea the grade belongs to.
         evaluation_unit: Unit the grade belongs to.
         teacher: Teacher capturing the grade (checked against the capture
-            window and any exceptional grant).
+            window and any exceptional grant). ``None`` infers it from the
+            current teaching assignment (resolve_capture_teacher).
         value: Consolidated grade value.
         actor: User performing the action (for audit trail).
 
@@ -631,6 +693,12 @@ def register_unit_grade(
             "La unidad de evaluacion y la matricula pertenecen a ciclos escolares distintos."
         )
 
+    teacher = resolve_capture_teacher(
+        evaluation_unit=evaluation_unit,
+        section=enrolment.section,
+        subject=subject,
+        teacher=teacher,
+    )
     validate_capture_allowed(evaluation_unit, subject, teacher)
 
     existing = Grade.objects.filter(
@@ -809,6 +877,9 @@ class RecoveryEligibility:
     total_subjects: int = 0
     failed_limit: int = 0
     recovery_already_used: bool = False
+    # Failed subareas themselves, ``[{"subject": Subject, "final_grade": int}]``,
+    # read from the same final grades the count above comes from (V4).
+    failed_subject_list: list[dict] = field(default_factory=list)
 
 
 def _failed_subject_limit(total_subjects: int) -> int:
@@ -877,11 +948,12 @@ def assess_recovery_eligibility(enrolment: Enrolment) -> RecoveryEligibility:
 
     subjects = list(queries.curriculum_subjects(enrolment.academic_cycle, enrolment.grade))
     total_subjects = len(subjects)
-    failed_subjects = sum(
-        1
-        for subject in subjects
-        if get_final_subject_grade(enrolment, subject)["approved"] is False
-    )
+    failed_subject_list = []
+    for subject in subjects:
+        final = get_final_subject_grade(enrolment, subject)
+        if final["approved"] is False:
+            failed_subject_list.append({"subject": subject, "final_grade": final["final_grade"]})
+    failed_subjects = len(failed_subject_list)
     failed_limit = _failed_subject_limit(total_subjects)
     if failed_subjects > failed_limit:
         reasons.append(
@@ -904,7 +976,21 @@ def assess_recovery_eligibility(enrolment: Enrolment) -> RecoveryEligibility:
         total_subjects=total_subjects,
         failed_limit=failed_limit,
         recovery_already_used=recovery_already_used,
+        failed_subject_list=failed_subject_list,
     )
+
+
+def section_recovery_eligibility(enrolments) -> list[dict]:
+    """
+    Recovery eligibility of several enrolments of a section (V4), one
+    assess_recovery_eligibility per enrolment: the rules are not repeated
+    here. The caller passes one page of enrolments, so the cost is bounded by
+    the page size times the subareas of the plan.
+    """
+    return [
+        {"enrolment": enrolment, "eligibility": assess_recovery_eligibility(enrolment)}
+        for enrolment in enrolments
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -1020,7 +1106,9 @@ def register_recovery_grade(
 # --------------------------------------------------------------------------- #
 
 
-def build_capture_progress_report(evaluation_unit: EvaluationUnit, on_date=None) -> dict:
+def build_capture_progress_report(
+    evaluation_unit: EvaluationUnit, on_date=None, *, pairs=None
+) -> dict:
     """
     Capture-progress snapshot for an evaluation unit (RF-CAL-008).
 
@@ -1031,8 +1119,11 @@ def build_capture_progress_report(evaluation_unit: EvaluationUnit, on_date=None)
     ``window_open`` is false once the capture window has passed or the unit is
     closed; the rows are still returned in that case, so the same view also
     shows what was left uncaptured after the fact.
+
+    ``pairs`` restricts the rows (and the overall percentage) to those
+    ``(section_id, subject_id)``: a teacher sees only their own assignments.
     """
-    rows = queries.capture_progress_rows(evaluation_unit=evaluation_unit)
+    rows = queries.capture_progress_rows(evaluation_unit=evaluation_unit, pairs=pairs)
     total_students = sum(row["students_total"] for row in rows)
     graded_students = sum(row["students_graded"] for row in rows)
     return {
@@ -1056,13 +1147,52 @@ def build_capture_progress_report(evaluation_unit: EvaluationUnit, on_date=None)
 @dataclass
 class BulkGradeResult:
     """
-    Outcome of a bulk grade upload (RF-CAL-004). ``created`` is 0 whenever
-    ``errors`` is non-empty: the file is all-or-nothing, so a single invalid
-    row means nothing is written.
+    Outcome of a bulk grade capture (RF-CAL-004; CSV file or grade sheet).
+
+    All-or-nothing: whenever ``errors`` is non-empty nothing was written and
+    both counters are 0. Otherwise ``created`` counts grades registered for
+    the first time and ``updated`` grades that already existed and were
+    corrected (RF-CAL-005) through the same path.
     """
 
     created: int = 0
+    updated: int = 0
     errors: list[dict] = field(default_factory=list)
+
+
+def _row_error(index, student_code, field_name, message):
+    return {
+        "index": index,
+        "student_code": student_code,
+        "field": field_name,
+        "message": message,
+    }
+
+
+def _parse_grade_value(raw):
+    """
+    An integer grade on the 0-100 scale (RF-CAL-002), from CSV text or JSON.
+
+    Returns ``(value, None)`` or ``(None, message)``. Booleans and fractions
+    are rejected instead of being coerced into an integer.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None, "Escriba la nota."
+    if isinstance(raw, bool):
+        return None, f"La nota debe ser un número entero (se recibió «{raw}»)."
+    if isinstance(raw, float):
+        if not raw.is_integer():
+            return None, f"La nota debe ser un número entero (se recibió «{raw}»)."
+        raw = int(raw)
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        return None, f"La nota debe ser un número entero (se recibió «{raw}»)."
+    if not GRADE_MIN_VALUE <= value <= GRADE_MAX_VALUE:
+        return None, (
+            f"La nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE} (se recibió {value})."
+        )
+    return value, None
 
 
 def bulk_register_unit_grades(
@@ -1070,87 +1200,111 @@ def bulk_register_unit_grades(
     evaluation_unit: EvaluationUnit,
     section: Section,
     subject: Subject,
-    teacher: Person,
+    teacher: Person | None = None,
     rows: list[dict],
     actor=None,
 ) -> BulkGradeResult:
     """
-    Register unit grades in bulk from a parsed file (RF-CAL-004).
+    Register unit grades in bulk (RF-CAL-004). Single entry point for both the
+    CSV upload and the grade sheet (V2 de docs/ux-ui.md 2.11): parsing the file
+    or the JSON body is transport; every rule lives here.
 
-    ``rows`` is already parsed into ``[{"student_code": str, "value": str}]``;
-    parsing the file itself is transport, not a domain rule. Every row is
-    validated before anything is written: the student must have an active
-    enrolment in ``section``, ``value`` must be an integer in the 0-100 scale
-    (RF-CAL-002), and no ``student_code`` may repeat in the file. The unit must
-    admit capture for this teacher and subject right now (validate_capture_allowed,
-    RF-EVC-002/004) -- a file-level condition, checked once up front.
+    Each row is ``{"student_code": str, "value": ...}`` or
+    ``{"enrolment_id": UUID, "value": ...}`` (the sheet sends the enrolment it
+    showed). Every row is validated before anything is written: the student
+    must have an active enrolment in ``section``, ``value`` must be an integer
+    in the 0-100 scale (RF-CAL-002), and no student may repeat. The unit must
+    admit capture for the teacher and subject right now
+    (validate_capture_allowed, RF-EVC-002/004/007) -- a batch-level condition,
+    checked once up front. ``section`` must belong to the unit's cycle.
 
-    If any row fails, nothing is written and the returned result carries
-    ``errors`` (``[{"row": int, "field": str, "message": str}]``, 1-based row
-    numbers). Otherwise every grade is written inside one transaction, reusing
-    register_unit_grade so each grade keeps its own audit entry, plus a
+    ``teacher`` may be omitted: it is then the teacher of the current teaching
+    assignment of ``section`` and ``subject`` (resolve_capture_teacher, V8).
+
+    A row for a student that already has a grade is a correction (RF-CAL-005):
+    it goes through register_unit_grade like any other row, so the capture
+    window rule and the before/after audit entry (``evaluation.grade_updated``)
+    are the same as for a single correction. No rule is bypassed.
+
+    If any row fails, nothing is written and the result carries ``errors``
+    (``[{"index", "student_code", "field", "message"}]``, ``index`` 0-based in
+    the order received). Otherwise every grade is written inside one
+    transaction, each with its own audit entry, plus a
     ``evaluation.grades_bulk_registered`` summary event.
 
     Raises:
-        DomainError: only for the file-level capture check; per-row problems
-            come back in ``errors``.
+        DomainError: for batch-level problems (section of another cycle, no
+            teacher to attribute the capture to, capture not allowed); per-row
+            problems come back in ``errors``.
     """
+    if section.offering.academic_cycle_id != evaluation_unit.academic_cycle_id:
+        raise DomainError("La sección no pertenece al ciclo escolar de la unidad de evaluación.")
+    teacher = resolve_capture_teacher(
+        evaluation_unit=evaluation_unit, section=section, subject=subject, teacher=teacher
+    )
     validate_capture_allowed(evaluation_unit, subject, teacher)
+
+    enrolments = list(queries.active_section_enrolments(section))
+    by_code = {enrolment.student.student_code: enrolment for enrolment in enrolments}
+    by_public_id = {str(enrolment.public_id): enrolment for enrolment in enrolments}
 
     errors: list[dict] = []
     resolved: list[tuple] = []
-    seen_codes: set[str] = set()
+    seen: set[int] = set()
 
-    for index, row in enumerate(rows, start=1):
-        student_code = (row.get("student_code") or "").strip()
-        raw_value = (row.get("value") or "").strip()
+    for index, row in enumerate(rows):
+        enrolment_id = row.get("enrolment_id")
+        student_code = str(row.get("student_code") or "").strip()
 
-        if not student_code:
-            errors.append({"row": index, "field": "student_code", "message": "codigo vacio"})
-            continue
-        if student_code in seen_codes:
+        if enrolment_id:
+            enrolment = by_public_id.get(str(enrolment_id))
+            if enrolment is None:
+                errors.append(
+                    _row_error(
+                        index,
+                        student_code or None,
+                        "enrolment_id",
+                        "La matrícula no está activa en la sección indicada.",
+                    )
+                )
+                continue
+            student_code = enrolment.student.student_code
+        elif student_code:
+            enrolment = by_code.get(student_code)
+            if enrolment is None:
+                errors.append(
+                    _row_error(
+                        index,
+                        student_code,
+                        "student_code",
+                        f"El estudiante «{student_code}» no tiene matrícula activa en la "
+                        "sección indicada.",
+                    )
+                )
+                continue
+        else:
             errors.append(
-                {
-                    "row": index,
-                    "field": "student_code",
-                    "message": f"fila duplicada para el estudiante '{student_code}'",
-                }
+                _row_error(
+                    index, None, "student_code", "Indique el código del estudiante o la matrícula."
+                )
             )
             continue
-        seen_codes.add(student_code)
 
-        try:
-            value = int(raw_value)
-        except ValueError:
+        if enrolment.pk in seen:
             errors.append(
-                {"row": index, "field": "value", "message": f"valor no numerico: '{raw_value}'"}
+                _row_error(
+                    index,
+                    student_code,
+                    "student_code",
+                    f"El estudiante «{student_code}» aparece más de una vez.",
+                )
             )
             continue
-        if not GRADE_MIN_VALUE <= value <= GRADE_MAX_VALUE:
-            errors.append(
-                {
-                    "row": index,
-                    "field": "value",
-                    "message": (
-                        f"la nota debe estar entre {GRADE_MIN_VALUE} y {GRADE_MAX_VALUE} "
-                        f"(se recibio {value})"
-                    ),
-                }
-            )
-            continue
+        seen.add(enrolment.pk)
 
-        enrolment = queries.active_enrolment_in_section(section=section, student_code=student_code)
-        if enrolment is None:
-            errors.append(
-                {
-                    "row": index,
-                    "field": "student_code",
-                    "message": (
-                        f"el estudiante '{student_code}' no tiene matricula activa en la "
-                        f"seccion indicada"
-                    ),
-                }
-            )
+        value, message = _parse_grade_value(row.get("value"))
+        if message is not None:
+            errors.append(_row_error(index, student_code, "value", message))
             continue
 
         resolved.append((enrolment, value))
@@ -1168,8 +1322,15 @@ def bulk_register_unit_grades(
                 "error_count": len(errors),
             },
         )
-        return BulkGradeResult(created=0, errors=errors)
+        return BulkGradeResult(errors=errors)
 
+    already_graded = set(
+        queries.unit_grades_by_enrolment(
+            evaluation_unit=evaluation_unit,
+            subject=subject,
+            enrolments=[enrolment for enrolment, _value in resolved],
+        )
+    )
     with transaction.atomic():
         for enrolment, value in resolved:
             register_unit_grade(
@@ -1181,6 +1342,8 @@ def bulk_register_unit_grades(
                 actor=actor,
             )
 
+    updated = sum(1 for enrolment, _value in resolved if enrolment.pk in already_graded)
+    created = len(resolved) - updated
     record_event(
         actor=actor,
         action="evaluation.grades_bulk_registered",
@@ -1189,7 +1352,68 @@ def bulk_register_unit_grades(
             "unit_id": str(evaluation_unit.public_id),
             "subject_id": str(subject.public_id),
             "section_id": str(section.public_id),
-            "created": len(resolved),
+            "teacher_id": str(teacher.public_id),
+            "created": created,
+            "updated": updated,
         },
     )
-    return BulkGradeResult(created=len(resolved), errors=[])
+    return BulkGradeResult(created=created, updated=updated)
+
+
+# --------------------------------------------------------------------------- #
+# V2 de docs/ux-ui.md 2.11 — Planilla de calificaciones
+# --------------------------------------------------------------------------- #
+
+#: Tope de filas de una planilla. Una sección real tiene unas 35 matrículas
+#: activas; la planilla responde en una sola página y nunca corta en silencio.
+GRADE_SHEET_MAX_ROWS = 200
+
+
+def build_grade_sheet(
+    *, evaluation_unit: EvaluationUnit, section: Section, subject: Subject, on_date=None
+) -> dict:
+    """
+    Everything the grade sheet needs for one unit, section and subarea, in a
+    fixed number of queries: the unit and whether its capture window is open,
+    the teacher the capture will be attributed to (V8; None if nobody is
+    assigned), whether that teacher can capture now (open window or an active
+    exceptional grant, RF-EVC-004) and one row per active enrolment, ordered by the student's name,
+    with its current grade or None (sin calificar, never 0: RF-CAL-003).
+
+    Raises:
+        DomainError: when the section has more than GRADE_SHEET_MAX_ROWS active
+            enrolments; the sheet never truncates silently.
+    """
+    enrolments = list(queries.active_section_enrolments(section)[: GRADE_SHEET_MAX_ROWS + 1])
+    if len(enrolments) > GRADE_SHEET_MAX_ROWS:
+        raise DomainError(
+            f"La sección tiene más de {GRADE_SHEET_MAX_ROWS} matrículas activas; la planilla "
+            "no puede mostrarlas todas. Use la carga desde archivo."
+        )
+    grades = queries.unit_grades_by_enrolment(
+        evaluation_unit=evaluation_unit, subject=subject, enrolments=enrolments
+    )
+    teacher = queries.current_teacher(
+        academic_cycle=evaluation_unit.academic_cycle, section=section, subject=subject
+    )
+    window_open = evaluation_unit.is_capture_window_open(on_date) and not evaluation_unit.is_closed
+    # Same rule as validate_capture_allowed: outside the window (or with the
+    # unit closed) the sheet is still editable while an exceptional grant
+    # (RF-EVC-004) covers the teacher the capture is attributed to.
+    exception = (
+        active_capture_exception(evaluation_unit, subject, teacher)
+        if teacher is not None and not window_open
+        else None
+    )
+    return {
+        "unit": evaluation_unit,
+        "window_open": window_open,
+        "can_capture": window_open or exception is not None,
+        "capture_exception_expires_at": exception.expires_at if exception else None,
+        "section": section,
+        "subject": subject,
+        "teacher": teacher,
+        "rows": [
+            {"enrolment": enrolment, "grade": grades.get(enrolment.pk)} for enrolment in enrolments
+        ],
+    }

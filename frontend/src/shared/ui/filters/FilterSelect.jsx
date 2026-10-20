@@ -66,6 +66,7 @@ export function FilterSelect({
       slotProps={{
         inputLabel: { shrink: true },
         select: {
+          displayEmpty: Boolean(emptyLabel),
           MenuProps: {
             slotProps: { paper: { sx: { maxHeight: MENU_MAX_HEIGHT } } },
           },

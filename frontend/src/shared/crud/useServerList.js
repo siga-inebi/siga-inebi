@@ -27,9 +27,9 @@ function compact(params) {
 /**
  * Hook unico de listado paginado en el servidor (docs/ux-ui.md 1.1).
  *
- * Reemplaza a `usePaginatedList` (pagina fija, estado en memoria) y a
- * `useLocalList` + `collectAllPages` (descarga del padron completo). Pide solo
- * la pagina visible y deja en la URL todo lo que define la vista:
+ * Reemplaza a `usePaginatedList` (pagina fija, estado en memoria) y al ya
+ * eliminado `useLocalList` + `collectAllPages` (descarga del padron completo).
+ * Pide solo la pagina visible y deja en la URL todo lo que define la vista:
  *
  *   ?page=2&page_size=50&search=ana&ordering=-last_login&status=active
  *

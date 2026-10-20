@@ -8,17 +8,17 @@ import Stack from "@mui/material/Stack";
 import SearchIcon from "@mui/icons-material/Search";
 
 import { attendanceService } from "@attendance/attendanceService.js";
-import {
-  useShiftCatalog,
-  useStudentCatalog,
-} from "@shared/catalogs/academicCatalogs.js";
+import { useShiftCatalog } from "@shared/catalogs/academicCatalogs.js";
 import { todayInputValue } from "@shared/utils/format.js";
 import { StatCard } from "@ui/display/StatCard.jsx";
 import { EmptyState } from "@ui/feedback/EmptyState.jsx";
 import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
+import { RemoteSearchSelect } from "@ui/forms/RemoteSearchSelect.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 import { DetailField } from "@ui/layout/DetailWindow.jsx";
+
+import { STUDENT_SEARCH } from "./studentSearch.js";
 
 /**
  * Porcentaje de asistencia del ciclo, un estudiante a la vez (RF-JOR-009).
@@ -35,7 +35,6 @@ import { DetailField } from "@ui/layout/DetailWindow.jsx";
  * copiarlo de otra pantalla.
  */
 export function AttendancePercentageProbe() {
-  const students = useStudentCatalog();
   const shifts = useShiftCatalog();
 
   const [studentId, setStudentId] = useState("");
@@ -78,19 +77,12 @@ export function AttendancePercentageProbe() {
     >
       <Box component="form" onSubmit={handleSubmit} sx={{ px: 3, py: 2.5 }}>
         <Stack gap={2}>
-          <FormSelect
-            error={students.error}
-            fullWidth
-            helperText={
-              !students.loading && students.options.length === 0
-                ? "No hay estudiantes registrados."
-                : undefined
-            }
+          <RemoteSearchSelect
+            helperText="Escriba el nombre o el código del estudiante."
             label="Estudiante"
-            loading={students.loading}
+            name="student_id"
             onChange={(event) => setStudentId(event.target.value)}
-            options={students.options}
-            placeholder="Seleccione un estudiante"
+            search={STUDENT_SEARCH}
             value={studentId}
           />
           <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
@@ -110,7 +102,7 @@ export function AttendancePercentageProbe() {
               value={shiftId}
             />
             <DateField
-              helperText="Hasta que dia se cuenta."
+              helperText="Hasta qué día se cuenta."
               label="Fecha de corte"
               onChange={(event) => setAsOfDate(event.target.value)}
               value={asOfDate}
@@ -141,7 +133,7 @@ export function AttendancePercentageProbe() {
               sx={{ pt: 1, borderTop: "1px solid", borderColor: "divider" }}
             >
               <StatCard
-                hint={`${result.present_days + result.late_days} de ${result.elapsed_school_days} dias lectivos transcurridos`}
+                hint={`${result.present_days + result.late_days} de ${result.elapsed_school_days} días lectivos transcurridos`}
                 label="Porcentaje"
                 value={
                   result.percentage == null ? "—" : `${result.percentage}%`

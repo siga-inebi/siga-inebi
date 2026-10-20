@@ -25,6 +25,8 @@ import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 
+import { WeeklyScheduleGrid } from "@academics/WeeklyScheduleGrid.jsx";
+
 import { ChangePasswordWindow } from "./ChangePasswordWindow.jsx";
 import { scopeDimensionsText } from "./scopeChoice.js";
 import { SessionsTable } from "./SessionsTable.jsx";
@@ -61,41 +63,25 @@ function MySchedule() {
       </Typography>
     );
   }
+  const sessions = data?.results ?? [];
+  if (loading) {
+    return (
+      <Typography role="status" sx={{ px: 3, py: 2 }} variant="body2">
+        Cargando horario…
+      </Typography>
+    );
+  }
+  if (sessions.length === 0) {
+    return (
+      <Typography color="text.secondary" sx={{ px: 3, py: 2 }} variant="body2">
+        Sin clases en un horario publicado.
+      </Typography>
+    );
+  }
   return (
-    <SectionTableArea>
-      <DataTable
-        columns={[
-          {
-            key: "day",
-            label: "Día",
-            render: (row) => row.day_of_week_display,
-          },
-          {
-            key: "block",
-            label: "Bloque",
-            render: (row) =>
-              row.schedule_block?.name ??
-              (row.schedule_block
-                ? `Bloque ${row.schedule_block.number}`
-                : "—"),
-          },
-          {
-            key: "subject",
-            label: "Curso",
-            render: (row) => row.subject?.name ?? "—",
-          },
-          {
-            key: "section",
-            label: "Sección",
-            render: (row) => row.section?.name ?? "—",
-          },
-        ]}
-        emptyMessage="Sin clases en un horario publicado."
-        getRowKey={(row) => row.public_id}
-        loading={loading}
-        rows={data?.results ?? []}
-      />
-    </SectionTableArea>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 2 }}>
+      <WeeklyScheduleGrid caption="Mi horario semanal" sessions={sessions} />
+    </Box>
   );
 }
 

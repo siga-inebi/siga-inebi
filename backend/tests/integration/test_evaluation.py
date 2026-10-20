@@ -1473,5 +1473,5 @@ class TestBulkGradeUploadIntegration:
         )
 
         assert result.created == 0
-        assert [e["row"] for e in result.errors] == [2]
+        assert [e["index"] for e in result.errors] == [1]
         assert Grade.objects.filter(evaluation_unit=unit).count() == 0

@@ -16,7 +16,14 @@ import {
   mathSubject,
   paginated,
 } from "./fixtures/academics.js";
-import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
+import {
+  renderWithSession,
+  sessionUser,
+} from "./helpers/renderWithSession.jsx";
+
+function renderWithRouter(ui, { permissions = ["scope.assign"], route } = {}) {
+  return renderWithSession(ui, { user: sessionUser(permissions), route });
+}
 import {
   academicsServiceMock,
   resetAcademicsServiceMock,
@@ -25,8 +32,8 @@ import {
 /** Abre el detalle del nivel y espera a que carguen sus dos paneles. */
 async function openLevel(user) {
   await screen.findByText("Basico");
-  await user.click(screen.getByRole("button", { name: "Abrir detalle" }));
-  return screen.findByRole("heading", { name: "Grados del nivel" });
+  await user.click(screen.getByRole("button", { name: "Ver grados (3)" }));
+  return screen.findByRole("heading", { name: "Grados de Basico" });
 }
 
 describe("pantalla de niveles", () => {
@@ -42,7 +49,8 @@ describe("pantalla de niveles", () => {
     expect(screen.getByText("BAS")).toBeInTheDocument();
     expect(academicsServiceMock.listLevels).toHaveBeenCalledWith({
       page: 1,
-      include_inactive: false,
+      page_size: 25,
+      ordering: "sequence",
     });
   });
 
@@ -56,7 +64,10 @@ describe("pantalla de niveles", () => {
     // El codigo llega puesto: se pide al abrir, no mientras el formulario esta
     // abierto, para que no cambie debajo de quien escribe.
     expect(await screen.findByDisplayValue("NIV-02")).toBeInTheDocument();
-    await user.type(screen.getByLabelText(/^Nombre/), "Diversificado");
+    await user.type(
+      screen.getByRole("textbox", { name: /^Nombre/ }),
+      "Diversificado"
+    );
     await user.click(screen.getByRole("button", { name: "Crear nivel" }));
 
     await waitFor(() =>
@@ -73,10 +84,13 @@ describe("pantalla de niveles", () => {
     await screen.findByText("Basico");
 
     await user.click(screen.getByRole("button", { name: "Nuevo nivel" }));
-    await user.type(screen.getByLabelText(/^Nombre/), "Diversificado");
-    await user.click(screen.getByRole("combobox", { name: /Posicion/ }));
+    await user.type(
+      screen.getByRole("textbox", { name: /^Nombre/ }),
+      "Diversificado"
+    );
+    await user.click(screen.getByRole("combobox", { name: /Posición/ }));
     await user.click(
-      await screen.findByRole("option", { name: "Despues de Basico" })
+      await screen.findByRole("option", { name: "Después de Basico" })
     );
     await user.click(screen.getByRole("button", { name: "Crear nivel" }));
 
@@ -95,7 +109,10 @@ describe("pantalla de niveles", () => {
     // Al final es el valor por omision: la clave NO se manda, porque ausente es
     // lo que el backend lee como "al final". Mandar null lo pondria primero.
     await user.click(screen.getByRole("button", { name: "Nuevo nivel" }));
-    await user.type(screen.getByLabelText(/^Nombre/), "Diversificado");
+    await user.type(
+      screen.getByRole("textbox", { name: /^Nombre/ }),
+      "Diversificado"
+    );
     await user.click(screen.getByRole("button", { name: "Crear nivel" }));
 
     await waitFor(() =>
@@ -106,8 +123,11 @@ describe("pantalla de niveles", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Nuevo nivel" }));
-    await user.type(screen.getByLabelText(/^Nombre/), "Preprimaria");
-    await user.click(screen.getByRole("combobox", { name: /Posicion/ }));
+    await user.type(
+      screen.getByRole("textbox", { name: /^Nombre/ }),
+      "Preprimaria"
+    );
+    await user.click(screen.getByRole("combobox", { name: /Posición/ }));
     await user.click(await screen.findByRole("option", { name: "Al inicio" }));
     await user.click(screen.getByRole("button", { name: "Crear nivel" }));
 
@@ -118,7 +138,7 @@ describe("pantalla de niveles", () => {
     );
   });
 
-  test("al abrir un nivel carga sus grados y su plan de estudios", async () => {
+  test("al abrir un nivel carga sus grados y los cursos del nivel", async () => {
     const user = userEvent.setup();
     academicsServiceMock.listLevelGrades.mockResolvedValue(
       paginated([firstGrade])
@@ -132,16 +152,23 @@ describe("pantalla de niveles", () => {
 
     expect(academicsServiceMock.listLevelGrades).toHaveBeenCalledWith(
       "level-basico",
-      { page: 1, include_inactive: false }
+      { page: 1, page_size: 25, ordering: "sequence" }
     );
     expect(academicsServiceMock.listLevelSubjects).toHaveBeenCalledWith(
       "level-basico",
-      { page: 1, include_inactive: false }
+      { page: 1, page_size: 25 }
     );
     expect(screen.getByText("Primero Basico")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Plan de estudios" })
+      screen.getByRole("heading", { name: "Cursos del nivel" })
     ).toBeInTheDocument();
+    // N2: se explica que no es el plan de estudios del ciclo.
+    expect(
+      screen.getByText(/se define por grado en cada ciclo/)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Plan de estudios" })
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Matematica")).toBeInTheDocument();
   });
 
@@ -153,7 +180,10 @@ describe("pantalla de niveles", () => {
 
     await user.click(screen.getByRole("button", { name: "Nuevo grado" }));
     expect(await screen.findByDisplayValue("BAS2")).toBeInTheDocument();
-    await user.type(screen.getByLabelText(/^Nombre/), "Segundo Basico");
+    await user.type(
+      screen.getByRole("textbox", { name: /^Nombre/ }),
+      "Segundo Basico"
+    );
     await user.click(screen.getByRole("button", { name: "Crear grado" }));
 
     await waitFor(() =>
@@ -167,7 +197,7 @@ describe("pantalla de niveles", () => {
     );
   });
 
-  test("solo ofrece vincular cursos que aun no estan en el plan", async () => {
+  test("vincula un curso buscándolo en el servidor", async () => {
     const user = userEvent.setup();
     academicsServiceMock.listLevelSubjects.mockResolvedValue(
       paginated([mathLink])
@@ -181,50 +211,24 @@ describe("pantalla de niveles", () => {
     await user.click(
       await screen.findByRole("button", { name: "Vincular curso" })
     );
-
-    // El Select de MUI monta sus opciones en un portal solo al abrirse, asi que
-    // hay que abrirlo para poder inspeccionar que ofrece.
-    await user.click(screen.getByLabelText(/^Curso/));
-    const listbox = await screen.findByRole("listbox");
-    expect(
-      within(listbox).getByRole("option", { name: "Artes Plasticas (ART)" })
-    ).toBeInTheDocument();
-    expect(
-      within(listbox).queryByRole("option", { name: /Matematica/ })
-    ).not.toBeInTheDocument();
-
+    await user.type(
+      await screen.findByRole("combobox", { name: /^Curso/ }),
+      "Ar"
+    );
     await user.click(
-      within(listbox).getByRole("option", { name: "Artes Plasticas (ART)" })
+      await screen.findByRole("option", { name: "Artes Plasticas (ART)" })
     );
     await user.click(screen.getByRole("button", { name: "Vincular" }));
 
+    expect(academicsServiceMock.listSubjects).toHaveBeenCalledWith({
+      search: "Ar",
+    });
     await waitFor(() =>
       expect(academicsServiceMock.linkSubjectToLevel).toHaveBeenCalledWith(
         "level-basico",
         { subject_id: "subject-art", is_required: true, weekly_hours: 0 }
       )
     );
-  });
-
-  test("avisa cuando ya no queda ningun curso por vincular", async () => {
-    const user = userEvent.setup();
-    academicsServiceMock.listLevelSubjects.mockResolvedValue(
-      paginated([mathLink])
-    );
-    academicsServiceMock.listSubjects.mockResolvedValue(
-      paginated([mathSubject])
-    );
-    renderWithRouter(<LevelsPage />);
-    await openLevel(user);
-
-    expect(
-      await screen.findByText(
-        "Todos los cursos activos ya estan vinculados a este nivel."
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Vincular curso" })
-    ).toBeDisabled();
   });
 
   test("desvincula un curso del plan tras confirmar", async () => {
@@ -240,7 +244,7 @@ describe("pantalla de niveles", () => {
     );
     expect(academicsServiceMock.unlinkSubjectFromLevel).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Si, desvincular" }));
+    await user.click(screen.getByRole("button", { name: "Sí, desvincular" }));
 
     await waitFor(() =>
       expect(academicsServiceMock.unlinkSubjectFromLevel).toHaveBeenCalledWith(
@@ -261,7 +265,7 @@ describe("pantalla de niveles", () => {
     // Cada seccion es una region con nombre, asi que se puede acotar la busqueda
     // al plan de estudios sin depender de clases CSS.
     const planSection = screen.getByRole("region", {
-      name: "Plan de estudios",
+      name: "Cursos del nivel",
     });
     await user.click(
       within(planSection).getByRole("button", { name: "Editar" })
@@ -289,10 +293,44 @@ describe("pantalla de niveles", () => {
     await screen.findByText("Basico");
 
     await user.click(screen.getByRole("button", { name: "Desactivar" }));
-    await user.click(screen.getByRole("button", { name: "Si, desactivar" }));
+    await user.click(screen.getByRole("button", { name: "Sí, desactivar" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Un ciclo abierto oferta grados de este nivel."
     );
+  });
+
+  test("abre el nivel indicado en la URL", async () => {
+    academicsServiceMock.listLevelGrades.mockResolvedValue(
+      paginated([firstGrade])
+    );
+    renderWithRouter(<LevelsPage />, {
+      route: "/app/niveles?nivel=level-basico",
+    });
+
+    expect(await screen.findByText("Primero Basico")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Ocultar grados" })
+    ).toBeInTheDocument();
+  });
+
+  test("sin scope.assign solo consulta niveles, grados y cursos del nivel", async () => {
+    const user = userEvent.setup();
+    academicsServiceMock.listLevelSubjects.mockResolvedValue(
+      paginated([mathLink])
+    );
+    renderWithRouter(<LevelsPage />, { permissions: [] });
+    await openLevel(user);
+
+    for (const name of [
+      "Nuevo nivel",
+      "Nuevo grado",
+      "Vincular curso",
+      "Editar",
+      "Desactivar",
+      "Desvincular",
+    ]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
   });
 });

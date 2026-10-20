@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -7,286 +8,207 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
-import { academicsService } from "@academics/academicsService.js";
-import { collectAllPages } from "@shared/api/pages.js";
+import { TEACHER_SEARCH, sectionLabel } from "@academics/searchOptions.js";
+import { cyclesService } from "@cycles/cyclesService.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useCycleCatalog } from "@shared/catalogs/academicCatalogs.js";
 import { BatchResultAlert } from "@shared/crud/BatchResultAlert.jsx";
-import { useBatchSubmit } from "@shared/crud/useBatchSubmit.js";
-import {
-  labelIndex,
-  sectionsForCycle,
-  useCycleCatalog,
-  useSectionCatalog,
-  useSubjectCatalog,
-  useTeacherCatalog,
-} from "@shared/catalogs/academicCatalogs.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
+import { RemoteSearchSelect } from "@ui/forms/RemoteSearchSelect.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 
-const SKIP = "";
+/** Estado de cada fila de la vista previa, como lo devuelve el backend. */
+const CLONE_STATUS = {
+  pending: { label: "Pendiente", variant: "primary" },
+  already_assigned: { label: "Ya asignada", variant: "neutral" },
+  unmatched: { label: "Sin sección equivalente", variant: "warning" },
+};
 
-/** Una seccion se reconoce entre ciclos por grado + jornada + nombre, no por id. */
-const sectionKey = (option) =>
-  `${option.gradeId}|${option.shiftId}|${option.name}`;
+const cellKey = (sectionId, subjectId) => `${sectionId}|${subjectId}`;
 
 /**
- * Clona la configuracion docente de un ciclo al siguiente, para confirmar.
+ * Clona las asignaciones vigentes de un ciclo en otro, para confirmar (AD2).
  *
- * Armar el horario de un ciclo son decenas de asignaciones, y de un ano al
- * siguiente casi todas se repiten: el mismo docente, la misma seccion, el mismo
- * curso. Volver a capturarlas una por una era el trabajo mas largo del arranque
- * de ciclo, y el mas facil de equivocar por cansancio.
+ * La comparación la hace el backend
+ * (`GET cycles/<destino>/teaching-assignments/clone-preview/`): empareja las
+ * secciones por grado, jornada y nombre (los identificadores cambian al clonar
+ * la estructura) y marca cada fila como pendiente, ya asignada o sin sección
+ * equivalente. La ventana no descarga historiales para compararlos.
  *
- * Clonar NO guarda nada por si solo: trae la configuracion del ciclo anterior,
- * la muestra ya resuelta y espera la confirmacion. Ahi es donde se cambia lo que
- * cambio — el docente que se fue, el curso que ya no se imparte — que es
- * exactamente lo que un clonado ciego se lleva puesto.
- *
- * El emparejamiento de secciones es por grado, jornada y nombre. Los
- * identificadores cambian al clonar la estructura del ciclo, asi que apuntar al
- * id de la seccion del ano pasado no encontraria nada; "Primero Basico A de la
- * matutina" sigue significando lo mismo.
- *
- * Cada alta se envia por separado porque el backend no publica un endpoint de
- * lote; que una falle no cancela las demas, y el resumen dice cuales quedaron
- * pendientes en vez de dejar el ciclo a medias sin explicar que paso.
+ * Nada se guarda hasta confirmar. Ahí se cambia lo que cambió (el docente que
+ * se fue) o se quita el docente para no clonar esa fila. Las pendientes
+ * elegidas se envían en un solo lote, y el resultado dice cuáles entraron y
+ * cuáles no, con su motivo.
  */
 export function CloneAssignmentsWindow({ onClose, onCreated }) {
   const cycles = useCycleCatalog();
-  const sections = useSectionCatalog();
-  const subjects = useSubjectCatalog();
-  const teachers = useTeacherCatalog();
 
   const [sourceCycleId, setSourceCycleId] = useState("");
   const [targetCycleId, setTargetCycleId] = useState("");
   const [startsOn, setStartsOn] = useState("");
+  // Docente elegido por fila pendiente: {value, label} o null para no clonarla.
   const [choices, setChoices] = useState({});
-
-  const [plan, setPlan] = useState(null);
-  const [loadingPlan, setLoadingPlan] = useState(false);
-  const [loadError, setLoadError] = useState("");
-
-  const names = useMemo(
-    () => ({
-      subjects: labelIndex(subjects.options),
-      teachers: labelIndex(teachers.options),
-      sections: labelIndex(sections.options),
-    }),
-    [subjects.options, teachers.options, sections.options]
-  );
-
-  const createOne = useCallback(
-    (row) =>
-      academicsService.createTeachingAssignment({
-        academic_cycle_id: targetCycleId,
-        section_id: row.targetSectionId,
-        subject_id: row.subjectId,
-        teacher_id: choices[row.id],
-        starts_on: startsOn,
-      }),
-    [targetCycleId, choices, startsOn]
-  );
-  const describe = useCallback(
-    (row) =>
-      `${row.sectionLabel} · ${names.subjects.get(row.subjectId) ?? "Curso"}`,
-    [names]
-  );
-  const { run, reset, submitting, result } = useBatchSubmit(
-    createOne,
-    describe
-  );
-
-  // La vigencia propuesta es el inicio del ciclo destino: una asignacion que
-  // arranca antes de que el ciclo abra la rechaza el backend.
-  const targetCycle = cycles.options.find(
-    (option) => option.value === targetCycleId
-  );
-  useEffect(() => {
-    if (targetCycle?.startsOn) setStartsOn(targetCycle.startsOn);
-  }, [targetCycle?.startsOn]);
-
-  // Lee las asignaciones vigentes del ciclo origen y las traduce a las secciones
-  // equivalentes del destino, marcando lo que ya esta asignado alla.
-  useEffect(() => {
-    if (!sourceCycleId || !targetCycleId || sections.loading) {
-      setPlan(null);
-      return undefined;
-    }
-
-    let active = true;
-    setLoadingPlan(true);
-    setLoadError("");
-    reset();
-
-    Promise.all([
-      collectAllPages((params) =>
-        academicsService.listTeachingAssignmentHistory({
-          ...params,
-          academic_cycle_id: sourceCycleId,
-        })
-      ),
-      collectAllPages((params) =>
-        academicsService.listTeachingAssignmentHistory({
-          ...params,
-          academic_cycle_id: targetCycleId,
-        })
-      ),
-    ])
-      .then(([sourceHistory, targetHistory]) => {
-        if (!active) return;
-
-        const targetByKey = new Map(
-          sectionsForCycle(sections.options, targetCycleId).map((option) => [
-            sectionKey(option),
-            option,
-          ])
-        );
-        const sourceById = new Map(
-          sectionsForCycle(sections.options, sourceCycleId).map((option) => [
-            option.value,
-            option,
-          ])
-        );
-        const alreadyThere = new Set(
-          targetHistory
-            .filter((row) => !row.ends_on)
-            .map((row) => `${row.section_id}|${row.subject_id}`)
-        );
-
-        const rows = sourceHistory
-          .filter((row) => !row.ends_on)
-          .map((row) => {
-            const sourceSection = sourceById.get(row.section_id);
-            const targetSection = sourceSection
-              ? targetByKey.get(sectionKey(sourceSection))
-              : undefined;
-            return {
-              id: `${row.section_id}|${row.subject_id}`,
-              sectionLabel:
-                names.sections.get(row.section_id) ?? "Seccion desconocida",
-              subjectId: row.subject_id,
-              teacherId: row.teacher_id,
-              targetSectionId: targetSection?.value ?? null,
-              assigned: targetSection
-                ? alreadyThere.has(`${targetSection.value}|${row.subject_id}`)
-                : false,
-            };
-          });
-
-        setPlan(rows);
-        setChoices(
-          Object.fromEntries(rows.map((row) => [row.id, row.teacherId]))
-        );
-      })
-      .catch((error) => {
-        if (active) {
-          setPlan(null);
-          setLoadError(error.message);
-        }
-      })
-      .finally(() => {
-        if (active) setLoadingPlan(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    sourceCycleId,
-    targetCycleId,
-    sections.loading,
-    sections.options,
-    names,
-    reset,
-  ]);
+  const [done, setDone] = useState(() => new Set());
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+  const [submitError, setSubmitError] = useState("");
 
   const sameCycle = sourceCycleId !== "" && sourceCycleId === targetCycleId;
-  const pending = (plan ?? []).filter(
-    (row) => row.targetSectionId && !row.assigned
-  );
-  const chosen = pending.filter((row) => (choices[row.id] ?? SKIP) !== SKIP);
-  const orphans = (plan ?? []).filter((row) => !row.targetSectionId);
+  const enabled = Boolean(sourceCycleId && targetCycleId && !sameCycle);
 
-  const applyToAll = (teacherId) =>
-    setChoices((current) => {
-      const next = { ...current };
-      for (const row of pending) next[row.id] = teacherId;
-      return next;
-    });
+  const preview = useQuery({
+    queryKey: [
+      ...queryKeys.academics.cycle(targetCycleId),
+      "clone-preview",
+      sourceCycleId,
+    ],
+    queryFn: () =>
+      cyclesService.cloneAssignmentsPreview(targetCycleId, sourceCycleId),
+    enabled,
+  });
+  const data = enabled ? preview.data : undefined;
+
+  // Al llegar una vista previa nueva se proponen los docentes del origen y la
+  // fecha sugerida (inicio del ciclo destino, o hoy si ya empezó).
+  useEffect(() => {
+    if (!data) return;
+    setChoices(
+      Object.fromEntries(
+        data.results
+          .filter((row) => row.status === "pending" && row.teacher)
+          .map((row) => [
+            row.source_assignment_id,
+            { value: row.teacher.public_id, label: row.teacher.name },
+          ])
+      )
+    );
+    setDone(new Set());
+    setResult(null);
+    if (data.suggested_starts_on) setStartsOn(data.suggested_starts_on);
+  }, [data]);
+
+  const rows = data?.results ?? [];
+  const statusOf = (row) =>
+    row.status === "pending" &&
+    row.target_section &&
+    done.has(cellKey(row.target_section.public_id, row.subject?.public_id))
+      ? "already_assigned"
+      : row.status;
+  const pending = rows.filter((row) => statusOf(row) === "pending");
+  const chosen = pending.filter((row) => choices[row.source_assignment_id]);
+  const unmatched = rows.filter((row) => row.status === "unmatched");
 
   const handleSubmit = async () => {
-    const { created } = await run(chosen);
-
-    if (created.length > 0) {
-      // Lo creado deja de estar pendiente: se marca sin cerrar la ventana, para
-      // que el resumen y la tabla cuenten la misma historia.
-      const done = new Set(created.map((row) => row.id));
-      setPlan((current) =>
-        (current ?? []).map((row) =>
-          done.has(row.id) ? { ...row, assigned: true } : row
-        )
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const response = await cyclesService.createAssignmentsBatch(
+        targetCycleId,
+        {
+          starts_on: startsOn,
+          items: chosen.map((row) => ({
+            section_id: row.target_section.public_id,
+            subject_id: row.subject.public_id,
+            teacher_id: choices[row.source_assignment_id].value,
+          })),
+        }
       );
-      onCreated?.();
+      const created = response.created ?? [];
+      const describe = new Map(
+        chosen.map((row) => [
+          cellKey(row.target_section.public_id, row.subject.public_id),
+          `${sectionLabel(row.target_section)} · ${row.subject.name}`,
+        ])
+      );
+      setResult({
+        created,
+        failed: (response.failed ?? []).map((failure) => ({
+          label:
+            describe.get(cellKey(failure.section_id, failure.subject_id)) ??
+            "Asignación",
+          message: failure.detail,
+        })),
+      });
+      setDone(
+        (current) =>
+          new Set([
+            ...current,
+            ...created.map((row) => cellKey(row.section_id, row.subject_id)),
+          ])
+      );
+      if (created.length > 0) onCreated?.();
+    } catch (requestError) {
+      setSubmitError(requestError.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const columns = [
-    { key: "section", label: "Seccion", render: (row) => row.sectionLabel },
+    {
+      key: "section",
+      label: "Sección",
+      render: (row) => sectionLabel(row.section ?? {}),
+    },
     {
       key: "subject",
       label: "Curso",
-      render: (row) => names.subjects.get(row.subjectId) ?? "Curso",
+      render: (row) => row.subject?.name ?? "Curso",
     },
     {
       key: "previous",
-      label: "Docente del ciclo anterior",
-      render: (row) => (
-        <MutedCell>{names.teachers.get(row.teacherId) ?? "Docente"}</MutedCell>
-      ),
+      label: "Docente del ciclo de origen",
+      render: (row) => <MutedCell>{row.teacher?.name ?? "Docente"}</MutedCell>,
+    },
+    {
+      key: "status",
+      label: "Estado",
+      render: (row) => {
+        const status = CLONE_STATUS[statusOf(row)] ?? {
+          label: row.status,
+          variant: "neutral",
+        };
+        return <StatusChip label={status.label} variant={status.variant} />;
+      },
     },
     {
       key: "teacher",
-      label: "Se asignara a",
-      render: (row) => {
-        if (!row.targetSectionId) {
-          return <MutedCell>Sin seccion equivalente</MutedCell>;
-        }
-        if (row.assigned) {
-          return <StatusChip label="Ya asignado" variant="neutral" />;
-        }
-        return (
-          // Sin etiqueta propia (la columna ya dice "Se asignara a") y con ancho
-          // minimo: el nombre completo del docente es el dato que hay que leer
-          // para decidir, y truncado a "An..." la confirmacion no sirve de nada.
-          <FormSelect
-            fullWidth
-            loading={teachers.loading}
-            onChange={(event) =>
-              setChoices((current) => ({
-                ...current,
-                [row.id]: event.target.value,
-              }))
-            }
-            options={teachers.options}
-            placeholder="No clonar esta"
-            sx={{ minWidth: "16rem" }}
-            value={choices[row.id] ?? SKIP}
-          />
-        );
-      },
+      label: "Se asignará a",
+      render: (row) =>
+        statusOf(row) !== "pending" ? null : (
+          <Box sx={{ minWidth: "16rem" }}>
+            <RemoteSearchSelect
+              initialOption={choices[row.source_assignment_id] ?? undefined}
+              label="Docente"
+              name={`teacher-${row.source_assignment_id}`}
+              onChange={() => {}}
+              onOptionChange={(option) =>
+                setChoices((current) => ({
+                  ...current,
+                  [row.source_assignment_id]: option,
+                }))
+              }
+              placeholder="No clonar esta fila"
+              search={TEACHER_SEARCH}
+              value={choices[row.source_assignment_id]?.value ?? ""}
+            />
+          </Box>
+        ),
     },
   ];
 
-  const ready = sourceCycleId && targetCycleId && !sameCycle && startsOn;
+  const ready = enabled && Boolean(startsOn);
+  const summary = data?.summary;
 
   return (
     <FloatingWindow
       busy={submitting}
-      description="Trae las asignaciones vigentes de un ciclo y las propone para el nuevo. Nada se guarda hasta confirmar: revise los cambios del ano antes de aplicar."
+      description="Trae las asignaciones vigentes de un ciclo y las propone para otro. Nada se guarda hasta confirmar: revise los cambios del año antes de aplicar."
       footer={
         <>
           <Button disabled={submitting} onClick={onClose} variant="text">
@@ -300,7 +222,7 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
           >
             {submitting
               ? "Clonando…"
-              : `Clonar ${chosen.length} ${chosen.length === 1 ? "asignacion" : "asignaciones"}`}
+              : `Clonar ${chosen.length} ${chosen.length === 1 ? "asignación" : "asignaciones"}`}
           </Button>
         </>
       }
@@ -344,7 +266,7 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
           />
           <DateField
             fullWidth
-            helperText="Misma fecha para todas; se propone el inicio del ciclo."
+            helperText="Misma fecha para todas; se propone la que sugiere el ciclo destino."
             label="Vigente desde"
             onChange={(event) => setStartsOn(event.target.value)}
             required
@@ -352,54 +274,52 @@ export function CloneAssignmentsWindow({ onClose, onCreated }) {
           />
         </Box>
 
-        {loadError ? <Alert severity="error">{loadError}</Alert> : null}
+        {enabled && preview.error ? (
+          <Alert severity="error">{preview.error.message}</Alert>
+        ) : null}
+        {submitError ? (
+          <Alert role="alert" severity="error">
+            {submitError}
+          </Alert>
+        ) : null}
 
         <BatchResultAlert
-          noun="asignacion"
+          noun="asignación"
           nounPlural="asignaciones"
           result={result}
         />
 
-        {orphans.length > 0 ? (
+        {summary ? (
+          <Typography color="text.secondary" variant="body2">
+            {summary.total} vigentes en el origen · {summary.pending} pendientes
+            · {summary.already_assigned} ya asignadas · {summary.unmatched} sin
+            sección equivalente
+          </Typography>
+        ) : null}
+
+        {unmatched.length > 0 ? (
           <Alert severity="info">
-            {orphans.length} asignacion{orphans.length === 1 ? "" : "es"} sin
-            seccion equivalente en el ciclo nuevo. Clone primero la estructura
-            del ciclo (oferta de grados y secciones) para poder traerlas.
+            {unmatched.length}{" "}
+            {unmatched.length === 1
+              ? "asignación no tiene"
+              : "asignaciones no tienen"}{" "}
+            sección equivalente en el ciclo destino. Clone primero la estructura
+            del ciclo (oferta de grados y secciones) o cree la sección para
+            poder traerlas.
           </Alert>
         ) : null}
 
-        {ready && !loadingPlan && pending.length > 1 ? (
-          <Stack
-            alignItems={{ xs: "stretch", sm: "center" }}
-            direction={{ xs: "column", sm: "row" }}
-            gap={1.5}
-          >
-            <Typography color="text.secondary" sx={{ fontSize: "0.8125rem" }}>
-              Atajo: el mismo docente para las {pending.length} asignaciones
-            </Typography>
-            <FormSelect
-              label="Aplicar a todas"
-              loading={teachers.loading}
-              onChange={(event) => applyToAll(event.target.value)}
-              options={teachers.options}
-              placeholder="Sin aplicar"
-              sx={{ minWidth: "18rem" }}
-              value=""
-            />
-          </Stack>
-        ) : null}
-
-        {!ready ? (
+        {!enabled ? (
           <Alert severity="info">
-            Elija el ciclo de origen, el ciclo nuevo y la fecha de vigencia.
+            Elija el ciclo de origen y el ciclo destino para ver la propuesta.
           </Alert>
         ) : (
           <DataTable
             columns={columns}
             emptyMessage="El ciclo de origen no tiene asignaciones vigentes que traer."
-            getRowKey={(row) => row.id}
-            loading={loadingPlan || subjects.loading}
-            rows={plan ?? []}
+            getRowKey={(row) => row.source_assignment_id}
+            loading={preview.isPending}
+            rows={rows}
           />
         )}
       </Stack>

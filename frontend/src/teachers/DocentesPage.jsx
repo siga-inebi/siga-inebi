@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
@@ -10,12 +10,15 @@ import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
 import { GrantAccessButton } from "@auth/GrantAccessButton.jsx";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import { POSITION_OPTIONS } from "@teachers/teachersMock.js";
 import { teachersService } from "@teachers/teachersService.js";
 import { TeacherDocumentsWindow } from "@teachers/TeacherDocumentsWindow.jsx";
+import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
-import { useLocalList } from "@shared/crud/useLocalList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
 import { downloadCsv } from "@shared/utils/csv.js";
 import { formatDate } from "@shared/utils/format.js";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
@@ -29,6 +32,13 @@ import { MutedCell } from "@ui/table/cells.jsx";
 import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
+
+// "Qué imparte" trae el servicio académico: se descarga al abrir la ficha.
+const TeacherAssignments = lazy(() =>
+  import("@teachers/TeacherAssignments.jsx").then((module) => ({
+    default: module.TeacherAssignments,
+  }))
+);
 
 const TEACHER_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
@@ -76,7 +86,7 @@ const TEACHER_FIELDS = [
   },
   {
     name: "employee_code",
-    label: "Codigo de empleado",
+    label: "Código de empleado",
     help: "Se genera solo. Cambielo si ya figura en contratos o planilla.",
   },
   { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
@@ -116,44 +126,50 @@ const personPayload = (values) => ({
 });
 
 export function DocentesPage() {
-  const [positionFilter, setPositionFilter] = useState(ALL_POSITIONS);
-
-  const loadTeachers = useCallback(() => teachersService.list(), []);
-  const matches = useCallback(
-    (teacher, query) => fullName(teacher).toLowerCase().includes(query),
-    []
-  );
-  // Memorizado porque `useLocalList` lo usa como dependencia del filtrado: una
-  // funcion nueva en cada render recalcularia la lista sin necesidad.
-  const filters = useMemo(
-    () =>
-      positionFilter
-        ? (teacher) => teacher.position === positionFilter
-        : undefined,
-    [positionFilter]
-  );
-
-  const list = useLocalList(loadTeachers, { filters, matches });
+  // Solo la pagina visible: la busqueda (nombre, codigo o CUI), el puesto y
+  // la paginacion los resuelve el backend, no el navegador.
+  const list = useServerList({
+    queryKey: queryKeys.teachers.all,
+    fetchPage: teachersService.listPage,
+    defaultFilters: { position: ALL_POSITIONS },
+  });
+  const positionFilter = list.filters.position;
+  const setPositionFilter = (value) => list.setFilter("position", value);
 
   const [selected, setSelected] = useState(null);
+  // "Qué imparte" consulta un listado que exige administrar asignaciones.
+  const canSeeAssignments = usePermissions().can(PERMISSION.SCOPE_ASSIGN);
   const [editing, setEditing] = useState(null);
   // Valores iniciales, no un booleano: ver el comentario homonimo en
   // AlumnosPage. El codigo sugerido se pide al abrir.
   const [creating, setCreating] = useState(null);
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [documentsFor, setDocumentsFor] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
-  const handleExport = () => {
-    downloadCsv(
-      "docentes.csv",
-      [
-        { label: "Nombre", value: fullName },
-        { label: "Especialidad", value: (item) => item.specialty },
-        { label: "Puesto", value: (item) => item.position },
-        { label: "Codigo Empleado", value: (item) => item.employee_code },
-      ],
-      list.filtered
-    );
+  // La exportacion si recorre todas las paginas, con la busqueda y el puesto
+  // vigentes.
+  const handleExport = async () => {
+    setExporting(true);
+    setExportError("");
+    try {
+      const rows = await teachersService.list(list.exportParams);
+      downloadCsv(
+        "docentes.csv",
+        [
+          { label: "Nombre", value: fullName },
+          { label: "Especialidad", value: (item) => item.specialty },
+          { label: "Puesto", value: (item) => item.position },
+          { label: "Codigo Empleado", value: (item) => item.employee_code },
+        ],
+        rows
+      );
+    } catch (requestError) {
+      setExportError(requestError.message);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const buildPayload = (values) => ({
@@ -166,8 +182,8 @@ export function DocentesPage() {
   });
 
   const handleCreate = async (values) => {
-    const created = await teachersService.create(buildPayload(values));
-    list.addItem(created);
+    await teachersService.create(buildPayload(values));
+    list.refresh();
     setCreating(null);
   };
 
@@ -187,7 +203,7 @@ export function DocentesPage() {
         municipality: values.municipality,
       },
     });
-    list.replaceItem(updated, (item) => item.id === updated.id);
+    list.refresh();
     setSelected(updated);
     setEditing(null);
   };
@@ -256,7 +272,7 @@ export function DocentesPage() {
           </Button>
         }
         breadcrumb="Comunidad educativa"
-        subtitle={`${list.filtered.length} de ${list.all.length} registros de personal docente y administrativo.`}
+        subtitle={`${list.count} registros de personal docente y administrativo.`}
         title="Docentes y administrativos"
       />
 
@@ -264,12 +280,13 @@ export function DocentesPage() {
         <FilterBar
           actions={
             <Button
+              disabled={exporting}
               onClick={handleExport}
               size="small"
               startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
               variant="outlined"
             >
-              Exportar CSV
+              {exporting ? "Exportando…" : "Exportar CSV"}
             </Button>
           }
           onClear={
@@ -283,7 +300,7 @@ export function DocentesPage() {
         >
           <SearchField
             onChange={list.setSearch}
-            placeholder="Buscar por nombre…"
+            placeholder="Buscar por nombre, codigo o CUI…"
             value={list.search}
           />
           <FilterSelect
@@ -295,13 +312,13 @@ export function DocentesPage() {
           />
         </FilterBar>
 
-        {list.error ? (
+        {list.error || exportError ? (
           <Alert
             role="alert"
             severity="error"
             sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
           >
-            {list.error}
+            {list.error || exportError}
           </Alert>
         ) : null}
 
@@ -347,7 +364,7 @@ export function DocentesPage() {
                     <StatusChip label={selected.position} variant="primary" />
                   ),
                 },
-                { label: "Codigo de empleado", value: selected.employee_code },
+                { label: "Código de empleado", value: selected.employee_code },
                 {
                   label: "Fecha de nombramiento",
                   value: selected.appointment_date
@@ -355,7 +372,7 @@ export function DocentesPage() {
                     : null,
                 },
                 { label: "Correo", value: selected.person.email },
-                { label: "Telefono", value: selected.person.phone_number },
+                { label: "Teléfono", value: selected.person.phone_number },
                 {
                   label: "Foto",
                   value: selected.photo ? (
@@ -393,7 +410,16 @@ export function DocentesPage() {
         }}
         open={Boolean(selected)}
         title={selected ? fullName(selected) : ""}
-      />
+      >
+        {selected && canSeeAssignments ? (
+          <Suspense fallback={null}>
+            <TeacherAssignments
+              key={selected.public_id}
+              teacherId={selected.public_id}
+            />
+          </Suspense>
+        ) : null}
+      </DetailWindow>
 
       {documentsFor ? (
         <TeacherDocumentsWindow

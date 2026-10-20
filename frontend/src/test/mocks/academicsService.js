@@ -11,6 +11,11 @@ const LIST_METHODS = [
   "listSections",
   "listLevelSubjects",
   "listTeachingAssignmentHistory",
+  "listTeachingAssignments",
+  "listClassrooms",
+  "listCurriculumPlans",
+  "listScheduleBlocks",
+  "listClassSessions",
 ];
 
 const WRITE_METHODS = [
@@ -28,6 +33,16 @@ const WRITE_METHODS = [
   "updateLevelSubject",
   "createTeachingAssignment",
   "reassignTeachingAssignment",
+  "createSection",
+  "updateSection",
+  "createCurriculumPlan",
+  "updateCurriculumPlan",
+  "createScheduleBlock",
+  "updateScheduleBlock",
+  "createClassSession",
+  "cloneClassSessions",
+  "createClassroom",
+  "updateClassroom",
 ];
 
 const DELETE_METHODS = [
@@ -37,6 +52,11 @@ const DELETE_METHODS = [
   "deactivateGrade",
   "deactivateSubject",
   "unlinkSubjectFromLevel",
+  "deactivateSection",
+  "deactivateCurriculumPlan",
+  "deactivateScheduleBlock",
+  "deactivateClassSession",
+  "deactivateClassroom",
 ];
 
 const DETAIL_METHODS = [
@@ -45,7 +65,11 @@ const DETAIL_METHODS = [
   "getLevel",
   "getGrade",
   "getSubject",
+  "getClassroom",
 ];
+
+/** Respuestas en lista (no paginadas). */
+const ARRAY_METHODS = ["sectionWeeklyLoad"];
 
 /**
  * Sugerencias de codigo. Devuelven texto, no una pagina.
@@ -62,6 +86,7 @@ export const academicsServiceMock = Object.fromEntries(
     ...DELETE_METHODS,
     ...DETAIL_METHODS,
     ...SUGGESTION_METHODS,
+    ...ARRAY_METHODS,
   ].map((name) => [name, vi.fn()])
 );
 
@@ -82,6 +107,9 @@ export function resetAcademicsServiceMock() {
   }
   for (const name of DETAIL_METHODS) {
     academicsServiceMock[name].mockResolvedValue({});
+  }
+  for (const name of ARRAY_METHODS) {
+    academicsServiceMock[name].mockResolvedValue([]);
   }
   for (const name of SUGGESTION_METHODS) {
     academicsServiceMock[name].mockResolvedValue("");

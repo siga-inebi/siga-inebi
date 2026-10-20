@@ -1,33 +1,47 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
+import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
-import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
-import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
-import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 
 import {
+  CYCLE_STATUS,
   CYCLE_STATUS_LABEL,
   CYCLE_STATUS_VARIANT,
   cyclesService,
 } from "@cycles/cyclesService.js";
-import { PAGE_SIZE } from "@academics/academicsService.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
 import { ListSection } from "@shared/crud/ListSection.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
 import { formatDate } from "@shared/utils/format.js";
-import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
-import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
+import { RowActionsMenu } from "@ui/buttons/RowActionsMenu.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
+import { TextLink } from "@ui/display/TextLink.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 
-import { CycleDetailWindow } from "./CycleDetailWindow.jsx";
 import { CycleFormWindow } from "./CycleFormWindow.jsx";
+import { cyclePath, nextCycleYear } from "./cyclePresentation.js";
+import { useCycleActions } from "./useCycleActions.jsx";
 
-const CYCLE_COLUMNS = [
-  { key: "year", label: "Ano", align: "right", render: (row) => row.year },
-  { key: "name", label: "Ciclo", render: (row) => row.name },
+const COLUMNS = [
+  { key: "year", label: "Año", align: "right", render: (row) => row.year },
+  {
+    key: "name",
+    label: "Ciclo",
+    render: (row) => (
+      <TextLink
+        onClick={(event) => event.stopPropagation()}
+        to={cyclePath(row)}
+      >
+        {row.name}
+      </TextLink>
+    ),
+  },
   {
     key: "range",
     label: "Vigencia",
@@ -36,8 +50,8 @@ const CYCLE_COLUMNS = [
   },
   {
     key: "description",
-    label: "Descripcion",
-    render: (row) => row.description || <MutedCell>Sin descripcion</MutedCell>,
+    label: "Descripción",
+    render: (row) => row.description || <MutedCell>Sin descripción</MutedCell>,
   },
   {
     key: "status",
@@ -51,161 +65,130 @@ const CYCLE_COLUMNS = [
   },
 ];
 
-/** Anio propuesto: el siguiente al del ciclo de referencia, o al corriente. */
-function nextYear(source) {
-  return (source?.year ?? new Date().getFullYear()) + 1;
+/**
+ * El otro ciclo activo (D1) y la preparacion del ciclo activo (D6), con a lo
+ * sumo una consulta a `readiness/`: la del ciclo activo de la pagina si esta, o
+ * la de un borrador, que informa cual es el activo aunque este en otra pagina.
+ */
+function useListContext(cycles) {
+  const activeOnPage = cycles.find(
+    (cycle) => cycle.status === CYCLE_STATUS.active
+  );
+  const probe =
+    activeOnPage ?? cycles.find((cycle) => cycle.status === CYCLE_STATUS.draft);
+  const readiness = useQuery({
+    queryKey: queryKeys.academics.readiness(probe?.public_id),
+    queryFn: () => cyclesService.readiness(probe.public_id),
+    enabled: Boolean(probe),
+  });
+
+  const activeCycle = activeOnPage
+    ? { public_id: activeOnPage.public_id, name: activeOnPage.name }
+    : (readiness.data?.active_cycle ?? null);
+
+  return {
+    activeCycle,
+    contextFor: (cycle) => ({
+      activeCycle,
+      readiness:
+        cycle.public_id === probe?.public_id ? (readiness.data ?? null) : null,
+    }),
+  };
 }
 
 /**
- * Ciclos escolares: registro, activacion, cierre, clonado de estructura y consulta del
- * detalle historico.
+ * Ciclos escolares (docs/ux-ui.md 2.1): registro, activación, cierre, clonado,
+ * edición del borrador, volver a borrador y reabrir.
  *
- * El ciclo es la raiz temporal de casi todo el sistema (oferta de grados,
- * matricula, asignaciones, evaluacion), por eso su estado se muestra siempre y
- * las acciones que lo cambian piden confirmacion explicita.
+ * El listado pagina en el servidor y deja la página en la URL. Cada fila abre
+ * el detalle del ciclo (`/app/ciclos/:id`), que es también el tablero de
+ * preparación del borrador (C9). Las acciones van en el menú de la fila y se
+ * deshabilitan, con el motivo, cuando el backend las rechazaría (D1, D2, D6).
  */
 export function CyclesPage() {
-  const loadCycles = useCallback((params) => cyclesService.list(params), []);
-  const list = usePaginatedList(loadCycles, {
-    canIncludeInactive: false,
-    pageSize: PAGE_SIZE,
+  const navigate = useNavigate();
+  const { can } = usePermissions();
+  const [creating, setCreating] = useState(false);
+
+  const list = useServerList({
+    queryKey: queryKeys.academics.list("cycles"),
+    fetchPage: cyclesService.list,
+  });
+  const { activeCycle, contextFor } = useListContext(list.items);
+
+  const openCycle = (cycle) => navigate(cyclePath(cycle));
+  const { actionsFor, dialogs } = useCycleActions({
+    onChanged: list.refresh,
+    onCloned: openCycle,
+    onView: openCycle,
   });
 
-  const [creating, setCreating] = useState(false);
-  const [cloning, setCloning] = useState(null);
-  const [viewing, setViewing] = useState(null);
-  const [actionError, setActionError] = useState("");
-
-  const handleCreate = async (payload) => {
-    await cyclesService.create(payload);
-    setCreating(false);
-    list.refresh();
-  };
-
-  const handleClone = async (payload) => {
-    await cyclesService.clone(cloning.public_id, payload);
-    setCloning(null);
-    list.refresh();
-  };
-
-  const handleActivate = async (cycle) => {
-    setActionError("");
-    try {
-      await cyclesService.activate(cycle.public_id);
-      list.refresh();
-    } catch (requestError) {
-      setActionError(requestError.message);
-      throw requestError;
-    }
-  };
-
-  const handleClose = async (cycle) => {
-    setActionError("");
-    try {
-      await cyclesService.close(cycle.public_id);
-      list.refresh();
-    } catch (requestError) {
-      setActionError(requestError.message);
-      throw requestError;
-    }
-  };
+  const hasDrafts = list.items.some(
+    (cycle) => cycle.status === CYCLE_STATUS.draft
+  );
 
   return (
     <>
       <PageHeader
         action={
-          <Button
-            onClick={() => setCreating(true)}
-            startIcon={<AddIcon fontSize="small" />}
-            variant="contained"
-          >
-            Nuevo ciclo
-          </Button>
+          can(PERMISSION.SCOPE_ASSIGN) ? (
+            <Button
+              onClick={() => setCreating(true)}
+              startIcon={<AddIcon fontSize="small" />}
+              variant="contained"
+            >
+              Nuevo ciclo
+            </Button>
+          ) : null
         }
-        breadcrumb="Estructura institucional"
-        subtitle="Registro de ciclos escolares. Activar un ciclo cierra el anterior; un ciclo cerrado ya no acepta escrituras."
+        breadcrumb="Estructura académica"
+        subtitle="Un ciclo nace en borrador, se prepara (secciones, plan de estudios, asignaciones y horarios) y se activa. Solo puede haber un ciclo activo: para activar otro, cierre antes el vigente."
         title="Ciclo escolar"
       />
 
+      {activeCycle && hasDrafts ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          El ciclo activo es «{activeCycle.name}». Para activar un borrador,
+          cierre primero ese ciclo.{" "}
+          <TextLink to={cyclePath(activeCycle)}>
+            Ver «{activeCycle.name}»
+          </TextLink>
+        </Alert>
+      ) : null}
+
+      {dialogs}
+
       <ListSection
-        actionError={actionError}
-        columns={CYCLE_COLUMNS}
-        emptyMessage="Todavia no hay ciclos registrados."
+        columns={COLUMNS}
+        emptyMessage="Todavía no hay ciclos registrados."
         fillHeight
         getRowKey={(cycle) => cycle.public_id}
         list={list}
+        onRowClick={openCycle}
         renderActions={(cycle) => (
-          <Stack direction="row" gap={0.5} justifyContent="flex-end">
-            <ActionIconButton
-              label="Ver detalle historico"
-              onClick={() => setViewing(cycle)}
-            >
-              <VisibilityOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            <ActionIconButton
-              label="Clonar estructura a un ciclo nuevo"
-              onClick={() => setCloning(cycle)}
-            >
-              <ContentCopyOutlinedIcon fontSize="small" />
-            </ActionIconButton>
-            {cycle.status === "draft" ? (
-              <ConfirmActionButton
-                color="primary"
-                confirmLabel="Si, activar"
-                label="Activar"
-                onConfirm={() => handleActivate(cycle)}
-                question={`Se activara "${cycle.name}" como ciclo vigente. El ciclo activo anterior queda cerrado y deja de aceptar escrituras.`}
-                title="Activar ciclo escolar"
-              />
-            ) : null}
-            {cycle.status === "active" ? (
-              <>
-                <StatusChip label="Vigente" variant="success" />
-                <ConfirmActionButton
-                  confirmLabel="Si, cerrar ciclo"
-                  label="Cerrar ciclo"
-                  onConfirm={() => handleClose(cycle)}
-                  question={`Se cerrara "${cycle.name}": sus resultados finales y la condicion de promocion quedan congelados y el ciclo deja de aceptar escrituras. Requiere que todas las unidades de evaluacion esten cerradas y que las ventanas de recuperacion hayan vencido.`}
-                  title="Cerrar ciclo escolar"
-                />
-              </>
-            ) : null}
-          </Stack>
+          <RowActionsMenu
+            actions={actionsFor(cycle, contextFor(cycle))}
+            label={cycle.name}
+          />
         )}
         showInactiveToggle={false}
-        subtitle="Ciclos del establecimiento"
+        subtitle="Clic en una fila para abrir el ciclo y su preparación."
         title="Ciclos registrados"
       />
 
       {creating ? (
         <CycleFormWindow
-          description="Elija el ano: el nombre y la vigencia salen del calendario escolar. El ciclo nace en borrador y se vuelve vigente cuando se activa."
-          initialYear={nextYear()}
+          description="Elija el año: el nombre y la vigencia salen del calendario escolar. El ciclo nace en borrador y se vuelve vigente cuando se activa."
+          initialYear={nextCycleYear()}
           onCancel={() => setCreating(false)}
-          onSubmit={handleCreate}
+          onSubmit={async (payload) => {
+            const created = await cyclesService.create(payload);
+            setCreating(false);
+            list.refresh();
+            if (created?.public_id) openCycle(created);
+          }}
           submitLabel="Crear ciclo"
           title="Nuevo ciclo escolar"
-        />
-      ) : null}
-
-      {cloning ? (
-        <CycleFormWindow
-          description={`Se copiara la estructura academica de "${cloning.name}" (oferta de grados, secciones y plan de estudios) al ciclo nuevo. Las asignaciones docentes solo si lo pide: arrastrarlas reasignaria personal que quizas ya no esta en el establecimiento.`}
-          initialYear={nextYear(cloning)}
-          key={`clone-${cloning.public_id}`}
-          onCancel={() => setCloning(null)}
-          onSubmit={handleClone}
-          submitLabel="Clonar estructura"
-          title={`Clonar ${cloning.name}`}
-          withAssignmentsToggle
-        />
-      ) : null}
-
-      {viewing ? (
-        <CycleDetailWindow
-          cycle={viewing}
-          key={viewing.public_id}
-          onClose={() => setViewing(null)}
         />
       ) : null}
     </>

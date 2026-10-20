@@ -88,6 +88,90 @@ class AcademicCycleReopenSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=500, allow_blank=True)
 
 
+class AcademicCycleRevertSerializer(serializers.Serializer):
+    """D3/RF-CIC-008: same as reopening, the empty reason is rejected by the
+    service so the message stays in Spanish and in one place."""
+
+    reason = serializers.CharField(max_length=500, allow_blank=True)
+
+
+class AcademicCycleUpdateSerializer(serializers.Serializer):
+    """C3: every field optional; only a cycle in preparation can be edited."""
+
+    year = serializers.IntegerField(min_value=1900, max_value=9999, required=False)
+    name = serializers.CharField(max_length=100, required=False)
+    description = serializers.CharField(required=False, allow_blank=True)
+    starts_on = serializers.DateField(required=False)
+    ends_on = serializers.DateField(required=False)
+
+
+class NamedRefSerializer(serializers.Serializer):
+    """The smallest reference a screen needs to name and link a record."""
+
+    public_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+
+class CycleActivationGapSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    message = serializers.CharField()
+    grade = NamedRefSerializer(allow_null=True)
+    section = NamedRefSerializer(allow_null=True)
+    subject = NamedRefSerializer(allow_null=True)
+
+
+class CycleGapSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    message = serializers.CharField()
+
+
+class CycleRevertBlockerSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    count = serializers.IntegerField(allow_null=True)
+    message = serializers.CharField()
+
+
+class CycleActivationReadinessSerializer(serializers.Serializer):
+    ready = serializers.BooleanField()
+    gaps = CycleActivationGapSerializer(many=True)
+
+
+class CycleRevertReadinessSerializer(serializers.Serializer):
+    allowed = serializers.BooleanField()
+    blockers = CycleRevertBlockerSerializer(many=True)
+
+
+class CycleCloseReadinessSerializer(serializers.Serializer):
+    ready = serializers.BooleanField()
+    gaps = CycleGapSerializer(many=True)
+
+
+class AcademicCycleReadinessSerializer(serializers.Serializer):
+    """C7/D1/D6: what each cycle action needs, so the screen explains disabled buttons."""
+
+    activation = CycleActivationReadinessSerializer()
+    revert = CycleRevertReadinessSerializer()
+    close = CycleCloseReadinessSerializer()
+    active_cycle = NamedRefSerializer(allow_null=True)
+
+
+# --------------------------------------------------------------------------- #
+# non-computable days (RF-JOR-010)
+# --------------------------------------------------------------------------- #
+
+
+class NonComputableDaySerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
+    day = serializers.DateField(read_only=True)
+    reason = serializers.CharField(read_only=True)
+
+
+class NonComputableDayCreateSerializer(serializers.Serializer):
+    day = serializers.DateField(help_text="Fecha dentro de la vigencia del ciclo.")
+    reason = serializers.CharField(max_length=255, allow_blank=True)
+
+
 # --------------------------------------------------------------------------- #
 # compact references, used whenever a payload needs to name a catalogue node
 # --------------------------------------------------------------------------- #
@@ -466,6 +550,7 @@ class SectionSerializer(serializers.ModelSerializer):
     default_classroom_id = serializers.UUIDField(
         source="default_classroom.public_id", read_only=True, allow_null=True
     )
+    default_classroom = NamedRefSerializer(read_only=True, allow_null=True)
     capacity_warning = serializers.SerializerMethodField()
 
     class Meta:
@@ -479,6 +564,7 @@ class SectionSerializer(serializers.ModelSerializer):
             "grade",
             "shift",
             "default_classroom_id",
+            "default_classroom",
             "capacity_warning",
         ]
 
@@ -526,9 +612,11 @@ class ClassSessionSerializer(serializers.ModelSerializer):
     schedule_block = ClassScheduleBlockRefSerializer(read_only=True)
     day_of_week_display = serializers.CharField(source="get_day_of_week_display", read_only=True)
     teacher_id = serializers.SerializerMethodField()
+    teacher = serializers.SerializerMethodField()
     classroom_id = serializers.UUIDField(
         source="classroom.public_id", read_only=True, allow_null=True
     )
+    classroom = NamedRefSerializer(read_only=True, allow_null=True)
     capacity_warning = serializers.SerializerMethodField()
 
     class Meta:
@@ -541,15 +629,39 @@ class ClassSessionSerializer(serializers.ModelSerializer):
             "subject",
             "schedule_block",
             "teacher_id",
+            "teacher",
             "classroom_id",
+            "classroom",
             "capacity_warning",
             "starts_on",
         ]
 
-    def get_teacher_id(self, obj):
-        """RF-HOR-004: derived from the current teaching assignment, not stored."""
+    @staticmethod
+    def _current_teacher(obj):
+        """
+        RF-HOR-004: derived from the current teaching assignment, not stored.
+
+        ``queries.class_sessions`` annotates it for a whole page at once; a
+        session built elsewhere (just created) falls back to the model property.
+        """
+        if hasattr(obj, "_current_teacher_public_id"):
+            if obj._current_teacher_public_id is None:
+                return None
+            name = f"{obj._current_teacher_first_name} {obj._current_teacher_last_name}"
+            return {"public_id": str(obj._current_teacher_public_id), "name": name.strip()}
         teacher = obj.current_teacher
-        return str(teacher.teacher_profile.public_id) if teacher else None
+        if teacher is None:
+            return None
+        return {"public_id": str(teacher.teacher_profile.public_id), "name": str(teacher)}
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_teacher_id(self, obj):
+        teacher = self._current_teacher(obj)
+        return teacher["public_id"] if teacher else None
+
+    @extend_schema_field(NamedRefSerializer(allow_null=True))
+    def get_teacher(self, obj):
+        return self._current_teacher(obj)
 
     @extend_schema_field(ClassroomCapacityWarningSerializer(allow_null=True))
     def get_capacity_warning(self, obj):
@@ -645,11 +757,40 @@ class CurriculumPlanUpdateSerializer(serializers.Serializer):
 # --------------------------------------------------------------------------- #
 
 
+class TeacherRefSerializer(serializers.Serializer):
+    """
+    A teacher named by the public id of its Teacher profile (the same id the
+    ``teacher_id`` fields carry) plus the person's display name.
+    Source is the ``people.Person`` an assignment points to.
+    """
+
+    public_id = serializers.UUIDField(source="teacher_profile.public_id", read_only=True)
+    name = serializers.SerializerMethodField()
+
+    def get_name(self, person) -> str:
+        return str(person)
+
+
+class AssignmentSectionRefSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    grade_name = serializers.CharField(source="offering.grade.name", read_only=True)
+
+
 class TeachingAssignmentSerializer(serializers.ModelSerializer):
+    """
+    The ``*_id`` fields are the original contract; ``section``, ``subject``
+    and ``teacher`` were added (#631, AD2/AD4) so a list can be shown without
+    downloading every catalogue to translate ids into names.
+    """
+
     academic_cycle_id = serializers.UUIDField(source="academic_cycle.public_id", read_only=True)
     section_id = serializers.UUIDField(source="section.public_id", read_only=True)
     subject_id = serializers.UUIDField(source="subject.public_id", read_only=True)
     teacher_id = serializers.UUIDField(source="teacher.teacher_profile.public_id", read_only=True)
+    section = AssignmentSectionRefSerializer(read_only=True)
+    subject = SubjectRefSerializer(read_only=True)
+    teacher = TeacherRefSerializer(read_only=True)
 
     class Meta:
         model = TeachingAssignment
@@ -659,9 +800,91 @@ class TeachingAssignmentSerializer(serializers.ModelSerializer):
             "section_id",
             "subject_id",
             "teacher_id",
+            "section",
+            "subject",
+            "teacher",
             "starts_on",
             "ends_on",
         ]
+
+
+class TeachingAssignmentBatchItemSerializer(serializers.Serializer):
+    section_id = serializers.UUIDField(help_text="Public ID de la sección del ciclo.")
+    subject_id = serializers.UUIDField(help_text="Public ID del curso.")
+    teacher_id = serializers.UUIDField(help_text="Public ID del perfil Teacher activo.")
+
+
+class TeachingAssignmentBatchSerializer(serializers.Serializer):
+    starts_on = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Vigencia común de todas. Por omisión, el inicio del ciclo.",
+    )
+    items = TeachingAssignmentBatchItemSerializer(many=True, allow_empty=True)
+
+
+class TeachingAssignmentBatchFailureSerializer(serializers.Serializer):
+    index = serializers.IntegerField()
+    section_id = serializers.UUIDField()
+    subject_id = serializers.UUIDField()
+    teacher_id = serializers.UUIDField()
+    detail = serializers.CharField()
+
+
+class TeachingAssignmentBatchResultSerializer(serializers.Serializer):
+    created = TeachingAssignmentSerializer(many=True)
+    failed = TeachingAssignmentBatchFailureSerializer(many=True)
+
+
+class MatrixAssignmentSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField()
+    teacher = TeacherRefSerializer()
+    starts_on = serializers.DateField()
+
+
+class MatrixCellSerializer(serializers.Serializer):
+    subject = NamedRefSerializer()
+    assignment = MatrixAssignmentSerializer(allow_null=True)
+
+
+class MatrixSectionSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField()
+    name = serializers.CharField()
+    grade = NamedRefSerializer(source="offering.grade")
+    shift = NamedRefSerializer(source="offering.shift")
+
+
+class AssignmentMatrixRowSerializer(serializers.Serializer):
+    """AD3: one section and, per subject of its grade's plan, its current assignment."""
+
+    section = MatrixSectionSerializer()
+    cells = MatrixCellSerializer(many=True)
+
+
+class CloneAssignmentRowSerializer(serializers.Serializer):
+    source_assignment_id = serializers.UUIDField(source="source_assignment.public_id")
+    section = AssignmentSectionRefSerializer()
+    subject = SubjectRefSerializer()
+    teacher = TeacherRefSerializer()
+    target_section = AssignmentSectionRefSerializer(allow_null=True)
+    status = serializers.ChoiceField(choices=["pending", "already_assigned", "unmatched"])
+
+
+class CloneAssignmentSummarySerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    pending = serializers.IntegerField()
+    already_assigned = serializers.IntegerField()
+    unmatched = serializers.IntegerField()
+
+
+class CloneAssignmentPreviewSerializer(serializers.Serializer):
+    """AD2: the clone plan computed on the server; nothing is written."""
+
+    source_cycle = NamedRefSerializer()
+    target_cycle = NamedRefSerializer()
+    suggested_starts_on = serializers.DateField()
+    summary = CloneAssignmentSummarySerializer()
+    results = CloneAssignmentRowSerializer(many=True, source="rows")
 
 
 class TeachingAssignmentCreateSerializer(serializers.Serializer):

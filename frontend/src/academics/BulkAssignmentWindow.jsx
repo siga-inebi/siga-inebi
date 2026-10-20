@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -8,173 +9,171 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { academicsService } from "@academics/academicsService.js";
-import { collectAllPages } from "@shared/api/pages.js";
+import { TEACHER_SEARCH, sectionSearch } from "@academics/searchOptions.js";
+import { cyclesService } from "@cycles/cyclesService.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
+import { useCycleCatalog } from "@shared/catalogs/academicCatalogs.js";
 import { BatchResultAlert } from "@shared/crud/BatchResultAlert.jsx";
-import { useBatchSubmit } from "@shared/crud/useBatchSubmit.js";
-import {
-  labelIndex,
-  sectionsForCycle,
-  useCycleCatalog,
-  useSectionCatalog,
-  useSubjectCatalog,
-  useTeacherCatalog,
-} from "@shared/catalogs/academicCatalogs.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
+import { RemoteSearchSelect } from "@ui/forms/RemoteSearchSelect.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
 import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
 
-const SIN_ASIGNAR = "";
+/** Tope de una sola pagina: una seccion tiene a lo sumo una decena de cursos. */
+const ONE_PAGE = 100;
+
+function subjectLabel(subject) {
+  return subject.code ? `${subject.name} (${subject.code})` : subject.name;
+}
 
 /**
- * Asignacion docente por lotes: una seccion, todos sus cursos de una vez.
+ * Asignación docente por lotes: una sección, todos sus cursos de una vez (AD2).
  *
- * Armar el horario de una seccion son ocho asignaciones, y hacerlas de una en
- * una obliga a repetir ciclo, seccion y fecha ocho veces para cambiar un solo
- * dato. Aqui el ciclo, la seccion y la fecha se eligen UNA vez y la ventana
- * pregunta lo unico que cambia por fila: quien da cada curso.
+ * El ciclo, la sección y la fecha se eligen UNA vez y la ventana pregunta lo
+ * único que cambia por fila: quién imparte cada curso. Los cursos salen del
+ * plan de estudios del ciclo para el grado de la sección, y el docente vigente
+ * de cada uno, del listado filtrado por esa sección: no se descargan
+ * historiales completos para compararlos en el navegador.
  *
- * Los cursos que ya tienen docente vigente se muestran, pero no se pueden
- * reasignar desde aqui: reasignar cierra la asignacion anterior y abre otra con
- * una fecha de corte, que es una decision por curso y no algo que deba pasar de
- * refilon dentro de una carga masiva.
+ * Los cursos que ya tienen docente vigente se muestran sin selector:
+ * reasignar cierra la asignación anterior con fecha de corte, y esa decisión
+ * se toma curso por curso desde el listado.
  *
- * Cada alta se envia por separado porque el backend no publica un endpoint de
- * lote; que una falle no cancela las demas, y el resumen dice exactamente cuales
- * quedaron pendientes en vez de dejar a medias sin explicar que paso.
+ * El alta va en un solo `POST …/teaching-assignments/batch/`; el backend guarda
+ * cada fila por separado y devuelve las creadas y las rechazadas con su motivo.
  */
 export function BulkAssignmentWindow({ onClose, onCreated }) {
   const cycles = useCycleCatalog();
-  const sections = useSectionCatalog();
-  const subjects = useSubjectCatalog();
-  const teachers = useTeacherCatalog();
 
   const [cycleId, setCycleId] = useState("");
-  const [sectionId, setSectionId] = useState("");
+  const [section, setSection] = useState(null);
   const [startsOn, setStartsOn] = useState("");
+  // Opcion de docente elegida por curso ({value, label}).
   const [choices, setChoices] = useState({});
+  // Cambia cuando "Aplicar a todos" reescribe los selectores de las filas.
+  const [applied, setApplied] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+  const [submitError, setSubmitError] = useState("");
 
-  const [assigned, setAssigned] = useState(null);
-  const [loadingAssigned, setLoadingAssigned] = useState(false);
-  const [loadError, setLoadError] = useState("");
+  const sectionId = section?.value ?? "";
+  const gradeId = section?.gradeId ?? "";
 
-  const createOne = useCallback(
-    (subject) =>
-      academicsService.createTeachingAssignment({
-        academic_cycle_id: cycleId,
-        section_id: sectionId,
-        subject_id: subject.value,
-        teacher_id: choices[subject.value],
-        starts_on: startsOn,
+  const sectionPicker = useMemo(() => {
+    const base = sectionSearch(cycleId);
+    return {
+      ...base,
+      mapResult: (row) => ({
+        ...base.mapResult(row),
+        gradeId: row.grade?.public_id,
       }),
-    [cycleId, sectionId, choices, startsOn]
-  );
-  const { run, reset, submitting, result } = useBatchSubmit(
-    createOne,
-    (subject) => subject.label
-  );
-
-  const sectionOptions = sectionsForCycle(sections.options, cycleId);
-  const teacherNames = useMemo(
-    () => labelIndex(teachers.options),
-    [teachers.options]
-  );
-
-  // Docente vigente por curso en la seccion elegida. Se recorre el historial
-  // completo porque el backend no publica un listado de asignaciones vigentes;
-  // `ends_on` vacio es lo que distingue una vigente de una cerrada.
-  useEffect(() => {
-    if (!cycleId || !sectionId) {
-      setAssigned(null);
-      return undefined;
-    }
-
-    let active = true;
-    setLoadingAssigned(true);
-    setLoadError("");
-
-    collectAllPages((params) =>
-      academicsService.listTeachingAssignmentHistory({
-        ...params,
-        academic_cycle_id: cycleId,
-      })
-    )
-      .then((history) => {
-        if (!active) return;
-        const current = new Map();
-        for (const row of history) {
-          if (row.section_id === sectionId && !row.ends_on) {
-            current.set(row.subject_id, row.teacher_id);
-          }
-        }
-        setAssigned(current);
-      })
-      .catch((error) => {
-        if (active) {
-          setAssigned(null);
-          setLoadError(error.message);
-        }
-      })
-      .finally(() => {
-        if (active) setLoadingAssigned(false);
-      });
-
-    return () => {
-      active = false;
     };
-  }, [cycleId, sectionId]);
+  }, [cycleId]);
 
-  const pending = subjects.options.filter(
-    (subject) => !assigned?.has(subject.value)
-  );
-  const chosen = pending.filter(
-    (subject) => (choices[subject.value] ?? SIN_ASIGNAR) !== SIN_ASIGNAR
+  const planParams = {
+    academic_cycle_id: cycleId,
+    grade_id: gradeId,
+    page_size: ONE_PAGE,
+  };
+  const plan = useQuery({
+    queryKey: queryKeys.academics.list("curriculum-plans", planParams),
+    queryFn: () => academicsService.listCurriculumPlans(planParams),
+    enabled: Boolean(cycleId && gradeId),
+  });
+
+  const currentParams = {
+    section_id: sectionId,
+    current: true,
+    page_size: ONE_PAGE,
+  };
+  const current = useQuery({
+    queryKey: queryKeys.academics.teachingAssignments(currentParams),
+    queryFn: () => academicsService.listTeachingAssignments(currentParams),
+    enabled: Boolean(sectionId),
+  });
+
+  const subjects = (plan.data?.results ?? []).map((row) => row.subject);
+  const assigned = useMemo(
+    () =>
+      new Map(
+        (current.data?.results ?? []).map((row) => [
+          row.subject_id,
+          row.teacher?.name ?? "Docente sin nombre",
+        ])
+      ),
+    [current.data]
   );
 
-  const applyToAllPending = (teacherId) => {
-    setChoices((current) => {
-      const next = { ...current };
-      for (const subject of pending) {
-        next[subject.value] = teacherId;
-      }
+  const pending = subjects.filter(
+    (subject) => !assigned.has(subject.public_id)
+  );
+  const chosen = pending.filter((subject) => choices[subject.public_id]);
+
+  const resetRows = () => {
+    setChoices({});
+    setResult(null);
+    setSubmitError("");
+  };
+
+  const applyToAllPending = (option) => {
+    if (!option) return;
+    setChoices((currentChoices) => {
+      const next = { ...currentChoices };
+      for (const subject of pending) next[subject.public_id] = option;
       return next;
     });
+    setApplied((value) => value + 1);
   };
 
   const handleSubmit = async () => {
-    const { created } = await run(chosen);
-    setChoices({});
-
-    if (created.length > 0) {
-      // Las asignaciones nuevas ya no son pendientes: se relee para que la
-      // tabla lo refleje sin cerrar la ventana.
-      setAssigned((current) => {
-        const next = new Map(current);
-        for (const subject of created) {
-          next.set(subject.value, choices[subject.value]);
-        }
-        return next;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const response = await cyclesService.createAssignmentsBatch(cycleId, {
+        starts_on: startsOn,
+        items: chosen.map((subject) => ({
+          section_id: sectionId,
+          subject_id: subject.public_id,
+          teacher_id: choices[subject.public_id].value,
+        })),
       });
-      onCreated?.();
+      const names = new Map(
+        subjects.map((subject) => [subject.public_id, subjectLabel(subject)])
+      );
+      setResult({
+        created: response.created ?? [],
+        failed: (response.failed ?? []).map((failure) => ({
+          label: names.get(failure.subject_id) ?? "Curso",
+          message: failure.detail,
+        })),
+      });
+      setChoices({});
+      setApplied((value) => value + 1);
+      if ((response.created ?? []).length > 0) {
+        current.refetch();
+        onCreated?.();
+      }
+    } catch (requestError) {
+      setSubmitError(requestError.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const columns = [
-    { key: "subject", label: "Curso", render: (row) => row.label },
+    { key: "subject", label: "Curso", render: (row) => subjectLabel(row) },
     {
       key: "current",
       label: "Docente vigente",
       render: (row) =>
-        assigned?.has(row.value) ? (
+        assigned.has(row.public_id) ? (
           <Stack alignItems="center" direction="row" gap={1}>
             <StatusChip label="Asignado" variant="success" />
-            <span>
-              {teacherNames.get(assigned.get(row.value)) ??
-                "Docente sin nombre"}
-            </span>
+            <span>{assigned.get(row.public_id)}</span>
           </Stack>
         ) : (
           <MutedCell>Sin docente</MutedCell>
@@ -184,33 +183,38 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
       key: "teacher",
       label: "Asignar a",
       render: (row) =>
-        assigned?.has(row.value) ? (
+        assigned.has(row.public_id) ? (
           <MutedCell>Reasigne desde el listado</MutedCell>
         ) : (
-          <FormSelect
-            fullWidth
-            label="Docente"
-            loading={teachers.loading}
-            onChange={(event) =>
-              setChoices((current) => ({
-                ...current,
-                [row.value]: event.target.value,
-              }))
-            }
-            options={teachers.options}
-            placeholder="Dejar sin asignar"
-            value={choices[row.value] ?? SIN_ASIGNAR}
-          />
+          <Box sx={{ minWidth: "16rem" }}>
+            <RemoteSearchSelect
+              initialOption={choices[row.public_id]}
+              key={`${row.public_id}-${applied}`}
+              label={`Docente para ${row.name}`}
+              name={`teacher-${row.public_id}`}
+              onChange={() => {}}
+              onOptionChange={(option) =>
+                setChoices((currentChoices) => ({
+                  ...currentChoices,
+                  [row.public_id]: option,
+                }))
+              }
+              placeholder="Dejar sin asignar"
+              search={TEACHER_SEARCH}
+              value={choices[row.public_id]?.value ?? ""}
+            />
+          </Box>
         ),
     },
   ];
 
-  const ready = cycleId && sectionId && startsOn;
+  const ready = Boolean(cycleId && sectionId && startsOn);
+  const loadError = plan.error?.message || current.error?.message || "";
 
   return (
     <FloatingWindow
       busy={submitting}
-      description="Elija la seccion una vez y reparta sus cursos entre los docentes. Solo se dan de alta los cursos que hoy no tienen docente vigente."
+      description="Elija la sección una vez y reparta sus cursos entre los docentes. Solo se dan de alta los cursos del plan de estudios que hoy no tienen docente vigente."
       footer={
         <>
           <Button disabled={submitting} onClick={onClose} variant="text">
@@ -230,7 +234,7 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
       }
       onClose={onClose}
       open
-      title="Asignacion docente por lotes"
+      title="Asignación docente por lotes"
       width={WINDOW_WIDTH.wide}
     >
       <Stack gap={2.5}>
@@ -248,38 +252,40 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
             loading={cycles.loading}
             onChange={(event) => {
               setCycleId(event.target.value);
-              setSectionId("");
-              setChoices({});
-              reset();
+              setSection(null);
+              resetRows();
             }}
             options={cycles.options}
             placeholder="Seleccione un ciclo"
             required
             value={cycleId}
           />
-          <FormSelect
-            disabled={!cycleId}
-            error={sections.error}
-            fullWidth
-            helperText={
-              cycleId && !sections.loading && sectionOptions.length === 0
-                ? "Ese ciclo no tiene secciones registradas."
-                : !cycleId
-                  ? "Elija primero el ciclo escolar."
-                  : undefined
-            }
-            label="Seccion"
-            loading={sections.loading}
-            onChange={(event) => {
-              setSectionId(event.target.value);
-              setChoices({});
-              reset();
-            }}
-            options={sectionOptions}
-            placeholder="Seleccione una seccion"
-            required
-            value={sectionId}
-          />
+          {cycleId ? (
+            <RemoteSearchSelect
+              key={`section-${cycleId}`}
+              label="Sección"
+              name="section_id"
+              onChange={() => {}}
+              onOptionChange={(option) => {
+                setSection(option);
+                resetRows();
+              }}
+              placeholder="Escriba el grado o la sección"
+              required
+              search={sectionPicker}
+              value={sectionId}
+            />
+          ) : (
+            <FormSelect
+              disabled
+              fullWidth
+              helperText="Elija primero el ciclo escolar."
+              label="Sección"
+              options={[]}
+              required
+              value=""
+            />
+          )}
           <FormTextField
             helperText="Misma fecha para todas las asignaciones del lote."
             label="Vigente desde"
@@ -292,14 +298,19 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
         </Box>
 
         {loadError ? <Alert severity="error">{loadError}</Alert> : null}
+        {submitError ? (
+          <Alert role="alert" severity="error">
+            {submitError}
+          </Alert>
+        ) : null}
 
         <BatchResultAlert
-          noun="asignacion"
+          noun="asignación"
           nounPlural="asignaciones"
           result={result}
         />
 
-        {ready && !loadingAssigned && pending.length > 1 ? (
+        {ready && !current.isPending && pending.length > 1 ? (
           <Stack
             alignItems={{ xs: "stretch", sm: "center" }}
             direction={{ xs: "column", sm: "row" }}
@@ -309,29 +320,32 @@ export function BulkAssignmentWindow({ onClose, onCreated }) {
               Atajo: el mismo docente para los {pending.length} cursos
               pendientes
             </Typography>
-            <FormSelect
-              label="Aplicar a todos"
-              loading={teachers.loading}
-              onChange={(event) => applyToAllPending(event.target.value)}
-              options={teachers.options}
-              placeholder="Sin aplicar"
-              sx={{ minWidth: "18rem" }}
-              value=""
-            />
+            <Box sx={{ minWidth: "18rem" }}>
+              <RemoteSearchSelect
+                key={`all-${applied}`}
+                label="Aplicar a todos"
+                name="apply_all"
+                onChange={() => {}}
+                onOptionChange={applyToAllPending}
+                placeholder="Buscar docente"
+                search={TEACHER_SEARCH}
+                value=""
+              />
+            </Box>
           </Stack>
         ) : null}
 
         {!ready ? (
           <Alert severity="info">
-            Elija ciclo, seccion y fecha de vigencia para ver los cursos.
+            Elija ciclo, sección y fecha de vigencia para ver los cursos.
           </Alert>
         ) : (
           <DataTable
             columns={columns}
-            emptyMessage="Esta seccion ya tiene docente en todos sus cursos."
-            getRowKey={(row) => row.value}
-            loading={loadingAssigned || subjects.loading}
-            rows={assigned ? subjects.options : []}
+            emptyMessage="El grado de esta sección no tiene cursos en el plan de estudios del ciclo."
+            getRowKey={(row) => row.public_id}
+            loading={plan.isPending || current.isPending}
+            rows={subjects}
           />
         )}
       </Stack>

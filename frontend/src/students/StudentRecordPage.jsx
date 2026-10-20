@@ -10,6 +10,8 @@ import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Typography from "@mui/material/Typography";
 
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import { studentsService } from "@students/studentsService.js";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { DetailField } from "@ui/layout/DetailWindow.jsx";
@@ -37,6 +39,12 @@ const RelatedRecordsPanel = panel("RelatedRecordsPanel");
 const EnrolmentsPanel = panel("EnrolmentsPanel");
 const DocumentsPanel = panel("DocumentsPanel");
 const AttendancePanel = panel("AttendancePanel");
+// AS2 (#631): el carné se trabaja con el mismo panel de Asistencia → Carnés.
+const StudentCardPanel = lazy(() =>
+  import("@attendance/StudentCardPanel.jsx").then((module) => ({
+    default: module.StudentCardPanel,
+  }))
+);
 const TABS = [
   ["data", "Datos"],
   ["guardians", "Encargados"],
@@ -46,6 +54,7 @@ const TABS = [
   ["enrolments", "Matrículas"],
   ["documents", "Documentos"],
   ["attendance", "Asistencia"],
+  ["card", "Carné", PERMISSION.ATTENDANCE_CREDENTIAL_ISSUE],
 ];
 
 function DataPanel({ student, onSaved, onBusy, onDeactivated }) {
@@ -174,8 +183,10 @@ function DataPanel({ student, onSaved, onBusy, onDeactivated }) {
 }
 
 function StudentRecord({ publicId }) {
+  const { can } = usePermissions();
+  const tabs = TABS.filter(([, , code]) => !code || can(code));
   const [params, setParams] = useSearchParams();
-  const tab = TABS.some(([id]) => id === params.get("tab"))
+  const tab = tabs.some(([id]) => id === params.get("tab"))
     ? params.get("tab")
     : "data";
   const [visited, setVisited] = useState([tab]);
@@ -251,7 +262,7 @@ function StudentRecord({ publicId }) {
                 if (!busy) setParams({ tab: next });
               }}
             >
-              {TABS.map(([id, label]) => (
+              {tabs.map(([id, label]) => (
                 <Tab
                   disabled={busy}
                   key={id}
@@ -305,6 +316,11 @@ function StudentRecord({ publicId }) {
                     <EnrolmentsPanel student={student} />
                   ) : id === "documents" ? (
                     <DocumentsPanel student={student} />
+                  ) : id === "card" ? (
+                    <StudentCardPanel
+                      studentId={student.public_id}
+                      studentName={fullName(student)}
+                    />
                   ) : (
                     <AttendancePanel student={student} />
                   )}

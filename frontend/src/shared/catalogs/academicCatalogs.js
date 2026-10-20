@@ -2,7 +2,6 @@ import { useMemo } from "react";
 
 import { academicsService } from "@academics/academicsService.js";
 import { CYCLE_STATUS_LABEL, cyclesService } from "@cycles/cyclesService.js";
-import { enrolmentsService } from "@enrolments/enrolmentsService.js";
 import { studentsService } from "@students/studentsService.js";
 import { teachersService } from "@teachers/teachersService.js";
 
@@ -274,42 +273,6 @@ export function asTeacherPersonOptions(options) {
   return options
     .filter((option) => option.personId)
     .map((option) => ({ value: option.personId, label: option.label }));
-}
-
-/**
- * Matriculas vigentes, etiquetadas por estudiante y seccion.
- *
- * Una nota se registra contra una matricula, que es lo que ata al estudiante
- * con su seccion y su ciclo. Nadie la conoce por su identificador, asi que la
- * etiqueta se arma leyendo tambien estudiantes y secciones.
- */
-async function loadEnrolments() {
-  const [enrolments, students, sections] = await Promise.all([
-    collectAllPages(enrolmentsService.listActive),
-    loadStudents(),
-    loadSections(),
-  ]);
-
-  const studentNames = new Map(students.map((s) => [s.value, s.label]));
-  const sectionNames = new Map(sections.map((s) => [s.value, s.label]));
-
-  return byLabel(
-    enrolments.map((enrolment) => ({
-      value: enrolment.public_id,
-      label: [
-        studentNames.get(enrolment.student_id) ?? "Estudiante sin nombre",
-        sectionNames.get(enrolment.section_id),
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    }))
-  );
-}
-
-export function useEnrolmentCatalog(reloadToken) {
-  return useCatalogOptions(loadEnrolments, reloadToken, {
-    key: CATALOG.enrolments,
-  });
 }
 
 /** Indice `value -> label` para pintar un id como el nombre que representa. */

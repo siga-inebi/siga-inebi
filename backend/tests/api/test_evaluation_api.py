@@ -75,8 +75,30 @@ def _grant_evaluation_configuration(user, *, institution):
     ScopeGrantFactory(assignment=assignment, institution=institution)
 
 
+def _grant_student_view(user, *, institution):
+    """Grant student.view_basic with institution scope (staff reading a student)."""
+    permission = PermissionFactory(codename="student_view_basic")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[permission]),
+        identity_scope=False,
+    )
+    ScopeGrantFactory(assignment=assignment, institution=institution)
+
+
+@pytest.fixture
+def configurator(auth_client, institution):
+    """``auth_client`` with evaluation.configure_units over ``institution``."""
+    _grant_evaluation_configuration(auth_client.user, institution=institution)
+    return auth_client
+
+
 class TestEvaluationUnitAPI:
     """Tests for evaluation unit REST endpoints."""
+
+    @pytest.fixture(autouse=True)
+    def _configurator(self, configurator):
+        return configurator
 
     def test_create_evaluation_unit_success(self, auth_client, institution):
         """
@@ -285,6 +307,10 @@ class TestEvaluationUnitAPI:
 
 class TestRecoveryWindowAPI:
     """Tests for PATCH recovery-window endpoint (RF-EVC-003)."""
+
+    @pytest.fixture(autouse=True)
+    def _configurator(self, configurator):
+        return configurator
 
     def test_set_recovery_window_success(self, auth_client, institution):
         """
@@ -546,6 +572,10 @@ class TestEvaluationUnitCloseAPI:
 class TestCaptureExceptionGrantAPI:
     """Tests for POST capture-exceptions endpoint (RF-EVC-004)."""
 
+    @pytest.fixture(autouse=True)
+    def _configurator(self, configurator):
+        return configurator
+
     def test_grant_capture_exception_success(self, auth_client, institution):
         """
         Scenario 6: Docente que no alcanzó a subir notas
@@ -641,6 +671,10 @@ class TestCaptureExceptionGrantAPI:
 
 class TestEvaluationConfigAPI:
     """Tests for global/cycle evaluation configuration endpoints (RF-EVC-005)."""
+
+    @pytest.fixture(autouse=True)
+    def _configurator(self, configurator):
+        return configurator
 
     def test_cycle_departs_from_global_value_api(self, auth_client, institution):
         """
@@ -2103,6 +2137,10 @@ ATTENDANCE_SERVICE_PATH = "apps.attendance.services.compute_attendance_percentag
 class TestRecoveryEligibilityAPI:
     """Tests for RF-RES-004: Elegibilidad de recuperación (endpoint contract)."""
 
+    @pytest.fixture(autouse=True)
+    def _student_reader(self, auth_client, institution):
+        _grant_student_view(auth_client.user, institution=institution)
+
     def _setup(self, institution, *, plan_size, failed_count):
         cycle = AcademicCycleFactory(institution=institution)
         section = SectionFactory(academic_cycle=cycle)
@@ -2267,6 +2305,12 @@ class TestRecoveryGradeAPI:
         THEN 201, condicion aprobada por recuperacion, nota final original conservada.
         """
         cycle, enrolment, subjects = self._setup(institution)
+        _grant_grade_write(
+            auth_client.user,
+            section=enrolment.section,
+            subject=subjects[0],
+            academic_cycle=cycle,
+        )
 
         with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=90.0)):
             response = auth_client.post(
@@ -2301,6 +2345,12 @@ class TestRecoveryGradeAPI:
         THEN 400 con la causa de la no elegibilidad y ninguna nota registrada.
         """
         cycle, enrolment, subjects = self._setup(institution)
+        _grant_grade_write(
+            auth_client.user,
+            section=enrolment.section,
+            subject=subjects[0],
+            academic_cycle=cycle,
+        )
 
         with patch(ATTENDANCE_SERVICE_PATH, return_value=SimpleNamespace(percentage=70.0)):
             response = auth_client.post(
@@ -2334,6 +2384,10 @@ class TestRecoveryGradeAPI:
 
 class TestCaptureProgressAPI:
     """Tests for RF-CAL-008: Seguimiento de notas pendientes (endpoint contract)."""
+
+    @pytest.fixture(autouse=True)
+    def _configurator(self, configurator):
+        return configurator
 
     def _setup(self, institution):
         cycle = AcademicCycleFactory(institution=institution)
@@ -2482,7 +2536,7 @@ class TestBulkGradeUploadAPI:
         )
 
         assert response.status_code == 200
-        assert response.json() == {"created": 2}
+        assert response.json() == {"created": 2, "updated": 0}
         assert Grade.objects.filter(evaluation_unit=unit, subject=subject).count() == 2
 
     def test_file_with_invalid_row_saves_nothing(self, auth_client, institution):

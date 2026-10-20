@@ -31,6 +31,23 @@ describe("FilterSelect", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  test("sin filtro elegido muestra la etiqueta de la opcion vacia", () => {
+    render(
+      <FilterSelect
+        emptyLabel="Todos los grados"
+        label="Grado"
+        onChange={vi.fn()}
+        options={options(3, "Grado")}
+        value=""
+      />
+    );
+
+    // Sin displayEmpty, MUI deja el campo en blanco aunque exista la opcion.
+    expect(screen.getByRole("combobox", { name: /Grado/ })).toHaveTextContent(
+      "Todos los grados"
+    );
+  });
+
   test("un catalogo largo se vuelve buscable y filtra al escribir", async () => {
     const user = userEvent.setup();
     render(

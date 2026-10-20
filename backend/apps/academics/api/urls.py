@@ -9,6 +9,7 @@ from apps.evaluation.api.views import (
     FinalSubjectGradeView,
     RecoveryEligibilityView,
     RecoveryGradeCreateView,
+    SectionRecoveryEligibilityView,
 )
 
 from .views import (
@@ -17,7 +18,9 @@ from .views import (
     AcademicCycleCloseView,
     AcademicCycleDefaultsView,
     AcademicCycleListCreateView,
+    AcademicCycleReadinessView,
     AcademicCycleReopenView,
+    AcademicCycleRevertToDraftView,
     CampusDetailView,
     CampusListCreateView,
     CampusNextCodeView,
@@ -29,8 +32,13 @@ from .views import (
     ClassSessionDetailView,
     CurriculumPlanDetailView,
     CurriculumPlanListCreateView,
+    CycleAssignmentMatrixView,
+    CycleNonComputableDayListCreateView,
+    CycleTeachingAssignmentBatchView,
+    CycleTeachingAssignmentClonePreviewView,
     FrozenPromotionResultView,
     FrozenSubjectResultCorrectionView,
+    FrozenSubjectResultListView,
     FrozenSubjectResultView,
     GradeDetailView,
     HistoricalAcademicCycleDetailView,
@@ -41,6 +49,7 @@ from .views import (
     LevelNextCodeView,
     LevelSubjectDetailView,
     LevelSubjectListCreateView,
+    NonComputableDayDetailView,
     SectionClassScheduleCloneView,
     SectionClassSessionListCreateView,
     SectionDetailView,
@@ -85,6 +94,41 @@ urlpatterns = [
         name="academic-cycle-reopen",
     ),
     path(
+        "cycles/<uuid:public_id>/revert-to-draft/",
+        AcademicCycleRevertToDraftView.as_view(),
+        name="academic-cycle-revert-to-draft",
+    ),
+    path(
+        "cycles/<uuid:public_id>/readiness/",
+        AcademicCycleReadinessView.as_view(),
+        name="academic-cycle-readiness",
+    ),
+    path(
+        "cycles/<uuid:public_id>/non-computable-days/",
+        CycleNonComputableDayListCreateView.as_view(),
+        name="cycle-non-computable-day-list-create",
+    ),
+    path(
+        "non-computable-days/<uuid:public_id>/",
+        NonComputableDayDetailView.as_view(),
+        name="non-computable-day-detail",
+    ),
+    path(
+        "cycles/<uuid:public_id>/assignment-matrix/",
+        CycleAssignmentMatrixView.as_view(),
+        name="cycle-assignment-matrix",
+    ),
+    path(
+        "cycles/<uuid:public_id>/teaching-assignments/clone-preview/",
+        CycleTeachingAssignmentClonePreviewView.as_view(),
+        name="cycle-teaching-assignment-clone-preview",
+    ),
+    path(
+        "cycles/<uuid:public_id>/teaching-assignments/batch/",
+        CycleTeachingAssignmentBatchView.as_view(),
+        name="cycle-teaching-assignment-batch",
+    ),
+    path(
         "cycles/<uuid:public_id>/schedule-publication/",
         ClassSchedulePublicationView.as_view(),
         name="class-schedule-publication",
@@ -127,6 +171,16 @@ urlpatterns = [
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/recovery-eligibility/",
         RecoveryEligibilityView.as_view(),
         name="recovery-eligibility",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/sections/<uuid:section_id>/recovery-eligibility/",
+        SectionRecoveryEligibilityView.as_view(),
+        name="section-recovery-eligibility",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/frozen-results/",
+        FrozenSubjectResultListView.as_view(),
+        name="frozen-subject-results",
     ),
     path(
         "cycles/<uuid:cycle_public_id>/enrolments/<uuid:enrolment_id>/recovery-grades/",

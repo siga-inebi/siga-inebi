@@ -56,7 +56,45 @@ export const queryKeys = {
   academics: {
     all: ["academics"],
     levels: (params = {}) => ["academics", "levels", params],
+    /** Listados paginados de catalogo (`useServerList` agrega los parametros). */
+    list: (name, ...scope) => ["academics", "list", name, ...scope],
+    cycle: (publicId) => ["academics", "cycle", publicId],
+    cycleDetail: (publicId) => ["academics", "cycle", publicId, "detail"],
+    readiness: (publicId) => ["academics", "cycle", publicId, "readiness"],
+    publication: (publicId) => ["academics", "cycle", publicId, "publication"],
+    matrix: (publicId, params = {}) => [
+      "academics",
+      "cycle",
+      publicId,
+      "matrix",
+      params,
+    ],
+    grades: () => ["academics", "grades"],
+    shifts: () => ["academics", "shifts"],
+    scheduleBlocks: (shiftId) => ["academics", "schedule-blocks", shiftId],
+    classSessions: (sectionId) => ["academics", "class-sessions", sectionId],
+    weeklyLoad: (sectionId) => ["academics", "weekly-load", sectionId],
+    teachingAssignments: (params = {}) => [
+      "academics",
+      "teaching-assignments",
+      params,
+    ],
   },
+  /**
+   * Evaluacion: sus rutas cuelgan de `/academics/cycles/{id}/`, asi que la key
+   * empieza por `academics` para que esas escrituras la invaliden.
+   */
+  evaluation: (cycleId, ...rest) => [
+    "academics",
+    "evaluation",
+    cycleId,
+    ...rest,
+  ],
+  /**
+   * Asistencia: toda escritura bajo `/attendance` invalida `["attendance"]`
+   * (`invalidation.js`), así que cada key del módulo empieza por ese dominio.
+   */
+  attendance: (...rest) => ["attendance", ...rest],
   reporting: {
     all: ["reporting"],
     alerts: (params = {}) => ["reporting", "alerts", params],
