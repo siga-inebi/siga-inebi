@@ -111,7 +111,7 @@ Hay **cuatro causas distintas** que se suman:
 
 ### 1.7 Panel principal
 
-- **P1 · Rendimiento —** [useDashboardSummary.js](../frontend/src/dashboard/useDashboardSummary.js) descarga **todos** los estudiantes, docentes y encargados solo para contar `records.length`, mientras el menú lateral ya obtiene el `count` en una petición de una página. Además, el número queda cortado en 1 000. Hay que reutilizar `useModuleCounts` o un endpoint `/dashboard/summary/`.
+- **P1 · Rendimiento —** [useDashboardSummary.js](../frontend/src/dashboard/useDashboardSummary.js) descarga **todos** los estudiantes, docentes y encargados solo para contar `records.length`, mientras el menú lateral ya obtiene el `count` en una petición de una página. Además, el número queda cortado en 1 000. Hay que reutilizar `useModuleCounts` o un endpoint `/dashboard/summary/`. **Resuelto en #630 (PR #651):** el panel reutiliza `useModuleCountsState`, la misma fuente y la misma cache que los badges del menú: una petición de una fila por módulo, usando `count`, sin descargar padrones ni tope de 1 000.
 
 ---
 
