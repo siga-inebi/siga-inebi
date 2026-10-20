@@ -7,6 +7,10 @@ vi.mock("@people/peopleService.js", async () => {
   return { peopleService: peopleServiceMock };
 });
 
+vi.mock("@auth/usePermissions.js", () => ({
+  usePermissions: () => ({ can: () => true }),
+}));
+
 import { PersonasPage } from "@people/PersonasPage.jsx";
 import { paginated } from "./fixtures/academics.js";
 import { anaPerson, carlosPerson } from "./fixtures/people.js";
@@ -29,6 +33,37 @@ describe("pantalla de personas", () => {
     expect(screen.getByText("ana.gomez@example.test")).toBeInTheDocument();
     expect(screen.getByText("50212345678")).toBeInTheDocument();
     expect(screen.getByText("INEBI-001")).toBeInTheDocument();
+  });
+
+  test("busca en el servidor y muestra perfiles asociados", async () => {
+    peopleServiceMock.listPeople.mockResolvedValue(
+      paginated([
+        {
+          ...anaPerson,
+          profiles: {
+            student: true,
+            teacher: false,
+            guardian: true,
+            account: false,
+          },
+        },
+      ])
+    );
+    const user = userEvent.setup();
+    renderWithRouter(<PersonasPage />);
+    await screen.findByText("Ana Gomez");
+    expect(screen.getByText("Estudiante")).toBeInTheDocument();
+    expect(screen.getByText("Encargado")).toBeInTheDocument();
+
+    await user.type(
+      screen.getByPlaceholderText(/Buscar por nombre o CUI/),
+      "Ana"
+    );
+    await waitFor(() =>
+      expect(peopleServiceMock.listPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "Ana" })
+      )
+    );
   });
 
   test("muestra 'sin registrar' para los campos opcionales vacios", async () => {

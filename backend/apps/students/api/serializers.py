@@ -48,7 +48,8 @@ class SuggestedStudentCodeSerializer(serializers.Serializer):
 
 
 class StudentSerializer(serializers.ModelSerializer):
-    person = PersonSerializer()
+    person = PersonSerializer(required=False)
+    person_public_id = serializers.UUIDField(write_only=True, required=False)
 
     class Meta:
         model = Student
@@ -56,6 +57,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "id",
             "public_id",
             "person",
+            "person_public_id",
             "student_code",
             "status",
             "photo",
@@ -72,10 +74,12 @@ class StudentSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
-        person_data = validated_data.pop("person")
+        person_data = validated_data.pop("person", None)
+        person_public_id = validated_data.pop("person_public_id", None)
         actor = getattr(self.context.get("request"), "user", None)
         return create_student(
             person_data=person_data,
+            person_public_id=person_public_id,
             student_code=validated_data.get("student_code"),
             status=validated_data.get("status"),
             actor=actor,
@@ -83,7 +87,12 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         if self.instance is None:
-            validate_institutional_person(attrs.get("person"))
+            if not attrs.get("person") and not attrs.get("person_public_id"):
+                raise serializers.ValidationError("Indique person o person_public_id.")
+            if not attrs.get("person_public_id"):
+                validate_institutional_person(attrs.get("person"))
+        elif "person_public_id" in attrs:
+            raise serializers.ValidationError("person_public_id solo se acepta al crear.")
         return attrs
 
     def update(self, instance, validated_data):
@@ -106,7 +115,8 @@ class StudentDossierSerializer(StudentSerializer):
 
 
 class GuardianSerializer(serializers.ModelSerializer):
-    person = PersonSerializer()
+    person = PersonSerializer(required=False)
+    person_public_id = serializers.UUIDField(write_only=True, required=False)
     actions = serializers.SerializerMethodField()
 
     def get_actions(self, instance) -> dict[str, bool]:
@@ -124,6 +134,7 @@ class GuardianSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "person",
+            "person_public_id",
             "is_active",
             "created_at",
             "updated_at",
@@ -132,13 +143,21 @@ class GuardianSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "is_active", "created_at", "updated_at"]
 
     def create(self, validated_data):
-        person_data = validated_data.pop("person")
+        person_data = validated_data.pop("person", None)
+        person_public_id = validated_data.pop("person_public_id", None)
         actor = getattr(self.context.get("request"), "user", None)
-        return create_guardian(person_data=person_data, actor=actor)
+        return create_guardian(
+            person_data=person_data, person_public_id=person_public_id, actor=actor
+        )
 
     def validate(self, attrs):
         if self.instance is None:
-            validate_institutional_person(attrs.get("person"))
+            if not attrs.get("person") and not attrs.get("person_public_id"):
+                raise serializers.ValidationError("Indique person o person_public_id.")
+            if not attrs.get("person_public_id"):
+                validate_institutional_person(attrs.get("person"))
+        elif "person_public_id" in attrs:
+            raise serializers.ValidationError("person_public_id solo se acepta al crear.")
         return attrs
 
     def update(self, instance, validated_data):

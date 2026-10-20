@@ -134,6 +134,7 @@ const personPayload = (values) => ({
 });
 
 export function DocentesPage() {
+  const canSelectPerson = usePermissions().can(PERMISSION.PERSON_EDIT);
   const list = useServerList({
     queryKey: [...queryKeys.teachers.all, "list"],
     fetchPage: teachersService.listPage,
@@ -177,10 +178,14 @@ export function DocentesPage() {
   // Valores iniciales, no un booleano: ver el comentario homonimo en
   // AlumnosPage. El codigo sugerido se pide al abrir.
   const [creating, setCreating] = useState(null);
+  const [personField, setPersonField] = useState(null);
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [documentsFor, setDocumentsFor] = useState(null);
 
   const buildPayload = (values) => ({
+    ...(values.person_public_id
+      ? { person_public_id: values.person_public_id }
+      : {}),
     person: personPayload(values),
     employee_code: values.employee_code,
     specialty: values.specialty,
@@ -270,12 +275,16 @@ export function DocentesPage() {
         action={
           <Button
             disabled={!positionsReady || Boolean(deactivating)}
-            onClick={async () =>
+            onClick={async () => {
+              const personModule = canSelectPerson
+                ? await import("@people/existingPersonSearch.js")
+                : null;
+              setPersonField(personModule?.existingPersonField ?? null);
               setCreating({
                 ...EMPTY_TEACHER,
                 employee_code: await suggestedOrBlank(teachersService.nextCode),
-              })
-            }
+              });
+            }}
             startIcon={<AddIcon fontSize="small" />}
             variant="contained"
           >
@@ -559,7 +568,7 @@ export function DocentesPage() {
       {creating ? (
         <EntityFormWindow
           description="El código de empleado se genera automáticamente. Complete los datos del registro."
-          fields={fields}
+          fields={personField ? [personField, ...fields] : fields}
           initialValues={creating}
           onCancel={() => setCreating(null)}
           onSubmit={handleCreate}
