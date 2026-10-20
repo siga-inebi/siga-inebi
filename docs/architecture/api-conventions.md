@@ -1033,3 +1033,25 @@ La lectura mantiene `student.view_basic`. DELETE `/students/{id}/` conserva sesi
 La UI distingue el DELETE confirmado de errores al recargar: reintenta solo GET.
 Ver [contratos y evidencia E7](student-deactivation-ui.md). No borra registros ni
 modifica la matricula; D5/E9 queda separado.
+
+## Expediente: vinculación E8 y cambio de estado E9/D5 (#632)
+
+- `POST /api/v1/students/records/{public_id}/guardians/link/` recibe
+  `guardian_id` o `person` (excluyentes), más `relationship_label`; responde 201
+  con la relación. Crear persona/encargado/vínculo y auditorías es atómico.
+- `GET /api/v1/students/records/{public_id}/status/?status=...` devuelve `status`,
+  `can_change`, `options`, `has_active_enrolment`, `warnings` y `last_change`.
+  El parámetro opcional revisa el destino sin escribir. `last_change` es null o
+  `{previous_status, status, actor_label, changed_at}`; no incluye contexto privado.
+- `POST` a esa ruta recibe `{status, expected_status}` y devuelve 200 con contexto
+  actualizado. Rechaza una confirmación obsoleta, sin sobrescribir cambios.
+  Los avisos de matrícula no bloquean ni ejecutan movimientos académicos.
+- UUID identifica al estudiante; sesión/CSRF, lectura básica y edición con alcance
+  obligatorio en cada operación. 403 sin permiso, 404 fuera de alcance, 400 para
+  validación, duplicados o confirmación obsoleta. CUI/nacimiento siguen write-only.
+- GET de ficha añade `actions.link_guardian`, según permiso, alcance e interacción
+  admitida por el estudiante; conserva `actions.deactivate` y los campos anteriores.
+- Los contratos anteriores se conservan; la UI retira status del editor general.
+  `students.student.status_changed` conserva anterior/nuevo, actor y fecha.
+  No reactiva perfiles desactivados ni altera matrícula o historial.
+- Detalle, compatibilidad y pruebas: [E8/E9/D5](student-guardian-link-and-status-ui.md).

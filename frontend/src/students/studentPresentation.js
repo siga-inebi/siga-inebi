@@ -52,23 +52,9 @@ export const STATUS_LABEL = {
   graduated: "Graduado",
 };
 
-const STATUS_OPTIONS = Object.entries(STATUS_LABEL).map(([value, label]) => ({
-  value,
-  label,
-}));
-
-export const STUDENT_EDIT_FIELDS = [
-  ...STUDENT_FIELDS.filter(
-    (field) => field.name !== "cui" && field.name !== "birth_date"
-  ),
-  {
-    name: "status",
-    label: "Estado",
-    type: "select",
-    required: true,
-    options: STATUS_OPTIONS,
-  },
-];
+export const STUDENT_EDIT_FIELDS = STUDENT_FIELDS.filter(
+  (field) => field.name !== "cui" && field.name !== "birth_date"
+);
 
 /** Estados de expediente del estudiante -> variante semantica de chip. */
 export const STATUS_VARIANT = {

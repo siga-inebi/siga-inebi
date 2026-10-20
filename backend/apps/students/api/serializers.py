@@ -100,7 +100,7 @@ class StudentDossierSerializer(StudentSerializer):
         fields = [*StudentSerializer.Meta.fields, "actions"]
 
     def get_actions(self, instance) -> dict[str, bool]:
-        return services.student_deactivation_action(
+        return services.student_dossier_actions(
             student=instance, can_manage=instance.record_can_manage
         )
 

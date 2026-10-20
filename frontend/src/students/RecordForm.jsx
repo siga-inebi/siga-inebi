@@ -99,6 +99,11 @@ export function RecordForm({
                   type={
                     field.type === "textarea" ? "text" : (field.type ?? "text")
                   }
+                  slotProps={
+                    field.type === "date"
+                      ? { inputLabel: { shrink: true } }
+                      : undefined
+                  }
                   multiline={field.type === "textarea"}
                   minRows={field.type === "textarea" ? 3 : undefined}
                   value={values[field.name] ?? ""}

@@ -35,6 +35,17 @@ const search = (name) => ["search", name];
  */
 export const MUTATION_RULES = [
   {
+    pattern: /^\/students\/records\/[^/]+\/guardians\/link\/?$/,
+    keys: [
+      queryKeys.guardians.all,
+      queryKeys.people.all,
+      catalog("guardians"),
+      search("guardians"),
+      catalog("people"),
+      search("people"),
+    ],
+  },
+  {
     prefix: "/students/guardians",
     keys: [
       queryKeys.guardians.all,
@@ -102,7 +113,9 @@ export function keysForMutation(path) {
     return [];
   }
   const keys = MUTATION_RULES.filter((rule) =>
-    cleanPath.startsWith(rule.prefix)
+    rule.pattern
+      ? rule.pattern.test(cleanPath)
+      : cleanPath.startsWith(rule.prefix)
   ).flatMap((rule) => rule.keys);
   return keys.length > 0 ? keys : null;
 }
