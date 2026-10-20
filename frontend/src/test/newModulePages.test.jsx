@@ -102,6 +102,7 @@ vi.mock("@academics/academicsService.js", async () => {
 });
 
 import { AlertsPage } from "@reporting/AlertsPage.jsx";
+import { AttendancePage } from "@attendance/AttendancePage.jsx";
 import { EnrolmentsPage } from "@enrolments/EnrolmentsPage.jsx";
 import { DocumentTypesPage } from "@documents/DocumentTypesPage.jsx";
 import { TemplatesPage } from "@documents/TemplatesPage.jsx";
