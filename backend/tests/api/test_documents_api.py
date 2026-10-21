@@ -994,6 +994,85 @@ def test_rich_template_api_preserves_layout_and_previews_unsaved_content(admin_c
     assert version["signature_blocks"] == [{"name": "DirecciÃ³n", "title": "Director(a)"}]
 
 
+def test_new_template_can_be_previewed_without_saving(admin_client, institution):
+    content = {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {
+                "type": "paragraph",
+                "align": "left",
+                "content": [{"type": "text", "text": "Hola {{student.full_name}}"}],
+            }
+        ],
+    }
+    response = admin_client.post(
+        reverse("document-template-draft-preview"),
+        {
+            "payload": {"student.full_name": "Ana Perez"},
+            "content_format": "rich",
+            "content": content,
+            "page_size": "letter",
+            "orientation": "portrait",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content"] == content
+    assert base64.b64decode(response.json()["pdf_base64"]).startswith(b"%PDF-")
+    assert DocumentTemplate.objects.filter(institution=institution).count() == 0
+
+
+def test_restore_template_version_creates_a_new_snapshot_without_rewriting_history(
+    admin_client, institution
+):
+    created = admin_client.post(
+        reverse("document-template-list-create"),
+        {
+            "name": "Original",
+            "code": "RESTORE",
+            "content": "Texto original",
+            "page_size": "a4",
+            "footer_text": "Pie original",
+        },
+        content_type="application/json",
+    ).json()
+    admin_client.patch(
+        reverse("document-template-detail", args=[created["public_id"]]),
+        {
+            "name": "Actual",
+            "content": "Texto actual",
+            "page_size": "letter",
+            "footer_text": "Pie actual",
+        },
+        content_type="application/json",
+    )
+    versions = _items(
+        admin_client.get(reverse("document-template-version-list", args=[created["public_id"]]))
+    )
+    original = next(version for version in versions if version["sequence"] == 1)
+
+    restored = admin_client.post(
+        reverse(
+            "document-template-version-restore",
+            args=[created["public_id"], original["public_id"]],
+        ),
+        content_type="application/json",
+    )
+
+    assert restored.status_code == 200
+    assert restored.json()["name"] == "Original"
+    assert restored.json()["content"] == "Texto original"
+    assert restored.json()["page_size"] == "a4"
+    assert restored.json()["footer_text"] == "Pie original"
+    versions_after = _items(
+        admin_client.get(reverse("document-template-version-list", args=[created["public_id"]]))
+    )
+    assert [version["sequence"] for version in versions_after] == [3, 2, 1]
+    assert next(version for version in versions_after if version["sequence"] == 1) == original
+
+
 def test_document_upload_requires_permission_and_scope(auth_client):
     student = StudentFactory()
     upload = SimpleUploadedFile("respaldo.pdf", b"pdf content", content_type="application/pdf")

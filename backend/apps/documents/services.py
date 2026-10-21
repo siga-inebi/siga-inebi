@@ -1330,6 +1330,45 @@ def update_document_template(
 
 
 @transaction.atomic
+def restore_document_template_version(*, template, version, actor=None):
+    """Create a new immutable version from a historical content/layout snapshot.
+
+    Classification, issuance use, code and active state remain current. Restoring
+    them implicitly could replace another active template or revive an obsolete
+    catalogue choice; the explicit catalogue controls continue to own those rules.
+    """
+    if version.template_id != template.pk:
+        raise DomainError("La versión indicada no pertenece a esta plantilla.")
+    restored = update_document_template(
+        template=template,
+        name=version.name,
+        description=version.description,
+        content=public_template_content(
+            content_format=version.content_format,
+            stored_content=version.content,
+        ),
+        content_format=version.content_format,
+        page_size=version.page_size,
+        orientation=version.orientation,
+        margin_top=version.margin_top,
+        margin_right=version.margin_right,
+        margin_bottom=version.margin_bottom,
+        margin_left=version.margin_left,
+        footer_text=version.footer_text,
+        signature_blocks=version.signature_blocks,
+        actor=actor,
+    )
+    _audit(
+        actor,
+        "documents.template.version_restored",
+        restored,
+        source_version_id=str(version.public_id),
+        source_sequence=version.sequence,
+    )
+    return restored
+
+
+@transaction.atomic
 def deactivate_document_template(*, template, actor=None):
     """Deactivate a document template instead of deleting it. Idempotent."""
     Institution.objects.select_for_update().get(pk=template.institution_id)
@@ -1523,7 +1562,8 @@ def _render_template_markers(template_content, mapping):
 
 def preview_document_template(
     *,
-    template,
+    template=None,
+    institution=None,
     payload=None,
     actor=None,
     content=None,
@@ -1543,25 +1583,37 @@ def preview_document_template(
     allowed and the dataset is bounded to a closed, static catalog instead of
     arbitrary template evaluation.
     """
-    if template is None:
-        raise DomainError("Se requiere una plantilla para generar la vista previa.")
+    institution = institution or getattr(template, "institution", None)
+    if institution is None:
+        raise DomainError("Se requiere una institución para generar la vista previa.")
+    if template is None and content is None:
+        raise DomainError("Se requiere contenido para generar la vista previa.")
 
-    effective_format = content_format or template.content_format
+    effective_format = content_format or getattr(
+        template, "content_format", DocumentTemplate.ContentFormat.PLAIN
+    )
     template_content = (
-        template.content
+        getattr(template, "content", "")
         if content is None
         else normalize_template_content(content_format=effective_format, content=content)
     )
     settings = _validate_page_settings(
-        page_size=page_size or template.page_size,
-        orientation=orientation or template.orientation,
-        margin_top=template.margin_top if margin_top is None else margin_top,
-        margin_right=template.margin_right if margin_right is None else margin_right,
-        margin_bottom=template.margin_bottom if margin_bottom is None else margin_bottom,
-        margin_left=template.margin_left if margin_left is None else margin_left,
-        footer_text=template.footer_text if footer_text is None else footer_text,
+        page_size=page_size or getattr(template, "page_size", DocumentTemplate.PageSize.LETTER),
+        orientation=orientation
+        or getattr(template, "orientation", DocumentTemplate.Orientation.PORTRAIT),
+        margin_top=getattr(template, "margin_top", 54) if margin_top is None else margin_top,
+        margin_right=(
+            getattr(template, "margin_right", 54) if margin_right is None else margin_right
+        ),
+        margin_bottom=(
+            getattr(template, "margin_bottom", 54) if margin_bottom is None else margin_bottom
+        ),
+        margin_left=getattr(template, "margin_left", 54) if margin_left is None else margin_left,
+        footer_text=getattr(template, "footer_text", "") if footer_text is None else footer_text,
         signature_blocks=(
-            template.signature_blocks if signature_blocks is None else signature_blocks
+            getattr(template, "signature_blocks", [])
+            if signature_blocks is None
+            else signature_blocks
         ),
     )
     mapping = dict(payload or {})
@@ -1569,7 +1621,7 @@ def preview_document_template(
         content_format=effective_format,
         stored_content=template_content,
         mapping=mapping,
-        institution_name=template.institution.name,
+        institution_name=institution.name,
         page_size=settings["page_size"],
         orientation=settings["orientation"],
         margins={
@@ -1590,7 +1642,7 @@ def preview_document_template(
     _audit(
         actor,
         "documents.template.previewed",
-        template,
+        template or institution,
         marker_count=len(markers),
         markers=markers,
     )

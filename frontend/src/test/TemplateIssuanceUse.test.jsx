@@ -10,6 +10,8 @@ const service = vi.hoisted(() => ({
   updateTemplate: vi.fn(),
   deactivateTemplate: vi.fn(),
   previewTemplate: vi.fn(),
+  previewTemplateDraft: vi.fn(),
+  listFieldTags: vi.fn(),
 }));
 vi.mock("@documents/documentsService.js", async () => ({
   ...(await vi.importActual("@documents/documentsService.js")),
@@ -48,6 +50,9 @@ beforeEach(() => {
     results: [{ code: "report", label: "Reporte" }],
   });
   service.listTemplateIssuanceUses.mockResolvedValue(USES);
+  service.listFieldTags.mockResolvedValue({ results: [] });
+  service.previewTemplate.mockResolvedValue({});
+  service.previewTemplateDraft.mockResolvedValue({});
   service.createTemplate.mockResolvedValue({ public_id: "new" });
 });
 
@@ -185,7 +190,13 @@ test("stale confirmation refreshes availability, keeps draft and requires a new 
   expect(service.createTemplate).toHaveBeenLastCalledWith(
     expect.objectContaining({
       replaces_template_id: "other",
-      content: "Borrador conservado",
+      content: expect.objectContaining({
+        content: [
+          expect.objectContaining({
+            content: [expect.objectContaining({ text: "Borrador conservado" })],
+          }),
+        ],
+      }),
     })
   );
 });

@@ -92,6 +92,7 @@ export const MODULE_PERMISSIONS = Object.freeze({
     PERMISSION.STUDENT_VIEW_BASIC,
   ],
   alertas: [PERMISSION.REPORTING_ALERT_VIEW],
+  "emision-documental": [PERMISSION.DOCUMENT_ISSUE],
   // Administracion (2.17.6): solo quien tiene esos permisos ve el grupo.
   cuentas: ACCOUNT_ADMIN_PERMISSIONS,
   roles: [PERMISSION.ROLE_ASSIGN],

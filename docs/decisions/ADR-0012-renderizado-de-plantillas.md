@@ -2,9 +2,9 @@
 
 ## Estado y alcance
 
-Aceptada para la base D4.1 de RF-PLA-009. Esta decisión cubre el formato persistido,
+Aceptada para D4 de RF-PLA-009. Esta decisión cubre el formato persistido,
 la configuración de página, el historial y el motor compartido de PDF. El editor visual
-de D4.2 queda fuera de esta entrega y RF-PLA-009 permanece en progreso hasta incorporarlo.
+de D4.2 se incorpora en el PR #666 mediante un editor por bloques y vista previa sin guardar.
 
 ## Contexto
 
@@ -48,7 +48,7 @@ los marcadores. La emisión conserva folio, verificación, checksum y referencia
 ## Consecuencias
 
 El backend y el visor ya soportan PDF real y borradores sin guardar. El formulario actual
-sigue creando y editando contenido `plain`; D4.2 incorporará los controles de edición
+sigue pudiendo abrir contenido `plain`; D4.2 incorpora los controles de edición
 enriquecida y configuración de página. Tablas, imágenes dentro del cuerpo y saltos de
 página manuales no forman parte del esquema versión 1.
 

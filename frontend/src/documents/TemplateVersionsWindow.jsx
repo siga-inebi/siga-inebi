@@ -1,8 +1,12 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
+import Grid from "@mui/material/Grid";
+import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
@@ -57,7 +61,18 @@ const VERSION_COLUMNS = [
  * version nueva con el contenido antiguo, y eso es una decision de dominio que el
  * backend todavia no expone.
  */
-export function TemplateVersionsWindow({ onClose, template }) {
+function readableContent(version) {
+  return typeof version.content === "string"
+    ? version.content
+    : version.content?.content
+        ?.map((block) => block.content?.map((node) => node.text).join(""))
+        .join("\n");
+}
+
+export function TemplateVersionsWindow({ onClose, onRestored, template }) {
+  const [selected, setSelected] = useState([]);
+  const [restoring, setRestoring] = useState(false);
+  const [actionError, setActionError] = useState("");
   const loadVersions = useCallback(
     (params) =>
       documentsService.listTemplateVersions(template.public_id, params),
@@ -67,6 +82,64 @@ export function TemplateVersionsWindow({ onClose, template }) {
     canIncludeInactive: false,
     pageSize: PAGE_SIZE,
   });
+  const columns = [
+    {
+      key: "compare",
+      label: "Comparar",
+      render: (row) => (
+        <Checkbox
+          inputProps={{ "aria-label": `Comparar versión ${row.sequence}` }}
+          checked={selected.some((item) => item.public_id === row.public_id)}
+          disabled={
+            !selected.some((item) => item.public_id === row.public_id) &&
+            selected.length === 2
+          }
+          onChange={(event) =>
+            setSelected((current) =>
+              event.target.checked
+                ? [...current, row]
+                : current.filter((item) => item.public_id !== row.public_id)
+            )
+          }
+        />
+      ),
+    },
+    ...VERSION_COLUMNS,
+    {
+      key: "restore",
+      label: "Acción",
+      render: (row) => (
+        <Button
+          size="small"
+          disabled={restoring || row.sequence === list.items[0]?.sequence}
+          onClick={async () => {
+            if (
+              !window.confirm(
+                `Restaurar la versión ${row.sequence} como una versión nueva?`
+              )
+            )
+              return;
+            setRestoring(true);
+            setActionError("");
+            try {
+              await documentsService.restoreTemplateVersion(
+                template.public_id,
+                row.public_id
+              );
+              list.refresh();
+              onRestored?.();
+            } catch (requestError) {
+              setActionError(requestError.message);
+            } finally {
+              setRestoring(false);
+            }
+          }}
+        >
+          Restaurar
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <FloatingWindow
@@ -82,9 +155,38 @@ export function TemplateVersionsWindow({ onClose, template }) {
       width={WINDOW_WIDTH.wide}
     >
       <Stack gap={2}>
-        {list.error ? <Alert severity="error">{list.error}</Alert> : null}
+        {list.error || actionError ? (
+          <Alert severity="error">{list.error || actionError}</Alert>
+        ) : null}
+        {selected.length === 2 ? (
+          <Grid container spacing={2}>
+            {selected.map((version) => (
+              <Grid size={{ xs: 12, md: 6 }} key={version.public_id}>
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Typography variant="h6">
+                    Versión {version.sequence}
+                  </Typography>
+                  <Typography
+                    component="pre"
+                    sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit" }}
+                  >
+                    {readableContent(version)}
+                  </Typography>
+                  <Typography variant="caption">
+                    {version.page_size.toUpperCase()} · {version.orientation} ·{" "}
+                    {version.footer_text || "Sin pie"}
+                  </Typography>
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
+        ) : (
+          <Alert severity="info">
+            Seleccione dos versiones para compararlas lado a lado.
+          </Alert>
+        )}
         <DataTable
-          columns={VERSION_COLUMNS}
+          columns={columns}
           emptyMessage="Esta plantilla todavia no tiene versiones registradas."
           getRowKey={(row) => row.public_id}
           loading={list.loading}

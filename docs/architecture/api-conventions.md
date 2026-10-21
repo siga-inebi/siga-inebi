@@ -1009,6 +1009,16 @@ El contrato y las decisiones de compatibilidad están en [ADR-0012](../decisions
 
 Decisión y evidencia: [ADR-0011, aporte D7](../decisions/ADR-0011-template-issuance-use.md) y
 [entrega de plantillas](../development/632-template-issuance-use.md).
+
+### Vista previa nueva y restauración de versiones (D4.2)
+
+- `POST /api/v1/documents/templates/preview/` recibe el mismo borrador que la vista previa de una
+  plantilla existente y responde el PDF en base64. Usa la institución de la sesión y no persiste
+  plantilla, versión ni emisión.
+- `POST /api/v1/documents/templates/{template_id}/versions/{version_id}/restore/` no recibe cuerpo.
+  Copia contenido, página, pie y firmas del snapshot indicado y crea una versión nueva. Conserva
+  código, clasificación, uso de emisión y estado actuales; nunca reescribe el historial.
+- Ambos contratos exigen sesión y conservan la auditoría del módulo de plantillas.
 ## Desactivación autorizada del perfil docente (#632: T3)
 
 `DELETE /api/v1/teachers/{id}/` mantiene 204 sin cuerpo y ahora exige
