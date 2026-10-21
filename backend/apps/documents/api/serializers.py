@@ -21,9 +21,20 @@ class InstitutionalHeaderSerializer(serializers.Serializer):
 
 
 class DocumentKindSerializer(serializers.ModelSerializer):
+    template_count = serializers.IntegerField(read_only=True)
+    active_template_count = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = DocumentKind
-        fields = ["public_id", "code", "label", "description", "is_active"]
+        fields = [
+            "public_id",
+            "code",
+            "label",
+            "description",
+            "template_count",
+            "active_template_count",
+            "is_active",
+        ]
 
 
 class DocumentKindCreateSerializer(serializers.Serializer):

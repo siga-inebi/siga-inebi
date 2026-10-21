@@ -340,7 +340,7 @@ export function MovementsTab() {
       {canView ? (
         <ListSection
           columns={alertColumns(sectionNames)}
-          emptyMessage="Sin alertas de asistencia registradas."
+          emptyMessage="Sin alertas operativas de asistencia registradas."
           getRowKey={(row) => row.public_id}
           list={alerts}
           showInactiveToggle={false}

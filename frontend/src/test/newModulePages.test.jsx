@@ -189,6 +189,8 @@ const ALERT = {
   public_id: "alert-1",
   alert_type: "frecuencia_ausencias",
   student_id: "student-1",
+  student_name: "Luis Perez",
+  student_code: "EST-1",
   shift_id: "shift-1",
   section_id: "section-a",
   event_date: "2026-08-06",
@@ -1134,6 +1136,12 @@ describe("pantallas de los modulos con backend previo", () => {
         within(table).getByText("Frecuencia de ausencias")
       ).toBeInTheDocument();
       expect(within(table).getByText("Sin atender")).toBeInTheDocument();
+      expect(
+        within(table).getByRole("link", { name: /Luis Perez/ })
+      ).toHaveAttribute("href", "/app/alumnos/student-1");
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "alertas operativas del día"
+      );
     });
 
     test("los indicadores piden una sola fila y muestran el count del backend", async () => {

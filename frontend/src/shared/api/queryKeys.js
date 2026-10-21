@@ -99,6 +99,10 @@ export const queryKeys = {
     all: ["reporting"],
     alerts: (params = {}) => ["reporting", "alerts", params],
   },
+  documents: {
+    all: ["documents"],
+    storage: () => ["documents", "storage"],
+  },
   dashboard: {
     all: ["dashboard"],
     cycles: () => ["dashboard", "cycles"],

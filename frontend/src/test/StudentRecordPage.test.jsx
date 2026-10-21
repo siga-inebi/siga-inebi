@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Link, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -24,6 +24,9 @@ const enrolments = vi.hoisted(() => ({ listStudentRecord: vi.fn() }));
 const documents = vi.hoisted(() => ({
   listStudentRecords: vi.fn(),
   issueDownloadToken: vi.fn(),
+  scanRecord: vi.fn(),
+  replaceRecord: vi.fn(),
+  verifyRecord: vi.fn(),
 }));
 const attendance = vi.hoisted(() => ({ listEvents: vi.fn() }));
 vi.mock("@students/studentsService.js", () => ({ studentsService: students }));
@@ -45,6 +48,10 @@ vi.mock("@attendance/attendanceService.js", () => ({
 
 import { StudentRecordPage } from "@students/StudentRecordPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
+import {
+  renderWithSession,
+  sessionUser,
+} from "./helpers/renderWithSession.jsx";
 import {
   visibleInstitutionalPerson,
   editInstitutionalPerson,
@@ -143,6 +150,17 @@ function renderRecord(route = "/app/alumnos/student-1") {
       </Routes>
     </>,
     { route }
+  );
+}
+
+function renderRecordWithDocumentUpload(
+  route = "/app/alumnos/student-1?tab=documents"
+) {
+  return renderWithSession(
+    <Routes>
+      <Route path="/app/alumnos/:studentId" element={<StudentRecordPage />} />
+    </Routes>,
+    { route, user: sessionUser(["document.upload", "document.read"]) }
   );
 }
 async function openTab(user, name) {
@@ -473,6 +491,58 @@ test("documentos del alumno y descarga autorizada no se guardan en almacenamient
   );
   expect(documents.issueDownloadToken).toHaveBeenCalledWith("d1");
   expect(store).not.toHaveBeenCalled();
+});
+
+test("documentos permite verificar, reemplazar y subir un escaneo conservando el expediente", async () => {
+  documents.listStudentRecords.mockResolvedValue(
+    paged([
+      {
+        public_id: "d1",
+        filename: "demo.pdf",
+        version_number: 1,
+        status: "active",
+        is_active: true,
+      },
+    ])
+  );
+  const user = userEvent.setup();
+  renderRecordWithDocumentUpload();
+  await screen.findByText(/demo.pdf · Versión 1/);
+
+  await user.click(
+    screen.getByRole("button", { name: "Verificar integridad" })
+  );
+  await waitFor(() =>
+    expect(documents.verifyRecord).toHaveBeenCalledWith("d1")
+  );
+
+  const replacement = new File(["pdf"], "reemplazo.pdf", {
+    type: "application/pdf",
+  });
+  await user.upload(screen.getByLabelText("Reemplazar archivo"), replacement);
+  await waitFor(() =>
+    expect(documents.replaceRecord).toHaveBeenCalledWith(
+      "d1",
+      expect.any(FormData)
+    )
+  );
+
+  await user.click(
+    screen.getByRole("button", { name: "Subir documento escaneado" })
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Subir documento escaneado",
+  });
+  await user.upload(
+    within(dialog).getByLabelText("Documento escaneado"),
+    new File(["scan"], "escaneo.pdf", { type: "application/pdf" })
+  );
+  await user.click(
+    within(dialog).getByRole("button", { name: "Subir documento" })
+  );
+  await waitFor(() =>
+    expect(documents.scanRecord).toHaveBeenCalledWith(expect.any(FormData))
+  );
 });
 
 test("asistencia solicita únicamente el UUID del expediente visible", async () => {

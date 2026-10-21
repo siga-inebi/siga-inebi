@@ -397,7 +397,9 @@ def acknowledge_alert(*, alert, actor):
 
 
 def list_alerts(*, shift=None, event_date=None, alert_type=None, is_active=None, acknowledged=None):
-    queryset = Alert.objects.select_related("student", "shift", "section", "acknowledged_by")
+    queryset = Alert.objects.select_related(
+        "student__person", "shift", "section", "acknowledged_by"
+    )
     if shift is not None:
         queryset = queryset.filter(shift=shift)
     if event_date is not None:

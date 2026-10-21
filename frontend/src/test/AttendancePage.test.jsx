@@ -624,7 +624,7 @@ describe("Asistencia → Movimientos (AS5)", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("Luis Perez")).toBeInTheDocument();
     expect(
-      screen.getByText("Sin alertas de asistencia registradas.")
+      screen.getByText("Sin alertas operativas de asistencia registradas.")
     ).toBeInTheDocument();
     expect(studentsServiceMock.listPage).not.toHaveBeenCalled();
   });

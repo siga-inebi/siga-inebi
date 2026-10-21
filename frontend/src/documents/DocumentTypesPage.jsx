@@ -28,6 +28,15 @@ const TYPE_COLUMNS = [
     render: (row) => row.description || <MutedCell>Sin descripcion</MutedCell>,
   },
   {
+    key: "template_count",
+    label: "Plantillas",
+    align: "right",
+    render: (row) =>
+      row.template_count === row.active_template_count
+        ? String(row.template_count ?? 0)
+        : `${row.active_template_count ?? 0} activas · ${row.template_count ?? 0} en total`,
+  },
+  {
     key: "is_active",
     label: "Estado",
     render: (row) => <ActiveCell active={row.is_active} />,
