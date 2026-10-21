@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import time
 from datetime import date, timedelta
@@ -895,8 +896,102 @@ def test_document_template_preview_is_ephemeral_and_uses_sample_payload(auth_cli
 
     assert response.status_code == 200
     assert response.json()["content"] == "Constancia para Ana de INEBI"
+    assert response.json()["content_type"] == "application/pdf"
+    assert base64.b64decode(response.json()["pdf_base64"]).startswith(b"%PDF-")
     template.refresh_from_db()
     assert template.content == "Constancia para {{student.full_name}} de {{institution.name}}"
+
+
+def test_rich_template_api_preserves_layout_and_previews_unsaved_content(admin_client, institution):
+    content = {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {
+                "type": "heading",
+                "level": 1,
+                "align": "center",
+                "content": [{"type": "text", "text": "Constancia"}],
+            },
+            {
+                "type": "paragraph",
+                "align": "justify",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Se certifica a {{student.full_name}}",
+                        "marks": ["bold"],
+                    }
+                ],
+            },
+        ],
+    }
+    create_response = admin_client.post(
+        reverse("document-template-list-create"),
+        {
+            "name": "Constancia rica",
+            "code": "RICH",
+            "content_format": "rich",
+            "content": content,
+            "page_size": "a4",
+            "orientation": "landscape",
+            "margin_top": 36,
+            "margin_right": 42,
+            "margin_bottom": 48,
+            "margin_left": 54,
+            "footer_text": "Documento de prueba",
+            "signature_blocks": [{"name": "DirecciÃ³n", "title": "Director(a)"}],
+        },
+        content_type="application/json",
+    )
+
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["content"] == content
+    assert created["page_size"] == "a4"
+    assert created["orientation"] == "landscape"
+
+    draft = {
+        **content,
+        "content": [
+            *content["content"],
+            {
+                "type": "paragraph",
+                "align": "left",
+                "content": [{"type": "text", "text": "Borrador sin guardar"}],
+            },
+        ],
+    }
+    preview_response = admin_client.post(
+        reverse("document-template-preview", args=[created["public_id"]]),
+        {
+            "payload": {"student.full_name": "Ana PÃ©rez"},
+            "content_format": "rich",
+            "content": draft,
+            "page_size": "letter",
+            "orientation": "portrait",
+        },
+        content_type="application/json",
+    )
+
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["content"] == draft
+    assert base64.b64decode(preview["pdf_base64"]).startswith(b"%PDF-")
+    assert preview["markers"] == ["student.full_name"]
+
+    detail_response = admin_client.get(
+        reverse("document-template-detail", args=[created["public_id"]])
+    )
+    assert detail_response.json()["content"] == content
+
+    versions_response = admin_client.get(
+        reverse("document-template-version-list", args=[created["public_id"]])
+    )
+    version = _items(versions_response)[0]
+    assert version["content_format"] == "rich"
+    assert version["page_size"] == "a4"
+    assert version["signature_blocks"] == [{"name": "DirecciÃ³n", "title": "Director(a)"}]
 
 
 def test_document_upload_requires_permission_and_scope(auth_client):

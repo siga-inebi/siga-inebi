@@ -10,8 +10,21 @@ from apps.documents.models import (
     DocumentTemplate,
     DocumentTemplateVersion,
 )
+from apps.documents.template_rendering import public_template_content
 from apps.enrolments.models import Enrolment
 from apps.students.models import Guardian, Student
+
+TEMPLATE_LAYOUT_FIELDS = [
+    "content_format",
+    "page_size",
+    "orientation",
+    "margin_top",
+    "margin_right",
+    "margin_bottom",
+    "margin_left",
+    "footer_text",
+    "signature_blocks",
+]
 
 
 class InstitutionalHeaderSerializer(serializers.Serializer):
@@ -59,9 +72,17 @@ class DocumentTemplateSerializer(serializers.ModelSerializer):
             "issuance_use",
             "description",
             "content",
+            *TEMPLATE_LAYOUT_FIELDS,
             "is_active",
             "header",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["content"] = public_template_content(
+            content_format=instance.content_format, stored_content=instance.content
+        )
+        return data
 
 
 class DocumentTemplateCreateSerializer(serializers.Serializer):
@@ -84,11 +105,28 @@ class DocumentTemplateCreateSerializer(serializers.Serializer):
         ),
     )
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    content = serializers.CharField(
+    content = serializers.JSONField(
         required=False,
-        allow_blank=True,
+        default="",
         help_text="Contenido base de la plantilla con marcadores cerrados.",
     )
+    content_format = serializers.ChoiceField(
+        choices=DocumentTemplate.ContentFormat.choices,
+        default=DocumentTemplate.ContentFormat.PLAIN,
+    )
+    page_size = serializers.ChoiceField(
+        choices=DocumentTemplate.PageSize.choices, default=DocumentTemplate.PageSize.LETTER
+    )
+    orientation = serializers.ChoiceField(
+        choices=DocumentTemplate.Orientation.choices,
+        default=DocumentTemplate.Orientation.PORTRAIT,
+    )
+    margin_top = serializers.IntegerField(default=54, min_value=18, max_value=144)
+    margin_right = serializers.IntegerField(default=54, min_value=18, max_value=144)
+    margin_bottom = serializers.IntegerField(default=54, min_value=18, max_value=144)
+    margin_left = serializers.IntegerField(default=54, min_value=18, max_value=144)
+    footer_text = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    signature_blocks = serializers.JSONField(required=False, default=list)
 
 
 class DocumentTemplateUpdateSerializer(serializers.Serializer):
@@ -99,11 +137,20 @@ class DocumentTemplateUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150, required=False)
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     kind = serializers.CharField(max_length=30, required=False)
-    content = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Nuevo contenido de la plantilla antes de publicar.",
+    content = serializers.JSONField(required=False)
+    content_format = serializers.ChoiceField(
+        choices=DocumentTemplate.ContentFormat.choices, required=False
     )
+    page_size = serializers.ChoiceField(choices=DocumentTemplate.PageSize.choices, required=False)
+    orientation = serializers.ChoiceField(
+        choices=DocumentTemplate.Orientation.choices, required=False
+    )
+    margin_top = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_right = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_bottom = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_left = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    footer_text = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    signature_blocks = serializers.JSONField(required=False)
 
 
 class FieldTagSerializer(serializers.Serializer):
@@ -135,8 +182,16 @@ class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
             "issuance_use",
             "description",
             "content",
+            *TEMPLATE_LAYOUT_FIELDS,
             "created_at",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["content"] = public_template_content(
+            content_format=instance.content_format, stored_content=instance.content
+        )
+        return data
 
 
 class StorageConsumptionSerializer(serializers.Serializer):
@@ -259,12 +314,29 @@ class DocumentTemplatePreviewSerializer(serializers.Serializer):
         default=dict,
         help_text="Mapa de marcadores permitidos a valores a interpolar.",
     )
+    content = serializers.JSONField(required=False)
+    content_format = serializers.ChoiceField(
+        choices=DocumentTemplate.ContentFormat.choices, required=False
+    )
+    page_size = serializers.ChoiceField(choices=DocumentTemplate.PageSize.choices, required=False)
+    orientation = serializers.ChoiceField(
+        choices=DocumentTemplate.Orientation.choices, required=False
+    )
+    margin_top = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_right = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_bottom = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_left = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    footer_text = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    signature_blocks = serializers.JSONField(required=False)
 
 
 class DocumentTemplatePreviewResponseSerializer(serializers.Serializer):
-    content = serializers.CharField()
+    content = serializers.JSONField()
     markers = serializers.ListField(child=serializers.CharField())
     marker_count = serializers.IntegerField()
+    content_type = serializers.CharField()
+    pdf_base64 = serializers.CharField()
+    content_format = serializers.CharField()
 
 
 class DocumentVerificationResponseSerializer(serializers.Serializer):

@@ -8,6 +8,7 @@ Template-use writes additionally lock the institution before checking an occupan
 so confirmation and replacement cannot race with another catalogue write.
 """
 
+import base64
 import hashlib
 import os
 import re
@@ -42,6 +43,11 @@ from apps.documents.models import (
     DocumentTemplateVersion,
     DocumentVerificationCode,
     OfficialFolio,
+)
+from apps.documents.template_rendering import (
+    normalize_template_content,
+    public_template_content,
+    render_template_pdf,
 )
 from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
 from apps.enrolments.services import pending_required_document_codes
@@ -1032,12 +1038,65 @@ def _record_version(template):
             description=template.description,
             content=template.content,
             issuance_use=template.issuance_use,
+            content_format=template.content_format,
+            page_size=template.page_size,
+            orientation=template.orientation,
+            margin_top=template.margin_top,
+            margin_right=template.margin_right,
+            margin_bottom=template.margin_bottom,
+            margin_left=template.margin_left,
+            footer_text=template.footer_text,
+            signature_blocks=template.signature_blocks,
         )
 
 
 def _validate_issuance_use(issuance_use):
     if issuance_use not in DocumentTemplate.IssuanceUse.values:
         raise DomainError("El uso de emision indicado no es valido.")
+
+
+def _validate_page_settings(
+    *,
+    page_size,
+    orientation,
+    margin_top,
+    margin_right,
+    margin_bottom,
+    margin_left,
+    footer_text,
+    signature_blocks,
+):
+    if page_size not in DocumentTemplate.PageSize.values:
+        raise DomainError("El tamano de pagina indicado no es valido.")
+    if orientation not in DocumentTemplate.Orientation.values:
+        raise DomainError("La orientacion de pagina indicada no es valida.")
+    margins = {
+        "margin_top": margin_top,
+        "margin_right": margin_right,
+        "margin_bottom": margin_bottom,
+        "margin_left": margin_left,
+    }
+    if any(not isinstance(value, int) or value < 18 or value > 144 for value in margins.values()):
+        raise DomainError("Cada margen debe estar entre 18 y 144 puntos.")
+    signatures = signature_blocks or []
+    if not isinstance(signatures, list) or len(signatures) > 2:
+        raise DomainError("La plantilla admite hasta dos bloques de firma.")
+    normalized_signatures = []
+    for signature in signatures:
+        if not isinstance(signature, dict):
+            raise DomainError("Cada firma debe indicar nombre y cargo.")
+        name = str(signature.get("name", "")).strip()
+        title = str(signature.get("title", "")).strip()
+        if not name or not title or len(name) > 100 or len(title) > 100:
+            raise DomainError("Cada firma requiere nombre y cargo de hasta 100 caracteres.")
+        normalized_signatures.append({"name": name, "title": title})
+    return {
+        "page_size": page_size,
+        "orientation": orientation,
+        **margins,
+        "footer_text": str(footer_text or "").strip()[:255],
+        "signature_blocks": normalized_signatures,
+    }
 
 
 def _replace_active_template(
@@ -1084,6 +1143,15 @@ def create_document_template(
     is_active=True,
     issuance_use=DocumentTemplate.IssuanceUse.NONE,
     replaces_template_id=None,
+    content_format=DocumentTemplate.ContentFormat.PLAIN,
+    page_size=DocumentTemplate.PageSize.LETTER,
+    orientation=DocumentTemplate.Orientation.PORTRAIT,
+    margin_top=54,
+    margin_right=54,
+    margin_bottom=54,
+    margin_left=54,
+    footer_text="",
+    signature_blocks=None,
 ):
     """
     Register a document template.
@@ -1094,7 +1162,17 @@ def create_document_template(
     """
     name = _clean_name(name)
     code = _clean_code(code)
-    content = (content or "").strip()
+    content = normalize_template_content(content_format=content_format, content=content or "")
+    page_settings = _validate_page_settings(
+        page_size=page_size,
+        orientation=orientation,
+        margin_top=margin_top,
+        margin_right=margin_right,
+        margin_bottom=margin_bottom,
+        margin_left=margin_left,
+        footer_text=footer_text,
+        signature_blocks=signature_blocks,
+    )
     Institution.objects.select_for_update().get(pk=institution.pk)
     document_kind = resolve_document_kind(institution=institution, code=kind)
     _replace_active_template(
@@ -1115,6 +1193,8 @@ def create_document_template(
             content=content,
             is_active=is_active,
             issuance_use=issuance_use,
+            content_format=content_format,
+            **page_settings,
         )
 
     _audit(
@@ -1141,6 +1221,15 @@ def update_document_template(
     actor=None,
     issuance_use=None,
     replaces_template_id=None,
+    content_format=None,
+    page_size=None,
+    orientation=None,
+    margin_top=None,
+    margin_right=None,
+    margin_bottom=None,
+    margin_left=None,
+    footer_text=None,
+    signature_blocks=None,
 ):
     """
     Update the descriptive attributes of a document template. The code is
@@ -1153,8 +1242,25 @@ def update_document_template(
         name = _clean_name(name)
     if description is not None:
         description = description.strip()
+    if content_format is not None and content is None and content_format != template.content_format:
+        raise DomainError("Cambiar el formato requiere enviar el contenido en el formato nuevo.")
+    effective_content_format = content_format or template.content_format
     if content is not None:
-        content = content.strip()
+        content = normalize_template_content(
+            content_format=effective_content_format, content=content
+        )
+    page_settings = _validate_page_settings(
+        page_size=page_size or template.page_size,
+        orientation=orientation or template.orientation,
+        margin_top=template.margin_top if margin_top is None else margin_top,
+        margin_right=template.margin_right if margin_right is None else margin_right,
+        margin_bottom=template.margin_bottom if margin_bottom is None else margin_bottom,
+        margin_left=template.margin_left if margin_left is None else margin_left,
+        footer_text=template.footer_text if footer_text is None else footer_text,
+        signature_blocks=(
+            template.signature_blocks if signature_blocks is None else signature_blocks
+        ),
+    )
     document_kind = (
         resolve_document_kind(institution=template.institution, code=kind)
         if kind is not None
@@ -1179,9 +1285,38 @@ def update_document_template(
             document_kind=document_kind,
             content=content,
             issuance_use=issuance_use,
+            content_format=content_format,
+            page_size=page_settings["page_size"] if page_size is not None else None,
+            orientation=page_settings["orientation"] if orientation is not None else None,
+            margin_top=page_settings["margin_top"] if margin_top is not None else None,
+            margin_right=page_settings["margin_right"] if margin_right is not None else None,
+            margin_bottom=page_settings["margin_bottom"] if margin_bottom is not None else None,
+            margin_left=page_settings["margin_left"] if margin_left is not None else None,
+            footer_text=page_settings["footer_text"] if footer_text is not None else None,
+            signature_blocks=(
+                page_settings["signature_blocks"] if signature_blocks is not None else None
+            ),
         )
 
-    if any(value is not None for value in (name, description, kind, content, issuance_use)):
+    if any(
+        value is not None
+        for value in (
+            name,
+            description,
+            kind,
+            content,
+            issuance_use,
+            content_format,
+            page_size,
+            orientation,
+            margin_top,
+            margin_right,
+            margin_bottom,
+            margin_left,
+            footer_text,
+            signature_blocks,
+        )
+    ):
         _record_version(updated)
     if replaces_template_id is not None:
         _audit(
@@ -1386,7 +1521,22 @@ def _render_template_markers(template_content, mapping):
     return rendered, markers
 
 
-def preview_document_template(*, template, payload=None, actor=None):
+def preview_document_template(
+    *,
+    template,
+    payload=None,
+    actor=None,
+    content=None,
+    content_format=None,
+    page_size=None,
+    orientation=None,
+    margin_top=None,
+    margin_right=None,
+    margin_bottom=None,
+    margin_left=None,
+    footer_text=None,
+    signature_blocks=None,
+):
     """Render a template preview using only the closed field-tag catalogue.
 
     This keeps the preview deterministic and safe: only whitelisted markers are
@@ -1396,9 +1546,46 @@ def preview_document_template(*, template, payload=None, actor=None):
     if template is None:
         raise DomainError("Se requiere una plantilla para generar la vista previa.")
 
-    template_content = str(getattr(template, "content", "") or "")
+    effective_format = content_format or template.content_format
+    template_content = (
+        template.content
+        if content is None
+        else normalize_template_content(content_format=effective_format, content=content)
+    )
+    settings = _validate_page_settings(
+        page_size=page_size or template.page_size,
+        orientation=orientation or template.orientation,
+        margin_top=template.margin_top if margin_top is None else margin_top,
+        margin_right=template.margin_right if margin_right is None else margin_right,
+        margin_bottom=template.margin_bottom if margin_bottom is None else margin_bottom,
+        margin_left=template.margin_left if margin_left is None else margin_left,
+        footer_text=template.footer_text if footer_text is None else footer_text,
+        signature_blocks=(
+            template.signature_blocks if signature_blocks is None else signature_blocks
+        ),
+    )
     mapping = dict(payload or {})
-    rendered, markers = _render_template_markers(template_content, mapping)
+    pdf, markers = render_template_pdf(
+        content_format=effective_format,
+        stored_content=template_content,
+        mapping=mapping,
+        institution_name=template.institution.name,
+        page_size=settings["page_size"],
+        orientation=settings["orientation"],
+        margins={
+            "top": settings["margin_top"],
+            "right": settings["margin_right"],
+            "bottom": settings["margin_bottom"],
+            "left": settings["margin_left"],
+        },
+        footer_text=settings["footer_text"],
+        signature_blocks=settings["signature_blocks"],
+    )
+    rendered = public_template_content(
+        content_format=effective_format, stored_content=template_content
+    )
+    if effective_format == DocumentTemplate.ContentFormat.PLAIN:
+        rendered, _ = _render_template_markers(rendered, mapping)
 
     _audit(
         actor,
@@ -1412,6 +1599,9 @@ def preview_document_template(*, template, payload=None, actor=None):
         "content": rendered,
         "markers": markers,
         "marker_count": len(markers),
+        "content_type": "application/pdf",
+        "pdf_base64": base64.b64encode(pdf).decode("ascii"),
+        "content_format": effective_format,
     }
 
 
@@ -2183,11 +2373,28 @@ def issue_individual_document(*, enrolment, document_type, actor, issued_at=None
     values = _issuance_field_values(enrolment=enrolment, issued_at=issued_at)
     template_version = _active_template_version(institution=institution, issuance_use=document_type)
     if template_version is not None and template_version.content.strip():
-        body, _markers = _render_template_markers(template_version.content, values)
+        stored_content = template_version.content
+        content_format = template_version.content_format
+        page_size = template_version.page_size
+        orientation = template_version.orientation
+        margins = {
+            "top": template_version.margin_top,
+            "right": template_version.margin_right,
+            "bottom": template_version.margin_bottom,
+            "left": template_version.margin_left,
+        }
+        footer_text = template_version.footer_text
+        signature_blocks = template_version.signature_blocks
     else:
-        body = _default_issuance_body(
+        stored_content = _default_issuance_body(
             document_type=document_type, values=values, enrolment=enrolment
         )
+        content_format = DocumentTemplate.ContentFormat.PLAIN
+        page_size = DocumentTemplate.PageSize.LETTER
+        orientation = DocumentTemplate.Orientation.PORTRAIT
+        margins = {"top": 54, "right": 54, "bottom": 54, "left": 54}
+        footer_text = ""
+        signature_blocks = []
 
     with transaction.atomic():
         folio = issue_official_document_folio(
@@ -2201,18 +2408,18 @@ def issue_individual_document(*, enrolment, document_type, actor, issued_at=None
             folio=folio,
         )
 
-        lines = [institution.name, label.upper(), ""]
-        lines.extend(_wrap(body))
+        appendix_lines = []
         if document_type == DocumentIssuance.DocumentType.STUDY_CERTIFICATE:
             results, promoted = _closed_cycle_results(enrolment)
-            lines.append("")
             if results:
                 for result in results:
-                    lines.append(f"{result['subject'].name}: {_final_grade_label(result)}")
+                    appendix_lines.append(f"{result['subject'].name}: {_final_grade_label(result)}")
             else:
-                lines.append("Sin calificaciones registradas.")
-            lines.append(f"Condicion de promocion: {'Promovido' if promoted else 'No promovido'}")
-        lines.extend(
+                appendix_lines.append("Sin calificaciones registradas.")
+            appendix_lines.append(
+                f"Condicion de promocion: {'Promovido' if promoted else 'No promovido'}"
+            )
+        appendix_lines.extend(
             [
                 "",
                 f"Emitido: {timezone.localtime(issued_at).isoformat(timespec='seconds')}",
@@ -2220,9 +2427,18 @@ def issue_individual_document(*, enrolment, document_type, actor, issued_at=None
                 f"Codigo de verificacion: {verification_code}",
             ]
         )
-        height = 60 + 15 * len(lines)
-        content = _assemble_pdf(
-            _text_lines_stream(lines, top=height - 40), width=612, height=height
+        content, _markers = render_template_pdf(
+            content_format=content_format,
+            stored_content=stored_content,
+            mapping=values,
+            institution_name=institution.name,
+            page_size=page_size,
+            orientation=orientation,
+            margins=margins,
+            footer_text=footer_text,
+            signature_blocks=signature_blocks,
+            appendix_lines=appendix_lines,
+            title=label.upper(),
         )
         checksum = hashlib.sha256(content).hexdigest()
 

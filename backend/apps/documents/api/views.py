@@ -222,8 +222,8 @@ class DocumentTemplatePreviewView(CatalogueView):
         serializer.is_valid(raise_exception=True)
         preview = services.preview_document_template(
             template=template,
-            payload=serializer.validated_data.get("payload"),
             actor=request.user,
+            **serializer.validated_data,
         )
         return Response(preview)
 

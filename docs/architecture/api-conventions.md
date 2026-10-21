@@ -995,11 +995,17 @@ contenido, secuencia, fechas, identificadores ni referencias de emisiones anteri
 revertir deben resolverse explícitamente las activas del mismo tipo que violarían la restricción
 anterior; la reversión no desactiva filas ni borra historia automáticamente.
 
-La vista previa conserva `POST .../{public_id}/preview/` con `{payload: {...}}`. La interfaz aporta
-valores sintéticos no vacíos para las ocho etiquetas del catálogo. El sustituidor seguro compartido
-con emisión admite espacios dentro de `{{ ... }}` y rechaza marcadores no autorizados. No guarda
-versiones ni emite documentos. PDF real y vista previa de borradores sin guardar pertenecen a D4,
-PL4/PL6/PL10 y continúan pendientes.
+La vista previa conserva `POST .../{public_id}/preview/` con `{payload: {...}}`. También puede recibir
+un borrador sin guardar mediante `content`, `content_format`, `page_size`, `orientation`, márgenes,
+`footer_text` y `signature_blocks`. La interfaz aporta valores sintéticos no vacíos para las ocho
+etiquetas del catálogo. El sustituidor seguro compartido con emisión admite espacios dentro de
+`{{ ... }}` y rechaza marcadores no autorizados. No guarda versiones ni emite documentos.
+
+La respuesta mantiene `content`, `markers` y `marker_count`, y agrega `content_type`,
+`pdf_base64` y `content_format`. `content` es cadena para `plain` y objeto JSON para `rich`.
+La vista previa y la emisión individual usan el mismo renderizador de ReportLab. Las plantillas y
+sus versiones incluyen tamaño, orientación, cuatro márgenes en puntos, pie y hasta dos firmas.
+El contrato y las decisiones de compatibilidad están en [ADR-0012](../decisions/ADR-0012-renderizado-de-plantillas.md).
 
 Decisión y evidencia: [ADR-0011, aporte D7](../decisions/ADR-0011-template-issuance-use.md) y
 [entrega de plantillas](../development/632-template-issuance-use.md).

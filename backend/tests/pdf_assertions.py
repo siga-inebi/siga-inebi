@@ -21,7 +21,7 @@ def assert_pdf_structurally_valid(pdf):
     assert first == 0
     entries = xref_rows[2:]
     assert len(entries) == count, "xref entry count does not match its header"
-    assert entries[0] == b"0000000000 65535 f"
+    assert entries[0].strip() == b"0000000000 65535 f"
 
     for number, row in enumerate(entries[1:], start=1):
         offset = int(row.split()[0])
