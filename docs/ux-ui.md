@@ -190,78 +190,66 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 
 ### 2.6 Estudiantes
 
-| # | Prioridad · Tipo | Hallazgo |
+| # | Estado | Resultado |
 |---|---|---|
-| E1 | **P0 · Bug** | La edición descarta sexo, nacionalidad, dirección, departamento y municipio (ver 1.2.2). |
-| E2 | **P0 · Bug** | Los encargados del estudiante salen de la primera página de **todas** las relaciones del sistema (ver 1.1.4). Con más de 25 relaciones, faltan encargados. |
-| E3 | **P1 · Rendimiento** | Se descarga todo el padrón para paginar en el navegador (ver 1.1.2), con tope de 1 000 (ver 1.1.3). **Resuelto en #631:** paginación y búsqueda (nombre, código o CUI) en el servidor. **Seguimiento #632:** `useServerList`, tamaño y URL; CSV completo explícito con avance/cancelación en [E3/E10](architecture/student-server-list-ui.md). Pendiente de integración y aceptación. |
-| E4 | **P1 · Clics** | El detalle abre ventanas encadenadas: Detalle → Salud → Nueva nota. Para consultar salud, observaciones y contactos de un mismo estudiante hacen falta 6 o más clics y tres ventanas superpuestas. Ver la propuesta de expediente con pestañas (1.5).  **Seguimiento #632:** [expediente con pestanas](architecture/student-record-tabs-ui.md), ruta propia, ocho secciones, lecturas diferidas/paginadas y formularios en linea; integracion y aceptacion pendientes. |
-| E5 | **P1 · Sin UI** | **Encargados:** marcar como principal (`/guardian-relations/<id>/make-primary/`), finalizar la relación (`/guardian-relations/<id>/end/`) y editarla. Solo se puede vincular.  Seguimiento: [acciones de vinculos E5](architecture/guardian-relation-actions-ui.md), implementadas y probadas; dependen del expediente #647, con integracion y aceptacion pendientes. |
-| E6 | **P1 · Sin UI** | **Notas de salud, observaciones y contactos de emergencia:** editar y desactivar (`PATCH/DELETE` en `/health-notes/<id>/`, `/observations/<id>/` y `/emergency-contacts/<id>/`). Solo se puede crear.  Seguimiento: [acciones del expediente E6](architecture/student-record-actions-ui.md), edicion, desactivacion con confirmacion e historial paginado; integracion y aceptacion pendientes. |
-| E7 | **P1 · Sin UI** | **Desactivar estudiante** (`DELETE /students/<id>/`).  Seguimiento: [desactivacion desde expediente E7](architecture/student-deactivation-ui.md), confirmacion, auditoria atomica y conservacion de historial; integracion y aceptacion pendientes. |
-| E8 | **P1 · Clics** | "Vincular encargado" carga todos los encargados en un desplegable sin búsqueda. Tampoco permite crear el encargado en el mismo paso: hay que salir a "Padres de familia", crearlo y volver.  Seguimiento #632: [E8/E9/D5](architecture/student-guardian-link-and-status-ui.md), implementado con pruebas; integracion y aceptacion pendientes. |
-| E9 | **P2 · Claridad** | **Decidido (D5): el estado del expediente se sigue editando a mano.** Para que eso no deje datos contradictorios: (a) sacar el estado del formulario general y cambiarlo con una acción propia, "Cambiar estado", con confirmación; (b) avisar cuando el estado elegido choca con la matrícula (por ejemplo, "Retirado" con una matrícula activa, o "Activo" sin ninguna matrícula vigente), sin bloquear; (c) mostrar en la ficha quién cambió el estado y cuándo, a partir de la auditoría.  Seguimiento #632: [E8/E9/D5](architecture/student-guardian-link-and-status-ui.md), implementado con pruebas; integracion y aceptacion pendientes. |
-| E10 | **P2 · Claridad** | La búsqueda solo mira el nombre; el backend ya busca por código. Tampoco hay filtro por estado. **Seguimiento #632:** búsqueda de servidor por nombre/código, filtro por estado y actividad independiente en [E3/E10](architecture/student-server-list-ui.md). Pendiente de integración y aceptación. |
-| E11 | **P2 · Claridad** | La ficha no muestra matrícula vigente, sección, historial de matrícula, documentos ni asistencia.  **Seguimiento #632:** [expediente con pestanas](architecture/student-record-tabs-ui.md), ruta propia, ocho secciones, lecturas diferidas/paginadas y formularios en linea; integracion y aceptacion pendientes. |
+| E1 | **Implementado · #633** | La edición persiste todos los campos de persona del expediente. |
+| E2 | **Implementado · #634** | Encargados, salud, observaciones y contactos se filtran por estudiante y se paginan en servidor. |
+| E3 | **Implementado · #653** | El listado usa paginación, búsqueda y exportación del servidor sin descargar el padrón completo. |
+| E4 | **Implementado · #647** | El expediente tiene ruta propia y pestañas con carga diferida. |
+| E5 | **Implementado · #648** | Los vínculos permiten corregir parentesco, cambiar principal y finalizar con historial. |
+| E6 | **Implementado · #649** | Salud, observaciones y contactos permiten corregir y desactivar sin borrar historial. |
+| E7 | **Implementado · #650** | La desactivación del estudiante exige confirmación, conserva historial y audita la transición. |
+| E8 | **Implementado · #652** | Vincular encargado usa búsqueda remota y permite crear/vincular en el mismo flujo. |
+| E9 | **Implementado · #652** | Cambiar estado es una acción confirmada con avisos de matrícula y trazabilidad visible (D5). |
+| E10 | **Implementado · #653** | Búsqueda por nombre/código, estado y actividad se resuelve en servidor y queda en la URL. |
+| E11 | **Implementado · #647/#676** | La ficha reúne matrícula, documentos, asistencia y demás secciones del expediente. |
 
 ### 2.7 Docentes
 
-| # | Prioridad · Tipo | Hallazgo |
+| # | Estado | Resultado |
 |---|---|---|
-| T1 | **P0 · Bug** | La edición descarta sexo, nacionalidad, dirección, departamento y municipio (ver 1.2.2). |
-| T2 | **P1 · Rendimiento** | Se descarga todo el padrón (ver 1.1.2). El backend no tiene `?search=` ni filtro por puesto: el filtro "Puesto" funciona solo sobre lo descargado. **Resuelto en #631:** el backend ya acepta `search` y `position`; la pantalla pagina, busca y filtra por puesto en el servidor. **Seguimiento #632:** contratos de servidor en #635; adopción de `useServerList`, filtros, URL y CSV completo en [T2/T4](architecture/teacher-server-list-ui.md). Pendiente de integración y aceptación. |
-| T3 | **P1 · Sin UI** | **Desactivar docente** (`DELETE /teachers/<id>/`). **Seguimiento #632:** confirmación, permiso aprobado `teacher.deactivate` con alcance `teachers`, baja y auditoría atómicas, idempotencia e historial conservado en [T3](architecture/teacher-deactivation-ui.md). Pendiente de integración y aceptación. |
-| T4 | **P2 · Claridad** | Los puestos estaban fijos en `teachersMock.js` y duplicaban el backend. **Seguimiento #632:** catálogo autenticado `GET /teachers/positions/` desde `Teacher.Position`, compartido por filtro y formularios; archivo duplicado retirado. Contrato, errores y pruebas en [T2/T4](architecture/teacher-server-list-ui.md). Pendiente de integración y aceptación. |
+| T1 | **Implementado · #633** | La edición persiste los campos completos de persona. |
+| T2 | **Implementado · #654** | El listado pagina, busca, filtra y exporta desde el servidor. |
+| T3 | **Implementado · #655** | La desactivación usa `teacher.deactivate`, alcance `teachers`, confirmación y auditoría. |
+| T4 | **Implementado · #654** | Puestos proviene del catálogo autenticado del backend y se comparte entre filtros y formularios. |
 
 ### 2.8 Padres de familia (encargados)
 
-| # | Prioridad · Tipo | Hallazgo |
+| # | Estado | Resultado |
 |---|---|---|
-| G1 | **P0 · Bug** | La edición descarta sexo, nacionalidad, dirección, departamento y municipio (ver 1.2.2). |
-| G2 | **P1 · Rendimiento** | Se descarga todo el padrón (ver 1.1.2). El backend no tiene `?search=`. **Resuelto en #631:** paginación y búsqueda (nombre o CUI) en el servidor. **Seguimiento #632:** Listado migrado a paginación y búsqueda del servidor, actividad optativa, URL y CSV completo sin tope de 1.000. Seguimiento: [listado de encargados G2](architecture/guardian-server-list-ui.md); pruebas locales aprobadas, integración y aceptación pendientes. El backend admite `search` desde #635. |
-| G3 | **P1 · Sin UI** | **Desactivar encargado** (`DELETE /students/guardians/<id>/`). **Seguimiento:** Desactivación implementada con confirmación, `guardian.deactivate` y alcance `students`, auditoría atómica e historial conservado. [Entrega G3](architecture/guardian-deactivation-ui.md); integración y aceptación pendientes. |
-| G4 | **P1 · Claridad** | La ficha del encargado no muestra a qué estudiantes está vinculado, ni permite vincularlo desde aquí. **Seguimiento:** Ficha con estudiantes vinculados, historial paginado, acceso al expediente y vinculación por búsqueda bajo permiso/alcance del alumno. [Entrega G4](architecture/guardian-students-record-ui.md); integración y aceptación pendientes. |
+| G1 | **Implementado · #633** | La edición persiste los campos completos de persona. |
+| G2 | **Implementado · #656** | El listado pagina, busca y exporta en servidor sin el corte de 1.000 filas. |
+| G3 | **Implementado · `6717518`** | La desactivación usa `guardian.deactivate`, alcance `students`, confirmación y auditoría; la entrega propuesta en #657 quedó integrada directamente en `develop`. |
+| G4 | **Implementado · #658** | La ficha consulta, pagina y vincula estudiantes bajo permiso y alcance. |
 
 ### 2.9 Personas
 
-| # | Prioridad · Tipo | Hallazgo |
+| # | Estado | Resultado |
 |---|---|---|
-| PE1 | **Implementado · #632** | «Mostrar desactivados» vuelve a consultar el servidor con `include_inactive=true`; por omisión se excluyen registros inactivos. Pruebas de API y UI cubren ambos estados. |
-| PE2 | **P1 · Claridad** | El alta pide solo nombre, apellido, correo, teléfono e identificador. Las de Estudiantes, Docentes y Encargados exigen CUI, fecha de nacimiento, sexo, dirección, etc. Además, el alta de estudiante o docente siempre crea una persona nueva: no hay forma de partir de una persona ya registrada aquí, lo que invita a duplicados, ni de completarle esos datos desde esta pantalla. **Resuelto por D10:** registro mínimo con la acción "Convertir en estudiante / docente / encargado", que reutiliza la persona. |
-| PE3 | **P2 · Claridad** | Sin búsqueda (el backend tampoco la tiene). No dice si la persona es estudiante, docente, encargado o tiene cuenta. |
-| PE4 | **Implementado · #632** | Personas reside en Administración, se muestra por permisos de persona y explica que conserva la identidad compartida por cuentas y expedientes; las operaciones académicas permanecen en sus módulos. |
-| PE1 | **P1 · Bug** | "Mostrar desactivados" no hace nada: `/people/` siempre devuelve todas las personas (ver 1.1.6). |
-| PE2 | **P1 · Claridad** | El alta pide solo nombre, apellido, correo, teléfono e identificador. **Seguimiento #632/D10:** Personas ofrece «Convertir» a estudiante, docente o encargado; los formularios también buscan la persona registrada antes del alta. Se completa la misma persona por `person_public_id`, sin crear otra. [Contrato y pruebas](architecture/person-conversion-ui.md). |
-| PE3 | **P2 · Claridad** | **Seguimiento #632:** búsqueda por nombre o CUI en el servidor, perfiles estudiante/docente/encargado/cuenta en la fila, paginación y estado en URL. [Contrato y pruebas](architecture/person-conversion-ui.md). |
-| PE4 | **P2 · Claridad** | El propósito de la pantalla no es claro para un usuario operativo ("registro base de identidad institucional"). Conviene moverla a Administración o mostrarla solo a quien la necesita. |
+| PE1 | **Implementado · #676** | «Mostrar desactivados» agrega `include_inactive=true`; por omisión el servidor devuelve solo personas activas. |
+| PE2 | **Implementado · #665** | Personas permite convertir el registro existente a estudiante, docente o encargado sin duplicarlo. |
+| PE3 | **Implementado · #665** | La búsqueda por nombre/CUI, perfiles, paginación y estado se resuelven en servidor y URL. |
+| PE4 | **Implementado · #676** | Personas reside en Administración y explica su propósito como identidad institucional compartida. |
 
 ### 2.10 Matrículas
 
-#### Seguimiento de M4: consulta de promoción
+#### Resultado de M4: promoción y reinscripción
 
-Entrega de #632: la acción **Consultar promoción** en cada fila de Vigentes e
-Historial muestra promoción, repitencia o graduación, grado elegible, subáreas
-pendientes y fuente congelada/vigente. No crea una reinscripción. Reutiliza el
-endpoint existente con permiso y alcance de matrícula; no añade catálogos.
-La reinscripción masiva se entrega separadamente en PR #638. Ambas partes de M4
-requieren integración a `develop` y aceptación; no completan M2 ni el resto de
-Matrículas. Evidencia y límites: [consulta de promoción](architecture/enrolment-promotion-ui.md).
+La acción **Consultar promoción** muestra promoción, repitencia o graduación,
+grado elegible, subáreas pendientes y fuente congelada/vigente. La reinscripción
+masiva usa el endpoint por lotes. Evidencia y límites:
+[consulta de promoción](architecture/enrolment-promotion-ui.md) y
+[reinscripción por lotes](architecture/bulk-reenrolment-ui.md).
 
-| # | Prioridad · Tipo | Hallazgo |
+| # | Estado | Resultado |
 |---|---|---|
-| M1 | **P1 · Rendimiento** | **Por qué carga estudiantes:** [EnrolmentsPage.jsx](../frontend/src/enrolments/EnrolmentsPage.jsx) monta `useStudentCatalog`, `useSectionCatalog`, `useGradeCatalog` y `useCycleCatalog`. Cada uno descarga el catálogo completo **solo para traducir** `student_id`, `section_id`, etc. a nombres, porque [EnrolmentSerializer](../backend/apps/enrolments/api/serializers.py) responde únicamente UUIDs. *Corrección:* que el serializador incluya `student: {full_name, student_code}`, `section: {name, grade_name, shift_name}` y `academic_cycle: {name}`, y quitar esos catálogos de la página. |
-| M2 | **P1 · Rendimiento** | [BulkEnrolmentWindow.jsx](../frontend/src/enrolments/BulkEnrolmentWindow.jsx) descarga todas las matrículas activas de todos los ciclos y filtra por ciclo en el navegador. Después matricula **una petición por estudiante**. El backend ofrece `/re-enrolments/bulk/` y filtros por ciclo. **Seguimiento #632:** reinscripción masiva en PR #638; [altas iniciales](architecture/bulk-initial-matriculation-ui.md) con candidatos paginados, preview acumulado y un POST por lote, resultados parciales y reintento sin duplicados. Integración y aceptación pendientes. |
-| M3 | **P1 · Sin UI** | **Movimientos del estudiante:** cambio de sección (`/<id>/section-change/`), retiro (`/<id>/withdrawal/`), traslado de egreso (`/<id>/transfer-out/`), traslado de ingreso (`/transfers/in/`) y anulación de movimiento (`/movements/<id>/annulment/`). Hoy solo se puede *ver* el historial de movimientos. Seguimiento parcial: [cambio, retiro y anulación](architecture/enrolment-movements-ui.md); traslados pendientes. |
-| M4 | **P1 · Sin UI** | **Promoción** (`/<id>/promotion/`) y **reinscripción masiva** (`/re-enrolments/bulk/`). |
-| M5 | **P1 · Clics** | "Vigentes" solo filtra por estudiante (con un desplegable sin búsqueda de todo el padrón). Faltan filtros por ciclo, grado y sección, que es como trabaja secretaría. **Seguimiento #632:** filtros académicos de servidor, reinicio de página y secciones paginadas en [M5](architecture/enrolment-filters-ui.md); búsqueda remota de estudiante en PR #636. Integración/aceptación pendientes; base común de URL y `useServerList` en #630. |
-| M6 | **P2 · Claridad** | Hay tres botones de alta en la cabecera ("Matricular", "Reinscribir", "Matricular por lotes") más "Movimientos". La diferencia entre matricular y reinscribir no se explica en la pantalla. Conviene un solo botón "Matricular" que detecte si el estudiante ya tuvo matrícula y elija el camino. **Seguimiento #632:** [alta unificada](architecture/unified-matriculation-ui.md): acceso Matricular, formulario individual con selección en servidor y entradas masivas agrupadas. Rutas anteriores conservadas; integración y aceptación pendientes. |
-| M7 | **P2 · Claridad** | Al matricular no se ve el cupo disponible de la sección (ver S5). **Seguimiento #632:** [cupo contextual](architecture/enrolment-capacity-ui.md) en nueva matrícula, reinscripción individual y lote inicial; distingue sin límite, lleno y error, y actualiza al terminar envíos. Conserva la validación de servidor. Integración y aceptación pendientes. |
-
-Seguimiento del bloque de matrículas #632: la interfaz de reinscripción masiva,
-los candidatos paginados y el alcance parcial de M2/M4/M5 están documentados en
-[Reinscripción por lotes](architecture/bulk-reenrolment-ui.md). La operación
-masiva de altas iniciales y promoción siguen pendientes; no se consideran
-intercambiables los contratos de matriculación inicial y reinscripción.
+| M1 | **Implementado · #636** | Matrículas devuelve nombres anidados y la tabla no descarga catálogos para traducir UUID. |
+| M2 | **Implementado · #638/#646** | Reinscripción y alta inicial masivas usan candidatos paginados, vista previa y un POST por lote. |
+| M3 | **Implementado · #639/#640** | Cambio de sección, retiro, ambos traslados y anulación están disponibles con historial. |
+| M4 | **Implementado · #638/#641** | La UI consulta promoción y ejecuta reinscripción masiva sin crear solicitudes por estudiante. |
+| M5 | **Implementado · #642** | Ciclo, grado, sección y estudiante filtran en servidor y conservan estado en URL. |
+| M6 | **Implementado · #645** | Un único acceso guía matrícula individual, reinscripción y operaciones masivas según historial. |
+| M7 | **Implementado · #644** | Los formularios muestran cupo contextual y conservan la validación autoritativa del servidor. |
 
 ### 2.11 Evaluación
 
@@ -289,58 +277,53 @@ intercambiables los contratos de matriculación inicial y reinscripción.
 
 ### 2.13 Plantillas documentales (formatos imprimibles)
 
-Es el módulo más difícil de entender hoy. Quien arma una plantilla no ve el documento que está armando.
+El flujo quedó consolidado alrededor del uso de emisión, el editor enriquecido,
+la vista previa PDF y el historial de versiones.
 
-| # | Prioridad · Tipo | Hallazgo |
+| # | Estado | Resultado |
 |---|---|---|
-| PL1 | **P0 · Claridad** | **Regla invisible del código de tipo.** La constancia de inscripción solo usa la plantilla si existe un tipo de documento con código exacto **`constancia`**, y el certificado de estudios solo si el tipo es **`certificate`** ([services.py, `INDIVIDUAL_TEMPLATE_KIND`](../backend/apps/documents/services.py)). El catálogo inicial trae `certificate`, `report` y `other`, **pero no `constancia`**. Si el tipo no existe o se llama distinto, el sistema emite un texto por defecto y no avisa. La interfaz debe decir para qué emisión sirve cada tipo, o asociar la plantilla a la emisión de forma explícita. **Resuelto por D7:** cada plantilla declara explícitamente para qué emisión se usa. |
-| PL2 | **P0 · Claridad** | **Solo puede haber una plantilla activa por tipo** (restricción `unique_active_document_template_per_kind_per_institution`). El formulario ofrece todos los tipos y el error llega al guardar. Hay que marcar en el selector los tipos que ya tienen plantilla activa y ofrecer "reemplazar la actual". Con D7, la regla pasa a ser *una plantilla activa por uso de emisión*, y el selector debe mostrar qué uso ya tiene plantilla. |
-| PL3 | **Implementado · #666** | El editor integra el catálogo general/sensible, inserción en el bloque activo y validación en vivo de etiquetas desconocidas. |
-| PL4 | **Implementado · #666** | El formulario genera una vista previa PDF real con debounce, incluso antes de guardar una plantilla nueva. |
-| PL5 | **P1 · Bug** | **La vista previa rellena solo 3 de 8 etiquetas.** [TemplatePreviewWindow.jsx](../frontend/src/documents/TemplatePreviewWindow.jsx) envía nombre del estudiante, nombre de la institución y nombre corto. Código, ciclo, sección, fecha de inscripción y fecha de emisión salen **vacíos**, y parece que la plantilla está mal. |
-| PL6 | **P1 · Claridad** | **D4.1 implementada:** la vista previa muestra el PDF real generado en el servidor con encabezado, página y datos de muestra. La selección de un estudiante real continúa fuera del alcance actual. |
-| PL7 | **Implementado · #666** | El formulario explica que el encabezado y logo se derivan de la configuración institucional. |
-| PL8 | **Implementado · #666** | El historial permite seleccionar dos versiones, compararlas y restaurar una como una versión nueva auditable. |
-| PL9 | **Implementado · #666** | “Emisión documental” reúne emisión individual, lotes idempotentes, histórico, entrega, integridad y verificación pública por código. |
-| PL10 | **Implementado · #666** | D4.2 expone bloques, énfasis, alineación, papel, orientación, márgenes, pie y hasta dos firmas. |
-| PL11 | **Implementado · #666** | Al crear, el código se sugiere desde el nombre y permanece editable hasta guardar. |
+| PL1 | **Implementado · #637** | Cada plantilla declara explícitamente su uso de emisión, independiente del código del tipo (D7). |
+| PL2 | **Implementado · #637** | El servidor informa la plantilla activa por uso y el reemplazo exige confirmación. |
+| PL3 | **Implementado · #666** | El editor inserta etiquetas y valida en vivo marcadores desconocidos. |
+| PL4 | **Implementado · #666** | La vista previa PDF funciona durante la edición y antes del primer guardado. |
+| PL5 | **Implementado · #666** | La vista previa proporciona valores no vacíos para las ocho etiquetas autorizadas. |
+| PL6 | **Implementado · #666** | Vista previa y emisión comparten el motor PDF, encabezado, página y datos de muestra completos. |
+| PL7 | **Implementado · #666** | La UI explica el origen institucional del encabezado y logo. |
+| PL8 | **Implementado · #666** | El historial compara versiones y restaura como una versión nueva auditable. |
+| PL9 | **Implementado · #666** | Emisión documental reúne emisión individual, lotes, histórico, entrega, integridad y verificación pública. |
+| PL10 | **Implementado · #666** | D4 admite formato, página, márgenes, pie y hasta dos firmas mediante un único motor PDF. |
+| PL11 | **Implementado · #666** | El código se sugiere desde el nombre y permanece editable hasta crear la plantilla. |
 
 #### 2.13.1 Plantillas con formato (decisión D4)
 
-Lo que hace falta en cada capa:
-
-| Capa | Hoy | Propuesta |
-|---|---|---|
-| **Contenido guardado** | Texto plano en `DocumentTemplate.content` y en cada `DocumentTemplateVersion`. | Contenido estructurado: JSON de un editor de texto enriquecido (por ejemplo, el formato de documento de TipTap o ProseMirror) o HTML saneado con lista blanca. El JSON es más seguro: no hay HTML que sanear y las etiquetas `{{…}}` pueden ser nodos propios que no se rompen al editar. Se agrega `content_format` (`plain` / `rich`) para que las versiones ya emitidas en texto plano se sigan leyendo igual (AGENTS.md, regla 12). |
-| **Configuración de página** | No existe. | Campos por plantilla: tamaño (Carta / Oficio / A4), orientación, márgenes, mostrar encabezado institucional (siempre activo, por RF-PLA-004, pero con posición y tamaño de logo), pie de página y bloque de firmas (nombre y cargo de quien firma, uno o dos). |
-| **Generación del PDF** | `_text_lines_stream` y `_assemble_pdf` escriben líneas de texto de 90 caracteres con una sola fuente. | Un motor que respete el formato: convertir el contenido a HTML y renderizarlo con WeasyPrint, o dibujarlo con ReportLab. Debe ser el **mismo motor** para la vista previa y para la emisión, para que lo que se ve sea lo que se imprime. La elección de librería es técnica y conviene documentarla como ADR. |
-| **Editor (frontend)** | `<textarea>`. | Editor enriquecido con barra mínima: negrita, cursiva, subrayado, títulos, alineación, listas, tabla simple, salto de página. Panel de etiquetas a un clic (las etiquetas se insertan como "chips" no editables). Vista previa del PDF real al lado, con datos de muestra completos o con un estudiante elegido. |
-
-**Alcance mínimo viable:** negrita, cursiva, alineación, títulos, tamaño de papel, márgenes, firma y vista previa real. Tablas y saltos de página pueden venir después.
-
-**Propuesta de pantalla:** listado de plantillas con el tipo y "se usa para: Constancia de inscripción". Al abrir una, editor a pantalla completa con tres zonas: etiquetas (izquierda, clic para insertar) · contenido (centro) · vista previa del PDF con un estudiante de muestra o real (derecha). Botones "Guardar como versión nueva" e "Historial / restaurar".
+| Capa | Resultado integrado |
+|---|---|
+| **Contenido guardado** | `content_format` conserva versiones `plain` y admite contenido `rich` estructurado sin perder historial. |
+| **Configuración de página** | Papel, orientación, márgenes, encabezado, pie y hasta dos firmas forman parte de la versión. |
+| **Generación del PDF** | Vista previa y emisión usan el mismo motor documentado en ADR-0012. |
+| **Editor frontend** | Barra de formato, bloques, alineación, etiquetas insertables, validación en vivo y vista previa PDF antes de guardar. |
 
 ### 2.14 Tipos de documento
 
-| # | Prioridad · Tipo | Hallazgo |
+| # | Estado | Resultado |
 |---|---|---|
-| TD1 | **P1 · Claridad** | No se explica que ciertos códigos (`constancia`, `certificate`) tienen significado para la emisión (ver PL1). Hay que mostrarlo como un chip "Usado por: Constancia de inscripción" y avisar antes de desactivar uno de ellos. Con D7, los tipos de documento dejan de tener significado para la emisión, y este hallazgo se reduce a explicar que el tipo es solo una clasificación. |
-| TD2 | **Implementado · #632** | Cada tipo muestra plantillas activas y total histórico mediante conteos agregados del servidor. |
+| TD1 | **Implementado · #637/#666** | La pantalla explica que el tipo clasifica; el uso de emisión se define en la plantilla y no depende del código. |
+| TD2 | **Implementado · #676** | Cada tipo muestra plantillas activas y total histórico mediante agregados del servidor. |
 
 ### 2.15 Documentos del expediente (archivos)
 
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
-| DO1 | **Implementado · #632** | La pestaña Documentos permite escanear/subir, reemplazar como versión nueva y verificar integridad; conserva historial y revalida permisos en servidor. |
-| DO2 | **Implementado · #632** | Almacenamiento documental muestra consumo, proyección, umbral y desglose por tipo de archivo. |
+| DO1 | **Implementado · #676** | La pestaña Documentos permite escanear/subir, reemplazar como versión nueva y verificar integridad; conserva historial y revalida permisos en servidor. |
+| DO2 | **Implementado · #676** | Almacenamiento documental muestra consumo, proyección, umbral y desglose por tipo de archivo. |
 | DO3 | **Implementado · #647** | El expediente del estudiante incluye una pestaña Documentos con listado paginado y descarga autorizada. |
 
 ### 2.16 Alertas y umbrales
 
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
-| R1 | **Implementado · #632** | La interfaz distingue alertas operativas del día en Asistencia y alertas institucionales que requieren seguimiento en Alertas. |
-| R2 | **Implementado · #632** | Cada alerta muestra nombre/código y enlaza directamente al expediente del estudiante dentro del alcance autorizado. |
+| R1 | **Implementado · #676** | La interfaz distingue alertas operativas del día en Asistencia y alertas institucionales que requieren seguimiento en Alertas. |
+| R2 | **Implementado · #676** | Cada alerta muestra nombre/código y enlaza directamente al expediente del estudiante dentro del alcance autorizado. |
 
 ### 2.17 Usuarios, roles y acceso
 

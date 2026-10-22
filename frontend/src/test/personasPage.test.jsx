@@ -41,9 +41,11 @@ describe("pantalla de personas", () => {
     renderWithRouter(<PersonasPage />);
     await screen.findByText("Ana Gomez");
 
-    expect(peopleServiceMock.listPeople).toHaveBeenLastCalledWith(
-      expect.objectContaining({ include_inactive: false })
+    const initialParams = peopleServiceMock.listPeople.mock.lastCall[0];
+    expect(initialParams).toEqual(
+      expect.objectContaining({ page: 1, page_size: 25 })
     );
+    expect(initialParams).not.toHaveProperty("include_inactive");
     await user.click(
       screen.getByRole("switch", { name: "Mostrar desactivados" })
     );
