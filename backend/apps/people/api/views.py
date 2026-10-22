@@ -1,16 +1,26 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, generics
+from rest_framework.permissions import IsAuthenticated
 
+from apps.identity.api.permissions import ScopedAtomicPermission
 from apps.people import queries
-from apps.people.api.serializers import PersonListQuerySerializer, PersonSerializer
+from apps.people.api.serializers import PersonListQuerySerializer, PersonRegistrySerializer
 from apps.people.services import create_person, deactivate_person, update_person
 
 
 @extend_schema_view(get=extend_schema(parameters=[PersonListQuerySerializer]))
 class PersonListCreateView(generics.ListCreateAPIView):
-    serializer_class = PersonSerializer
+    permission_classes = [IsAuthenticated, ScopedAtomicPermission]
+    permission_scope = {"module_key": "identity"}
+    serializer_class = PersonRegistrySerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["first_name", "last_name", "cui", "institutional_identifier"]
+
+    def get_permissions(self):
+        self.permission_codenames = (
+            ("person_view", "person_edit") if self.request.method == "GET" else ("person_edit",)
+        )
+        return super().get_permissions()
 
     def get_queryset(self):
         params = PersonListQuerySerializer(data=self.request.query_params.dict())
@@ -22,8 +32,16 @@ class PersonListCreateView(generics.ListCreateAPIView):
 
 
 class PersonDetailView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = PersonSerializer
+    permission_classes = [IsAuthenticated, ScopedAtomicPermission]
+    permission_scope = {"module_key": "identity"}
+    serializer_class = PersonRegistrySerializer
     lookup_field = "public_id"
+
+    def get_permissions(self):
+        self.permission_codenames = (
+            ("person_view", "person_edit") if self.request.method == "GET" else ("person_edit",)
+        )
+        return super().get_permissions()
 
     def get_queryset(self):
         return queries.people()

@@ -7,6 +7,10 @@ vi.mock("@people/peopleService.js", async () => {
   return { peopleService: peopleServiceMock };
 });
 
+vi.mock("@auth/usePermissions.js", () => ({
+  usePermissions: () => ({ can: () => true }),
+}));
+
 import { PersonasPage } from "@people/PersonasPage.jsx";
 import { paginated } from "./fixtures/academics.js";
 import { anaPerson, carlosPerson } from "./fixtures/people.js";
@@ -47,6 +51,37 @@ describe("pantalla de personas", () => {
     await waitFor(() =>
       expect(peopleServiceMock.listPeople).toHaveBeenLastCalledWith(
         expect.objectContaining({ include_inactive: true })
+      )
+    );
+  });
+
+  test("busca en el servidor y muestra perfiles asociados", async () => {
+    peopleServiceMock.listPeople.mockResolvedValue(
+      paginated([
+        {
+          ...anaPerson,
+          profiles: {
+            student: true,
+            teacher: false,
+            guardian: true,
+            account: false,
+          },
+        },
+      ])
+    );
+    const user = userEvent.setup();
+    renderWithRouter(<PersonasPage />);
+    await screen.findByText("Ana Gomez");
+    expect(screen.getByText("Estudiante")).toBeInTheDocument();
+    expect(screen.getByText("Encargado")).toBeInTheDocument();
+
+    await user.type(
+      screen.getByPlaceholderText(/Buscar por nombre o CUI/),
+      "Ana"
+    );
+    await waitFor(() =>
+      expect(peopleServiceMock.listPeople).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "Ana" })
       )
     );
   });

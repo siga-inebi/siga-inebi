@@ -7,6 +7,9 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import Switch from "@mui/material/Switch";
 
 import { guardiansService } from "@guardians/guardiansService.js";
+import { existingPersonField } from "@people/existingPersonSearch.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { useServerList } from "@shared/crud/useServerList.js";
@@ -145,6 +148,7 @@ function guardianColumns({ onView }) {
 }
 
 export function GuardiansPage() {
+  const canSelectPerson = usePermissions().can(PERMISSION.PERSON_EDIT);
   const list = useServerList({
     queryKey: [...queryKeys.guardians.all, "list"],
     fetchPage: guardiansService.listPage,
@@ -164,6 +168,9 @@ export function GuardiansPage() {
 
   const handleCreate = async (values) => {
     await guardiansService.create({
+      ...(values.person_public_id
+        ? { person_public_id: values.person_public_id }
+        : {}),
       person: personPayload(values),
     });
     list.refresh();
@@ -378,7 +385,11 @@ export function GuardiansPage() {
       ) : null}
 
       <EntityFormWindow
-        fields={GUARDIAN_FIELDS}
+        fields={
+          canSelectPerson
+            ? [existingPersonField, ...GUARDIAN_FIELDS]
+            : GUARDIAN_FIELDS
+        }
         initialValues={EMPTY_GUARDIAN}
         key={creating ? "create-open" : "create-closed"}
         onCancel={() => setCreating(false)}

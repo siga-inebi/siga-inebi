@@ -32,6 +32,11 @@ def reader(auth_client):
         role=RoleFactory(permissions=[PermissionFactory(codename="student_view_basic")]),
     )
     ScopeGrantFactory(assignment=assignment, module_key="students")
+    person_assignment = RoleAssignmentFactory(
+        user=auth_client.user,
+        role=RoleFactory(permissions=[PermissionFactory(codename="person_view")]),
+    )
+    ScopeGrantFactory(assignment=person_assignment, module_key="identity")
     return auth_client
 
 

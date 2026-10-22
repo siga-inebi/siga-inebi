@@ -1,20 +1,34 @@
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import Button from "@mui/material/Button";
 import Alert from "@mui/material/Alert";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Switch from "@mui/material/Switch";
 
 import { GrantAccessButton } from "@auth/GrantAccessButton.jsx";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import { peopleService } from "@people/peopleService.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { ListSection } from "@shared/crud/ListSection.jsx";
-import { usePaginatedList } from "@shared/crud/usePaginatedList.js";
+import { useServerList } from "@shared/crud/useServerList.js";
+import { queryKeys } from "@shared/api/queryKeys.js";
 import { ActionIconButton } from "@ui/buttons/ActionIconButton.jsx";
 import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
 import { ActiveCell, MutedCell } from "@ui/table/cells.jsx";
+import { FilterBar } from "@ui/filters/FilterBar.jsx";
+import { SearchField } from "@ui/filters/SearchField.jsx";
+import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
+
+const PersonConversionWindow = lazy(() =>
+  import("./PersonConversionWindow.jsx").then((module) => ({
+    default: module.PersonConversionWindow,
+  }))
+);
 
 // Person has no immutable field (unlike Subject/Level/Campus, which keep
 // their code fixed after creation), so create and edit share the same set.
@@ -79,6 +93,30 @@ const PERSON_COLUMNS = [
       row.institutional_identifier || <MutedCell>Sin registrar</MutedCell>,
   },
   {
+    key: "profiles",
+    label: "Perfiles",
+    render: (row) => {
+      const labels = {
+        student: "Estudiante",
+        teacher: "Docente",
+        guardian: "Encargado",
+        account: "Cuenta",
+      };
+      const active = Object.entries(row.profiles || {}).filter(
+        ([, present]) => present
+      );
+      return active.length ? (
+        <Stack direction="row" flexWrap="wrap" gap={0.5}>
+          {active.map(([key]) => (
+            <StatusChip key={key} label={labels[key]} variant="primary" />
+          ))}
+        </Stack>
+      ) : (
+        <MutedCell>Sin perfil</MutedCell>
+      );
+    },
+  },
+  {
     key: "is_active",
     label: "Estado",
     render: (row) => (
@@ -97,13 +135,21 @@ const PERSON_COLUMNS = [
  * flujos ya dan por existente.
  */
 export function PersonasPage() {
-  const loadPeople = useCallback(
-    (params) => peopleService.listPeople(params),
-    []
-  );
-  const list = usePaginatedList(loadPeople);
+  const list = useServerList({
+    queryKey: [...queryKeys.people.all, "list"],
+    fetchPage: peopleService.listPeople,
+    canIncludeInactive: true,
+  });
+  const permissions = usePermissions();
+  const canEdit = permissions.can(PERMISSION.PERSON_EDIT);
+  const canConvert = (person) =>
+    !person.profiles?.teacher ||
+    !person.profiles?.guardian ||
+    (permissions.can(PERMISSION.STUDENT_EDIT_BASIC) &&
+      !person.profiles?.student);
 
   const [editing, setEditing] = useState(null);
+  const [converting, setConverting] = useState(null);
   const [actionError, setActionError] = useState("");
 
   const handleCreate = async (payload) => {
@@ -146,6 +192,7 @@ export function PersonasPage() {
       <ListSection
         action={
           <Button
+            disabled={!canEdit}
             onClick={() => setEditing({ mode: "create" })}
             size="small"
             startIcon={<AddIcon fontSize="small" />}
@@ -157,19 +204,48 @@ export function PersonasPage() {
         actionError={actionError}
         list={list}
         columns={PERSON_COLUMNS}
+        showInactiveToggle={false}
+        filters={
+          <FilterBar>
+            <SearchField
+              debounceMs={0}
+              onChange={list.setSearch}
+              placeholder="Buscar por nombre o CUI…"
+              value={list.search}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={list.includeInactive}
+                  onChange={(event) =>
+                    list.setIncludeInactive(event.target.checked)
+                  }
+                  size="small"
+                />
+              }
+              label="Mostrar desactivados"
+            />
+          </FilterBar>
+        }
         emptyMessage="Todavia no hay personas registradas."
         fillHeight
         getRowKey={(person) => person.public_id}
         renderActions={(person) => (
           <Stack direction="row" gap={0.5} justifyContent="flex-end">
+            {person.is_active && canEdit && canConvert(person) ? (
+              <Button onClick={() => setConverting(person)} size="small">
+                Convertir
+              </Button>
+            ) : null}
             {person.is_active ? <GrantAccessButton person={person} /> : null}
             <ActionIconButton
+              disabled={!canEdit}
               label="Editar"
               onClick={() => setEditing({ mode: "edit", person })}
             >
               <EditOutlinedIcon fontSize="small" />
             </ActionIconButton>
-            {person.is_active ? (
+            {person.is_active && canEdit ? (
               <ConfirmActionButton
                 confirmLabel="Si, desactivar"
                 label="Desactivar"
@@ -183,6 +259,20 @@ export function PersonasPage() {
         subtitle="Personas institucionales"
         title="Personas registradas"
       />
+
+      {converting ? (
+        <Suspense fallback={null}>
+          <PersonConversionWindow
+            canCreateStudent={permissions.can(PERMISSION.STUDENT_EDIT_BASIC)}
+            person={converting}
+            onCancel={() => setConverting(null)}
+            onConverted={() => {
+              setConverting(null);
+              list.refresh();
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       <EntityFormWindow
         fields={PERSON_FIELDS}

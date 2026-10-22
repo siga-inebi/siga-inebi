@@ -3,7 +3,9 @@ from django.db import transaction
 from apps.audit.services import record_event
 from apps.common.codes import create_with_generated_code, next_sequential_code
 from apps.common.db import unique_violation_as
+from apps.common.exceptions import DomainError
 from apps.people.models import Person
+from apps.people.services import complete_person_for_profile
 from apps.teachers.authorization import require_teacher_deactivation
 from apps.teachers.models import Teacher
 
@@ -28,7 +30,8 @@ def next_employee_code():
 
 def create_teacher(
     *,
-    person_data,
+    person_data=None,
+    person_public_id=None,
     employee_code=None,
     specialty,
     position,
@@ -45,7 +48,14 @@ def create_teacher(
     supplied = (employee_code or "").strip()
 
     def build(code):
-        person = Person.objects.create(**person_data)
+        if person_public_id:
+            person = complete_person_for_profile(
+                person_public_id=person_public_id, person_data=person_data, actor=actor
+            )
+            if Teacher.objects.filter(person=person).exists():
+                raise DomainError("La persona ya tiene perfil docente.")
+        else:
+            person = Person.objects.create(**person_data)
         return Teacher.objects.create(
             person=person,
             employee_code=code,

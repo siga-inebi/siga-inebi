@@ -8,7 +8,9 @@ MINOR_AGE_YEARS = 18
 
 
 def people(*, include_inactive=True):
-    queryset = Person.objects.all().order_by("last_name", "first_name", "id")
+    queryset = Person.objects.select_related(
+        "student_profile", "teacher_profile", "guardian_profile", "user_account"
+    ).order_by("last_name", "first_name", "id")
     return queryset if include_inactive else queryset.filter(is_active=True)
 
 

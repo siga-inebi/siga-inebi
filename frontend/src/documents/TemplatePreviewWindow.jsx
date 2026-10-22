@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
@@ -65,14 +66,24 @@ export function TemplatePreviewWindow({ onClose, template }) {
               Se sustituyeron {preview.marker_count} marcador(es) autorizados
               con datos de muestra.
             </Alert>
-            <TextField
-              aria-label="Contenido de vista previa"
-              fullWidth
-              minRows={10}
-              multiline
-              value={preview.content}
-              slotProps={{ input: { readOnly: true } }}
-            />
+            {preview.pdf_base64 ? (
+              <Box
+                aria-label="Documento PDF de vista previa"
+                component="iframe"
+                src={`data:${preview.content_type};base64,${preview.pdf_base64}`}
+                sx={{ border: 0, minHeight: 620, width: "100%" }}
+                title={`Vista previa PDF de ${template.name}`}
+              />
+            ) : (
+              <TextField
+                aria-label="Contenido de vista previa"
+                fullWidth
+                minRows={10}
+                multiline
+                value={preview.content}
+                slotProps={{ input: { readOnly: true } }}
+              />
+            )}
           </>
         ) : null}
       </Stack>

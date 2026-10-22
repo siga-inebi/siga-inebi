@@ -43,6 +43,11 @@ const StudentRecordPage = lazy(() =>
     default: module.StudentRecordPage,
   }))
 );
+const DocumentVerificationPage = lazy(() =>
+  import("@documents/DocumentVerificationPage.jsx").then((module) => ({
+    default: module.DocumentVerificationPage,
+  }))
+);
 
 /** Convierte un modulo del registro en un componente perezoso. */
 function lazyModule(item) {
@@ -138,6 +143,16 @@ export function AppRoutes() {
         }
       />
       <Route element={<RootRedirect />} path="/" />
+      <Route
+        element={
+          <PublicRoute>
+            <PublicShell>
+              <DocumentVerificationPage />
+            </PublicShell>
+          </PublicRoute>
+        }
+        path="/verificar-documento/:code"
+      />
       <Route
         element={
           <PublicRoute>

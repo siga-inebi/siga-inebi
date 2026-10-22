@@ -19,6 +19,9 @@ import {
 } from "./studentPresentation.js";
 
 import { studentsService } from "@students/studentsService.js";
+import { existingPersonField } from "@people/existingPersonSearch.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { useServerList } from "@shared/crud/useServerList.js";
@@ -34,6 +37,7 @@ import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 
 export function AlumnosPage() {
+  const canSelectPerson = usePermissions().can(PERMISSION.PERSON_EDIT);
   const list = useServerList({
     queryKey: [...queryKeys.students.all, "list"],
     fetchPage: studentsService.listPage,
@@ -52,6 +56,9 @@ export function AlumnosPage() {
 
   const handleCreate = async (values) => {
     await studentsService.create({
+      ...(values.person_public_id
+        ? { person_public_id: values.person_public_id }
+        : {}),
       person: personPayload(values),
       student_code: values.student_code,
       status: "pre_enrolled",
@@ -208,7 +215,11 @@ export function AlumnosPage() {
       {creating ? (
         <EntityFormWindow
           description="El codigo se emite solo; el resto es lo que hay que capturar."
-          fields={STUDENT_FIELDS}
+          fields={
+            canSelectPerson
+              ? [existingPersonField, ...STUDENT_FIELDS]
+              : STUDENT_FIELDS
+          }
           initialValues={creating}
           onCancel={() => setCreating(null)}
           onSubmit={handleCreate}

@@ -70,6 +70,15 @@ def document_template_versions(template):
     return template.versions.all()
 
 
+def document_template_version_or_404(template, public_id):
+    try:
+        return template.versions.get(public_id=public_id)
+    except DocumentTemplateVersion.DoesNotExist as exc:
+        raise ResourceNotFoundError("No se encontró la versión de la plantilla.") from exc
+    except (ValueError, TypeError) as exc:
+        raise ResourceNotFoundError("No se encontró la versión de la plantilla.") from exc
+
+
 def template_issuance_uses(institution):
     latest = DocumentTemplateVersion.objects.filter(template_id=OuterRef("pk")).order_by(
         "-sequence"

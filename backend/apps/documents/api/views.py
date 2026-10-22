@@ -207,6 +207,46 @@ class DocumentTemplateVersionListView(CatalogueView):
         return self.get_paginated_response(serializer.data)
 
 
+class DocumentTemplateVersionRestoreView(CatalogueView):
+    @extend_schema(
+        summary="Restaurar una versión como versión nueva",
+        description=(
+            "Copia contenido y diseño de una versión histórica y agrega un nuevo snapshot. "
+            "No modifica ni elimina historia, ni cambia código, tipo, uso o actividad."
+        ),
+        request=None,
+        responses={200: DocumentTemplateSerializer},
+        tags=CATALOGUE,
+    )
+    def post(self, request, public_id, version_id):
+        template = queries.document_template_or_404(self.institution, public_id)
+        version = queries.document_template_version_or_404(template, version_id)
+        restored = services.restore_document_template_version(
+            template=template, version=version, actor=request.user
+        )
+        return Response(DocumentTemplateSerializer(restored).data)
+
+
+class DocumentTemplateDraftPreviewView(CatalogueView):
+    """Preview a new unsaved template using the institution from the session."""
+
+    @extend_schema(
+        summary="Vista previa de plantilla nueva sin guardar",
+        request=DocumentTemplatePreviewSerializer,
+        responses={200: DocumentTemplatePreviewResponseSerializer},
+        tags=CATALOGUE,
+    )
+    def post(self, request):
+        serializer = DocumentTemplatePreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        preview = services.preview_document_template(
+            institution=self.institution,
+            actor=request.user,
+            **serializer.validated_data,
+        )
+        return Response(preview)
+
+
 class DocumentTemplatePreviewView(CatalogueView):
     """Render a safe sample preview without mutating a template or issuing a document."""
 
@@ -222,8 +262,8 @@ class DocumentTemplatePreviewView(CatalogueView):
         serializer.is_valid(raise_exception=True)
         preview = services.preview_document_template(
             template=template,
-            payload=serializer.validated_data.get("payload"),
             actor=request.user,
+            **serializer.validated_data,
         )
         return Response(preview)
 

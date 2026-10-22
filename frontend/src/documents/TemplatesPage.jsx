@@ -266,6 +266,7 @@ export function TemplatesPage() {
 
       {versionsFor ? (
         <TemplateVersionsWindow
+          onRestored={list.refresh}
           key={versionsFor.public_id}
           onClose={() => setVersionsFor(null)}
           template={versionsFor}

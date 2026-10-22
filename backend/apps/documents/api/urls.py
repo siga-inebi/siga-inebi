@@ -11,9 +11,11 @@ from .views import (
     DocumentRecordUploadView,
     DocumentRecordVersionCreateView,
     DocumentTemplateDetailView,
+    DocumentTemplateDraftPreviewView,
     DocumentTemplateListCreateView,
     DocumentTemplatePreviewView,
     DocumentTemplateVersionListView,
+    DocumentTemplateVersionRestoreView,
     DocumentTypeDetailView,
     DocumentTypeListCreateView,
     DocumentVerificationView,
@@ -44,6 +46,11 @@ urlpatterns = [
         "templates/", DocumentTemplateListCreateView.as_view(), name="document-template-list-create"
     ),
     path(
+        "templates/preview/",
+        DocumentTemplateDraftPreviewView.as_view(),
+        name="document-template-draft-preview",
+    ),
+    path(
         "templates/<uuid:public_id>/",
         DocumentTemplateDetailView.as_view(),
         name="document-template-detail",
@@ -52,6 +59,11 @@ urlpatterns = [
         "templates/<uuid:public_id>/versions/",
         DocumentTemplateVersionListView.as_view(),
         name="document-template-version-list",
+    ),
+    path(
+        "templates/<uuid:public_id>/versions/<uuid:version_id>/restore/",
+        DocumentTemplateVersionRestoreView.as_view(),
+        name="document-template-version-restore",
     ),
     path(
         "templates/<uuid:public_id>/preview/",
