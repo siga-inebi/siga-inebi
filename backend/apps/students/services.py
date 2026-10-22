@@ -38,7 +38,9 @@ def next_student_code(*, year=None):
     )
 
 
-def create_student(*, person_data, student_code=None, status=None, actor=None):
+def create_student(
+    *, person_data=None, person_public_id=None, student_code=None, status=None, actor=None
+):
     """
     Register a student.
 
@@ -51,7 +53,16 @@ def create_student(*, person_data, student_code=None, status=None, actor=None):
     status = status or Student.StudentStatus.PRE_ENROLLED
 
     def build(code):
-        person = Person.objects.create(**person_data)
+        if person_public_id:
+            from apps.people.services import complete_person_for_profile
+
+            person = complete_person_for_profile(
+                person_public_id=person_public_id, person_data=person_data, actor=actor
+            )
+            if Student.objects.filter(person=person).exists():
+                raise DomainError("La persona ya tiene expediente de estudiante.")
+        else:
+            person = Person.objects.create(**person_data)
         return Student.objects.create(person=person, student_code=code, status=status)
 
     with transaction.atomic():
@@ -113,9 +124,18 @@ def update_student(*, student, actor=None, **changes):
     return student
 
 
-def create_guardian(*, person_data, actor=None):
+def create_guardian(*, person_data=None, person_public_id=None, actor=None):
     with transaction.atomic():
-        person = Person.objects.create(**person_data)
+        if person_public_id:
+            from apps.people.services import complete_person_for_profile
+
+            person = complete_person_for_profile(
+                person_public_id=person_public_id, person_data=person_data, actor=actor
+            )
+            if Guardian.objects.filter(person=person).exists():
+                raise DomainError("La persona ya tiene perfil de encargado.")
+        else:
+            person = Person.objects.create(**person_data)
         guardian = Guardian.objects.create(person=person)
         record_event(
             actor=actor,

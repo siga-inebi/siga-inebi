@@ -131,6 +131,11 @@ def test_enrolment_summary_includes_names_and_server_current_state(auth_client):
 def test_record_metadata_edits_persist_all_existing_person_fields(auth_client):
     student = StudentFactory()
     grant(auth_client.user, student)
+    assignment = RoleAssignmentFactory(
+        user=auth_client.user,
+        role=RoleFactory(permissions=[PermissionFactory(codename="person_edit")]),
+    )
+    ScopeGrantFactory(assignment=assignment, module_key="identity")
     changes = {
         "sex": "female",
         "nationality": "Demo",

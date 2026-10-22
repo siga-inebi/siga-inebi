@@ -12,8 +12,24 @@ from django.urls import reverse
 
 from apps.common.pagination import MAX_PAGE_SIZE, StandardPagination
 from apps.people.models import Person
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+)
 
 pytestmark = [pytest.mark.api, pytest.mark.django_db]
+
+
+@pytest.fixture
+def person_reader(auth_client):
+    assignment = RoleAssignmentFactory(
+        user=auth_client.user,
+        role=RoleFactory(permissions=[PermissionFactory(codename="person_view")]),
+    )
+    ScopeGrantFactory(assignment=assignment, module_key="identity")
+    return auth_client
 
 
 def _people(count):
@@ -32,10 +48,10 @@ def test_standard_pagination_is_the_project_default():
     assert StandardPagination.max_page_size == MAX_PAGE_SIZE == 100
 
 
-def test_list_uses_default_page_size_and_standard_envelope(auth_client):
+def test_list_uses_default_page_size_and_standard_envelope(person_reader):
     _people(30)
 
-    payload = auth_client.get(reverse("person-list")).json()
+    payload = person_reader.get(reverse("person-list")).json()
 
     assert set(payload) == {"count", "next", "previous", "results"}
     assert len(payload["results"]) == 25
@@ -43,28 +59,28 @@ def test_list_uses_default_page_size_and_standard_envelope(auth_client):
     assert "page=2" in payload["next"]
 
 
-def test_list_honours_page_size_parameter(auth_client):
+def test_list_honours_page_size_parameter(person_reader):
     _people(30)
 
-    payload = auth_client.get(reverse("person-list"), {"page_size": 10, "page": 2}).json()
+    payload = person_reader.get(reverse("person-list"), {"page_size": 10, "page": 2}).json()
 
     assert len(payload["results"]) == 10
     assert "page_size=10" in payload["next"]
     assert payload["previous"] is not None
 
 
-def test_page_size_is_capped_at_the_maximum(auth_client):
+def test_page_size_is_capped_at_the_maximum(person_reader):
     _people(MAX_PAGE_SIZE + 5)
 
-    payload = auth_client.get(reverse("person-list"), {"page_size": 1000}).json()
+    payload = person_reader.get(reverse("person-list"), {"page_size": 1000}).json()
 
     assert len(payload["results"]) == MAX_PAGE_SIZE
     assert payload["next"] is not None
 
 
-def test_invalid_page_size_falls_back_to_default(auth_client):
+def test_invalid_page_size_falls_back_to_default(person_reader):
     _people(30)
 
-    payload = auth_client.get(reverse("person-list"), {"page_size": "abc"}).json()
+    payload = person_reader.get(reverse("person-list"), {"page_size": "abc"}).json()
 
     assert len(payload["results"]) == 25
