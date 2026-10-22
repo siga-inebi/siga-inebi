@@ -64,8 +64,17 @@ export const documentsService = {
   /** Historial inmutable de versiones de una plantilla (RF-PLA-005). */
   listTemplateVersions: (publicId, params) =>
     apiClient.get(withQuery(`${ROOT}/templates/${publicId}/versions/`, params)),
-  previewTemplate: (publicId, payload) =>
-    apiClient.post(`${ROOT}/templates/${publicId}/preview/`, { payload }),
+  previewTemplate: (publicId, payload, draft = {}) =>
+    apiClient.post(`${ROOT}/templates/${publicId}/preview/`, {
+      ...draft,
+      payload,
+    }),
+  previewTemplateDraft: (payload, draft) =>
+    apiClient.post(`${ROOT}/templates/preview/`, { ...draft, payload }),
+  restoreTemplateVersion: (templateId, versionId) =>
+    apiClient.post(
+      `${ROOT}/templates/${templateId}/versions/${versionId}/restore/`
+    ),
 
   listEnrolmentRecords: (enrolmentId, params) =>
     apiClient.get(
@@ -120,6 +129,23 @@ export const documentsService = {
       enrolment_id: enrolmentId,
       document_type: documentType,
     }),
+  compileIssuanceBatch: (payload) =>
+    apiClient.post(`${ROOT}/official-issuance/batches/`, payload),
+  historicalCycleReport: (enrolmentId) =>
+    apiClient.getFile(
+      withQuery(`${ROOT}/historical-cycle-reports/`, {
+        enrolment_id: enrolmentId,
+      }),
+      "application/pdf, application/json"
+    ),
+  verifyIssuanceFile: (publicId, file) => {
+    const payload = new FormData();
+    payload.append("file", file);
+    return apiClient.post(`${ROOT}/issuances/${publicId}/verify/`, payload);
+  },
+  createDeliveryReceipt: (payload) =>
+    apiClient.post(`${ROOT}/delivery-receipts/`, payload),
+  verifyPublicCode: (code) => apiClient.get(`${ROOT}/verify/${code}/`),
 
   issuanceEligibility: (enrolmentId) =>
     apiClient.get(

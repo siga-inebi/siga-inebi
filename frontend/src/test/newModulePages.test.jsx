@@ -1094,6 +1094,8 @@ describe("pantallas de los modulos con backend previo", () => {
         content: "Constancia para Estudiante de ejemplo",
         markers: ["student.full_name"],
         marker_count: 1,
+        content_type: "application/pdf",
+        pdf_base64: "JVBERi0xLjQK",
       });
       const user = userEvent.setup();
       renderWithRouter(<TemplatesPage />);
@@ -1114,6 +1116,9 @@ describe("pantallas de los modulos con backend previo", () => {
       );
       expect(documentsServiceMock.createTemplate).not.toHaveBeenCalled();
       expect(documentsServiceMock.updateTemplate).not.toHaveBeenCalled();
+      expect(
+        screen.getByLabelText("Documento PDF de vista previa")
+      ).toHaveAttribute("src", "data:application/pdf;base64,JVBERi0xLjQK");
     });
   });
 

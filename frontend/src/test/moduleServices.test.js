@@ -338,6 +338,53 @@ describe("servicios de los modulos", () => {
       );
     });
 
+    test("D4.2 previsualiza borradores y restaura creando una version nueva", async () => {
+      const draft = { content_format: "rich", content: { type: "doc" } };
+      await documentsService.previewTemplateDraft(
+        { "student.full_name": "Ana" },
+        draft
+      );
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/documents/templates/preview/",
+        {
+          ...draft,
+          payload: { "student.full_name": "Ana" },
+        }
+      );
+
+      await documentsService.restoreTemplateVersion(TEMPLATE, PERSON);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/documents/templates/${TEMPLATE}/versions/${PERSON}/restore/`
+      );
+    });
+
+    test("PL9 expone lotes, historico, entregas e integridad", async () => {
+      vi.spyOn(apiClient, "getFile").mockResolvedValue({});
+      await documentsService.compileIssuanceBatch({ section_id: PERSON });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/documents/official-issuance/batches/",
+        { section_id: PERSON }
+      );
+      await documentsService.historicalCycleReport(ENROLMENT);
+      expect(apiClient.getFile).toHaveBeenCalledWith(
+        `/documents/historical-cycle-reports/?enrolment_id=${ENROLMENT}`,
+        "application/pdf, application/json"
+      );
+      await documentsService.createDeliveryReceipt({ student_id: STUDENT });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        "/documents/delivery-receipts/",
+        { student_id: STUDENT }
+      );
+      await documentsService.verifyIssuanceFile(
+        TEMPLATE,
+        new File(["pdf"], "test.pdf")
+      );
+      expect(apiClient.post).toHaveBeenCalledWith(
+        `/documents/issuances/${TEMPLATE}/verify/`,
+        expect.any(FormData)
+      );
+    });
+
     test("la elegibilidad de emision se consulta por matricula", async () => {
       await documentsService.issuanceEligibility(ENROLMENT);
       expect(apiClient.get).toHaveBeenCalledWith(

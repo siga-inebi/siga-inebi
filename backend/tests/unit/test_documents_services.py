@@ -396,17 +396,15 @@ def test_preview_document_template_renders_only_allowed_markers():
 
 
 def test_preview_document_template_rejects_unknown_markers():
-    template = create_document_template(
-        institution=InstitutionFactory(),
-        name="Constancia",
-        code="CONST",
-        content="Bloqueado: {{student.health_note}}",
-    )
-
     with pytest.raises(
         DomainError, match=r"no permitido|no form\w+ dentro del catalogo|catalogo cerrado"
     ):
-        preview_document_template(template=template, payload={"student.health_note": "abc"})
+        create_document_template(
+            institution=InstitutionFactory(),
+            name="Constancia",
+            code="CONST",
+            content="Bloqueado: {{student.health_note}}",
+        )
 
 
 def test_preview_document_template_never_evaluates_marker_content():

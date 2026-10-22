@@ -140,7 +140,7 @@ sintéticas. No se copió ni migró la base de las otras instancias locales.
 
 ## Pendientes explícitos
 
-D4, PL3/PL4/PL6/PL7/PL8/PL9/PL10/PL11, TD2 y DO1–DO3 siguen pendientes. Esta entrega no crea
+D4 y PL3/PL4/PL6/PL7/PL8/PL9/PL10/PL11 se completan en el PR #666. TD2 y DO1–DO3 siguen pendientes. Esta entrega no crea
 editor enriquecido ni motor PDF nuevo, no ofrece vista previa antes de guardar, no restaura
 versiones y no agrega emisión por lotes. RF-PLA-006 conserva su estado parcial.
 

@@ -217,6 +217,19 @@ class DocumentTemplate(TimeStampedModel):
         ENROLMENT_CERTIFICATE = "enrolment_certificate", "Constancia de inscripción"
         STUDY_CERTIFICATE = "study_certificate", "Certificado de estudios"
 
+    class ContentFormat(models.TextChoices):
+        PLAIN = "plain", "Texto plano"
+        RICH = "rich", "Contenido enriquecido"
+
+    class PageSize(models.TextChoices):
+        LETTER = "letter", "Carta"
+        LEGAL = "legal", "Oficio"
+        A4 = "a4", "A4"
+
+    class Orientation(models.TextChoices):
+        PORTRAIT = "portrait", "Vertical"
+        LANDSCAPE = "landscape", "Horizontal"
+
     issuance_use = models.CharField(
         max_length=30, choices=IssuanceUse.choices, default=IssuanceUse.NONE
     )
@@ -233,6 +246,19 @@ class DocumentTemplate(TimeStampedModel):
     )
     description = models.CharField(max_length=255, blank=True)
     content = models.TextField(blank=True, default="")
+    content_format = models.CharField(
+        max_length=10, choices=ContentFormat.choices, default=ContentFormat.PLAIN
+    )
+    page_size = models.CharField(max_length=10, choices=PageSize.choices, default=PageSize.LETTER)
+    orientation = models.CharField(
+        max_length=10, choices=Orientation.choices, default=Orientation.PORTRAIT
+    )
+    margin_top = models.PositiveSmallIntegerField(default=54)
+    margin_right = models.PositiveSmallIntegerField(default=54)
+    margin_bottom = models.PositiveSmallIntegerField(default=54)
+    margin_left = models.PositiveSmallIntegerField(default=54)
+    footer_text = models.CharField(max_length=255, blank=True, default="")
+    signature_blocks = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -308,6 +334,27 @@ class DocumentTemplateVersion(TimeStampedModel):
     kind = models.CharField(max_length=30)
     description = models.CharField(max_length=255, blank=True)
     content = models.TextField(blank=True, default="")
+    content_format = models.CharField(
+        max_length=10,
+        choices=DocumentTemplate.ContentFormat.choices,
+        default=DocumentTemplate.ContentFormat.PLAIN,
+    )
+    page_size = models.CharField(
+        max_length=10,
+        choices=DocumentTemplate.PageSize.choices,
+        default=DocumentTemplate.PageSize.LETTER,
+    )
+    orientation = models.CharField(
+        max_length=10,
+        choices=DocumentTemplate.Orientation.choices,
+        default=DocumentTemplate.Orientation.PORTRAIT,
+    )
+    margin_top = models.PositiveSmallIntegerField(default=54)
+    margin_right = models.PositiveSmallIntegerField(default=54)
+    margin_bottom = models.PositiveSmallIntegerField(default=54)
+    margin_left = models.PositiveSmallIntegerField(default=54)
+    footer_text = models.CharField(max_length=255, blank=True, default="")
+    signature_blocks = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["-sequence"]

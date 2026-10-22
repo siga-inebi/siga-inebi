@@ -28,6 +28,7 @@ import HowToRegOutlinedIcon from "@mui/icons-material/HowToRegOutlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import GradingOutlinedIcon from "@mui/icons-material/GradingOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
+import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
@@ -198,6 +199,15 @@ export const NAV_GROUPS = [
         path: "/app/plantillas",
         icon: ArticleOutlinedIcon,
         load: () => import("@documents/TemplatesPage.jsx"),
+      },
+      {
+        key: "emision-documental",
+        label: "Emisión documental",
+        description: "Emisión, lotes, entregas y verificación.",
+        path: "/app/emision-documental",
+        icon: PictureAsPdfOutlinedIcon,
+        permissions: MODULE_PERMISSIONS["emision-documental"],
+        load: () => import("@documents/DocumentIssuancePage.jsx"),
       },
       {
         key: "alertas",
