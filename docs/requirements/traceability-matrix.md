@@ -467,8 +467,8 @@ revisión independiente, UAT o aceptación institucional.
 | RF-BIT-006, RNF-LEG-001, RNF-OPE-001 | ux-ui AU1-AU3 | docs/architecture/api-conventions.md | backend/apps/audit/{services.py,queries.py,api/serializers.py}; frontend/src/{audit/,platform/} | backend/tests/api/test_audit_console_api.py; frontend/src/test/auditPlatform.test.jsx | feat/ux-base-identidad-acceso | Implemented (interfaz) | Consola de bitacora, declaraciones de retencion y salud de tareas y respaldos |
 | RNF-LOC-002 | ux-ui 1.6 | docs/development/ux-writing.md | backend/apps/*/{queries.py,api/views.py} | backend/tests/api/test_localization_messages.py | feat/ux-base-identidad-acceso | Implemented | Mensajes 404/403 en espanol y guardia ampliado |
 | RF-PLA-009 | ADR-0011 D4; ADR-0012 | docs/decisions/ADR-0011-decisiones-ux-ui.md; docs/decisions/ADR-0012-renderizado-de-plantillas.md | backend/apps/documents/{models.py,services.py,template_rendering.py,migrations/0017_rich_template_layout.py}; frontend/src/documents/{TemplateFormWindow.jsx,RichTemplateEditor.jsx,TemplateVersionsWindow.jsx} | backend/tests/{unit/test_rich_template_rendering.py,unit/test_documents_individual_issuance.py,api/test_documents_api.py}; frontend/src/test/{newModulePages.test.jsx,templateContent.test.js} | PR #666 | Implemented | D4.1 y D4.2: formato, editor, preview sin guardar, historial comparable y restauracion como version nueva |
-| RF-EXP-010 | ADR-0011 D10 | docs/decisions/ADR-0011-decisiones-ux-ui.md | TBD | TBD | TBD | Planned | Conversion de persona existente pendiente de Persona 3 |
-| RF-PLA-009, RF-EXP-010 | ADR-0011 D4/D10 | docs/decisions/ADR-0011-decisiones-ux-ui.md; docs/architecture/person-conversion-ui.md | RF-EXP-010: people, students y teachers; RF-PLA-009: TBD | RF-EXP-010: test_person_conversion_api.py y pruebas UI de Personas; RF-PLA-009: TBD | #632 | Partial | D10 implementado y probado; D4/RF-PLA-009 sigue planificado. RF-CIC-008 tiene su fila propia con #631 |
+| RF-EXP-010 | ADR-0011 D10; #632 | docs/decisions/ADR-0011-decisiones-ux-ui.md; docs/architecture/person-conversion-ui.md | backend/apps/people/{services.py,api/}; backend/apps/students/{services.py,api/serializers.py}; backend/apps/teachers/{services.py,api/serializers.py}; frontend/src/people/{PersonasPage.jsx,PersonConversionWindow.jsx} | backend/tests/api/test_person_conversion_api.py; frontend/src/test/{personConversion.test.jsx,personasPage.test.jsx} | PR #665 | Implemented | Convierte una persona existente mediante `person_public_id`, completa el perfil solicitado y evita duplicar la identidad institucional |
+| RF-PLA-009, RF-EXP-010 | ADR-0011 D4/D10; #632 | docs/decisions/ADR-0011-decisiones-ux-ui.md; docs/decisions/ADR-0012-renderizado-de-plantillas.md; docs/architecture/person-conversion-ui.md | `apps/documents` y editor de plantillas para D4; `people`, `students`, `teachers` y conversión UI para D10 | pruebas de renderizado/plantillas; `test_person_conversion_api.py`; pruebas UI de Plantillas y Personas | PR #665; PR #666 | Implemented | D4 y D10 implementados con contratos, migraciones, compatibilidad histórica y pruebas verificables |
 | RF-CTA-009 | ADR-0011 D1 | docs/decisions/ADR-0011-decisiones-ux-ui.md | backend/apps/identity/{services.py,atomic_permissions.py,migrations/0015_seed_account_update_person_document_type_permissions.py}; frontend/src/auth/useAccountActions.jsx | backend/tests/api/test_user_sessions_api.py; backend/tests/api/test_identity_administration_api.py; frontend/src/test/identityRound2.test.jsx | feat/ux-base-identidad-acceso | Implemented | `account.update`, auditado, sin autoedicion |
 | RF-AUT-004 | ADR-0011 riesgo A | docs/decisions/ADR-0011-decisiones-ux-ui.md; docs/architecture/api-conventions.md | backend/apps/identity/{models.py,services.py,signals.py,middleware.py,migrations/0016_user_session.py,api/}; frontend/src/auth/{SessionsTable.jsx,MyAccountPage.jsx,AccountDetailPage.jsx} | backend/tests/api/test_user_sessions_api.py; frontend/src/test/identityRound2.test.jsx | feat/ux-base-identidad-acceso | Implemented | Registro de sesiones con cierre individual y motivo de cierre |
 | RF-PER-008 | ADR-0011 D2; #643 | docs/development/permisos-en-ui.md; docs/architecture/person-conversion-ui.md | backend/apps/identity/atomic_permissions.py; backend/apps/people/api/views.py; tipos de documento: TBD | backend/tests/api/test_person_conversion_api.py; backend/tests/api/test_people_api.py | #632 | Partial | Personas exige `person.view`/`person.edit` en backend; `document_type.manage` en tipos de documento sigue pendiente en #643 |
@@ -642,3 +642,26 @@ y no se cambian estados globales de RF/RNF. T3 continúa pendiente.
 | Hallazgo | Código / contrato | Pruebas verificables | Estado de esta entrega |
 | T2; 1.1 | `frontend/src/teachers/{DocentesPage.jsx,teachersService.js}`; `useServerList`; `ExportCsvButton`; `GET /teachers/` existente | `frontend/src/test/{DocentesPage.test.jsx,moduleServices.test.js,useServerList.test.jsx}`; `backend/tests/api/{test_teacher_server_list_ui_contract,test_community_list_filters_api}.py` | Página visible, total, tamaño, filtros, URL y CSV de 1.001 filas; integración/aceptación pendientes |
 | T4 | `backend/apps/teachers/{queries.py,api/serializers.py,api/views.py,api/urls.py}`; `GET /teachers/positions/`; formularios y filtro docente | `test_position_catalogue_matches_model_and_needs_no_teacher_rows`; `test_position_catalogue_rejects_anonymous_reads_and_authenticated_writes`; pruebas de catálogo dinámico/reintento frontend | Fuente canónica del backend, sin catálogo duplicado; integración/aceptación pendientes |
+
+
+## Cierre funcional del issue #632
+
+La implementación asignada quedó integrada en `develop` mediante las entregas
+#633–#658, #665, #666 y #676. G3 llegó como commit `6717518` después de que #657
+se cerrara sin merge. Esta sección es el estado consolidado; las menciones anteriores
+a «integración pendiente» describen el estado histórico de entregas parciales.
+
+| Bloque | Evidencia integrada | Estado |
+|---|---|---|
+| E1–E11 y D5 | PR #633, #634, #647–#650, #652 y #653 | Implementado y probado |
+| T1–T4 | PR #633, #654 y #655 | Implementado y probado |
+| G1–G4 | PR #633, #656 y #658; commit `6717518` para G3 | Implementado y probado |
+| PE1–PE4 y D10 | PR #665 y #676 | Implementado y probado |
+| M1–M7 | PR #636, #638–#646 | Implementado y probado |
+| PL1–PL11, D4 y D7 | PR #637 y #666 | Implementado y probado |
+| TD1–TD2, DO1–DO3 y R1–R2 | PR #637, #647, #666 y #676 | Implementado y probado |
+
+Los contratos públicos cambiaron solo de forma aditiva y están documentados. Se
+conservan PostgreSQL, binarios fuera de la base de datos, permisos con alcance,
+baja lógica e historial auditable. El cierre administrativo del issue requiere
+CI verde y aceptación visual final; no requiere otra fase funcional.
