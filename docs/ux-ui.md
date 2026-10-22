@@ -226,6 +226,10 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
+| PE1 | **Implementado · #632** | «Mostrar desactivados» vuelve a consultar el servidor con `include_inactive=true`; por omisión se excluyen registros inactivos. Pruebas de API y UI cubren ambos estados. |
+| PE2 | **P1 · Claridad** | El alta pide solo nombre, apellido, correo, teléfono e identificador. Las de Estudiantes, Docentes y Encargados exigen CUI, fecha de nacimiento, sexo, dirección, etc. Además, el alta de estudiante o docente siempre crea una persona nueva: no hay forma de partir de una persona ya registrada aquí, lo que invita a duplicados, ni de completarle esos datos desde esta pantalla. **Resuelto por D10:** registro mínimo con la acción "Convertir en estudiante / docente / encargado", que reutiliza la persona. |
+| PE3 | **P2 · Claridad** | Sin búsqueda (el backend tampoco la tiene). No dice si la persona es estudiante, docente, encargado o tiene cuenta. |
+| PE4 | **Implementado · #632** | Personas reside en Administración, se muestra por permisos de persona y explica que conserva la identidad compartida por cuentas y expedientes; las operaciones académicas permanecen en sus módulos. |
 | PE1 | **P1 · Bug** | "Mostrar desactivados" no hace nada: `/people/` siempre devuelve todas las personas (ver 1.1.6). |
 | PE2 | **P1 · Claridad** | El alta pide solo nombre, apellido, correo, teléfono e identificador. **Seguimiento #632/D10:** Personas ofrece «Convertir» a estudiante, docente o encargado; los formularios también buscan la persona registrada antes del alta. Se completa la misma persona por `person_public_id`, sin crear otra. [Contrato y pruebas](architecture/person-conversion-ui.md). |
 | PE3 | **P2 · Claridad** | **Seguimiento #632:** búsqueda por nombre o CUI en el servidor, perfiles estudiante/docente/encargado/cuenta en la fila, paginación y estado en URL. [Contrato y pruebas](architecture/person-conversion-ui.md). |
@@ -321,22 +325,22 @@ Lo que hace falta en cada capa:
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
 | TD1 | **P1 · Claridad** | No se explica que ciertos códigos (`constancia`, `certificate`) tienen significado para la emisión (ver PL1). Hay que mostrarlo como un chip "Usado por: Constancia de inscripción" y avisar antes de desactivar uno de ellos. Con D7, los tipos de documento dejan de tener significado para la emisión, y este hallazgo se reduce a explicar que el tipo es solo una clasificación. |
-| TD2 | **P2 · Claridad** | No muestra cuántas plantillas usan cada tipo. |
+| TD2 | **Implementado · #632** | Cada tipo muestra plantillas activas y total histórico mediante conteos agregados del servidor. |
 
 ### 2.15 Documentos del expediente (archivos)
 
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
-| DO1 | **P1 · Sin UI** | **Reemplazar archivo / nueva versión** (`/records/<id>/versions/`), **verificar integridad** (`/records/<id>/verify/`) y **subir documento escaneado** (`/records/scan/`): existen en `documentsService`, pero ninguna pantalla los usa. |
-| DO2 | **P1 · Sin UI** | **Consumo de almacenamiento** (`/storage-consumption/`) para administración. |
-| DO3 | **P2 · Clics** | Los documentos del estudiante solo se alcanzan desde Matrículas → fila → "Requisitos documentales". Deberían estar también en el expediente del estudiante (ver 1.5). |
+| DO1 | **Implementado · #632** | La pestaña Documentos permite escanear/subir, reemplazar como versión nueva y verificar integridad; conserva historial y revalida permisos en servidor. |
+| DO2 | **Implementado · #632** | Almacenamiento documental muestra consumo, proyección, umbral y desglose por tipo de archivo. |
+| DO3 | **Implementado · #647** | El expediente del estudiante incluye una pestaña Documentos con listado paginado y descarga autorizada. |
 
 ### 2.16 Alertas y umbrales
 
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
-| R1 | **P2 · Claridad** | Las alertas de asistencia (Asistencia) y las de reporte (Alertas) son dos listados distintos con nombres parecidos. Conviene unificarlas o explicar la diferencia. |
-| R2 | **P2 · Clics** | Desde una alerta no se puede ir al estudiante afectado. |
+| R1 | **Implementado · #632** | La interfaz distingue alertas operativas del día en Asistencia y alertas institucionales que requieren seguimiento en Alertas. |
+| R2 | **Implementado · #632** | Cada alerta muestra nombre/código y enlaza directamente al expediente del estudiante dentro del alcance autorizado. |
 
 ### 2.17 Usuarios, roles y acceso
 

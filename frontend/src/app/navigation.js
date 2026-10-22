@@ -28,6 +28,7 @@ import HowToRegOutlinedIcon from "@mui/icons-material/HowToRegOutlined";
 import FactCheckOutlinedIcon from "@mui/icons-material/FactCheckOutlined";
 import GradingOutlinedIcon from "@mui/icons-material/GradingOutlined";
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
+import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
@@ -217,6 +218,15 @@ export const NAV_GROUPS = [
         icon: NotificationsActiveOutlinedIcon,
         permissions: MODULE_PERMISSIONS.alertas,
         load: () => import("@reporting/AlertsPage.jsx"),
+      },
+      {
+        key: "almacenamiento-documental",
+        label: "Almacenamiento",
+        description: "Consumo y capacidad de los expedientes documentales.",
+        path: "/app/almacenamiento-documental",
+        icon: StorageOutlinedIcon,
+        permissions: MODULE_PERMISSIONS["almacenamiento-documental"],
+        load: () => import("@documents/DocumentStoragePage.jsx"),
       },
     ],
   },

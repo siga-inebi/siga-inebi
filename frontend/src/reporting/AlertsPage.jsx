@@ -6,6 +6,8 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import RuleOutlinedIcon from "@mui/icons-material/RuleOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
+import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
+import { Link as RouterLink } from "react-router-dom";
 
 import { PAGE_SIZE } from "@academics/academicsService.js";
 import {
@@ -141,7 +143,20 @@ export function AlertsPage() {
     {
       key: "student_id",
       label: "Estudiante",
-      render: (row) => <CodeCell value={row.student_id} />,
+      render: (row) => (
+        <Stack alignItems="flex-start" gap={0.25}>
+          <Button
+            component={RouterLink}
+            endIcon={<OpenInNewOutlinedIcon fontSize="small" />}
+            size="small"
+            to={`/app/alumnos/${row.student_id}`}
+            variant="text"
+          >
+            {row.student_name || row.student_code || "Abrir expediente"}
+          </Button>
+          {row.student_code ? <CodeCell value={row.student_code} /> : null}
+        </Stack>
+      ),
     },
     {
       key: "event_date",
@@ -201,6 +216,12 @@ export function AlertsPage() {
         subtitle="Alertas institucionales de asistencia. Atender una alerta la deja registrada con tu usuario; el hecho que la origino se conserva."
         title="Alertas"
       />
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Este tablero reúne alertas institucionales que requieren seguimiento y
+        conserva quién las atendió. Las alertas operativas del día se consultan
+        en Asistencia, junto con los movimientos que las originaron.
+      </Alert>
 
       <Grid container spacing={2} sx={{ mb: 1 }}>
         <Grid size={{ xs: 12, sm: 4 }}>

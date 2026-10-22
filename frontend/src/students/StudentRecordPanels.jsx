@@ -1,5 +1,5 @@
 import { GuardianLinkForm } from "./GuardianLinkForm.jsx";
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -14,6 +14,8 @@ import {
   ENROLMENT_STATUS_LABEL,
 } from "@enrolments/enrolmentsService.js";
 import { documentsService } from "@documents/documentsService.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import {
   attendanceService,
   MOVEMENT_LABEL,
@@ -27,6 +29,10 @@ import { GuardianRelationAction } from "./GuardianRelationAction.jsx";
 import { RelatedRecordAction } from "./RelatedRecordAction.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { fullName } from "./studentPresentation.js";
+
+const StudentDocumentUploadWindow = lazy(
+  () => import("./StudentDocumentUploadWindow.jsx")
+);
 
 const RELATED = {
   health: {
@@ -373,10 +379,24 @@ export function EnrolmentsPanel({ student }) {
   );
 }
 
-function DocumentRow({ row }) {
+function DocumentRow({ canUpload, onChanged, row }) {
   const [download, setDownload] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const run = async (operation, successMessage) => {
+    setBusy(true);
+    setError("");
+    try {
+      await operation();
+      setDownload(null);
+      if (successMessage) setError(successMessage);
+      onChanged?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       <Typography fontWeight={600}>
@@ -386,7 +406,11 @@ function DocumentRow({ row }) {
         {formatDateTime(row.created_at)} ·{" "}
         {row.is_active ? "Activo" : "Histórico"}
       </Typography>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? (
+        <Alert severity={error.startsWith("Integridad") ? "success" : "error"}>
+          {error}
+        </Alert>
+      ) : null}
       {download ? (
         <Button
           component="a"
@@ -421,22 +445,85 @@ function DocumentRow({ row }) {
           Renovar enlace de descarga
         </Button>
       ) : null}
+      <Button
+        disabled={busy}
+        onClick={() =>
+          run(
+            () => documentsService.verifyRecord(row.public_id),
+            "Integridad verificada: el archivo coincide con su registro."
+          )
+        }
+      >
+        Verificar integridad
+      </Button>
+      {canUpload && row.status === "active" ? (
+        <Button component="label" disabled={busy}>
+          Reemplazar archivo
+          <input
+            accept=".pdf,.jpg,.jpeg,.png"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              const payload = new FormData();
+              payload.set("file", file);
+              run(() => documentsService.replaceRecord(row.public_id, payload));
+              event.target.value = "";
+            }}
+            type="file"
+          />
+        </Button>
+      ) : null}
     </>
   );
 }
 
 export function DocumentsPanel({ student }) {
+  const { can } = usePermissions();
+  const canUpload = can(PERMISSION.DOCUMENT_UPLOAD);
+  const [scanning, setScanning] = useState(false);
   const load = useCallback(
     (params) => documentsService.listStudentRecords(student.public_id, params),
     [student.public_id]
   );
   const list = usePaginatedList(load, { canIncludeInactive: false });
+  const handleScan = async ({ file }) => {
+    const payload = new FormData();
+    payload.set("student_id", student.public_id);
+    payload.set("file", file);
+    await documentsService.scanRecord(payload);
+    setScanning(false);
+    list.refresh();
+  };
   return (
-    <RecordCollection
-      list={list}
-      emptyMessage="Sin archivos en el expediente"
-      renderRow={(row) => <DocumentRow row={row} />}
-    />
+    <>
+      <Stack alignItems="flex-start" gap={1}>
+        {canUpload ? (
+          <Button onClick={() => setScanning(true)} variant="contained">
+            Subir documento escaneado
+          </Button>
+        ) : null}
+        <RecordCollection
+          list={list}
+          emptyMessage="Sin archivos en el expediente"
+          renderRow={(row) => (
+            <DocumentRow
+              canUpload={canUpload}
+              onChanged={list.refresh}
+              row={row}
+            />
+          )}
+        />
+      </Stack>
+      {scanning ? (
+        <Suspense fallback={null}>
+          <StudentDocumentUploadWindow
+            onCancel={() => setScanning(false)}
+            onSubmit={handleScan}
+          />
+        </Suspense>
+      ) : null}
+    </>
   );
 }
 

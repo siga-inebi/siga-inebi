@@ -1129,6 +1129,34 @@ def test_list_document_types_returns_the_institution_catalogue(auth_client):
     ]
 
 
+def test_document_type_reports_active_and_historical_template_counts(admin_client):
+    InstitutionFactory()
+    first = admin_client.post(
+        reverse("document-template-list-create"),
+        {"name": "Certificado anterior", "code": "CERT-OLD", "kind": "certificate"},
+        content_type="application/json",
+    )
+    assert first.status_code == 201
+    assert (
+        admin_client.delete(
+            reverse("document-template-detail", args=[first.json()["public_id"]])
+        ).status_code
+        == 204
+    )
+    second = admin_client.post(
+        reverse("document-template-list-create"),
+        {"name": "Certificado vigente", "code": "CERT-NEW", "kind": "certificate"},
+        content_type="application/json",
+    )
+    assert second.status_code == 201
+
+    response = admin_client.get(reverse("document-type-list-create"))
+
+    certificate = next(item for item in _items(response) if item["code"] == "certificate")
+    assert certificate["template_count"] == 2
+    assert certificate["active_template_count"] == 1
+
+
 def test_document_type_is_created_updated_and_deactivated_over_the_api(admin_client):
     """RNF-MAN-001: the whole lifecycle of a document type is an API call."""
     InstitutionFactory()

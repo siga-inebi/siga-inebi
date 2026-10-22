@@ -94,6 +94,22 @@ def test_list_people_is_paginated(logged_in_client):
 
 @pytest.mark.api
 @pytest.mark.django_db
+def test_list_people_only_includes_deactivated_people_when_requested(logged_in_client):
+    active = PersonFactory(is_active=True)
+    inactive = PersonFactory(is_active=False)
+
+    default_items = logged_in_client.get(reverse("person-list")).json()["results"]
+    all_items = logged_in_client.get(reverse("person-list"), {"include_inactive": "true"}).json()[
+        "results"
+    ]
+
+    assert str(active.public_id) in {item["public_id"] for item in default_items}
+    assert str(inactive.public_id) not in {item["public_id"] for item in default_items}
+    assert str(inactive.public_id) in {item["public_id"] for item in all_items}
+
+
+@pytest.mark.api
+@pytest.mark.django_db
 def test_retrieve_person(logged_in_client):
     person = PersonFactory()
 

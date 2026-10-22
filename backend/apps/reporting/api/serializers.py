@@ -36,6 +36,8 @@ class AbsenceThresholdParametersCreateSerializer(serializers.Serializer):
 
 class ReportingAlertSerializer(serializers.ModelSerializer):
     student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    student_name = serializers.SerializerMethodField()
+    student_code = serializers.CharField(source="student.student_code", read_only=True)
     shift_id = serializers.UUIDField(source="shift.public_id", read_only=True)
     section_id = serializers.UUIDField(source="section.public_id", read_only=True, allow_null=True)
     acknowledged_by_username = serializers.CharField(
@@ -48,6 +50,8 @@ class ReportingAlertSerializer(serializers.ModelSerializer):
             "public_id",
             "alert_type",
             "student_id",
+            "student_name",
+            "student_code",
             "shift_id",
             "section_id",
             "event_date",
@@ -58,6 +62,10 @@ class ReportingAlertSerializer(serializers.ModelSerializer):
             "acknowledged_by_username",
             "created_at",
         ]
+
+    def get_student_name(self, obj):
+        person = obj.student.person
+        return f"{person.first_name} {person.last_name}".strip()
 
 
 class ReportingAlertQuerySerializer(serializers.Serializer):

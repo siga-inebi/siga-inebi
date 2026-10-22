@@ -44,6 +44,7 @@ export const PERMISSION = Object.freeze({
   GRADE_WRITE: "grade.write",
   GRADE_CORRECT: "grade.correct",
   DOCUMENT_UPLOAD: "document.upload",
+  DOCUMENT_READ: "document.read",
   DOCUMENT_ISSUE: "document.issue",
   REPORTING_ALERT_VIEW: "reporting.alert.view",
   AUDIT_READ: "audit.read",
@@ -92,6 +93,7 @@ export const MODULE_PERMISSIONS = Object.freeze({
     PERMISSION.STUDENT_VIEW_BASIC,
   ],
   alertas: [PERMISSION.REPORTING_ALERT_VIEW],
+  "almacenamiento-documental": [PERMISSION.DOCUMENT_UPLOAD],
   "emision-documental": [PERMISSION.DOCUMENT_ISSUE],
   // Administracion (2.17.6): solo quien tiene esos permisos ve el grupo.
   cuentas: ACCOUNT_ADMIN_PERMISSIONS,

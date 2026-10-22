@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 
 import Button from "@mui/material/Button";
+import Alert from "@mui/material/Alert";
 import Stack from "@mui/material/Stack";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
@@ -181,6 +182,12 @@ export function PersonasPage() {
         subtitle="Registro base de personas institucionales. Da soporte a cuentas, estudiantes y encargados; no reemplaza esos expedientes."
         title="Personas"
       />
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Uso administrativo: aquí se conserva la identidad institucional que
+        comparten cuentas y expedientes. Las operaciones académicas se realizan
+        desde Estudiantes, Docentes o Padres de familia.
+      </Alert>
 
       <ListSection
         action={

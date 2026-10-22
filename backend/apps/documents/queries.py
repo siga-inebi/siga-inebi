@@ -1,6 +1,6 @@
 """Read-side queries for the documents domain."""
 
-from django.db.models import OuterRef, Subquery
+from django.db.models import Count, OuterRef, Q, Subquery
 
 from apps.common.exceptions import ResourceNotFoundError
 from apps.documents.models import (
@@ -20,7 +20,16 @@ def _filter_active(queryset, *, include_inactive=False):
 
 
 def document_kinds_all(institution):
-    return DocumentKind.objects.filter(institution=institution).order_by("label")
+    return (
+        DocumentKind.objects.filter(institution=institution)
+        .annotate(
+            template_count=Count("templates", distinct=True),
+            active_template_count=Count(
+                "templates", filter=Q(templates__is_active=True), distinct=True
+            ),
+        )
+        .order_by("label")
+    )
 
 
 def document_kinds(institution, *, include_inactive=False):

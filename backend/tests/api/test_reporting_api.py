@@ -54,8 +54,14 @@ def test_get_alerts_requires_permission_and_returns_paginated_list(auth_client):
     response = auth_client.get(reverse("reporting-alert-list"))
 
     assert response.status_code == 200
-    alert_ids = {item["public_id"] for item in response.json()["results"]}
+    results = response.json()["results"]
+    alert_ids = {item["public_id"] for item in results}
     assert str(alert.public_id) in alert_ids
+    item = next(item for item in results if item["public_id"] == str(alert.public_id))
+    assert item["student_name"] == (
+        f"{student.person.first_name} {student.person.last_name}".strip()
+    )
+    assert item["student_code"] == student.student_code
 
 
 def test_post_acknowledge_sets_acknowledged_by_to_requesting_user(auth_client):

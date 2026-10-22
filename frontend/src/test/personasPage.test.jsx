@@ -33,6 +33,26 @@ describe("pantalla de personas", () => {
     expect(screen.getByText("ana.gomez@example.test")).toBeInTheDocument();
     expect(screen.getByText("50212345678")).toBeInTheDocument();
     expect(screen.getByText("INEBI-001")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Uso administrativo");
+  });
+
+  test("solicita personas desactivadas solo al activar el interruptor", async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<PersonasPage />);
+    await screen.findByText("Ana Gomez");
+
+    expect(peopleServiceMock.listPeople).toHaveBeenLastCalledWith(
+      expect.objectContaining({ include_inactive: false })
+    );
+    await user.click(
+      screen.getByRole("switch", { name: "Mostrar desactivados" })
+    );
+
+    await waitFor(() =>
+      expect(peopleServiceMock.listPeople).toHaveBeenLastCalledWith(
+        expect.objectContaining({ include_inactive: true })
+      )
+    );
   });
 
   test("busca en el servidor y muestra perfiles asociados", async () => {
@@ -174,8 +194,8 @@ describe("pantalla de personas", () => {
     );
     renderWithRouter(<PersonasPage />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Solicitud no completada."
-    );
+    expect(
+      await screen.findByText("Solicitud no completada.")
+    ).toBeInTheDocument();
   });
 });

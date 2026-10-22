@@ -15,6 +15,16 @@
 - Interpretacion de fecha efectiva y eventos en zona horaria local del establecimiento.
 - Errores consistentes con codigo, mensaje y detalles validables.
 
+## Campos aditivos de cierre UX #632
+
+- `GET /documents/types/` agrega `template_count` y `active_template_count`. Ambos conteos
+  incluyen únicamente plantillas de la misma institución; el primero conserva el total
+  histórico y el segundo cuenta las vigentes.
+- Las respuestas de alertas institucionales agregan `student_name` y `student_code`. El
+  identificador canónico para navegar y autorizar continúa siendo `student_id` (UUID público).
+- Estos campos son aditivos. No cambian filtros, paginación, cuerpos de escritura ni códigos de
+  estado.
+
 ## Paginacion y listados (docs/ux-ui.md 1.1)
 
 - `apps.common.pagination.StandardPagination` es la clase por defecto

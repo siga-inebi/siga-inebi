@@ -388,6 +388,15 @@ La cobertura de cinco operaciones de M3 se completa en código con el PR #639
 estados canónicos de RF ya implementados en backend. Integración en `develop`
 y aceptación institucional pendientes; #632 permanece abierto.
 
+## Cierre de siete hallazgos funcionales — issue #632
+
+| Alcance | Diseño / decisión | Implementación | Pruebas | Estado |
+|---|---|---|---|---|
+| PE1, PE4 | `docs/architecture/632-final-findings.md`; ADR-0011 | `backend/apps/people/{queries.py,api/}`; `frontend/src/people/PersonasPage.jsx` | `backend/tests/api/test_people_api.py`; `frontend/src/test/personasPage.test.jsx` | Inclusión explícita de inactivos y propósito administrativo verificados |
+| RF-DOC-002; TD2 | `docs/architecture/632-final-findings.md`; convenciones API | `backend/apps/documents/{queries.py,api/serializers.py}`; `frontend/src/documents/DocumentTypesPage.jsx` | `backend/tests/api/test_documents_api.py`; `frontend/src/test/newModulePages.test.jsx` | Conteos activo e histórico por tipo, sin consultas por fila |
+| RF-DOC-005/007/009; DO1–DO3 | `docs/architecture/632-final-findings.md`; OpenSpec documentos | servicios y API existentes de `apps/documents`; `frontend/src/students/StudentRecordPanels.jsx`; `DocumentStoragePage.jsx` | `backend/tests/api/test_documents_api.py`; `frontend/src/test/StudentRecordPage.test.jsx` | Escaneo, versión nueva, integridad, consumo y acceso desde expediente; historial conservado |
+| RF-JOR-007; R1, R2 | `docs/architecture/632-final-findings.md` | `backend/apps/reporting/{services.py,api/serializers.py}`; `frontend/src/reporting/AlertsPage.jsx`; `attendance/tabs/MovementsTab.jsx` | `backend/tests/api/test_reporting_api.py`; `frontend/src/test/newModulePages.test.jsx` | Superficies explicadas y navegación al expediente con alcance vigente |
+
 ## Mantenimiento
 
 - Actualizar fila por cada requerimiento implementado o afectado.
