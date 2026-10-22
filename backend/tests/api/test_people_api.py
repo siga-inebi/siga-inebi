@@ -36,7 +36,13 @@ PERSON_FIELDS = (
 @pytest.fixture
 def logged_in_client(client):
     user = UserFactory(password="test-pass-123")
+    assignment = RoleAssignmentFactory(
+        user=user,
+        role=RoleFactory(permissions=[PermissionFactory(codename="person_edit")]),
+    )
+    ScopeGrantFactory(assignment=assignment, module_key="identity")
     client.login(username=user.username, password="test-pass-123")
+    client.user = user
     return client
 
 
@@ -175,6 +181,11 @@ def test_patch_person_persists_profile_field_without_changing_omitted_data(
 )
 def test_edited_person_profile_is_returned_by_community_detail(auth_client, factory, route):
     profile = factory()
+    assignment = RoleAssignmentFactory(
+        user=auth_client.user,
+        role=RoleFactory(permissions=[PermissionFactory(codename="person_edit")]),
+    )
+    ScopeGrantFactory(assignment=assignment, module_key="identity")
     if factory is StudentFactory:
         permission = PermissionFactory(codename="student_view_basic")
         assignment = RoleAssignmentFactory(

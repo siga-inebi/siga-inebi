@@ -38,10 +38,8 @@ class PersonSerializer(serializers.ModelSerializer):
     client sees, matching the opaque-identifier convention already used by
     ``apps.academics`` (docs/architecture/api-conventions.md).
 
-    ``birth_date`` is accepted on write but never rendered back: this endpoint
-    has no scoped read permission today (RNF-LEG-001), so returning the raw
-    date would expose it to any authenticated user. Only the derived
-    ``is_minor`` boolean is exposed for read.
+    ``birth_date`` and ``cui`` are accepted on write but never rendered back.
+    The scoped registry exposes only the derived ``is_minor`` indicator.
     """
 
     is_minor = serializers.SerializerMethodField()
@@ -68,7 +66,39 @@ class PersonSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["public_id", "is_active", "created_at", "updated_at"]
-        extra_kwargs = {"birth_date": {"write_only": True}, "cui": {"write_only": True}}
+        extra_kwargs = {
+            "birth_date": {"write_only": True},
+            "cui": {"write_only": True, "validators": []},
+        }
+
+    def validate_cui(self, value):
+        existing = Person.objects.filter(cui=value)
+        if self.instance is not None:
+            existing = existing.exclude(pk=self.instance.pk)
+        elif isinstance(getattr(self.root, "initial_data", None), dict):
+            person_id = self.root.initial_data.get("person_public_id")
+            if person_id:
+                existing = existing.exclude(public_id=person_id)
+        if existing.exists():
+            raise serializers.ValidationError("El CUI ya pertenece a otra persona.")
+        return value
 
     def get_is_minor(self, obj):
         return queries.is_minor(obj.birth_date)
+
+
+class PersonRegistrySerializer(PersonSerializer):
+    """Profile indicators are visible only in the scoped people registry."""
+
+    profiles = serializers.SerializerMethodField()
+
+    class Meta(PersonSerializer.Meta):
+        fields = [*PersonSerializer.Meta.fields, "profiles"]
+
+    def get_profiles(self, obj):
+        return {
+            "student": hasattr(obj, "student_profile"),
+            "teacher": hasattr(obj, "teacher_profile"),
+            "guardian": hasattr(obj, "guardian_profile"),
+            "account": hasattr(obj, "user_account"),
+        }

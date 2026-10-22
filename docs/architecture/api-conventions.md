@@ -1105,3 +1105,15 @@ modifica la matricula; D5/E9 queda separado.
   `students.student.status_changed` conserva anterior/nuevo, actor y fecha.
   No reactiva perfiles desactivados ni altera matrícula o historial.
 - Detalle, compatibilidad y pruebas: [E8/E9/D5](student-guardian-link-and-status-ui.md).
+
+## Conversión de persona registrada (#632, D10)
+
+Los tres endpoints de alta de perfiles (`POST /students/`, `POST /teachers/` y
+`POST /students/guardians/`) aceptan `person_public_id` UUID con `person`
+opcional para completar datos institucionales. La modalidad anterior con
+`person` anidada sigue vigente. `person_public_id` se rechaza en actualización.
+El servidor conserva el ID de persona, exige el permiso de conversión, valida
+que no exista ya ese perfil y confirma persona, perfil y auditoría de forma
+atómica. `GET /people/` agrega indicadores booleanos `profiles` y requiere
+`person.view` o `person.edit` con alcance `identity`; las escrituras requieren
+`person.edit`. La respuesta sigue ocultando CUI y fecha de nacimiento.

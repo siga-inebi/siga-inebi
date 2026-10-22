@@ -227,8 +227,8 @@ Nuevo ──▶ BORRADOR ──Activar──▶ ACTIVO ──Cerrar──▶ CER
 | # | Prioridad · Tipo | Hallazgo |
 |---|---|---|
 | PE1 | **P1 · Bug** | "Mostrar desactivados" no hace nada: `/people/` siempre devuelve todas las personas (ver 1.1.6). |
-| PE2 | **P1 · Claridad** | El alta pide solo nombre, apellido, correo, teléfono e identificador. Las de Estudiantes, Docentes y Encargados exigen CUI, fecha de nacimiento, sexo, dirección, etc. Además, el alta de estudiante o docente siempre crea una persona nueva: no hay forma de partir de una persona ya registrada aquí, lo que invita a duplicados, ni de completarle esos datos desde esta pantalla. **Resuelto por D10:** registro mínimo con la acción "Convertir en estudiante / docente / encargado", que reutiliza la persona. |
-| PE3 | **P2 · Claridad** | Sin búsqueda (el backend tampoco la tiene). No dice si la persona es estudiante, docente, encargado o tiene cuenta. |
+| PE2 | **P1 · Claridad** | El alta pide solo nombre, apellido, correo, teléfono e identificador. **Seguimiento #632/D10:** Personas ofrece «Convertir» a estudiante, docente o encargado; los formularios también buscan la persona registrada antes del alta. Se completa la misma persona por `person_public_id`, sin crear otra. [Contrato y pruebas](architecture/person-conversion-ui.md). |
+| PE3 | **P2 · Claridad** | **Seguimiento #632:** búsqueda por nombre o CUI en el servidor, perfiles estudiante/docente/encargado/cuenta en la fila, paginación y estado en URL. [Contrato y pruebas](architecture/person-conversion-ui.md). |
 | PE4 | **P2 · Claridad** | El propósito de la pantalla no es claro para un usuario operativo ("registro base de identidad institucional"). Conviene moverla a Administración o mostrarla solo a quien la necesita. |
 
 ### 2.10 Matrículas

@@ -46,10 +46,11 @@ institución, módulo).
 | Padres de familia | Estudiantes vinculados (G4) | `GET /students/guardians/{id}/students/` | `student.view_basic` con alcance; solo relaciones autorizadas |
 | Padres de familia | Vincular estudiante (G4) | `GET .../student-candidates/`, `POST .../students/` | `student.view_basic` y `student.edit_basic`, con interseccion de alcances sobre el estudiante |
 | Padres de familia | Exportar CSV | `GET /students/guardians/` | **Sin control de permiso** |
-| Personas | Nueva persona / Crear persona | `POST /people/` | **Sin control de permiso** (previsto `person.edit`, ADR-0011) |
-| Personas | Editar | `PATCH /people/{id}/` | **Sin control de permiso** (previsto `person.edit`) |
-| Personas | Desactivar | `DELETE /people/{id}/` | **Sin control de permiso** (previsto `person.edit`) |
-| Personas | Ver listado | `GET /people/` | **Sin control de permiso** (previsto `person.view`) |
+| Personas | Nueva persona / Crear persona | `POST /people/` | `person.edit` con alcance `identity` (#632) |
+| Personas | Editar | `PATCH /people/{public_id}/` | `person.edit` con alcance `identity` (#632) |
+| Personas | Desactivar | `DELETE /people/{public_id}/` | `person.edit` con alcance `identity` (#632) |
+| Personas | Ver listado y perfiles | `GET /people/` | `person.view` o `person.edit` con alcance `identity` (#632) |
+| Personas | Convertir en estudiante/docente/encargado | `POST /students/`, `/teachers/`, `/students/guardians/` | `person.edit` con alcance `identity`; estudiante además `student.edit_basic` con alcance `students` (#632) |
 | Personas | Dar acceso al sistema | `POST /identity/accounts/` | `account.create` — ya filtrado |
 | Matrículas | Matricular | `POST /enrolments/matriculations/` | `enrollment.create` |
 | Matrículas | Reinscribir | `POST /enrolments/re-enrolments/` | `enrollment.create` |
@@ -161,9 +162,8 @@ Plantillas, Tipos de documento, Documentos):
 
 - Aplicar `<Can>` / `usePermissions` a **todas** las acciones de sus módulos
   según la tabla.
-- Exigir en el backend `person.view` / `person.edit` en `apps/people` y
-  `document_type.manage` en los tipos de documento (permisos ya creados en el
-  catálogo, ADR-0011). Hasta entonces el filtro del menú para Personas y Tipos
-  de documento es **provisional y solo de presentación**.
+- `person.view` / `person.edit` ya se exigen en `apps/people` con alcance
+  `identity` (#632). Falta exigir `document_type.manage` en los tipos de
+  documento; allí el filtro del menú sigue siendo solo de presentación (#643).
 - Cerrar los huecos "Sin control de permiso" de Docentes y Padres de familia
   (alta, edición y listado) con denegación por defecto.
