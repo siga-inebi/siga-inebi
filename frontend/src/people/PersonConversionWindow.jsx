@@ -5,6 +5,7 @@ import { studentsService } from "@students/studentsService.js";
 import { teachersService } from "@teachers/teachersService.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { personFormValues } from "@people/existingPersonSearch.js";
 
 const PERSON_FIELDS = [
   { name: "first_name", label: "Nombres", required: true },
@@ -123,17 +124,7 @@ export function PersonConversionWindow({
       fields={fields}
       initialValues={{
         profile_type: options[0]?.value ?? "",
-        first_name: person.first_name,
-        last_name: person.last_name,
-        cui: "",
-        birth_date: "",
-        sex: person.sex === "not_specified" ? "" : person.sex || "",
-        nationality: person.nationality || "Guatemalteca",
-        phone_number: person.phone_number || "",
-        email: person.email || "",
-        address: person.address || "",
-        department: person.department || "",
-        municipality: person.municipality || "",
+        ...personFormValues(person),
         specialty: "",
         position: "",
         appointment_date: "",

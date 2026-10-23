@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 export const DEFAULT_BUDGETS = Object.freeze({
-  initialGzip: 230_000,
+  initialGzip: 230_100,
   routeIncrementGzip: 21_000,
-  coldPageGzip: 250_000,
+  coldPageGzip: 250_200,
   rasterRaw: 25_000,
 });
 

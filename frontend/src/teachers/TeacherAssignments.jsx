@@ -2,7 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
-import Stack from "@mui/material/Stack";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 
 import { academicsService } from "@academics/academicsService.js";
@@ -45,22 +49,33 @@ export function TeacherAssignments({ teacherId }) {
           Sin asignaciones vigentes.
         </Typography>
       ) : (
-        <Stack component="ul" gap={0.75} sx={{ m: 0, pl: 2.5 }}>
-          {rows.map((row) => (
-            <Typography component="li" key={row.public_id} variant="body2">
-              {[
-                sectionLabel(row.section ?? {}),
-                row.subject?.name ?? "Curso",
-                `desde ${formatDate(row.starts_on)}`,
-              ].join(" · ")}
-            </Typography>
-          ))}
+        <>
+          <Table aria-label="Asignaciones vigentes" size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Sección</TableCell>
+                <TableCell>Curso</TableCell>
+                <TableCell>Desde</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.public_id}>
+                  <TableCell>{sectionLabel(row.section ?? {})}</TableCell>
+                  <TableCell>{row.subject?.name ?? "Curso"}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>
+                    {formatDate(row.starts_on)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
           {more > 0 ? (
-            <Typography color="text.secondary" component="li" variant="body2">
+            <Typography color="text.secondary" sx={{ mt: 1 }} variant="body2">
               y {more} más; véalas en Asignaciones docentes.
             </Typography>
           ) : null}
-        </Stack>
+        </>
       )}
     </Box>
   );
