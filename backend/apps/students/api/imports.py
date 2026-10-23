@@ -198,8 +198,11 @@ class StudentImportConfirmView(GenericAPIView):
                 expected_sha256=serializer.validated_data["file_sha256"],
                 actor=request.user,
             )
-        except imports.ImportFileChanged as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except imports.ImportFileChanged:
+            return Response(
+                {"detail": "El archivo no coincide con la vista previa."},
+                status=status.HTTP_409_CONFLICT,
+            )
         if result.has_errors:
             return Response(_preview_body(result), status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         students = result.students
