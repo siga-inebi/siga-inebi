@@ -456,9 +456,13 @@ describe("Ficha del docente: qué imparte (AD4)", () => {
     );
 
     const dialog = await screen.findByRole("dialog");
-    expect(
-      await within(dialog).findByText(/^Primero A · Matemática · desde /)
-    ).toBeInTheDocument();
+    const table = await within(dialog).findByRole("table", {
+      name: "Asignaciones vigentes",
+    });
+    const [header, first] = within(table).getAllByRole("row");
+    expect(within(header).getByText("Sección")).toBeInTheDocument();
+    expect(within(first).getByText("Primero A")).toBeInTheDocument();
+    expect(within(first).getByText("Matemática")).toBeInTheDocument();
     expect(academicsServiceMock.listTeachingAssignments).toHaveBeenCalledWith({
       teacher_id: "teacher-1",
       current: true,
