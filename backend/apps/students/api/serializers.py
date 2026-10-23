@@ -23,6 +23,11 @@ from apps.students.services import (
 class StudentListQuerySerializer(serializers.Serializer):
     include_inactive = serializers.BooleanField(default=False)
     status = serializers.ChoiceField(choices=Student.StudentStatus.choices, required=False)
+    # `public_id` del nivel, grado o seccion: solo estudiantes con matricula
+    # activa ahi (exportacion de carnes, RF-CRE-002).
+    level = serializers.UUIDField(required=False)
+    grade = serializers.UUIDField(required=False)
+    section = serializers.UUIDField(required=False)
 
 
 class GuardianListQuerySerializer(serializers.Serializer):

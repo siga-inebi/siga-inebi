@@ -33,6 +33,33 @@ export function ExportCsvButton({
   label = "Exportar CSV",
   params,
 }) {
+  const csv = useCsvExport({ columns, fetchPage, filename, params });
+
+  return (
+    <>
+      <Button
+        disabled={disabled || csv.running}
+        onClick={csv.start}
+        size="small"
+        startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
+        variant="outlined"
+      >
+        {label}
+      </Button>
+      {csv.dialog}
+    </>
+  );
+}
+
+/**
+ * La exportacion sin el boton, para lanzarla desde un menu "⋯": `start` la
+ * inicia y `dialog` es el avance y el resultado, que se renderiza igual.
+ */
+// Vive junto al boton a proposito: en un modulo aparte Rollup lo pegaba al
+// chunk de otra pieza y dejaba dos chunks minimos, cuya sobrecarga pasaba a
+// DocentesPage de su limite. Solo cuesta el refresco en caliente de este archivo.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useCsvExport({ columns, fetchPage, filename, params }) {
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState("");
   const [done, setDone] = useState(null);
@@ -71,63 +98,53 @@ export function ExportCsvButton({
       ? Math.min(100, Math.round((progress.loaded / progress.total) * 100))
       : 0;
 
-  return (
-    <>
-      <Button
-        disabled={disabled || running}
-        onClick={start}
-        size="small"
-        startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
-        variant="outlined"
-      >
-        {label}
-      </Button>
-      <Dialog open={running || Boolean(error) || done !== null}>
-        <DialogTitle>Exportación CSV</DialogTitle>
-        <DialogContent sx={{ minWidth: 320 }}>
-          {running ? (
-            <>
-              <LinearProgress
-                aria-label="Avance de la exportación"
-                value={percent}
-                variant={progress.total > 0 ? "determinate" : "indeterminate"}
-              />
-              <Typography sx={{ mt: 1.5 }} variant="body2">
-                {progress.total > 0
-                  ? `${progress.loaded} de ${progress.total} filas`
-                  : "Preparando la exportación…"}
-              </Typography>
-            </>
-          ) : null}
-          {error ? (
-            <Alert role="alert" severity="error">
-              {error}
-            </Alert>
-          ) : null}
-          {done !== null ? (
-            <Alert severity="success">
-              Se exportaron {done} filas, todas las que coinciden con los
-              filtros.
-            </Alert>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          {running ? (
-            <Button onClick={() => controllerRef.current?.abort()}>
-              Cancelar
-            </Button>
-          ) : (
-            <Button
-              onClick={() => {
-                setError("");
-                setDone(null);
-              }}
-            >
-              Cerrar
-            </Button>
-          )}
-        </DialogActions>
-      </Dialog>
-    </>
+  const dialog = (
+    <Dialog open={running || Boolean(error) || done !== null}>
+      <DialogTitle>Exportación CSV</DialogTitle>
+      <DialogContent sx={{ minWidth: 320 }}>
+        {running ? (
+          <>
+            <LinearProgress
+              aria-label="Avance de la exportación"
+              value={percent}
+              variant={progress.total > 0 ? "determinate" : "indeterminate"}
+            />
+            <Typography sx={{ mt: 1.5 }} variant="body2">
+              {progress.total > 0
+                ? `${progress.loaded} de ${progress.total} filas`
+                : "Preparando la exportación…"}
+            </Typography>
+          </>
+        ) : null}
+        {error ? (
+          <Alert role="alert" severity="error">
+            {error}
+          </Alert>
+        ) : null}
+        {done !== null ? (
+          <Alert severity="success">
+            Se exportaron {done} filas, todas las que coinciden con los filtros.
+          </Alert>
+        ) : null}
+      </DialogContent>
+      <DialogActions>
+        {running ? (
+          <Button onClick={() => controllerRef.current?.abort()}>
+            Cancelar
+          </Button>
+        ) : (
+          <Button
+            onClick={() => {
+              setError("");
+              setDone(null);
+            }}
+          >
+            Cerrar
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
   );
+
+  return { dialog, running, start };
 }

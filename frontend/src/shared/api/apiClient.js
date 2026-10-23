@@ -141,9 +141,12 @@ export const apiClient = {
   post: (path, body) => request(path, { method: "POST", body }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   del: (path) => request(path, { method: "DELETE" }),
-  /** POST que responde un archivo: devuelve `{ blob, headers }`. */
-  postForFile: (path, body) =>
-    request(path, { method: "POST", body, asFile: true }),
+  /**
+   * POST que responde un archivo: devuelve `{ blob, headers }`. `accept`
+   * cambia los tipos aceptados cuando el archivo no es un PDF (PNG, ZIP).
+   */
+  postForFile: (path, body, accept) =>
+    request(path, { method: "POST", body, asFile: true, accept }),
   /** GET que responde un archivo (CSV de exportacion): devuelve `{ blob, headers }`. */
   getFile: (path, accept = "text/csv, application/json") =>
     request(path, { asFile: true, accept }),

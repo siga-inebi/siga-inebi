@@ -36,6 +36,7 @@ export const PERMISSION = Object.freeze({
   ATTENDANCE_DECLARED_CLOSE: "attendance.declared_close",
   ATTENDANCE_JORNADA_CONFIGURE: "attendance.jornada.configure",
   ATTENDANCE_CREDENTIAL_ISSUE: "attendance.credential.issue",
+  ATTENDANCE_CREDENTIAL_PRINT: "attendance.credential.print",
   ATTENDANCE_JUSTIFICATION_REQUEST: "attendance.justification.request",
   ATTENDANCE_JUSTIFICATION_RESOLVE: "attendance.justification.resolve",
   ATTENDANCE_PERMIT_REQUEST: "attendance.permit.request",

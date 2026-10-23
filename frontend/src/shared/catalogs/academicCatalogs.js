@@ -47,6 +47,7 @@ async function loadCycles() {
       // Se conservan para poder proponer la vigencia de lo que se cree dentro
       // del ciclo sin una segunda peticion.
       name: cycle.name,
+      status: cycle.status,
       year: cycle.year,
       startsOn: cycle.starts_on,
       endsOn: cycle.ends_on,
@@ -152,6 +153,9 @@ async function loadGrades() {
       label: grade.level?.name
         ? `${grade.name} · ${grade.level.name}`
         : grade.name,
+      // Para filtrar en cascada nivel -> grado sin pedir los niveles aparte.
+      levelId: grade.level?.public_id,
+      levelName: grade.level?.name,
     }));
 }
 

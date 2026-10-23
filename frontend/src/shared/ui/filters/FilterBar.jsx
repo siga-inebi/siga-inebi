@@ -32,7 +32,12 @@ export function FilterBar({ actions, children, onClear }) {
         </Button>
       ) : null}
       {actions ? (
-        <Stack direction="row" gap={1} sx={{ ml: { md: "auto" } }}>
+        <Stack
+          direction="row"
+          flexWrap="wrap"
+          gap={1}
+          sx={{ ml: { md: "auto" } }}
+        >
           {actions}
         </Stack>
       ) : null}

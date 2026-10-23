@@ -1,6 +1,7 @@
 import { memo } from "react";
 
 import Box from "@mui/material/Box";
+import Checkbox from "@mui/material/Checkbox";
 import Skeleton from "@mui/material/Skeleton";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
@@ -17,6 +18,8 @@ import {
   FILL_HEIGHT_QUERY,
   TABLE_FALLBACK_MAX_HEIGHT,
 } from "@theme/tokens/fillHeight.js";
+
+const NO_SELECTION = [];
 
 /** Filas de esqueleto durante la primera carga. */
 const SKELETON_ROWS = 5;
@@ -73,18 +76,43 @@ const DataTableRow = memo(function DataTableRow({ columns, onRowClick, row }) {
  * @param {Function}[props.getRowKey]
  * @param {Function}[props.onRowClick]
  * @param {boolean} [props.fillHeight] Header pegado y paginacion anclada fuera del scroll.
+ * @param {boolean} [props.selectable] Casillas para elegir filas (apagado por omision).
+ * @param {Array}   [props.selectedIds] Ids elegidos; pueden incluir filas de otras paginas.
+ * @param {Function}[props.onSelectionChange] Recibe el arreglo de ids nuevo.
+ * @param {Function}[props.getRowId] Id de seleccion; por omision `getRowKey` o `row.id`.
+ * @param {Function}[props.getRowLabel] Nombre accesible de la casilla de cada fila.
  */
 export function DataTable({
-  columns,
+  columns: baseColumns,
   emptyMessage = "No hay datos disponibles",
   fillHeight = false,
+  getRowId,
   getRowKey,
+  getRowLabel,
   loading = false,
   onRowClick,
+  onSelectionChange,
   pagination,
   rows,
+  selectable = false,
+  selectedIds = NO_SELECTION,
 }) {
   const hasRows = rows.length > 0;
+  const rowId = getRowId ?? getRowKey ?? ((row) => row.id);
+  // La seleccion es una columna mas: asi la cabecera, el esqueleto y el estado
+  // vacio la cubren sin logica propia.
+  const columns = selectable
+    ? [
+        selectionColumn({
+          getRowId: rowId,
+          getRowLabel,
+          onSelectionChange,
+          pageIds: loading ? [] : rows.map(rowId),
+          selectedIds,
+        }),
+        ...baseColumns,
+      ]
+    : baseColumns;
   // El header solo se pega cuando el contenedor scrollea por dentro; si
   // scrollea la pagina, `sticky` lo dejaria flotando sobre otro contenido.
   const stickyHeader = fillHeight;
@@ -212,4 +240,62 @@ export function DataTable({
       ) : null}
     </Box>
   );
+}
+
+function selectionColumn({
+  getRowId,
+  getRowLabel,
+  onSelectionChange,
+  pageIds,
+  selectedIds,
+}) {
+  const selected = new Set(selectedIds);
+  const onPage = pageIds.filter((id) => selected.has(id)).length;
+  const allOnPage = pageIds.length > 0 && onPage === pageIds.length;
+  return {
+    key: "__select",
+    label: (
+      <Checkbox
+        checked={allOnPage}
+        disabled={!pageIds.length}
+        indeterminate={onPage > 0 && !allOnPage}
+        // Marcar todo afecta solo a la pagina visible y conserva lo elegido en
+        // otras paginas.
+        onChange={() =>
+          onSelectionChange(
+            allOnPage
+              ? selectedIds.filter((id) => !pageIds.includes(id))
+              : [...selectedIds, ...pageIds.filter((id) => !selected.has(id))]
+          )
+        }
+        size="small"
+        slotProps={{
+          input: { "aria-label": "Seleccionar las filas de esta página" },
+        }}
+      />
+    ),
+    render: (row) => {
+      const id = getRowId(row);
+      return (
+        <Checkbox
+          checked={selected.has(id)}
+          // Marcar no es abrir: sin esto el clic tambien dispara `onRowClick`.
+          onClick={(event) => event.stopPropagation()}
+          onChange={() =>
+            onSelectionChange(
+              selected.has(id)
+                ? selectedIds.filter((current) => current !== id)
+                : [...selectedIds, id]
+            )
+          }
+          size="small"
+          slotProps={{
+            input: {
+              "aria-label": getRowLabel ? getRowLabel(row) : "Seleccionar fila",
+            },
+          }}
+        />
+      );
+    },
+  };
 }

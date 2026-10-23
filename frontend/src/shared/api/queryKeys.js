@@ -95,6 +95,17 @@ export const queryKeys = {
    * (`invalidation.js`), así que cada key del módulo empieza por ese dominio.
    */
   attendance: (...rest) => ["attendance", ...rest],
+  /**
+   * QR del carné vigente. Queda FUERA de `["attendance"]` a proposito: cada
+   * lectura del QR se audita en el backend, y una escritura cualquiera de
+   * asistencia (incluida la descarga del carné) no debe volver a pedirlo. La
+   * key lleva el carné, así que emitir uno nuevo sí trae su QR.
+   */
+  credentialQr: (studentId, credentialId) => [
+    "credential-qr",
+    studentId,
+    credentialId,
+  ],
   reporting: {
     all: ["reporting"],
     alerts: (params = {}) => ["reporting", "alerts", params],

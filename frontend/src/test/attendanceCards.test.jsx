@@ -12,12 +12,20 @@ const attendanceServiceMock = vi.hoisted(() => ({
   issueCard: vi.fn(),
   cardPrintContent: vi.fn(),
   revokeCard: vi.fn(),
+  revealCardQr: vi.fn(),
+  exportCards: vi.fn(),
   listEvents: vi.fn(),
 }));
 const studentsServiceMock = vi.hoisted(() => ({
   listPage: vi.fn(),
   getRecord: vi.fn(),
   getRecordStatus: vi.fn(),
+}));
+
+const downloadMock = vi.hoisted(() => vi.fn());
+vi.mock("@shared/utils/download.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  downloadResponseFile: downloadMock,
 }));
 
 vi.mock("@attendance/attendanceService.js", async () => {
@@ -37,6 +45,10 @@ import {
 } from "./helpers/renderWithSession.jsx";
 
 const ISSUER = sessionUser(["attendance.credential.issue"]);
+const PRINTER = sessionUser([
+  "attendance.credential.issue",
+  "attendance.credential.print",
+]);
 const paged = (results) => ({ count: results.length, results });
 const STUDENT = {
   public_id: "student-1",
@@ -65,43 +77,19 @@ const ISSUED = {
   status: "active",
   issued_at: "2026-10-19T14:00:00Z",
 };
-const PRINT_CONTENT = {
-  student_id: "student-1",
-  full_name: "Luis Perez",
-  grade_name: "Primero Básico",
-  section_name: "A",
-  academic_cycle_name: "Ciclo 2026",
-  institution_name: "INEBI",
-  photo_url: null,
-};
-
 beforeEach(() => {
   Object.values(attendanceServiceMock).forEach((mock) => mock.mockReset());
   studentsServiceMock.listPage.mockReset().mockResolvedValue(paged([STUDENT]));
   attendanceServiceMock.cardStatus.mockResolvedValue(NONE);
+  downloadMock.mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
 
-function renderCards(query = "") {
+function renderCards(query = "", user = ISSUER) {
   return renderWithSession(<AttendancePage />, {
-    user: ISSUER,
+    user,
     route: `/app/asistencia?tab=carnes${query}`,
   });
-}
-
-function fakePrintWindow() {
-  const written = [];
-  const printWindow = {
-    document: {
-      write: (html) => written.push(html),
-      close: vi.fn(),
-      querySelector: () => ({ complete: true }),
-    },
-    focus: vi.fn(),
-    print: vi.fn(),
-  };
-  vi.spyOn(window, "open").mockReturnValue(printWindow);
-  return { printWindow, written };
 }
 
 describe("Carnés (AS2)", () => {
@@ -126,16 +114,13 @@ describe("Carnés (AS2)", () => {
     expect(await screen.findByText("Sin carné")).toBeInTheDocument();
   });
 
-  test("emite el carné, muestra el QR una vez e imprime con el contenido imprimible", async () => {
+  test("emite el carné, muestra el QR y lo descarga en PNG o PDF", async () => {
     attendanceServiceMock.issueCard.mockResolvedValue(ISSUED);
-    attendanceServiceMock.cardPrintContent.mockResolvedValue(PRINT_CONTENT);
-    const { printWindow, written } = fakePrintWindow();
+    const file = { blob: new Blob(["png"]), headers: new Headers() };
+    attendanceServiceMock.exportCards.mockResolvedValue(file);
     const user = userEvent.setup();
-    renderCards("&estudiante=student-1");
+    renderCards("&estudiante=student-1", PRINTER);
 
-    expect(
-      await screen.findByText(/El código QR solo se muestra al emitir/)
-    ).toBeInTheDocument();
     await user.click(
       await screen.findByRole("button", { name: "Emitir carné" })
     );
@@ -143,46 +128,84 @@ describe("Carnés (AS2)", () => {
     expect(attendanceServiceMock.issueCard).toHaveBeenCalledWith("student-1");
     const qr = await screen.findByRole("img", { name: /Código QR del carné/ });
     expect(qr).toHaveAttribute("src", "data:image/png;base64,iVBORw0KGgo=");
+    expect(screen.queryByText(/Imprímalo ahora/)).not.toBeInTheDocument();
+    // El QR de la emisión ya está en memoria: no se vuelve a pedir.
+    expect(attendanceServiceMock.revealCardQr).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Imprimir carné" }));
-    await waitFor(() => expect(printWindow.print).toHaveBeenCalled());
-    expect(attendanceServiceMock.cardPrintContent).toHaveBeenCalledWith(
-      "student-1"
+    await user.click(screen.getByRole("button", { name: "Descargar PNG" }));
+    await waitFor(() =>
+      expect(downloadMock).toHaveBeenCalledWith(file, "carne-student-1.png")
     );
-    const html = written.join("");
-    expect(html).toContain("Luis Perez");
-    expect(html).toContain("INEBI");
-    expect(html).toContain("Primero Básico A");
-    expect(html).toContain("data:image/png;base64,iVBORw0KGgo=");
+    expect(attendanceServiceMock.exportCards).toHaveBeenCalledWith(
+      ["student-1"],
+      "png"
+    );
+    await user.click(screen.getByRole("button", { name: "Descargar PDF" }));
+    await waitFor(() =>
+      expect(attendanceServiceMock.exportCards).toHaveBeenLastCalledWith(
+        ["student-1"],
+        "pdf"
+      )
+    );
   });
 
-  test("avisa si el navegador bloquea la ventana de impresión", async () => {
-    attendanceServiceMock.issueCard.mockResolvedValue(ISSUED);
-    attendanceServiceMock.cardPrintContent.mockResolvedValue(PRINT_CONTENT);
-    vi.spyOn(window, "open").mockReturnValue(null);
-    const user = userEvent.setup();
-    renderCards("&estudiante=student-1");
+  test("con permiso de impresión el carné vigente vuelve a mostrar su QR", async () => {
+    attendanceServiceMock.cardStatus.mockResolvedValue(ACTIVE);
+    attendanceServiceMock.revealCardQr.mockResolvedValue({
+      qr_code: "QRVIGENTE=",
+    });
+    renderCards("&estudiante=student-1", PRINTER);
 
-    await user.click(
-      await screen.findByRole("button", { name: "Emitir carné" })
+    const qr = await screen.findByRole("img", { name: /Código QR del carné/ });
+    expect(qr).toHaveAttribute("src", "data:image/png;base64,QRVIGENTE=");
+    expect(attendanceServiceMock.revealCardQr).toHaveBeenCalledWith(
+      "student-1"
     );
-    await user.click(
-      await screen.findByRole("button", { name: "Imprimir carné" })
-    );
-
     expect(
-      await screen.findByText(/El navegador bloqueó la ventana de impresión/)
+      screen.getByRole("button", { name: "Descargar PNG" })
     ).toBeInTheDocument();
   });
 
-  test("revocar exige motivo y explica cómo reimprimir", async () => {
+  test("sin permiso de impresión no pide el QR ni ofrece descargas", async () => {
+    attendanceServiceMock.cardStatus.mockResolvedValue(ACTIVE);
+    renderCards("&estudiante=student-1");
+
+    expect(await screen.findByText("Vigente")).toBeInTheDocument();
+    expect(
+      screen.getByText(/se necesita el permiso de impresión/)
+    ).toBeInTheDocument();
+    expect(attendanceServiceMock.revealCardQr).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: /Descargar/ })
+    ).not.toBeInTheDocument();
+  });
+
+  test("avisa si la descarga del carné falla", async () => {
+    attendanceServiceMock.cardStatus.mockResolvedValue(ACTIVE);
+    attendanceServiceMock.revealCardQr.mockResolvedValue({ qr_code: "QR=" });
+    attendanceServiceMock.exportCards.mockRejectedValue(
+      new Error("El estudiante no tiene matrícula activa.")
+    );
+    const user = userEvent.setup();
+    renderCards("&estudiante=student-1", PRINTER);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Descargar PDF" })
+    );
+    expect(
+      await screen.findByText("El estudiante no tiene matrícula activa.")
+    ).toBeInTheDocument();
+    expect(downloadMock).not.toHaveBeenCalled();
+  });
+
+  test("revocar exige motivo", async () => {
     attendanceServiceMock.cardStatus.mockResolvedValue(ACTIVE);
     attendanceServiceMock.revokeCard.mockResolvedValue({});
     const user = userEvent.setup();
     renderCards("&estudiante=student-1");
 
     expect(await screen.findByText("Vigente")).toBeInTheDocument();
-    // Un carné vigente no se vuelve a emitir: el QR no se puede repetir.
+    // Un carné vigente no se vuelve a emitir: primero se revoca.
     expect(
       screen.queryByRole("button", { name: /Emitir carné/ })
     ).not.toBeInTheDocument();

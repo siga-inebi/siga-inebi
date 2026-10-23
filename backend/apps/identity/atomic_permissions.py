@@ -141,6 +141,13 @@ PERMISSION_CATALOGUE = (
         "attendance",
     ),
     (
+        "attendance.credential.print",
+        "Reimprimir y exportar carnés",
+        "Permite volver a ver el QR de un carné vigente y exportar carnés en PNG, PDF o ZIP; "
+        "cada reimpresión queda en la bitácora.",
+        "attendance",
+    ),
+    (
         "attendance.credential.resolve",
         "Resolver credenciales",
         "Permite identificar al estudiante a partir del código de su carné.",

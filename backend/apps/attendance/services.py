@@ -49,6 +49,7 @@ from apps.common.codes import create_with_generated_code
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import AuthorizationError, DomainError
 from apps.common.opaque import generate_opaque_identifier
+from apps.common.qr import generate_qr_png_base64
 from apps.documents.services import read_document_payload, validate_document_upload
 from apps.enrolments.models import Enrolment
 from apps.enrolments.services import active_enrolments
@@ -2173,6 +2174,37 @@ def resolve_credential_print_content(*, student):
         institution_name=enrolment.academic_cycle.institution.name,
         photo_url=student.photo.url if student.photo else None,
     )
+
+
+def active_credential(*, student):
+    """The student's active credential, or ``None``."""
+    return StudentCredential.objects.filter(
+        student=student, status=StudentCredential.Status.ACTIVE, is_active=True
+    ).first()
+
+
+def reveal_credential_qr(*, student, actor, qr_generator=generate_qr_png_base64):
+    """
+    RF-CRE-002: the QR of the student's active credential, for reprinting.
+
+    The issuance response used to be the only time the QR travelled, so
+    reprinting meant revoking a perfectly good card. Reprinting is now allowed
+    under its own permission (``attendance.credential.print``), and every reveal
+    leaves an audit row -- with who and for whom, never the token itself, the
+    same boundary ``issue_credential`` draws.
+    """
+    credential = active_credential(student=student)
+    if credential is None:
+        raise DomainError(f"El estudiante '{student}' no tiene una credencial vigente.")
+    qr_code = qr_generator(data=credential.opaque_identifier)
+    record_event(
+        actor=actor,
+        action="attendance.credential.qr_revealed",
+        resource="StudentCredential",
+        resource_identifier=str(credential.public_id),
+        context={"student_id": str(student.public_id)},
+    )
+    return qr_code
 
 
 # --------------------------------------------------------------------------- #

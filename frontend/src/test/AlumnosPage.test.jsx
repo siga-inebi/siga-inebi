@@ -6,6 +6,10 @@ import { vi } from "vitest";
 import { AlumnosPage } from "@students/AlumnosPage.jsx";
 import { renderWithRouter } from "./helpers/renderWithRouter.jsx";
 import {
+  renderWithSession,
+  sessionUser,
+} from "./helpers/renderWithSession.jsx";
+import {
   fillInstitutionalPerson,
   institutionalPerson,
   visibleInstitutionalPerson,
@@ -20,6 +24,9 @@ const studentsServiceMock = vi.hoisted(() => ({
   // Ver el doble homonimo en DocentesPage.test.jsx: el alta pide el codigo
   // sugerido al abrir, y sin esto la prueba corre por el camino de error.
   nextCode: vi.fn(),
+  importTemplate: vi.fn(),
+  previewImport: vi.fn(),
+  confirmImport: vi.fn(),
   listHealthNotes: vi.fn(),
   createHealthNote: vi.fn(),
   listObservations: vi.fn(),
@@ -38,11 +45,28 @@ vi.mock("@students/studentsService.js", () => ({
   studentsService: studentsServiceMock,
 }));
 
+// El diálogo de carnés pide catálogos académicos al abrir; aquí no importan.
+vi.mock("@shared/catalogs/academicCatalogs.js", async (importOriginal) => {
+  const empty = () => ({ options: [], loading: false, error: "" });
+  return {
+    ...(await importOriginal()),
+    useCycleCatalog: empty,
+    useGradeCatalog: empty,
+    useSectionCatalog: empty,
+  };
+});
+
 vi.mock("@guardians/guardiansService.js", () => ({
   guardiansService: guardiansServiceMock,
 }));
 
 const downloadCsvMock = vi.hoisted(() => vi.fn());
+const downloadFileMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@shared/utils/download.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  downloadResponseFile: downloadFileMock,
+}));
 
 vi.mock("@shared/utils/csv.js", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -93,6 +117,17 @@ const SAMPLE = [
   },
 ];
 
+// Las acciones del listado viven en el menu "⋯" de la barra de filtros.
+async function openListActions(user) {
+  await user.click(
+    screen.getByRole("button", { name: "Acciones de estudiantes" })
+  );
+}
+
+function listAction(name) {
+  return screen.getByRole("menuitem", { name: new RegExp(`^${name}`) });
+}
+
 describe("AlumnosPage", () => {
   beforeEach(() => {
     studentsServiceMock.list.mockReset();
@@ -113,6 +148,8 @@ describe("AlumnosPage", () => {
     studentsServiceMock.listGuardianRelations.mockResolvedValue([]);
     guardiansServiceMock.list.mockReset();
     downloadCsvMock.mockReset();
+    downloadFileMock.mockReset();
+    studentsServiceMock.importTemplate.mockReset();
   });
 
   test("pide solo la página visible y recupera filtros y tamaño desde la URL", async () => {
@@ -179,7 +216,9 @@ describe("AlumnosPage", () => {
       screen.getByPlaceholderText(/Buscar por nombre/),
       "EST-2026"
     );
-    expect(screen.getByRole("button", { name: "Exportar CSV" })).toBeDisabled();
+    await openListActions(user);
+    expect(listAction("Exportar CSV")).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
     await waitFor(() =>
       expect(studentsServiceMock.listPage).toHaveBeenLastCalledWith({
         page: 1,
@@ -232,7 +271,8 @@ describe("AlumnosPage", () => {
     await screen.findByText("DEMO-26");
     expect(studentsServiceMock.listPage).toHaveBeenCalledTimes(1);
     expect(downloadCsvMock).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Exportar CSV" }));
+    await openListActions(user);
+    await user.click(listAction("Exportar CSV"));
     await waitFor(() => expect(downloadCsvMock).toHaveBeenCalledTimes(1));
     const [filename, csv] = downloadCsvMock.mock.calls[0];
     expect(filename).toBe("alumnos.csv");
@@ -420,5 +460,72 @@ describe("AlumnosPage", () => {
     expect(
       JSON.parse(screen.getByTestId("location").textContent).state
     ).toEqual({ studentListLocation: "/app/alumnos" });
+  });
+
+  test("sin permisos no ofrece exportación de carnés ni importación", async () => {
+    renderWithSession(<AlumnosPage />, { user: sessionUser([]) });
+    await screen.findByText("Maria Jose Lopez Garcia");
+
+    await openListActions(userEvent.setup());
+    for (const name of [
+      "Exportar carnés",
+      "Importar CSV",
+      "Descargar plantilla",
+    ]) {
+      expect(
+        screen.queryByRole("menuitem", { name: new RegExp(`^${name}`) })
+      ).not.toBeInTheDocument();
+    }
+    expect(listAction("Exportar CSV")).toBeInTheDocument();
+  });
+
+  test("la tabla no tiene casillas: exportar carnés abre el diálogo", async () => {
+    const user = userEvent.setup();
+    renderWithSession(<AlumnosPage />, {
+      user: sessionUser(["attendance.credential.print"]),
+    });
+    await screen.findByText("Maria Jose Lopez Garcia");
+
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/seleccionados/)).not.toBeInTheDocument();
+
+    await openListActions(user);
+    await user.click(listAction("Exportar carnés"));
+    const dialog = await screen.findByRole("dialog", {
+      name: /Exportar carnés \(0\)/,
+    });
+    expect(
+      within(dialog).getByText(/Paso 1 de 3: seleccionar estudiantes/)
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    );
+  });
+
+  test("descarga la plantilla y abre la importación con permiso de alta", async () => {
+    const file = { blob: new Blob(["nombres*"]), headers: new Headers() };
+    studentsServiceMock.importTemplate.mockResolvedValue(file);
+    const user = userEvent.setup();
+    renderWithSession(<AlumnosPage />, {
+      user: sessionUser(["student.edit_basic"]),
+    });
+    await screen.findByText("Maria Jose Lopez Garcia");
+
+    await openListActions(user);
+    await user.click(listAction("Descargar plantilla"));
+    await waitFor(() =>
+      expect(downloadFileMock).toHaveBeenCalledWith(
+        file,
+        "plantilla-estudiantes.csv"
+      )
+    );
+    await openListActions(user);
+    await user.click(listAction("Importar CSV"));
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Importar estudiantes desde CSV",
+      })
+    ).toBeInTheDocument();
   });
 });

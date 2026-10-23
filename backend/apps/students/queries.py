@@ -23,11 +23,29 @@ def student_or_404(public_id):
     return _get(Student.objects.all(), public_id, "el estudiante")
 
 
-def students(*, include_inactive=True, status=None):
+def students(*, include_inactive=True, status=None, level=None, grade=None, section=None):
+    """Estudiantes; ``level``/``grade``/``section`` (``public_id``) filtran por
+    matricula ACTIVA en ese nivel, grado o seccion (``active_enrolments``).
+
+    Es un ``Exists`` y no un join: un estudiante sale una sola vez aunque el
+    filtro coincidiera con mas de una fila de matricula.
+    """
     queryset = _filter_active(
         Student.objects.select_related("person"), include_inactive=include_inactive
     )
-    return queryset if status is None else queryset.filter(status=status)
+    if status is not None:
+        queryset = queryset.filter(status=status)
+    if level is None and grade is None and section is None:
+        return queryset
+
+    from django.db.models import Exists, OuterRef
+
+    from apps.enrolments.services import active_enrolments
+
+    enrolments = active_enrolments(grade_id=grade, section_id=section)
+    if level is not None:
+        enrolments = enrolments.filter(grade__level__public_id=level)
+    return queryset.filter(Exists(enrolments.filter(student=OuterRef("pk"))))
 
 
 def student_dossier_queryset(*, actor):
