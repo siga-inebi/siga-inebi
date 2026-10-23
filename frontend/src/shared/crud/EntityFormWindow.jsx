@@ -36,6 +36,9 @@ import { FormTextField } from "@ui/forms/FormTextField.jsx";
  * (estudiante, docente, matricula, encargado), que con un `select` obligaban a
  * descargar y recorrer el padron completo. Declaran
  * `search: { name, fetchPage, mapResult }` y, al editar, `initialOption`.
+ * Con `fills: (opcion) => valores`, elegir una opcion precarga otros campos del
+ * formulario (los datos de una persona ya registrada, por ejemplo); solo se
+ * escriben los campos que el formulario declara.
  *
  * `fields` tambien puede ser una funcion `(values) => campos` cuando un campo
  * depende de otro (las secciones de un ciclo, por ejemplo). Ese campo declara
@@ -115,6 +118,19 @@ export function EntityFormWindow({
       );
       return { ...current, ...cleared, [name]: value };
     });
+
+  const fillValues = (filled) => {
+    if (!filled) {
+      return;
+    }
+    const known = new Set(resolvedFields.map((field) => field.name));
+    setValues((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        Object.entries(filled).filter(([name]) => known.has(name))
+      ),
+    }));
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -242,6 +258,7 @@ export function EntityFormWindow({
                 disabled={submitting}
                 field={field}
                 onChange={setValue}
+                onFill={fillValues}
                 value={values[field.name]}
               />
             </Box>
@@ -276,7 +293,7 @@ function isFullWidth(field) {
   );
 }
 
-function EntityField({ disabled, field, onChange, value }) {
+function EntityField({ disabled, field, onChange, onFill, value }) {
   if (field.type === "checkbox") {
     return (
       <FormControlLabel
@@ -332,6 +349,9 @@ function EntityField({ disabled, field, onChange, value }) {
           label={field.label}
           name={field.name}
           onChange={(event) => onChange(field.name, event.target.value)}
+          onOptionChange={
+            field.fills ? (option) => onFill(field.fills(option)) : undefined
+          }
           placeholder={field.placeholder}
           required={field.required}
           search={field.search}

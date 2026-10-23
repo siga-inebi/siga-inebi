@@ -46,6 +46,7 @@ vi.mock("@auth/authService.js", () => ({ authService: authServiceMock }));
 import { MyAccountPage } from "@auth/MyAccountPage.jsx";
 import { DashboardPage } from "@dashboard/DashboardPage.jsx";
 import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
+import { existingPersonField } from "@people/existingPersonSearch.js";
 import {
   defineCatalog,
   useCatalogOptions,
@@ -295,6 +296,73 @@ describe("Selector con busqueda remota en EntityFormWindow (1.3)", () => {
     expect(fetchPage).toHaveBeenCalledWith({ search: "Mar" });
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith({ teacher_id: "t-1" })
+    );
+  });
+
+  test("elegir una persona registrada precarga sus datos salvo CUI y nacimiento", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(async () => ({
+      results: [
+        {
+          public_id: "persona-1",
+          first_name: "Ana",
+          last_name: "Gomez",
+          cui: "1234567890123",
+          birth_date: "2001-05-20",
+          email: "ana@example.test",
+          address: "Zona 1",
+        },
+      ],
+    }));
+    const onSubmit = vi.fn();
+    renderWithSession(
+      <EntityFormWindow
+        fields={[
+          {
+            ...existingPersonField,
+            search: { ...existingPersonField.search, fetchPage },
+          },
+          { name: "first_name", label: "Nombres" },
+          { name: "cui", label: "CUI" },
+          { name: "birth_date", label: "Fecha de nacimiento" },
+          { name: "address", label: "Dirección" },
+        ]}
+        initialValues={{
+          person_public_id: "",
+          first_name: "",
+          cui: "",
+          birth_date: "",
+          address: "",
+        }}
+        onCancel={vi.fn()}
+        onSubmit={onSubmit}
+        open
+        title="Nuevo registro"
+      />,
+      { user: sessionUser() }
+    );
+
+    await user.type(
+      await screen.findByLabelText(/Persona ya registrada/),
+      "Ana"
+    );
+    await user.click(await screen.findByText(/^Ana Gomez/));
+
+    expect(screen.getByLabelText("Nombres")).toHaveValue("Ana");
+    expect(screen.getByLabelText("Dirección")).toHaveValue("Zona 1");
+    expect(screen.getByLabelText("CUI")).toHaveValue("");
+    expect(screen.getByLabelText("Fecha de nacimiento")).toHaveValue("");
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    // Solo se escriben los campos del formulario: el correo no viaja.
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({
+        person_public_id: "persona-1",
+        first_name: "Ana",
+        cui: "",
+        birth_date: "",
+        address: "Zona 1",
+      })
     );
   });
 });
