@@ -239,31 +239,13 @@ export function EntityFormWindow({
           </Alert>
         ) : null}
 
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
-            columnGap: 2,
-            rowGap: 2.5,
-          }}
-        >
-          {resolvedFields.map((field) => (
-            <Box
-              key={field.name}
-              sx={{
-                gridColumn: isFullWidth(field) ? { sm: "1 / -1" } : undefined,
-              }}
-            >
-              <EntityField
-                disabled={submitting}
-                field={field}
-                onChange={setValue}
-                onFill={fillValues}
-                value={values[field.name]}
-              />
-            </Box>
-          ))}
-        </Box>
+        <EntityFields
+          disabled={submitting}
+          fields={resolvedFields}
+          onChange={setValue}
+          onFill={fillValues}
+          values={values}
+        />
         {children ? (
           <Box sx={{ mt: 2.5 }}>
             {typeof children === "function"
@@ -273,6 +255,42 @@ export function EntityFormWindow({
         ) : null}
       </Box>
     </FloatingWindow>
+  );
+}
+
+/**
+ * Rejilla de campos declarativos, sin ventana ni envio.
+ *
+ * Para pantallas que editan dentro de una ventana que ya existe (la ficha del
+ * encargado, por ejemplo) en lugar de abrir otra encima.
+ */
+export function EntityFields({ disabled, fields, onChange, onFill, values }) {
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+        columnGap: 2,
+        rowGap: 2.5,
+      }}
+    >
+      {fields.map((field) => (
+        <Box
+          key={field.name}
+          sx={{
+            gridColumn: isFullWidth(field) ? { sm: "1 / -1" } : undefined,
+          }}
+        >
+          <EntityField
+            disabled={disabled}
+            field={field}
+            onChange={onChange}
+            onFill={onFill ?? (() => {})}
+            value={values[field.name]}
+          />
+        </Box>
+      ))}
+    </Box>
   );
 }
 

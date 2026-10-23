@@ -235,7 +235,7 @@ def test_student_guardian_relation_description_can_be_corrected(logged_in_client
 
 @pytest.mark.api
 @pytest.mark.django_db
-def test_ending_primary_student_guardian_relation_requires_replacement(logged_in_client):
+def test_ending_primary_student_guardian_relation_without_replacement(logged_in_client):
     relation = StudentGuardianRelationFactory(ends_at=None)
     _grant_student_permission(logged_in_client.user, "student_edit_basic", relation.student)
 
@@ -244,9 +244,10 @@ def test_ending_primary_student_guardian_relation_requires_replacement(logged_in
         content_type="application/json",
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 200
     relation.refresh_from_db()
-    assert relation.ends_at is None
+    assert relation.ends_at == timezone.localdate()
+    assert relation.is_primary is False
     assert StudentGuardianRelation.objects.filter(pk=relation.pk).exists()
 
 

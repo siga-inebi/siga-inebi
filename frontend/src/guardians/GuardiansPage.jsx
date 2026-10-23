@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
@@ -20,7 +20,6 @@ import { SearchField } from "@ui/filters/SearchField.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { ViewDetailButton } from "@ui/table/ViewDetailButton.jsx";
 import { MutedCell } from "@ui/table/cells.jsx";
-import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 
@@ -30,9 +29,9 @@ const GuardianDeactivationDialog = lazy(() =>
   }))
 );
 
-const GuardianStudentsWindow = lazy(() =>
-  import("./GuardianStudentsWindow.jsx").then((module) => ({
-    default: module.GuardianStudentsWindow,
+const GuardianWindow = lazy(() =>
+  import("./GuardianWindow.jsx").then((module) => ({
+    default: module.GuardianWindow,
   }))
 );
 
@@ -160,11 +159,9 @@ export function GuardiansPage() {
     list.search.trim() !== (list.params.search ?? "");
 
   const [selected, setSelected] = useState(null);
-  const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [deactivating, setDeactivating] = useState(null);
   const [deactivationNotice, setDeactivationNotice] = useState("");
-  const [studentsFor, setStudentsFor] = useState(null);
 
   const handleCreate = async (values) => {
     await guardiansService.create({
@@ -178,9 +175,9 @@ export function GuardiansPage() {
   };
 
   const handleUpdate = async (values) => {
-    const updated = await guardiansService.update(editing.id, {
+    const updated = await guardiansService.update(selected.id, {
       person: {
-        public_id: editing.person.public_id,
+        public_id: selected.person.public_id,
         first_name: values.first_name,
         last_name: values.last_name,
         email: values.email,
@@ -194,7 +191,6 @@ export function GuardiansPage() {
     });
     list.refresh();
     setSelected(updated);
-    setEditing(null);
   };
 
   return (
@@ -304,51 +300,33 @@ export function GuardiansPage() {
         ) : null}
       </SectionCard>
 
-      <DetailWindow
-        actions={
-          selected ? (
-            <>
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  setStudentsFor(selected);
-                  setSelected(null);
-                }}
-              >
-                Estudiantes vinculados
-              </Button>
-              {selected.is_active && selected.actions?.deactivate === true ? (
-                <Button
-                  color="error"
-                  variant="outlined"
-                  onClick={() => {
+      {selected ? (
+        <Suspense fallback={<p role="status">Preparando encargado…</p>}>
+          <GuardianWindow
+            editFields={GUARDIAN_EDIT_FIELDS}
+            editValues={guardianEditValues}
+            fields={[
+              { label: "Nombre completo", value: fullName(selected) },
+              { label: "Correo", value: selected.person.email },
+              { label: "Teléfono", value: selected.person.phone_number },
+              { label: "Actividad", value: activityLabel(selected) },
+            ]}
+            guardian={selected}
+            key={selected.id}
+            onClose={() => setSelected(null)}
+            onDeactivate={
+              selected.is_active && selected.actions?.deactivate === true
+                ? () => {
                     setDeactivating(selected);
                     setSelected(null);
-                  }}
-                >
-                  Desactivar encargado
-                </Button>
-              ) : null}
-              <Button onClick={() => setEditing(selected)} variant="contained">
-                Editar
-              </Button>
-            </>
-          ) : null
-        }
-        fields={
-          selected
-            ? [
-                { label: "Nombre completo", value: fullName(selected) },
-                { label: "Correo", value: selected.person.email },
-                { label: "Teléfono", value: selected.person.phone_number },
-                { label: "Actividad", value: activityLabel(selected) },
-              ]
-            : []
-        }
-        onClose={() => setSelected(null)}
-        open={Boolean(selected)}
-        title={selected ? fullName(selected) : ""}
-      />
+                  }
+                : undefined
+            }
+            onSave={handleUpdate}
+            title={fullName(selected)}
+          />
+        </Suspense>
+      ) : null}
 
       {deactivating ? (
         <Suspense fallback={<p role="status">Preparando confirmación…</p>}>
@@ -369,21 +347,6 @@ export function GuardiansPage() {
         </Suspense>
       ) : null}
 
-      {studentsFor ? (
-        <Suspense
-          fallback={<p role="status">Preparando estudiantes vinculados...</p>}
-        >
-          <GuardianStudentsWindow
-            key={studentsFor.id}
-            guardian={studentsFor}
-            onClose={() => {
-              setSelected(studentsFor);
-              setStudentsFor(null);
-            }}
-          />
-        </Suspense>
-      ) : null}
-
       <EntityFormWindow
         fields={
           canSelectPerson
@@ -398,32 +361,21 @@ export function GuardiansPage() {
         submitLabel="Crear encargado"
         title="Nuevo encargado"
       />
-
-      {editing ? (
-        <EntityFormWindow
-          fields={GUARDIAN_EDIT_FIELDS}
-          initialValues={{
-            first_name: editing.person.first_name,
-            last_name: editing.person.last_name,
-            sex: editing.person.sex ?? "",
-            nationality: editing.person.nationality ?? "",
-            email: editing.person.email ?? "",
-            phone_number: editing.person.phone_number ?? "",
-            address: editing.person.address ?? "",
-            department: editing.person.department ?? "",
-            municipality: editing.person.municipality ?? "",
-          }}
-          key={editing.id}
-          onCancel={() => setEditing(null)}
-          onSubmit={handleUpdate}
-          open
-          submitLabel="Guardar cambios"
-          title={`Editar ${fullName(editing)}`}
-        />
-      ) : null}
     </>
   );
 }
+
+const guardianEditValues = (guardian) => ({
+  first_name: guardian.person.first_name,
+  last_name: guardian.person.last_name,
+  sex: guardian.person.sex ?? "",
+  nationality: guardian.person.nationality ?? "",
+  email: guardian.person.email ?? "",
+  phone_number: guardian.person.phone_number ?? "",
+  address: guardian.person.address ?? "",
+  department: guardian.person.department ?? "",
+  municipality: guardian.person.municipality ?? "",
+});
 
 const activityLabel = (guardian) =>
   guardian.is_active === false ? "Desactivado" : "Activo";
