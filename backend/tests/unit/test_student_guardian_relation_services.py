@@ -1,5 +1,6 @@
 import pytest
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from apps.common.models import DomainError
 from apps.students.models import StudentGuardianRelation
@@ -45,19 +46,21 @@ def test_database_allows_at_most_one_current_primary_relationship():
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_ending_primary_relationship_requires_a_current_replacement():
+def test_ending_primary_relationship_without_replacement_leaves_no_primary():
     relation = create_student_guardian_relation(
         student=StudentFactory(),
         guardian=GuardianFactory(),
         relationship_label="Madre",
     )
 
-    with pytest.raises(DomainError, match="relacion principal de reemplazo"):
-        end_student_guardian_relation(relation=relation)
+    end_student_guardian_relation(relation=relation)
 
     relation.refresh_from_db()
-    assert relation.ends_at is None
-    assert relation.is_primary is True
+    assert relation.ends_at == timezone.localdate()
+    assert relation.is_primary is False
+    assert not StudentGuardianRelation.objects.filter(
+        student=relation.student, is_primary=True, ends_at__isnull=True
+    ).exists()
 
 
 @pytest.mark.unit

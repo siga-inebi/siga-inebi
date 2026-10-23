@@ -16,8 +16,9 @@ desactivaciones de personas, alta/búsqueda de encargados E8 ni cambios D5/E9.
   la restricción PostgreSQL mantiene como máximo un principal vigente.
 - **Finalizar vínculo:** confirmación con aviso de corte del acceso asociado y
   conservación del historial. La fecha la determina el servicio existente.
-  Para un principal se elige primero otro vínculo vigente del mismo estudiante;
-  sin reemplazo no se ofrece confirmar. No cambia este requisito del dominio.
+  Para un principal se ofrece elegir otro vínculo vigente del mismo estudiante
+  como nuevo principal, o continuar sin elegir: el estudiante queda sin
+  encargado principal (decisión del 2026-10-23; antes el reemplazo era obligatorio).
 - Reemplazos por páginas de servidor, sin descargar el catálogo. La segunda página
   sigue disponible. El servidor excluye el vínculo a finalizar, los terminados,
   inactivos, futuros y los de otros estudiantes antes de contar/paginar.
@@ -60,9 +61,11 @@ con `before`/`after`. No audita contenido médico ni documentos.
 
 `GET /api/v1/students/records/{public_id}/guardians/?page=1`
 
-Agrega por fila `actions: {edit, make_primary, end, requires_replacement}`.
+Agrega por fila `actions: {edit, make_primary, end, offers_replacement}`.
 Las tres primeras son booleanos calculados según alcance de edición y estado del
-vínculo; la última indica el requisito del principal. Sin edición, la ficha sigue
+vínculo; la última indica que es el principal y conviene ofrecer un reemplazo
+opcional (antes `requires_replacement`). `GET /students/guardians/{id}/students/`
+expone las mismas `actions` por fila para la ficha del encargado. Sin edición, la ficha sigue
 siendo consultable y no ofrece las acciones de E5.
 
 El parámetro opcional `replacement_for={id}` limita la colección a reemplazos

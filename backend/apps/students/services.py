@@ -336,7 +336,7 @@ def guardian_relation_actions(*, relation, can_manage):
             and not relation.is_primary
         ),
         "end": can_manage and relation.ends_at is None,
-        "requires_replacement": relation.is_primary,
+        "offers_replacement": relation.is_primary,
     }
 
 
@@ -373,7 +373,7 @@ def change_primary_student_guardian_relation(*, relation, actor=None):
 
 @transaction.atomic
 def end_student_guardian_relation(*, relation, replacement_relation=None, actor=None):
-    """End a link without deleting history and preserve one current primary link."""
+    """End a link without deleting history; optionally promote a replacement primary."""
     student = Student.objects.select_for_update().get(pk=relation.student_id)
     relations = StudentGuardianRelation.objects.select_for_update().filter(student=student)
     relation = relations.filter(pk=relation.pk, ends_at__isnull=True).first()
@@ -391,11 +391,10 @@ def end_student_guardian_relation(*, relation, replacement_relation=None, actor=
         if replacement is None or replacement.pk == relation.pk:
             raise DomainError("El reemplazo debe ser otra relacion vigente del mismo estudiante.")
 
-    if relation.is_primary:
-        if replacement is None:
-            raise DomainError(
-                "Se requiere una relacion principal de reemplazo antes de terminar la actual."
-            )
+    # Decision del usuario (2026-10-23): un estudiante puede quedar sin encargado
+    # principal. El reemplazo es opcional; si se da, se promueve en la misma
+    # transaccion.
+    if relation.is_primary and replacement is not None:
         change_primary_student_guardian_relation(relation=replacement, actor=actor)
 
     relation.ends_at = timezone.localdate()

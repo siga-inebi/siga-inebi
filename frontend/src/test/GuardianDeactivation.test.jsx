@@ -9,6 +9,8 @@ const service = vi.hoisted(() => ({
   list: vi.fn(),
   listPage: vi.fn(),
   deactivate: vi.fn(),
+  // La ficha unica consulta sus estudiantes vinculados al abrirse.
+  linkedStudents: vi.fn(async () => ({ results: [], count: 0, actions: {} })),
 }));
 vi.mock("@guardians/guardiansService.js", () => ({
   guardiansService: service,
@@ -30,7 +32,7 @@ async function openDetail(user) {
   await user.click(
     await screen.findByRole("button", { name: /Ver detalle de Encargado/ })
   );
-  return screen.getByRole("dialog");
+  return screen.findByRole("dialog");
 }
 
 async function openConfirmation(user) {
