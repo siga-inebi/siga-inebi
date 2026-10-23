@@ -95,3 +95,68 @@ causa sin revelar información de ningún estudiante.
 - **WHEN** un operador la escanea
 - **THEN** el sistema rechaza el movimiento indicando que el estudiante no tiene inscripción
   activa
+
+## MODIFIED Requirements
+
+Cambio registrado en `docs/requirements/change-control.md` (CC-001). Antes, el código QR solo
+viajaba en la respuesta de emisión y reimprimir exigía revocar y emitir de nuevo (#631, AS2).
+
+### Requirement: Reimpresión del código QR con permiso propio
+
+El sistema DEBE permitir volver a obtener el código QR de una credencial vigente sin revocarla,
+únicamente a usuarios con el permiso `attendance.credential.print` y alcance sobre el
+estudiante. Cada reimpresión DEBE quedar en la bitácora con el actor y el estudiante, y el
+asiento NO DEBE contener el identificador opaco. Revocar queda reservado para extravío, retiro
+o cualquier causa que invalide la credencial (RF-CRE-003).
+
+#### Scenario: Reimpresión de una credencial vigente
+
+- **GIVEN** un estudiante con credencial vigente
+- **WHEN** un usuario con `attendance.credential.print` y alcance solicita su QR
+- **THEN** el sistema devuelve la imagen del mismo QR emitido
+- **AND** registra `attendance.credential.qr_revealed` sin el identificador opaco
+
+#### Scenario: Reimpresión sin permiso
+
+- **GIVEN** un usuario con `attendance.credential.issue` pero sin `attendance.credential.print`
+- **WHEN** solicita el QR de una credencial vigente
+- **THEN** el sistema rechaza la operación con 403
+
+### Requirement: Formato imprimible de la credencial
+
+El material imprimible DEBE generarse en el servidor como un wireframe de 96 × 54 mm (16:9) a
+300 dpi: fondo transparente, guía de corte, nombre de la institución arriba, recuadro de
+fotografía a la izquierda (o un recuadro punteado «FOTO» si no hay fotografía), nombre, grado y
+sección y ciclo escolar al centro, y el código QR a la derecha. Solo DEBE mostrar los campos del
+requerimiento «Contenido visible de la credencial». El diseño gráfico se agrega encima, fuera del
+sistema.
+
+### Requirement: Exportación individual y por lote
+
+El sistema DEBE exportar carnés de 1 a 100 estudiantes distintos por solicitud, en PDF (hoja
+carta con 8 carnés a tamaño real y marcas de corte), en PNG (un solo estudiante) o en un ZIP con
+un PNG por estudiante. Antes de exportar DEBE ofrecer una vista previa que clasifique cada
+estudiante como listo, por emitir u omitido con su motivo, sin emitir nada. Al confirmar, DEBE
+emitir las credenciales faltantes solo donde el usuario tenga además
+`attendance.credential.issue`, y omitir el resto. La exportación DEBE auditarse con la cantidad
+y los estudiantes, nunca con los identificadores opacos.
+
+La selección se hace en el diálogo «Exportar carnés» del listado de estudiantes, no en la tabla
+principal: filtros en cascada nivel → grado → sección (del ciclo activo, por matrícula activa) más
+búsqueda por nombre o código; la elección uno a uno se conserva entre filtros y páginas, y
+«Seleccionar los N del filtro» solo se ofrece cuando el filtro no supera los 100.
+
+#### Scenario: Exportación por lote con estudiantes sin credencial
+
+- **GIVEN** una selección con un estudiante con credencial vigente, uno sin credencial y uno sin
+  inscripción activa
+- **WHEN** un usuario con permisos de impresión y emisión confirma la exportación en PDF
+- **THEN** el sistema emite la credencial faltante y devuelve un PDF con dos carnés
+- **AND** omite al estudiante sin inscripción activa indicando el motivo
+
+#### Scenario: Vista previa sin efectos
+
+- **GIVEN** una selección con estudiantes sin credencial
+- **WHEN** el usuario solicita la vista previa
+- **THEN** el sistema informa qué se emitiría
+- **AND** no emite ninguna credencial

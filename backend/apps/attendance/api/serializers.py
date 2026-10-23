@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.attendance.card_export import EXPORT_FORMATS, FORMAT_PNG, MAX_EXPORT_SIZE
 from apps.attendance.models import (
     AbsenceNotification,
     AttendanceAlert,
@@ -626,6 +627,66 @@ class CredentialPrintContentSerializer(serializers.Serializer):
     academic_cycle_name = serializers.CharField()
     institution_name = serializers.CharField()
     photo_url = serializers.CharField(allow_null=True)
+
+
+class CredentialQrRequestSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField(help_text="Public ID del estudiante.")
+
+
+class CredentialQrSerializer(serializers.Serializer):
+    """
+    Reimpresion del QR de la credencial vigente. Solo la imagen: el token en
+    texto no viaja, igual que en el resto de respuestas fuera de la emision.
+    """
+
+    qr_code = serializers.CharField(
+        help_text="Imagen PNG del codigo QR, en base64, codificando unicamente el identificador."
+    )
+
+
+class CredentialExportRequestSerializer(serializers.Serializer):
+    student_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=MAX_EXPORT_SIZE,
+        help_text=f"Public IDs de 1 a {MAX_EXPORT_SIZE} estudiantes distintos.",
+    )
+    format = serializers.ChoiceField(
+        choices=EXPORT_FORMATS,
+        help_text="`pdf` (carta, 8 por hoja), `png` (exactamente un estudiante) o `zip` de PNG.",
+    )
+
+    def validate_student_ids(self, value):
+        if len(value) != len(set(value)):
+            raise serializers.ValidationError("Un estudiante no puede repetirse en el lote.")
+        return value
+
+    def validate(self, attrs):
+        if attrs["format"] == FORMAT_PNG and len(attrs["student_ids"]) != 1:
+            raise serializers.ValidationError(
+                {"format": "El formato PNG exporta un solo carné; use PDF o ZIP para varios."}
+            )
+        return attrs
+
+
+class CredentialExportRowSerializer(serializers.Serializer):
+    student_id = serializers.CharField()
+    full_name = serializers.CharField(help_text="Vacio si el estudiante no existe o no es visible.")
+    student_code = serializers.CharField()
+    status = serializers.ChoiceField(choices=["ready", "to_issue", "skipped"])
+    reason = serializers.CharField(allow_null=True)
+
+
+class CredentialExportSummarySerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    ready = serializers.IntegerField()
+    to_issue = serializers.IntegerField()
+    skipped = serializers.IntegerField()
+
+
+class CredentialExportPreviewSerializer(serializers.Serializer):
+    summary = CredentialExportSummarySerializer()
+    rows = CredentialExportRowSerializer(many=True)
 
 
 class JustificationReasonSerializer(serializers.ModelSerializer):

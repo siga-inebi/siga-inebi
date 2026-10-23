@@ -30,6 +30,25 @@ export const studentsService = {
   list: (params = {}) =>
     collectAllPages((page) => studentsService.listPage({ ...params, ...page })),
   get: (id) => apiClient.get(`/students/${id}/`),
+  /** Plantilla CSV de importación (solo encabezados): `{ blob, headers }`. */
+  importTemplate: () => apiClient.getFile("/students/import/template/"),
+  /**
+   * Importación CSV, todo o nada. La vista previa valida cada fila sin
+   * guardar y devuelve `file_sha256`; la confirmación manda el MISMO archivo y
+   * ese hash. Si el archivo cambió responde 409; si alguna fila falla, 422 con
+   * las filas y no inserta ninguna.
+   */
+  previewImport: (file) => {
+    const payload = new FormData();
+    payload.set("file", file);
+    return apiClient.post("/students/import/preview/", payload);
+  },
+  confirmImport: (file, fileSha256) => {
+    const payload = new FormData();
+    payload.set("file", file);
+    payload.set("file_sha256", fileSha256);
+    return apiClient.post("/students/import/confirm/", payload);
+  },
   /**
    * Siguiente codigo de estudiante libre, para prellenar el alta.
    *

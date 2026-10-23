@@ -147,9 +147,10 @@ export const attendanceService = {
     ),
 
   /**
-   * Carné del estudiante (RF-CRE-001..004). Solo la respuesta de emisión trae
-   * el QR (`qr_code`, PNG en base64): no hay forma de pedirlo otra vez, así que
-   * reimprimir es revocar y emitir de nuevo.
+   * Carné del estudiante (RF-CRE-001..004). La emisión responde el QR
+   * (`qr_code`, PNG en base64); después, quien tiene
+   * `attendance.credential.print` lo vuelve a pedir con `revealCardQr`, y cada
+   * lectura queda auditada en el backend.
    */
   cardStatus: (studentId) =>
     apiClient.get(
@@ -166,6 +167,27 @@ export const attendanceService = {
       student_id: studentId,
       reason,
     }),
+  /** QR del carné vigente. Es POST para que el estudiante no quede en la URL. */
+  revealCardQr: (studentId) =>
+    apiClient.post(`${ROOT}/credentials/qr/`, { student_id: studentId }),
+  /**
+   * Exportación de carnés (1 a 100 estudiantes). `format` es `pdf` (un solo
+   * archivo con todos), `zip` (un PNG por carné) o `png` (exactamente uno).
+   * La vista previa no emite nada: dice qué carnés están listos, cuáles se
+   * emitirán al confirmar y cuáles se omiten y por qué.
+   */
+  previewCardExport: (studentIds, format) =>
+    apiClient.post(`${ROOT}/credentials/export/preview/`, {
+      student_ids: studentIds,
+      format,
+    }),
+  /** Emite los carnés que falten y responde el archivo: `{ blob, headers }`. */
+  exportCards: (studentIds, format) =>
+    apiClient.postForFile(
+      `${ROOT}/credentials/export/`,
+      { student_ids: studentIds, format },
+      `${CARD_EXPORT_MIME[format] ?? "application/octet-stream"}, application/json`
+    ),
 
   /** Justificaciones (RF-JUS-001..007). */
   listJustifications: (params) =>
@@ -228,6 +250,13 @@ export const CARD_STATUS_LABEL = {
   active: "Vigente",
   revoked: "Revocado",
   none: "Sin carné",
+};
+
+/** Tipo del archivo de cada formato de exportación de carnés. */
+const CARD_EXPORT_MIME = {
+  pdf: "application/pdf",
+  png: "image/png",
+  zip: "application/zip",
 };
 
 export const CARD_STATUS_VARIANT = {

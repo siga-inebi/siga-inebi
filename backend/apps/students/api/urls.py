@@ -1,6 +1,11 @@
 from django.urls import path
 
 from apps.students.api.guardian_records import GuardianStudentCandidatesView, GuardianStudentsView
+from apps.students.api.imports import (
+    StudentImportConfirmView,
+    StudentImportPreviewView,
+    StudentImportTemplateView,
+)
 from apps.students.api.record_workflows import (
     StudentRecordGuardianLinkView,
     StudentRecordStatusView,
@@ -54,6 +59,9 @@ urlpatterns = [
     ),
     path("", StudentListCreateView.as_view(), name="student-list"),
     path("next-code/", StudentNextCodeView.as_view(), name="student-next-code"),
+    path("import/template/", StudentImportTemplateView.as_view(), name="student-import-template"),
+    path("import/preview/", StudentImportPreviewView.as_view(), name="student-import-preview"),
+    path("import/confirm/", StudentImportConfirmView.as_view(), name="student-import-confirm"),
     path("<int:pk>/", StudentDetailView.as_view(), name="student-detail"),
     path("guardians/", GuardianListCreateView.as_view(), name="guardian-list"),
     path("guardians/<int:pk>/", GuardianDetailView.as_view(), name="guardian-detail"),

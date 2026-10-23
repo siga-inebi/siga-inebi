@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import Avatar from "@mui/material/Avatar";
 import Alert from "@mui/material/Alert";
@@ -26,7 +26,9 @@ import { EntityFormWindow } from "@shared/crud/EntityFormWindow.jsx";
 import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { useServerList } from "@shared/crud/useServerList.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
-import { ExportCsvButton } from "@ui/buttons/ExportCsvButton.jsx";
+import { downloadResponseFile } from "@shared/utils/download.js";
+import { useCsvExport } from "@ui/buttons/ExportCsvButton.jsx";
+import { RowActionsMenu } from "@ui/buttons/RowActionsMenu.jsx";
 import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
@@ -36,8 +38,24 @@ import { ViewDetailButton } from "@ui/table/ViewDetailButton.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
 
+// Los dialogos solo se descargan cuando se abren: el listado no los paga.
+const CardExportDialog = lazy(() =>
+  import("@attendance/CardExportDialog.jsx").then((module) => ({
+    default: module.CardExportDialog,
+  }))
+);
+const StudentImportDialog = lazy(() =>
+  import("./StudentImportDialog.jsx").then((module) => ({
+    default: module.StudentImportDialog,
+  }))
+);
+
 export function AlumnosPage() {
-  const canSelectPerson = usePermissions().can(PERMISSION.PERSON_EDIT);
+  const { can } = usePermissions();
+  const canSelectPerson = can(PERMISSION.PERSON_EDIT);
+  // Solo presentacion: el backend vuelve a autorizar cada exportacion e importacion.
+  const canExportCards = can(PERMISSION.ATTENDANCE_CREDENTIAL_PRINT);
+  const canImport = can(PERMISSION.STUDENT_EDIT_BASIC);
   const list = useServerList({
     queryKey: [...queryKeys.students.all, "list"],
     fetchPage: studentsService.listPage,
@@ -49,6 +67,27 @@ export function AlumnosPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(null);
+  const [exportingCards, setExportingCards] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [templateError, setTemplateError] = useState("");
+  const csv = useCsvExport({
+    fetchPage: studentsService.listPage,
+    params: list.exportParams,
+    columns: CSV_COLUMNS,
+    filename: "alumnos.csv",
+  });
+
+  const downloadTemplate = async () => {
+    setTemplateError("");
+    try {
+      downloadResponseFile(
+        await studentsService.importTemplate(),
+        "plantilla-estudiantes.csv"
+      );
+    } catch (requestError) {
+      setTemplateError(requestError.message);
+    }
+  };
   const handleSelect = (student) =>
     navigate(`/app/alumnos/${student.public_id}`, {
       state: { studentListLocation: `/app/alumnos${location.search}` },
@@ -146,12 +185,38 @@ export function AlumnosPage() {
       <SectionCard fillHeight>
         <FilterBar
           actions={
-            <ExportCsvButton
-              fetchPage={studentsService.listPage}
-              params={list.exportParams}
-              columns={CSV_COLUMNS}
-              filename="alumnos.csv"
-              disabled={updating || Boolean(list.error)}
+            <RowActionsMenu
+              actions={[
+                {
+                  key: "export-csv",
+                  label: "Exportar CSV",
+                  hint: "Todos los que coinciden con los filtros",
+                  disabled: updating || Boolean(list.error) || csv.running,
+                  onClick: csv.start,
+                },
+                {
+                  key: "export-cards",
+                  label: "Exportar carnés",
+                  hint: "PDF o ZIP, eligiendo por sección",
+                  hidden: !canExportCards,
+                  onClick: () => setExportingCards(true),
+                },
+                {
+                  key: "import-csv",
+                  label: "Importar CSV",
+                  hint: "Valida antes de insertar",
+                  hidden: !canImport,
+                  onClick: () => setImporting(true),
+                },
+                {
+                  key: "template",
+                  label: "Descargar plantilla",
+                  hint: "CSV vacío para la importación",
+                  hidden: !canImport,
+                  onClick: downloadTemplate,
+                },
+              ]}
+              label="estudiantes"
             />
           }
         >
@@ -182,6 +247,17 @@ export function AlumnosPage() {
           />
         </FilterBar>
 
+        {templateError ? (
+          <Alert
+            onClose={() => setTemplateError("")}
+            role="alert"
+            severity="error"
+            sx={{ mx: { xs: 1.5, md: 2 }, mt: 1.5 }}
+          >
+            {templateError}
+          </Alert>
+        ) : null}
+
         {list.error ? (
           <Alert
             role="alert"
@@ -211,6 +287,21 @@ export function AlumnosPage() {
           </SectionTableArea>
         ) : null}
       </SectionCard>
+
+      {csv.dialog}
+
+      <Suspense fallback={null}>
+        {exportingCards ? (
+          <CardExportDialog onClose={() => setExportingCards(false)} open />
+        ) : null}
+        {importing ? (
+          <StudentImportDialog
+            onClose={() => setImporting(false)}
+            onDownloadTemplate={downloadTemplate}
+            open
+          />
+        ) : null}
+      </Suspense>
 
       {creating ? (
         <EntityFormWindow

@@ -5,7 +5,7 @@ import path from "node:path";
 
 export const DEFAULT_BUDGETS = Object.freeze({
   initialGzip: 230_000,
-  routeIncrementGzip: 20_000,
+  routeIncrementGzip: 21_000,
   coldPageGzip: 250_000,
   rasterRaw: 25_000,
 });

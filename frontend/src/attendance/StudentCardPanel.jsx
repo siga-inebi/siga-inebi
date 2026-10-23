@@ -7,34 +7,38 @@ import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
-import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 
 import {
   attendanceService,
   CARD_STATUS_LABEL,
   CARD_STATUS_VARIANT,
 } from "@attendance/attendanceService.js";
+import { PERMISSION } from "@auth/permissions.js";
+import { usePermissions } from "@auth/usePermissions.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
+import { downloadResponseFile } from "@shared/utils/download.js";
 import { formatDateTime } from "@shared/utils/format.js";
-import { printStudentCard } from "@shared/utils/print.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { ReasonDialog } from "@ui/feedback/ReasonDialog.jsx";
 import { DetailField } from "@ui/layout/DetailWindow.jsx";
 
 /**
- * Carné de un estudiante (AS2; RF-CRE-001..004): estado, emisión con el QR,
- * impresión y revocación.
+ * Carné de un estudiante (AS2; RF-CRE-001..004): estado, emisión, QR,
+ * descarga y revocación.
  *
- * El QR solo viene en la respuesta de emisión y se muestra una vez: vive en
- * memoria mientras la pantalla está abierta, nunca en el dispositivo
- * (RNF-PRI-003). Reimprimir es revocar y emitir de nuevo; el carné anterior
- * queda como historia del expediente.
+ * Con `attendance.credential.print` el QR del carné vigente se vuelve a pedir
+ * cada vez que se abre la pantalla (el backend audita cada lectura) y el carné
+ * se descarga en PNG o PDF. El QR vive solo en memoria mientras la pantalla
+ * está abierta, nunca en el dispositivo (RNF-PRI-003). Revocar lo invalida; el
+ * carné anterior queda como historia del expediente.
  *
  * @param {object} props
  * @param {string} props.studentId
  * @param {string} [props.studentName]
  */
 export function StudentCardPanel({ studentId, studentName }) {
+  const canPrint = usePermissions().can(PERMISSION.ATTENDANCE_CREDENTIAL_PRINT);
   const status = useQuery({
     queryKey: queryKeys.attendance("card-status", studentId),
     queryFn: () => attendanceService.cardStatus(studentId),
@@ -45,6 +49,20 @@ export function StudentCardPanel({ studentId, studentName }) {
   const [revoking, setRevoking] = useState(false);
 
   const current = status.data?.status ?? "none";
+  // Recién emitido, el QR ya viene en la respuesta: no hace falta pedirlo.
+  const qr = useQuery({
+    queryKey: queryKeys.credentialQr(studentId, status.data?.public_id),
+    queryFn: () => attendanceService.revealCardQr(studentId),
+    enabled: canPrint && current === "active" && !issued,
+    gcTime: 0,
+    staleTime: Infinity,
+    retry: false,
+  });
+  // Un carné revocado conserva su id: sin la condición seguiría mostrando el
+  // QR que ya quedó en la cache de esta pantalla.
+  const qrCode =
+    issued?.qr_code ?? (current === "active" ? qr.data?.qr_code : null) ?? null;
+  const canDownload = canPrint && (current === "active" || Boolean(issued));
 
   const issue = async () => {
     setBusy(true);
@@ -58,16 +76,12 @@ export function StudentCardPanel({ studentId, studentName }) {
     }
   };
 
-  const print = async () => {
+  const download = async (format) => {
     setBusy(true);
     setError("");
     try {
-      const content = await attendanceService.cardPrintContent(studentId);
-      if (!printStudentCard(content, issued.qr_code)) {
-        setError(
-          "El navegador bloqueó la ventana de impresión. Permita las ventanas emergentes de este sitio e intente de nuevo."
-        );
-      }
+      const file = await attendanceService.exportCards([studentId], format);
+      downloadResponseFile(file, `carne-${studentId}.${format}`);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -78,9 +92,9 @@ export function StudentCardPanel({ studentId, studentName }) {
   return (
     <Stack gap={2}>
       <Alert severity="info">
-        El código QR solo se muestra al emitir el carné. Para reimprimirlo,
-        revoque el carné vigente y emita uno nuevo; el anterior queda en el
-        historial.
+        {canPrint
+          ? "Mientras el carné esté vigente, su código QR se puede volver a ver y descargar; cada consulta queda registrada. Revocarlo lo invalida y el anterior queda en el historial."
+          : "Para ver el código QR o descargar el carné vigente se necesita el permiso de impresión de carnés."}
       </Alert>
       {status.error ? (
         <Alert severity="error">{status.error.message}</Alert>
@@ -134,7 +148,9 @@ export function StudentCardPanel({ studentId, studentName }) {
         </Alert>
       ) : null}
 
-      {issued ? (
+      {qr.error ? <Alert severity="error">{qr.error.message}</Alert> : null}
+
+      {qrCode || canDownload ? (
         <Stack
           alignItems={{ sm: "center" }}
           direction={{ xs: "column", sm: "row" }}
@@ -146,28 +162,40 @@ export function StudentCardPanel({ studentId, studentName }) {
             borderRadius: 2,
           }}
         >
-          <Box
-            alt={`Código QR del carné de ${studentName ?? "el estudiante"}`}
-            component="img"
-            src={`data:image/png;base64,${issued.qr_code}`}
-            sx={{ width: 160, height: 160, imageRendering: "pixelated" }}
-          />
+          {qrCode ? (
+            <Box
+              alt={`Código QR del carné de ${studentName ?? "el estudiante"}`}
+              component="img"
+              src={`data:image/png;base64,${qrCode}`}
+              sx={{ width: 160, height: 160, imageRendering: "pixelated" }}
+            />
+          ) : qr.isFetching ? (
+            <Typography role="status">Cargando código QR…</Typography>
+          ) : null}
           <Stack gap={1}>
-            <Typography fontWeight={700}>Carné emitido</Typography>
-            <Typography color="text.secondary" variant="body2">
-              Imprímalo ahora: al cerrar esta pantalla el QR ya no se puede
-              volver a mostrar.
+            <Typography fontWeight={700}>
+              {issued ? "Carné emitido" : "Carné vigente"}
             </Typography>
-            <Box>
-              <Button
-                disabled={busy}
-                onClick={print}
-                startIcon={<PrintOutlinedIcon fontSize="small" />}
-                variant="contained"
-              >
-                Imprimir carné
-              </Button>
-            </Box>
+            {canDownload ? (
+              <Stack direction="row" flexWrap="wrap" gap={1}>
+                <Button
+                  disabled={busy}
+                  onClick={() => download("png")}
+                  startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
+                  variant="contained"
+                >
+                  Descargar PNG
+                </Button>
+                <Button
+                  disabled={busy}
+                  onClick={() => download("pdf")}
+                  startIcon={<FileDownloadOutlinedIcon fontSize="small" />}
+                  variant="outlined"
+                >
+                  Descargar PDF
+                </Button>
+              </Stack>
+            ) : null}
           </Stack>
         </Stack>
       ) : null}

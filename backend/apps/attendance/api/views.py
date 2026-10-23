@@ -13,12 +13,14 @@ declares its contract with ``extend_schema``. Without that the published schema
 lies, and anything generated from it (typed clients, SDKs) inherits the lie.
 """
 
+from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from apps.attendance import queries, services
+from apps.attendance import card_export, queries, services
 from apps.audit.services import record_sensitive_read
 from apps.common.exceptions import AuthorizationError, DomainError
 from apps.identity import services as identity_services
@@ -44,8 +46,12 @@ from .serializers import (
     ControlPointSerializer,
     CoverageClosureRatioQuerySerializer,
     CoverageClosureRatioResultSerializer,
+    CredentialExportPreviewSerializer,
+    CredentialExportRequestSerializer,
     CredentialPrintContentQuerySerializer,
     CredentialPrintContentSerializer,
+    CredentialQrRequestSerializer,
+    CredentialQrSerializer,
     CredentialResolutionRequestSerializer,
     CredentialResolutionSerializer,
     CredentialRevocationRequestSerializer,
@@ -833,6 +839,7 @@ class CaptureBatchConfirmView(GenericAPIView):
 CREDENTIAL_TAGS = ["attendance: credencial"]
 CREDENTIAL_ISSUE_PERMISSION = "attendance_credential_issue"
 CREDENTIAL_RESOLVE_PERMISSION = "attendance_credential_resolve"
+CREDENTIAL_PRINT_PERMISSION = card_export.CREDENTIAL_PRINT_PERMISSION
 
 
 @extend_schema_view(
@@ -905,8 +912,10 @@ class CredentialPrintContentView(GenericAPIView):
         description=(
             "#631 (AS2): estado de la credencial mas reciente del estudiante "
             "(`active`, `revoked` o `none` si nunca tuvo una). No devuelve el "
-            "identificador opaco ni el QR: solo la respuesta de emision los "
-            "trae, una vez. Reimprimir exige revocar y emitir de nuevo "
+            "identificador opaco ni el QR. El QR de una credencial vigente se "
+            "vuelve a obtener con `POST credentials/qr/` (permiso "
+            "`attendance.credential.print`, auditado); ya no hace falta revocar "
+            "para reimprimir. Revocar sigue siendo para extravio o retiro "
             "(RF-CRE-003/004)."
         ),
         tags=CREDENTIAL_TAGS,
@@ -931,6 +940,132 @@ class CredentialStatusView(GenericAPIView):
                 "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
             )
         return Response(CredentialStatusSerializer(queries.credential_status(student=student)).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Reimprimir el QR de la credencial vigente",
+        description=(
+            "RF-CRE-002: devuelve la imagen QR de la credencial vigente del "
+            "estudiante para volver a imprimirla. POST para que nada quede en la "
+            "URL ni en el log de acceso. Exige `attendance.credential.print` con "
+            "alcance sobre el estudiante (403 si falta). Sin credencial vigente "
+            "responde 400. Cada consulta se audita como "
+            "`attendance.credential.qr_revealed`, sin el identificador."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialQrRequestSerializer,
+        responses={200: CredentialQrSerializer},
+    ),
+)
+class CredentialQrView(GenericAPIView):
+    """RF-CRE-002: reprint the active credential's QR under its own audited permission."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialQrSerializer
+
+    def post(self, request):
+        serializer = CredentialQrRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        student = queries.student_for_payload(serializer.validated_data["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_PRINT_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        qr_code = services.reveal_credential_qr(student=student, actor=request.user)
+        return Response(CredentialQrSerializer({"qr_code": qr_code}).data)
+
+
+CREDENTIAL_EXPORT_DESCRIPTION = (
+    "Carnes en formato wireframe de 96 x 54 mm (16:9) a 300 dpi, fondo "
+    "transparente y guia de corte, con los campos de RF-CRE-002. `pdf`: hoja "
+    "carta con 8 carnes a tamano real y marcas de corte; `png`: exactamente un "
+    "estudiante; `zip`: un PNG por estudiante (`EST-2026-0001_Ana-Perez.png`). "
+    "Exige `attendance.credential.print` con alcance (403 si falta). Las "
+    "credenciales que faltan se emiten solo si el actor tiene ademas "
+    "`attendance.credential.issue` sobre ese estudiante; si no, la fila se "
+    "omite con su motivo. Un estudiante inexistente o fuera de alcance se omite "
+    "sin nombre ni codigo."
+)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Vista previa de exportacion de carnes",
+        description=(
+            CREDENTIAL_EXPORT_DESCRIPTION
+            + " La vista previa ejecuta la misma emision y la revierte: no emite "
+            "nada. Estados por fila: `ready` (credencial vigente), `to_issue` "
+            "(se emitira al exportar) o `skipped` (con `reason`)."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialExportRequestSerializer,
+        responses={200: CredentialExportPreviewSerializer},
+    ),
+)
+class CredentialExportPreviewView(GenericAPIView):
+    """Preview a card export without issuing anything (rolled back)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialExportPreviewSerializer
+
+    def post(self, request):
+        serializer = CredentialExportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = card_export.export_credentials(
+            actor=request.user,
+            student_ids=serializer.validated_data["student_ids"],
+            export_format=serializer.validated_data["format"],
+            preview=True,
+        )
+        return Response(
+            CredentialExportPreviewSerializer({"summary": result.summary, "rows": result.rows}).data
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Exportar carnes",
+        description=(
+            CREDENTIAL_EXPORT_DESCRIPTION
+            + " Emite las credenciales que faltan y responde el archivo binario "
+            "(`application/pdf`, `image/png` o `application/zip`) con "
+            "`Content-Disposition: attachment`. Si ningun carne es exportable "
+            "responde 400 y no emite nada. Se audita como "
+            "`attendance.credential.exported` con la cantidad y los estudiantes, "
+            "nunca los identificadores."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialExportRequestSerializer,
+        responses={
+            (200, "application/pdf"): OpenApiTypes.BINARY,
+            (200, "image/png"): OpenApiTypes.BINARY,
+            (200, "application/zip"): OpenApiTypes.BINARY,
+        },
+    ),
+)
+class CredentialExportView(GenericAPIView):
+    """Issue the missing credentials and return the rendered cards as a file."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialExportRequestSerializer
+
+    def post(self, request):
+        serializer = CredentialExportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = card_export.export_credentials(
+            actor=request.user,
+            student_ids=serializer.validated_data["student_ids"],
+            export_format=serializer.validated_data["format"],
+            preview=False,
+        )
+        response = HttpResponse(result.content, content_type=result.content_type)
+        response["Content-Disposition"] = f'attachment; filename="{result.filename}"'
+        response["Access-Control-Expose-Headers"] = "Content-Disposition"
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 @extend_schema_view(

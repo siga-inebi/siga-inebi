@@ -17,7 +17,10 @@ from apps.attendance.api.views import (
     CaptureBatchOpenView,
     ControlPointListView,
     CoverageClosureRatioView,
+    CredentialExportPreviewView,
+    CredentialExportView,
     CredentialPrintContentView,
+    CredentialQrView,
     CredentialRevocationView,
     CredentialStatusView,
     JornadaClosureView,
@@ -140,6 +143,21 @@ urlpatterns = [
         "credentials/revoke/",
         CredentialRevocationView.as_view(),
         name="attendance-credential-revoke",
+    ),
+    path(
+        "credentials/qr/",
+        CredentialQrView.as_view(),
+        name="attendance-credential-qr",
+    ),
+    path(
+        "credentials/export/preview/",
+        CredentialExportPreviewView.as_view(),
+        name="attendance-credential-export-preview",
+    ),
+    path(
+        "credentials/export/",
+        CredentialExportView.as_view(),
+        name="attendance-credential-export",
     ),
     path(
         "credentials/resolve/",

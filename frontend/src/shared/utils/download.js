@@ -17,3 +17,17 @@ export function downloadBlob(filename, blob) {
     URL.revokeObjectURL(url);
   }, 1000);
 }
+
+/**
+ * Descarga la respuesta de `apiClient.postForFile`/`getFile` con el nombre que
+ * manda el servidor en `Content-Disposition`, o `fallback` si no lo manda.
+ *
+ * @param {{blob: Blob, headers: Headers}} file
+ * @param {string} fallback
+ */
+export function downloadResponseFile({ blob, headers }, fallback) {
+  downloadBlob(
+    filenameFromDisposition(headers?.get("Content-Disposition"), fallback),
+    blob
+  );
+}

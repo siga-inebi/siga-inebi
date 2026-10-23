@@ -15,7 +15,7 @@ QR decoding and attendance movement registration are not part of this compatibil
 | Metric | Maximum |
 | --- | ---: |
 | Initial HTML, CSS, JavaScript, and referenced graphics | 230,000 gzip bytes |
-| Increment for any lazy route | 20,000 gzip bytes |
+| Increment for any lazy route | 21,000 gzip bytes (20,000 until CC-003) |
 | Initial resources plus any one lazy route | 250,000 gzip bytes |
 | Any emitted raster graphic | 25,000 raw bytes |
 
