@@ -28,10 +28,7 @@ function getErrorMessage(detail) {
   }
 
   if (Array.isArray(detail)) {
-    return (
-      detail.find((item) => typeof item === "string") ||
-      "Solicitud no completada."
-    );
+    return detail.find((item) => typeof item === "string") || null;
   }
 
   if (detail && typeof detail === "object") {
@@ -40,7 +37,25 @@ function getErrorMessage(detail) {
     return getErrorMessage(nested);
   }
 
-  return "Solicitud no completada.";
+  return null;
+}
+
+/**
+ * Motivo legible cuando el cuerpo no trae uno: un 500 de Django llega como HTML
+ * y un 413 o 502 los corta el proxy antes del backend. Se explica por el codigo
+ * sin exponer detalles internos del servidor.
+ */
+function getStatusMessage(status) {
+  if (status === 413) {
+    return "El archivo supera el tamaño que acepta el servidor.";
+  }
+  if ([502, 503, 504].includes(status)) {
+    return `El servidor no está disponible en este momento (error ${status}). Intente de nuevo en unos minutos.`;
+  }
+  if (status >= 500) {
+    return `El servidor no pudo completar la operación (error ${status}). Intente de nuevo y, si se repite, avise al administrador del sistema.`;
+  }
+  return `Solicitud no completada (error ${status}).`;
 }
 
 async function parseResponse(response, { asFile = false, method, path } = {}) {
@@ -71,7 +86,8 @@ async function parseResponse(response, { asFile = false, method, path } = {}) {
     // Sin la segunda y la tercera, un 403 explicado o un campo invalido se leian
     // como "Solicitud no completada.", que no le dice a nadie que corregir.
     const detail = data?.error?.detail ?? data?.error ?? data?.detail ?? data;
-    const message = getErrorMessage(detail);
+    const message =
+      getErrorMessage(detail) ?? getStatusMessage(response.status);
     const error = new Error(message);
     error.status = response.status;
     error.payload = data;

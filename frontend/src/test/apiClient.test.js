@@ -193,6 +193,36 @@ describe("apiClient", () => {
   });
 
   test.each([
+    [
+      500,
+      "El servidor no pudo completar la operación (error 500). Intente de nuevo y, si se repite, avise al administrador del sistema.",
+    ],
+    [
+      503,
+      "El servidor no está disponible en este momento (error 503). Intente de nuevo en unos minutos.",
+    ],
+    [413, "El archivo supera el tamaño que acepta el servidor."],
+    [400, "Solicitud no completada (error 400)."],
+  ])(
+    "explains a %i without a JSON body by its status",
+    async (status, message) => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status,
+        headers: new Headers({ "content-type": "text/html" }),
+        json: async () => {
+          throw new Error("not json");
+        },
+      });
+
+      await expect(apiClient.post("/records/", {})).rejects.toMatchObject({
+        status,
+        message,
+      });
+    }
+  );
+
+  test.each([
     "Failed to fetch",
     "NetworkError when attempting to fetch resource.",
   ])(
