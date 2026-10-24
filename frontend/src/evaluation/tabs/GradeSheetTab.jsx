@@ -10,13 +10,14 @@ import Typography from "@mui/material/Typography";
 import { PERMISSION } from "@auth/permissions.js";
 import { usePermissions } from "@auth/usePermissions.js";
 import { evaluationService } from "@evaluation/evaluationService.js";
+import { CourseWorkbookPanel } from "@evaluation/CourseWorkbookPanel.jsx";
 import {
+  courseSectionOptions,
+  courseSubjectOptions,
   defaultUnit,
-  sectionOptions,
   unitLabel,
-  useCycleSections,
   useCycleUnits,
-  usePlanSubjects,
+  useGradeCourses,
   useUrlParams,
 } from "@evaluation/evaluationData.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
@@ -347,19 +348,27 @@ export function GradeSheetTab({ cycle }) {
   const [pending, setPending] = useState(null);
 
   const units = useCycleUnits(cycleId);
-  const sections = useCycleSections(cycleId);
+  const courses = useGradeCourses(cycleId);
   const unitList = units.data ?? [];
   const unit =
     unitList.find((item) => item.public_id === params.get("unidad")) ??
     defaultUnit(unitList);
-  const sectionId = params.get("seccion") ?? "";
-  const section = (sections.data ?? []).find(
-    (item) => item.public_id === sectionId
-  );
-  const subjects = usePlanSubjects(cycleId, section?.grade?.public_id);
-  const subjectId = params.get("subarea") ?? "";
-
-  const ready = Boolean(unit && section && subjectId);
+  // Solo los cursos que la cuenta califica: un docente ve sus asignaciones.
+  const sectionOptions = courseSectionOptions(courses.data);
+  const requestedSection = params.get("seccion") ?? "";
+  const sectionId = sectionOptions.some(
+    (option) => option.value === requestedSection
+  )
+    ? requestedSection
+    : "";
+  const subjectOptions = courseSubjectOptions(courses.data, sectionId);
+  const requestedSubject = params.get("subarea") ?? "";
+  const subjectId = subjectOptions.some(
+    (option) => option.value === requestedSubject
+  )
+    ? requestedSubject
+    : "";
+  const ready = Boolean(unit && sectionId && subjectId);
   const sheet = useQuery({
     queryKey: queryKeys.evaluation(
       cycleId,
@@ -396,26 +405,41 @@ export function GradeSheetTab({ cycle }) {
         <FilterSelect
           emptyLabel="Elija una sección"
           label="Sección"
-          loading={sections.isPending}
+          loading={courses.isPending}
           minWidth={240}
           onChange={(value) => change({ seccion: value, subarea: "" })}
-          options={sectionOptions(sections.data)}
-          value={section ? sectionId : ""}
+          options={sectionOptions}
+          value={sectionId}
         />
         <FilterSelect
-          emptyLabel={section ? "Elija una subárea" : "Elija antes la sección"}
+          emptyLabel={
+            sectionId ? "Elija una subárea" : "Elija antes la sección"
+          }
           label="Subárea"
-          loading={Boolean(section) && subjects.isPending}
+          loading={courses.isPending}
           minWidth={220}
           onChange={(value) => change({ subarea: value })}
-          options={subjects.data ?? []}
-          value={
-            subjects.data?.some((item) => item.value === subjectId)
-              ? subjectId
-              : ""
-          }
+          options={subjectOptions}
+          value={subjectId}
         />
       </FilterBar>
+
+      {courses.isSuccess && sectionOptions.length === 0 ? (
+        <Alert severity="info">
+          Su cuenta no tiene cursos para calificar en este ciclo. Si da clases,
+          pida que registren su asignación docente.
+        </Alert>
+      ) : null}
+
+      {sectionId && subjectId ? (
+        <CourseWorkbookPanel
+          canWrite={can(PERMISSION.GRADE_WRITE)}
+          cycleId={cycleId}
+          key={`${sectionId}-${subjectId}`}
+          sectionId={sectionId}
+          subjectId={subjectId}
+        />
+      ) : null}
 
       <SectionCard
         subtitle="Escriba la nota y pase a la siguiente con Enter o con las flechas. Solo se envía lo que cambió."

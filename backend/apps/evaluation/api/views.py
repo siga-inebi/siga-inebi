@@ -15,6 +15,12 @@ aparecian en el schema publicado. Cada operacion lo declara con
 ``extend_schema``.
 """
 
+import re
+import unicodedata
+
+from django.http import HttpResponse
+from django.utils.decorators import method_decorator
+from django.views.decorators.gzip import gzip_page
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, ListAPIView
@@ -31,10 +37,16 @@ from apps.evaluation.api.serializers import (
     CaptureExceptionGrantSerializer,
     CaptureProgressReportSerializer,
     CloneCycleEvaluationConfigSerializer,
+    CourseImportErrorsSerializer,
+    CourseImportResultSerializer,
+    CourseWorkbookImportSerializer,
     CycleEvaluationConfigSerializer,
     EvaluationGlobalConfigSerializer,
     EvaluationUnitSerializer,
+    GradeCourseSerializer,
     GradeListFilterSerializer,
+    GradeReportQuerySerializer,
+    GradeReportSerializer,
     GradeSerializer,
     GradeSheetErrorsSerializer,
     GradeSheetQuerySerializer,
@@ -48,6 +60,8 @@ from apps.evaluation.api.serializers import (
 from apps.evaluation.services import (
     assess_recovery_eligibility,
     build_capture_progress_report,
+    build_course_workbook_data,
+    build_grade_report,
     build_grade_sheet,
     bulk_register_unit_grades,
     clone_cycle_evaluation_config,
@@ -58,6 +72,7 @@ from apps.evaluation.services import (
     get_final_subject_grade,
     get_global_evaluation_config,
     grant_capture_exception,
+    import_course_grades,
     register_recovery_grade,
     register_unit_grade,
     section_recovery_eligibility,
@@ -65,14 +80,21 @@ from apps.evaluation.services import (
     set_recovery_window,
     update_global_evaluation_config,
 )
+from apps.evaluation.workbook import (
+    XLSX_CONTENT_TYPE,
+    build_course_workbook,
+    read_course_workbook,
+)
 from apps.identity.scopes import (
     can_access_student,
     can_read_historical_student,
+    historical_teaching_assignment_queryset,
     teaching_assignment_queryset,
 )
 
 EVALUATION_CONFIGURE_PERMISSION = "evaluation_configure_units"
 GRADE_WRITE_PERMISSION = "grade_write"
+GRADE_REPORT_PERMISSION = "grade_report"
 STUDENT_VIEW_PERMISSION = "student_view_basic"
 
 TAGS = ["evaluation: configuration"]
@@ -1071,3 +1093,274 @@ class SectionRecoveryEligibilityView(ListAPIView):
         page = self.paginate_queryset(self.get_queryset())
         rows = section_recovery_eligibility(page)
         return self.get_paginated_response(self.get_serializer(rows, many=True).data)
+
+
+# --------------------------------------------------------------------------- #
+# Cursos del docente, plantilla Excel por curso e informe de calificaciones
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_cycle(kwargs):
+    cycle = queries.academic_cycle_or_none(kwargs.get("cycle_public_id"))
+    if cycle is None:
+        raise ResourceNotFoundError("No se encontró el ciclo escolar.")
+    return cycle
+
+
+def _resolve_course(cycle, *, section_id, subject_id):
+    section = queries.section_in_cycle_or_none(academic_cycle=cycle, public_id=section_id)
+    if section is None:
+        raise ResourceNotFoundError("No se encontró la sección en el ciclo.")
+    subject = queries.subject_or_none(subject_id)
+    if subject is None:
+        raise ResourceNotFoundError("No se encontró la subárea.")
+    return section, subject
+
+
+def _grades_institution_wide(user, institution):
+    """
+    Whether the account works on every course of the institution: superuser,
+    ``grade.write`` with institutional scope (dirección, secretaría) or
+    evaluation configuration (read-only sheet). A teacher's ``grade.write`` is
+    scoped to their teaching assignments and does not match an institution.
+    """
+    return (
+        user.is_superuser
+        or user.has_scoped_permission(GRADE_WRITE_PERMISSION, scope={"institution": institution})
+        or can_configure_evaluation(user, institution)
+    )
+
+
+def _course_label(section):
+    offering = section.offering
+    label = f"{offering.grade.name} {section.name}"
+    return f"{label} · {offering.shift.name}" if offering.shift_id else label
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Cursos que la cuenta puede calificar en un ciclo",
+        description=(
+            "Una fila por curso (sección y subárea), sin paginar: el total está acotado "
+            "por secciones × plan de estudios. Dirección y secretaría (``grade.write`` "
+            "institucional o configuración de evaluación) ven todos los cursos del plan; "
+            "un docente ve solo los de sus asignaciones vigentes en el ciclo (o, en un "
+            "ciclo cerrado, las que tuvo). Quien no califica recibe una lista vacía."
+        ),
+        tags=TAGS,
+        responses={200: GradeCourseSerializer(many=True)},
+    )
+)
+class GradeCoursesView(APIView):
+    """
+    GET /api/v1/academics/cycles/{cycle_public_id}/grade-courses/
+    """
+
+    def get(self, request, *args, **kwargs):
+        cycle = _resolve_cycle(kwargs)
+        institution = cycle.institution
+        if _grades_institution_wide(request.user, institution):
+            pairs = queries.cycle_course_pairs(cycle)
+        elif request.user.has_atomic_permission(GRADE_WRITE_PERMISSION):
+            assignments = (
+                teaching_assignment_queryset(user=request.user)
+                if cycle.status == cycle.CycleStatus.ACTIVE
+                else historical_teaching_assignment_queryset(
+                    user=request.user, academic_cycle=cycle
+                )
+            )
+            pairs = queries.assignment_course_pairs(assignments, cycle)
+        else:
+            pairs = []
+        teachers = queries.current_teachers_by_pair(cycle) if pairs else {}
+        rows = []
+        for section, subject in pairs:
+            teacher = teachers.get((section.pk, subject.pk))
+            rows.append(
+                {
+                    "section": {
+                        "public_id": section.public_id,
+                        "label": _course_label(section),
+                        "grade_name": section.offering.grade.name,
+                    },
+                    "subject": {"public_id": subject.public_id, "name": subject.name},
+                    "teacher_name": (
+                        f"{teacher.first_name} {teacher.last_name}".strip() if teacher else None
+                    ),
+                }
+            )
+        return Response(GradeCourseSerializer(rows, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Plantilla Excel de notas de un curso",
+        description=(
+            "Archivo .xlsx con una fila por matrícula activa de la sección (código y "
+            "nombre bloqueados), una columna por unidad activa del ciclo con las notas "
+            "registradas, validación de 0 a 100 y columnas grises en las unidades que "
+            "hoy no admiten captura. Exige ``grade.write`` sobre la sección y la "
+            "subárea, o configuración de evaluación institucional."
+        ),
+        tags=TAGS,
+        parameters=[GradeSheetQuerySerializer],
+        responses={(200, XLSX_CONTENT_TYPE): bytes},
+    )
+)
+class CourseWorkbookView(APIView):
+    """
+    GET /api/v1/academics/cycles/{cycle_public_id}/grade-workbook/?section_id=&subject_id=
+    """
+
+    def get(self, request, *args, **kwargs):
+        cycle = _resolve_cycle(kwargs)
+        params = GradeSheetQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        section, subject = _resolve_course(cycle, **params.validated_data)
+        if not can_configure_evaluation(request.user, cycle.institution):
+            require_grade_write(request, unit=None, section=section, subject=subject, workbook=True)
+
+        data = build_course_workbook_data(
+            academic_cycle=cycle,
+            section=section,
+            subject=subject,
+            institution=cycle.institution,
+        )
+        filename = _workbook_filename(subject.name, data["section_label"])
+        response = HttpResponse(build_course_workbook(data), content_type=XLSX_CONTENT_TYPE)
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+
+def _workbook_filename(subject_name, section_label):
+    raw = f"notas-{subject_name}-{section_label}".lower()
+    ascii_only = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_only).strip("-")
+    return f"{slug or 'notas'}.xlsx"
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Importar la plantilla Excel de notas de un curso",
+        description=(
+            "Multipart ``{file, section_id, subject_id}``. Identifica a cada estudiante "
+            "por su código, nunca por el nombre. Todo o nada: 200 ``{created, updated, "
+            "unchanged}`` o 400 ``{errors: [{row, student_code, unit, message}]}`` con la "
+            "fila de Excel. Una celda vacía no cambia nada y una igual a la nota "
+            "registrada se ignora; una nota nueva o distinta exige que la unidad admita "
+            "captura hoy (ventana, cierre y permisos excepcionales). Escribe con un "
+            "número fijo de consultas y audita cada nota. Exige ``grade.write`` sobre la "
+            "sección y la subárea."
+        ),
+        tags=TAGS,
+        request={"multipart/form-data": CourseWorkbookImportSerializer},
+        responses={200: CourseImportResultSerializer, 400: CourseImportErrorsSerializer},
+    )
+)
+class CourseWorkbookImportView(APIView):
+    """
+    POST /api/v1/academics/cycles/{cycle_public_id}/grade-workbook/import/
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        cycle = _resolve_cycle(kwargs)
+        serializer = CourseWorkbookImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section, subject = _resolve_course(
+            cycle, section_id=payload["section_id"], subject_id=payload["subject_id"]
+        )
+        require_grade_write(request, unit=None, section=section, subject=subject, workbook=True)
+
+        workbook = read_course_workbook(payload["file"])
+        result = import_course_grades(
+            academic_cycle=cycle,
+            section=section,
+            subject=subject,
+            workbook=workbook,
+            actor=request.user,
+        )
+        if result.errors:
+            return Response({"errors": result.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(CourseImportResultSerializer(result).data)
+
+
+def require_grade_report(request, cycle, filters):
+    """``grade.report`` con alcance institucional (dirección y secretaría) o superusuario."""
+    user = request.user
+    if user.is_superuser or user.has_scoped_permission(
+        GRADE_REPORT_PERMISSION, scope={"institution": cycle.institution}
+    ):
+        return
+    record_event(
+        actor=user,
+        action="evaluation.grade_report_denied",
+        resource="Grade",
+        context={"cycle_id": str(cycle.public_id), **filters},
+    )
+    raise AuthorizationError("Permiso denegado: se requiere el permiso para imprimir notas.")
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Datos del informe de calificaciones",
+        description=(
+            "Todo el ciclo, un grado (``grade_id``), una sección de ese grado "
+            "(``section_id``) o un estudiante (``student_id``). Por estudiante: una fila "
+            "por subárea del plan de su grado con la nota de cada unidad activa, el "
+            "promedio del curso, el promedio de cada unidad y el promedio general. "
+            "Los promedios excluyen las unidades sin nota y redondean al entero, mitad "
+            "hacia arriba. El navegador arma el PDF; el servidor solo calcula. "
+            "Respuesta comprimida con gzip. Exige ``grade.report`` institucional y "
+            "queda en la bitácora."
+        ),
+        tags=TAGS,
+        parameters=[GradeReportQuerySerializer],
+        responses={200: GradeReportSerializer},
+    )
+)
+@method_decorator(gzip_page, name="dispatch")
+class GradeReportView(APIView):
+    """
+    GET /api/v1/academics/cycles/{cycle_public_id}/grade-report/
+    """
+
+    def get(self, request, *args, **kwargs):
+        cycle = _resolve_cycle(kwargs)
+        params = GradeReportQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        filters = {key: str(value) for key, value in params.validated_data.items()}
+        require_grade_report(request, cycle, filters)
+
+        grade = section = student = None
+        if params.validated_data.get("grade_id"):
+            grade = queries.grade_in_institution_or_none(
+                institution=cycle.institution, public_id=params.validated_data["grade_id"]
+            )
+            if grade is None:
+                raise ResourceNotFoundError("No se encontró el grado.")
+        if params.validated_data.get("section_id"):
+            section = queries.section_in_cycle_or_none(
+                academic_cycle=cycle, public_id=params.validated_data["section_id"]
+            )
+            if section is None or section.offering.grade_id != grade.pk:
+                raise ResourceNotFoundError("No se encontró la sección en ese grado y ciclo.")
+        if params.validated_data.get("student_id"):
+            student = queries.student_or_none(params.validated_data["student_id"])
+            if student is None:
+                raise ResourceNotFoundError("No se encontró el estudiante.")
+
+        report = build_grade_report(
+            academic_cycle=cycle,
+            institution=cycle.institution,
+            grade=grade,
+            section=section,
+            student=student,
+            actor=request.user,
+        )
+        # Diccionario ya plano (enteros, textos, UUID y fechas): pasarlo por los
+        # serializadores anidados costaba cientos de milisegundos con cientos de
+        # estudiantes y no agregaba nada. GradeReportSerializer documenta la forma.
+        return Response(report)

@@ -969,6 +969,23 @@
     "has_card": true
   },
   {
+    "id": "RF-CAL-009",
+    "kind": "RF",
+    "prefix": "CAL",
+    "name": "Informe de calificaciones en PDF",
+    "catalogue_description": "Informe de calificaciones en PDF",
+    "priority": "Deberia",
+    "domain": "academic-evaluation",
+    "epic": "evaluacion",
+    "actor": "Director, Secretario",
+    "user_story": "",
+    "business_rule": "RN-CAL-001",
+    "acceptance_criteria": "El sistema genera en PDF, con el membrete de la institución, el informe de calificaciones de todos los estudiantes, de un grado (y opcionalmente una sección) o de un estudiante: cursos en filas, unidades en columnas, promedio de cada curso, de cada unidad y general, redondeados al entero (mitad hacia arriba) y sin contar las unidades sin nota.",
+    "module": "Calificaciones y Captura",
+    "source": "Solicitud del responsable del proyecto (2026-10-24)",
+    "has_card": false
+  },
+  {
     "id": "RF-CIC-001",
     "kind": "RF",
     "prefix": "CIC",

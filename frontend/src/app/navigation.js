@@ -187,6 +187,15 @@ export const NAV_GROUPS = [
         permissions: MODULE_PERMISSIONS.evaluacion,
         load: () => import("@evaluation/EvaluationPage.jsx"),
       },
+      {
+        key: "informe-notas",
+        label: "Informe de notas",
+        description: "Notas en PDF por grado, sección o estudiante.",
+        path: "/app/informe-de-notas",
+        icon: PictureAsPdfOutlinedIcon,
+        permissions: MODULE_PERMISSIONS["informe-notas"],
+        load: () => import("@evaluation/GradeReportPage.jsx"),
+      },
     ],
   },
   {

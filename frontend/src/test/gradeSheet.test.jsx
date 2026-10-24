@@ -8,6 +8,9 @@ const evaluationServiceMock = vi.hoisted(() => ({
   getSheet: vi.fn(),
   saveSheet: vi.fn(),
   getCaptureProgress: vi.fn(),
+  listGradeCourses: vi.fn(),
+  downloadCourseWorkbook: vi.fn(),
+  importCourseWorkbook: vi.fn(),
 }));
 const cyclesServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
 
@@ -18,6 +21,14 @@ vi.mock("@evaluation/evaluationService.js", async (importOriginal) => {
 vi.mock("@cycles/cyclesService.js", async (importOriginal) => {
   const original = await importOriginal();
   return { ...original, cyclesService: cyclesServiceMock };
+});
+const downloadMock = vi.hoisted(() => ({ downloadResponseFile: vi.fn() }));
+vi.mock("@shared/utils/download.js", async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
+    downloadResponseFile: downloadMock.downloadResponseFile,
+  };
 });
 vi.mock("@academics/academicsService.js", async () => {
   const { academicsServiceMock } = await import("./mocks/academicsService.js");
@@ -57,6 +68,15 @@ const SECTION = {
   shift: { public_id: "s-1", name: "Matutina" },
 };
 const MATH = { public_id: "sub-mat", name: "Matemática" };
+const COURSE = {
+  section: {
+    public_id: "sec-a",
+    label: "Primero Básico A · Matutina",
+    grade_name: "Primero Básico",
+  },
+  subject: MATH,
+  teacher_name: "Rosa Pérez",
+};
 
 const row = (id, name, code, grade = null) => ({
   enrolment_id: id,
@@ -107,6 +127,7 @@ beforeEach(() => {
   cyclesServiceMock.list.mockResolvedValue(paginated([CYCLE]));
   evaluationServiceMock.listUnits.mockResolvedValue(paginated([UNIT]));
   evaluationServiceMock.getSheet.mockResolvedValue(SHEET);
+  evaluationServiceMock.listGradeCourses.mockResolvedValue([COURSE]);
   academicsServiceMock.listSections.mockResolvedValue(paginated([SECTION]));
   academicsServiceMock.listCurriculumPlans.mockResolvedValue(
     paginated([{ public_id: "plan-1", grade: SECTION.grade, subject: MATH }])
@@ -124,12 +145,13 @@ describe("Planilla de calificaciones (V2, V8)", () => {
       "sec-a",
       "sub-mat"
     );
-    expect(academicsServiceMock.listSections).toHaveBeenCalledWith(
-      expect.objectContaining({ academic_cycle_id: "c-2026" })
+    // Las opciones salen de los cursos que la cuenta califica, no de todas las
+    // secciones del ciclo ni del plan de estudios.
+    expect(evaluationServiceMock.listGradeCourses).toHaveBeenCalledWith(
+      "c-2026"
     );
-    expect(academicsServiceMock.listCurriculumPlans).toHaveBeenCalledWith(
-      expect.objectContaining({ academic_cycle_id: "c-2026", grade_id: "g-1" })
-    );
+    expect(academicsServiceMock.listSections).not.toHaveBeenCalled();
+    expect(academicsServiceMock.listCurriculumPlans).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Nota de Ana López")).toHaveValue("80");
     expect(screen.getByLabelText("Nota de Bruno Díaz")).toHaveValue("");
     expect(screen.queryByLabelText(/^Docente/)).toBeNull();
@@ -377,5 +399,152 @@ describe("Avance de captura (V3)", () => {
     expect(
       await screen.findByText("El actor no tiene el permiso requerido.")
     ).toBeInTheDocument();
+  });
+});
+
+describe("Cursos del docente y carga por Excel", () => {
+  const OTHER_COURSE = {
+    section: {
+      public_id: "sec-b",
+      label: "Segundo Básico B · Matutina",
+      grade_name: "Segundo Básico",
+    },
+    subject: { public_id: "sub-idi", name: "Idioma" },
+    teacher_name: "Rosa Pérez",
+  };
+
+  test("solo ofrece las secciones y subáreas de los cursos de la cuenta", async () => {
+    evaluationServiceMock.listGradeCourses.mockResolvedValue([
+      COURSE,
+      OTHER_COURSE,
+    ]);
+    const user = userEvent.setup();
+    renderPage("/app/evaluacion?tab=planilla&unidad=u-4");
+
+    await user.click(await screen.findByLabelText("Sección"));
+    const sections = await screen.findByRole("listbox");
+    expect(
+      within(sections)
+        .getAllByRole("option")
+        .map((option) => option.textContent)
+    ).toEqual([
+      "Elija una sección",
+      "Primero Básico A · Matutina",
+      "Segundo Básico B · Matutina",
+    ]);
+    await user.click(
+      within(sections).getByRole("option", {
+        name: "Segundo Básico B · Matutina",
+      })
+    );
+
+    await user.click(screen.getByLabelText("Subárea"));
+    const subjects = await screen.findByRole("listbox");
+    expect(
+      within(subjects)
+        .getAllByRole("option")
+        .map((option) => option.textContent)
+    ).toEqual(["Elija una subárea", "Idioma"]);
+  });
+
+  test("sin cursos explica que falta la asignación docente", async () => {
+    evaluationServiceMock.listGradeCourses.mockResolvedValue([]);
+    renderPage("/app/evaluacion?tab=planilla&unidad=u-4");
+
+    expect(
+      await screen.findByText(/no tiene cursos para calificar en este ciclo/)
+    ).toBeInTheDocument();
+  });
+
+  test("descarga la plantilla del curso elegido", async () => {
+    const file = { blob: new Blob(["x"]), headers: new Headers() };
+    evaluationServiceMock.downloadCourseWorkbook.mockResolvedValue(file);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Descargar plantilla" })
+    );
+
+    expect(evaluationServiceMock.downloadCourseWorkbook).toHaveBeenCalledWith(
+      "c-2026",
+      "sec-a",
+      "sub-mat"
+    );
+    expect(downloadMock.downloadResponseFile).toHaveBeenCalledWith(
+      file,
+      "notas.xlsx"
+    );
+  });
+
+  test("importa el Excel y resume lo registrado", async () => {
+    evaluationServiceMock.importCourseWorkbook.mockResolvedValue({
+      created: 3,
+      updated: 1,
+      unchanged: 2,
+    });
+    const user = userEvent.setup();
+    renderPage();
+    const excel = new File(["xlsx"], "notas.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    await user.upload(await screen.findByLabelText("Archivo de notas"), excel);
+
+    expect(evaluationServiceMock.importCourseWorkbook).toHaveBeenCalledWith(
+      "c-2026",
+      "sec-a",
+      "sub-mat",
+      excel
+    );
+    expect(
+      await screen.findByText(
+        "Se registraron 4 notas (3 nuevas, 1 corregidas). 2 ya estaban iguales."
+      )
+    ).toBeInTheDocument();
+  });
+
+  test("un archivo con errores no registra nada y lista cada problema", async () => {
+    const error = Object.assign(new Error("Solicitud no completada."), {
+      payload: {
+        errors: [
+          {
+            row: 9,
+            student_code: "EST-2",
+            unit: "Cuarta unidad",
+            message: "La nota debe estar entre 0 y 100 (se recibió 120).",
+          },
+        ],
+      },
+    });
+    evaluationServiceMock.importCourseWorkbook.mockRejectedValue(error);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.upload(
+      await screen.findByLabelText("Archivo de notas"),
+      new File(["xlsx"], "notas.xlsx")
+    );
+
+    expect(
+      await screen.findByText(
+        /No se registró ninguna nota: el archivo tiene 1 problema/
+      )
+    ).toBeInTheDocument();
+    const errorRow = screen.getByText(/se recibió 120/).closest("tr");
+    expect(within(errorRow).getByText("9")).toBeInTheDocument();
+    expect(within(errorRow).getByText("EST-2")).toBeInTheDocument();
+    expect(within(errorRow).getByText("Cuarta unidad")).toBeInTheDocument();
+  });
+
+  test("quien no registra notas puede descargar pero no importar", async () => {
+    renderPage(SHEET_ROUTE, sessionUser(["evaluation.configure_units"]));
+
+    expect(
+      await screen.findByRole("button", { name: "Descargar plantilla" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Importar Excel" })
+    ).not.toBeInTheDocument();
   });
 });

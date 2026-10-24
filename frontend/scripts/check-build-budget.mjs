@@ -3,10 +3,13 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+// +300 B en la carga inicial y la pagina fria (informe de notas): el costo de
+// una entrada de menu mas (texto, ruta y permiso). El generador de PDF viaja
+// aparte, diferido (5 KB), en lugar de una libreria de 128 KB.
 export const DEFAULT_BUDGETS = Object.freeze({
-  initialGzip: 230_100,
+  initialGzip: 230_400,
   routeIncrementGzip: 21_000,
-  coldPageGzip: 250_200,
+  coldPageGzip: 250_500,
   rasterRaw: 25_000,
 });
 

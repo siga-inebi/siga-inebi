@@ -68,6 +68,42 @@ def record_event(
     )
 
 
+def record_events(*, actor, events):
+    """
+    Several audit events of one operation in a single INSERT.
+
+    Same rules as ``record_event`` -- request context merged in, context
+    sanitized, actor label resolved -- but for a batch: a grade import writes
+    one event per grade, and one query per event is what made bulk capture
+    scale with the number of rows. Each item of ``events`` is a mapping with
+    ``action``, ``resource`` and optionally ``resource_identifier``,
+    ``context``, ``reason`` and ``changes``. Inserting never mutates an
+    existing row, so RF-BIT-005 (immutable history) is unaffected.
+    """
+    request_context = get_audit_context()
+    actor_label = getattr(actor, "username", "") if actor else ""
+    rows = []
+    for event in events:
+        merged_context = dict(request_context)
+        merged_context.update(event.get("context") or {})
+        if event.get("reason"):
+            merged_context["reason"] = event["reason"]
+        if event.get("changes"):
+            merged_context["changes"] = event["changes"]
+        rows.append(
+            AuditEvent(
+                actor=actor,
+                actor_label=actor_label,
+                action=event["action"],
+                resource=event["resource"],
+                resource_identifier=event.get("resource_identifier", ""),
+                ip_address=merged_context.get("ip_address") or None,
+                context=sanitize_context(merged_context),
+            )
+        )
+    return AuditEvent.objects.bulk_create(rows)
+
+
 def list_audit_events(
     *,
     actor_public_id=None,

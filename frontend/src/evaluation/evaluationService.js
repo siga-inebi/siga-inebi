@@ -101,6 +101,49 @@ export const evaluationService = {
   saveSheet: (cycleId, unitId, payload) =>
     apiClient.post(`${unit(cycleId, unitId)}/grades/sheet/`, payload),
 
+  /**
+   * Cursos (sección y subárea) que la cuenta puede calificar en el ciclo.
+   * Dirección ve todos los del plan; un docente, solo sus asignaciones.
+   */
+  listGradeCourses: (cycleId) =>
+    apiClient.get(`${ROOT}/cycles/${cycleId}/grade-courses/`),
+
+  /**
+   * Plantilla Excel del curso con todas las unidades del ciclo: devuelve
+   * `{ blob, headers }` para descargarla con el nombre que manda el servidor.
+   */
+  downloadCourseWorkbook: (cycleId, sectionId, subjectId) =>
+    apiClient.getFile(
+      withQuery(`${ROOT}/cycles/${cycleId}/grade-workbook/`, {
+        section_id: sectionId,
+        subject_id: subjectId,
+      }),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/json"
+    ),
+
+  /**
+   * Importa la plantilla del curso, todo o nada: `{created, updated, unchanged}`
+   * o un 400 con `payload.errors[] = {row, student_code, unit, message}`.
+   */
+  importCourseWorkbook: (cycleId, sectionId, subjectId, file) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("section_id", sectionId);
+    form.append("subject_id", subjectId);
+    return apiClient.post(
+      `${ROOT}/cycles/${cycleId}/grade-workbook/import/`,
+      form
+    );
+  },
+
+  /**
+   * Datos del informe de calificaciones con los promedios ya calculados por el
+   * backend. Sin filtros es todo el ciclo; `grade_id` (y `section_id`) o
+   * `student_id` lo acotan.
+   */
+  getGradeReport: (cycleId, params) =>
+    apiClient.get(withQuery(`${ROOT}/cycles/${cycleId}/grade-report/`, params)),
+
   /** Avance de captura de la unidad por sección y subárea (RF-CAL-008, V3). */
   getCaptureProgress: (cycleId, unitId) =>
     apiClient.get(`${unit(cycleId, unitId)}/capture-progress/`),

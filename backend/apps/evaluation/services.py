@@ -31,7 +31,7 @@ from django.db.models import Avg
 from django.utils import timezone
 
 from apps.academics.models import AcademicCycle, Section, Subject
-from apps.audit.services import diff_fields, record_event
+from apps.audit.services import diff_fields, record_event, record_events
 from apps.common.db import unique_violation_as
 from apps.common.exceptions import DomainError
 from apps.enrolments.models import Enrolment
@@ -1416,4 +1416,491 @@ def build_grade_sheet(
         "rows": [
             {"enrolment": enrolment, "grade": grades.get(enrolment.pk)} for enrolment in enrolments
         ],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Notas por curso: plantilla Excel e importación en lote
+# --------------------------------------------------------------------------- #
+
+
+def _capturable_unit_ids(*, units, subject, teacher, at):
+    """
+    Ids of ``units`` that admit capture right now for ``teacher`` and
+    ``subject``: open window and unit not closed (RF-EVC-002/007), or an
+    unexpired exceptional grant (RF-EVC-004). Same rule as
+    validate_capture_allowed, for every unit in one query.
+    """
+    today = timezone.localdate(at)
+    open_ids = {
+        unit.pk for unit in units if unit.is_capture_window_open(today) and not unit.is_closed
+    }
+    if teacher is None or len(open_ids) == len(units):
+        return open_ids
+    closed = [unit for unit in units if unit.pk not in open_ids]
+    return open_ids | queries.active_capture_exception_unit_ids(
+        units=closed, subject=subject, teacher=teacher, at=at
+    )
+
+
+def _unit_lock_reason(unit, *, today):
+    if unit.is_closed:
+        return "La unidad está cerrada."
+    if not unit.is_capture_window_open(today):
+        return (
+            f"La ventana de captura va del {unit.capture_starts_on:%d/%m/%Y} al "
+            f"{unit.capture_ends_on:%d/%m/%Y}."
+        )
+    return ""
+
+
+def _section_label(section):
+    offering = section.offering
+    label = f"{offering.grade.name} {section.name}"
+    shift = getattr(offering, "shift", None)
+    return f"{label} · {shift.name}" if shift is not None else label
+
+
+def _person_name(person):
+    return f"{person.first_name} {person.last_name}".strip()
+
+
+def build_course_workbook_data(*, academic_cycle, section, subject, institution, at=None):
+    """
+    Everything the course template needs, in a fixed number of queries: one
+    column per active unit of the cycle (the count is configuration, never
+    fixed), one row per active enrolment of the section ordered by name, each
+    with its current grades, and which units admit capture today.
+
+    Raises:
+        DomainError: when the section has more than GRADE_SHEET_MAX_ROWS active
+            enrolments (the template never truncates silently) or the cycle
+            has no evaluation units yet.
+    """
+    at = at or timezone.now()
+    units = queries.active_cycle_units(academic_cycle)
+    if not units:
+        raise DomainError(
+            "El ciclo no tiene unidades de evaluación configuradas; créelas antes de generar "
+            "la plantilla."
+        )
+    enrolments = list(queries.active_section_enrolments(section)[: GRADE_SHEET_MAX_ROWS + 1])
+    if len(enrolments) > GRADE_SHEET_MAX_ROWS:
+        raise DomainError(
+            f"La sección tiene más de {GRADE_SHEET_MAX_ROWS} matrículas activas; la plantilla "
+            "no puede incluirlas todas."
+        )
+    grades = queries.course_grades(section=section, subject=subject, units=units)
+    teacher = queries.current_teacher(
+        academic_cycle=academic_cycle, section=section, subject=subject
+    )
+    capturable = _capturable_unit_ids(units=units, subject=subject, teacher=teacher, at=at)
+    today = timezone.localdate(at)
+    return {
+        "institution_name": institution.name,
+        "cycle_name": academic_cycle.name,
+        "section_label": _section_label(section),
+        "subject_name": subject.name,
+        "teacher_name": _person_name(teacher) if teacher is not None else None,
+        "generated_at": timezone.localtime(at),
+        "cycle_id": str(academic_cycle.public_id),
+        "section_id": str(section.public_id),
+        "subject_id": str(subject.public_id),
+        "units": [
+            {
+                "id": str(unit.public_id),
+                "label": unit.name,
+                "editable": unit.pk in capturable,
+                "lock_reason": ""
+                if unit.pk in capturable
+                else _unit_lock_reason(unit, today=today),
+            }
+            for unit in units
+        ],
+        "rows": [
+            {
+                "student_code": enrolment.student.student_code,
+                "student_name": _person_name(enrolment.student.person),
+                "values": [
+                    getattr(grades.get((enrolment.pk, unit.pk)), "value", None) for unit in units
+                ],
+            }
+            for enrolment in enrolments
+        ],
+    }
+
+
+@dataclass
+class CourseImportResult:
+    """
+    Outcome of importing a course template (RF-CAL-004).
+
+    All-or-nothing: whenever ``errors`` is non-empty nothing was written and
+    the counters are 0. ``unchanged`` counts filled cells that already held
+    that same grade (re-importing the same file is a no-op).
+    """
+
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    errors: list[dict] = field(default_factory=list)
+
+
+def _import_error(row, student_code, unit_name, message):
+    return {"row": row, "student_code": student_code or None, "unit": unit_name, "message": message}
+
+
+def import_course_grades(
+    *, academic_cycle, section, subject, workbook, actor=None, at=None
+) -> CourseImportResult:
+    """
+    Register a course's grades from its Excel template (RF-CAL-004), every
+    unit at once.
+
+    Students are matched by ``student_code`` only: the name column is for
+    people, and a stray accent or capital letter there must never move a grade
+    to someone else. Every cell is validated before anything is written:
+
+    - the file must be the template of this very cycle, section and subject;
+    - each code must have an active enrolment in the section, once;
+    - a filled cell must be an integer on the 0-100 scale (RF-CAL-002);
+    - an empty cell changes nothing (a registered grade is never erased);
+    - a cell equal to the registered grade is left alone, so re-importing the
+      same file is harmless and a closed unit's unchanged column is fine;
+    - a new or different value requires the unit to admit capture right now
+      for the course's teacher (window, closure and exceptional grants:
+      RF-EVC-002/004/007). A correction (RF-CAL-005) follows the same rule.
+
+    If any cell fails, nothing is written and the errors carry the Excel row,
+    the code and the unit. Otherwise everything is written in one transaction
+    with a fixed number of queries regardless of the number of rows: one bulk
+    insert, one bulk update and one bulk insert of audit events -- one event
+    per grade with its before/after value, same actions as a single capture
+    (``evaluation.grade_registered`` / ``evaluation.grade_updated``), plus a
+    ``evaluation.grades_workbook_imported`` summary.
+    """
+    at = at or timezone.now()
+    metadata = workbook["metadata"]
+    expected = {
+        "cycle_id": str(academic_cycle.public_id),
+        "section_id": str(section.public_id),
+        "subject_id": str(subject.public_id),
+    }
+    if any(metadata.get(key) != value for key, value in expected.items()):
+        raise DomainError(
+            "El archivo es la plantilla de otro curso o de otra sección. Descargue la plantilla "
+            "de este curso y escriba las notas en ella."
+        )
+
+    units = queries.active_cycle_units(academic_cycle)
+    units_by_public_id = {str(unit.public_id): unit for unit in units}
+    column_units = []
+    for unit_id in workbook["unit_ids"]:
+        unit = units_by_public_id.get(unit_id)
+        if unit is None:
+            raise DomainError(
+                "La plantilla incluye una unidad que ya no está activa en el ciclo. Descargue "
+                "una plantilla nueva del curso."
+            )
+        column_units.append(unit)
+
+    enrolments = list(queries.active_section_enrolments(section))
+    by_code = {enrolment.student.student_code: enrolment for enrolment in enrolments}
+    existing = queries.course_grades(section=section, subject=subject, units=column_units)
+
+    errors: list[dict] = []
+    changes: list[tuple] = []  # (enrolment, unit, value, existing_grade_or_None)
+    unchanged = 0
+    seen: set[int] = set()
+
+    for row in workbook["rows"]:
+        code = row["student_code"]
+        if not code:
+            errors.append(_import_error(row["row"], None, None, "Falta el código del estudiante."))
+            continue
+        enrolment = by_code.get(code)
+        if enrolment is None:
+            errors.append(
+                _import_error(
+                    row["row"],
+                    code,
+                    None,
+                    f"El código «{code}» no tiene matrícula activa en {_section_label(section)}.",
+                )
+            )
+            continue
+        if enrolment.pk in seen:
+            errors.append(
+                _import_error(row["row"], code, None, f"El código «{code}» aparece más de una vez.")
+            )
+            continue
+        seen.add(enrolment.pk)
+
+        for unit, raw in zip(column_units, row["cells"], strict=False):
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                continue
+            value, message = _parse_grade_value(raw)
+            if message is not None:
+                errors.append(_import_error(row["row"], code, unit.name, message))
+                continue
+            current = existing.get((enrolment.pk, unit.pk))
+            if current is not None and current.value == value:
+                unchanged += 1
+                continue
+            changes.append((enrolment, unit, value, current))
+
+    teacher = None
+    if changes:
+        teacher = queries.current_teacher(
+            academic_cycle=academic_cycle, section=section, subject=subject
+        )
+        if teacher is None:
+            raise DomainError(
+                f"La sección «{_section_label(section)}» no tiene docente asignado en "
+                f"«{subject.name}». Registre la asignación docente antes de importar notas."
+            )
+        capturable = _capturable_unit_ids(
+            units=column_units, subject=subject, teacher=teacher, at=at
+        )
+        today = timezone.localdate(at)
+        for enrolment, unit, _value, _current in changes:
+            if unit.pk not in capturable:
+                errors.append(
+                    _import_error(
+                        None,
+                        enrolment.student.student_code,
+                        unit.name,
+                        f"La unidad «{unit.name}» no admite captura hoy. "
+                        f"{_unit_lock_reason(unit, today=today)}".strip(),
+                    )
+                )
+
+    if errors:
+        _attach_rows(errors, workbook["rows"])
+        record_event(
+            actor=actor,
+            action="evaluation.grades_workbook_rejected",
+            resource="Grade",
+            context={
+                "section_id": str(section.public_id),
+                "subject_id": str(subject.public_id),
+                "row_count": len(workbook["rows"]),
+                "error_count": len(errors),
+            },
+        )
+        return CourseImportResult(errors=errors)
+
+    if not changes:
+        return CourseImportResult(unchanged=unchanged)
+
+    to_create = []
+    to_update = []
+    for enrolment, unit, value, current in changes:
+        if current is None:
+            to_create.append(
+                Grade(enrolment=enrolment, subject=subject, evaluation_unit=unit, value=value)
+            )
+        else:
+            before = current.value
+            current.value = value
+            current.updated_at = at
+            to_update.append((current, before, enrolment, unit))
+
+    with transaction.atomic():
+        created = Grade.objects.bulk_create(to_create)
+        if to_update:
+            Grade.objects.bulk_update(
+                [grade for grade, _before, _enrolment, _unit in to_update],
+                ["value", "updated_at"],
+            )
+        context = {
+            "subject_id": str(subject.public_id),
+            "teacher_id": str(teacher.public_id),
+            "source": "workbook",
+        }
+        events = [
+            {
+                "action": "evaluation.grade_registered",
+                "resource": "Grade",
+                "resource_identifier": str(grade.pk),
+                "context": {
+                    **context,
+                    "enrolment_id": str(grade.enrolment.public_id),
+                    "unit_id": str(grade.evaluation_unit.public_id),
+                    "value": grade.value,
+                },
+            }
+            for grade in created
+        ] + [
+            {
+                "action": "evaluation.grade_updated",
+                "resource": "Grade",
+                "resource_identifier": str(grade.pk),
+                "changes": {"value": {"before": before, "after": grade.value}},
+                "context": {
+                    **context,
+                    "enrolment_id": str(enrolment.public_id),
+                    "unit_id": str(unit.public_id),
+                    "value": grade.value,
+                },
+            }
+            for grade, before, enrolment, unit in to_update
+        ]
+        record_events(actor=actor, events=events)
+        record_event(
+            actor=actor,
+            action="evaluation.grades_workbook_imported",
+            resource="Grade",
+            context={
+                "section_id": str(section.public_id),
+                **context,
+                "created": len(created),
+                "updated": len(to_update),
+                "unchanged": unchanged,
+            },
+        )
+    return CourseImportResult(created=len(created), updated=len(to_update), unchanged=unchanged)
+
+
+def _attach_rows(errors, rows):
+    """Fill the Excel row of capture-window errors, found after the row loop."""
+    row_by_code = {row["student_code"]: row["row"] for row in rows}
+    for error in errors:
+        if error["row"] is None:
+            error["row"] = row_by_code.get(error["student_code"])
+    errors.sort(key=lambda error: (error["row"] or 0, error["unit"] or ""))
+
+
+# --------------------------------------------------------------------------- #
+# Informe de calificaciones (PDF generado en el navegador)
+# --------------------------------------------------------------------------- #
+
+#: Tope de estudiantes de un informe. El establecimiento ronda los 400; el tope
+#: deja holgura y evita que una petición arme un cuerpo desmedido.
+GRADE_REPORT_MAX_STUDENTS = 3000
+
+
+def _average(values):
+    """
+    Mean of registered grades, rounded half up to an integer (RF-RES-002), or
+    None when nothing is registered. Units without a grade are "sin
+    calificar", never zero (RF-CAL-003): they are simply not in ``values``.
+    Computed with ``Decimal`` so no binary float error reaches the rounding.
+    """
+    if not values:
+        return None
+    return _round_half_up(Decimal(sum(values)) / Decimal(len(values)))
+
+
+def build_grade_report(
+    *, academic_cycle, institution, grade=None, section=None, student=None, actor=None, at=None
+) -> dict:
+    """
+    Data of the grade report for the whole cycle, a grade, a section of it or
+    one student, with every average already computed: the browser only lays
+    the pages out, so no business rule lives in the component (AGENTS.md #8).
+
+    Per student: one row per subject of the grade's curriculum plan (plus any
+    subject with registered grades outside the plan), one column per active
+    unit of the cycle, the course average at the end of each row, the unit
+    average under each column and the general average of every registered
+    grade in the bottom-right corner. All averages exclude units without a
+    grade and round half up to an integer.
+
+    Five queries whatever the number of students; grades are read as plain
+    tuples. One ``evaluation.grade_report_generated`` audit event records who
+    read whose grades.
+
+    Raises:
+        DomainError: when the selection exceeds GRADE_REPORT_MAX_STUDENTS.
+    """
+    at = at or timezone.now()
+    units = queries.active_cycle_units(academic_cycle)
+    unit_index = {unit.pk: position for position, unit in enumerate(units)}
+    enrolments = list(
+        queries.report_enrolments(
+            academic_cycle=academic_cycle, grade=grade, section=section, student=student
+        )[: GRADE_REPORT_MAX_STUDENTS + 1]
+    )
+    if len(enrolments) > GRADE_REPORT_MAX_STUDENTS:
+        raise DomainError(
+            f"La selección supera {GRADE_REPORT_MAX_STUDENTS} estudiantes; filtre por grado o "
+            "sección."
+        )
+
+    plans = queries.plan_subjects_by_grade(
+        academic_cycle, {enrolment.section.offering.grade_id for enrolment in enrolments}
+    )
+    # {enrolment_id: {subject_id: [value or None per unit]}} and subject names.
+    cells = {}
+    names = {}
+    for enrolment_id, subject_id, subject_name, unit_id, value in queries.report_grade_values(
+        enrolment_ids=[enrolment.pk for enrolment in enrolments],
+        unit_ids=list(unit_index),
+    ):
+        names[subject_id] = subject_name
+        row = cells.setdefault(enrolment_id, {}).setdefault(subject_id, [None] * len(units))
+        row[unit_index[unit_id]] = value
+
+    students = []
+    for enrolment in enrolments:
+        graded = cells.get(enrolment.pk, {})
+        plan = plans.get(enrolment.section.offering.grade_id, [])
+        planned_ids = {subject_id for subject_id, _name in plan}
+        extra = sorted(
+            (
+                (subject_id, names[subject_id])
+                for subject_id in graded
+                if subject_id not in planned_ids
+            ),
+            key=lambda item: item[1],
+        )
+        subjects = []
+        all_values = []
+        columns = [[] for _unit in units]
+        for subject_id, name in [*plan, *extra]:
+            values = graded.get(subject_id, [None] * len(units))
+            registered = [value for value in values if value is not None]
+            all_values.extend(registered)
+            for position, value in enumerate(values):
+                if value is not None:
+                    columns[position].append(value)
+            subjects.append({"name": name, "grades": values, "average": _average(registered)})
+        students.append(
+            {
+                "student_code": enrolment.student.student_code,
+                "student_name": _person_name(enrolment.student.person),
+                "grade_name": enrolment.section.offering.grade.name,
+                "section_label": _section_label(enrolment.section),
+                "subjects": subjects,
+                "unit_averages": [_average(column) for column in columns],
+                "general_average": _average(all_values),
+            }
+        )
+
+    record_event(
+        actor=actor,
+        action="evaluation.grade_report_generated",
+        resource="Grade",
+        context={
+            "cycle_id": str(academic_cycle.public_id),
+            "grade_id": str(grade.public_id) if grade is not None else None,
+            "section_id": str(section.public_id) if section is not None else None,
+            "student_id": str(student.public_id) if student is not None else None,
+            "student_count": len(students),
+        },
+    )
+    return {
+        "institution": {"name": institution.name, "short_name": institution.short_name},
+        "cycle": {
+            "public_id": academic_cycle.public_id,
+            "name": academic_cycle.name,
+            "year": academic_cycle.year,
+        },
+        "generated_at": at,
+        "units": [
+            {"public_id": unit.public_id, "number": unit.number, "name": unit.name}
+            for unit in units
+        ],
+        "students": students,
     }

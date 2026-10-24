@@ -666,3 +666,20 @@ Los contratos públicos cambiaron solo de forma aditiva y están documentados. S
 conservan PostgreSQL, binarios fuera de la base de datos, permisos con alcance,
 baja lógica e historial auditable. El cierre administrativo del issue requiere
 CI verde y aceptación visual final; no requiere otra fase funcional.
+
+## Notas por curso desde Excel, cursos del docente e informe de notas
+
+Rama `feat/notas-excel-y-boletas`. Contratos en
+[api-conventions.md](../architecture/api-conventions.md), sección «Notas por curso desde Excel e
+informe de calificaciones».
+
+| Requerimiento | Diseño y código | Pruebas | Alcance |
+| --- | --- | --- | --- |
+| RF-CAL-004 | `build_course_workbook_data`, `import_course_grades` (`backend/apps/evaluation/services.py`); transporte `.xlsx` en `apps/evaluation/workbook.py`; `GET …/grade-workbook/`, `POST …/grade-workbook/import/`; `frontend/src/evaluation/CourseWorkbookPanel.jsx` | `backend/tests/api/test_evaluation_course_workbook_api.py` (`TestCourseWorkbookExport`, `TestCourseWorkbookImport`); `frontend/src/test/gradeSheet.test.jsx` | Plantilla por curso con una columna por unidad activa; importación por código del estudiante, todo o nada, celdas vacías sin efecto, reglas de ventana y permisos excepcionales; escritura en lote con consultas constantes y una entrada de bitácora por nota (`record_events`) |
+| RF-CAL-006 | `GradeCoursesView`, `cycle_course_pairs`, `assignment_course_pairs` | `TestGradeCourses`; `gradeSheet.test.jsx` | La planilla y la carga por Excel solo ofrecen los cursos que la cuenta califica: un docente, sus asignaciones; dirección, todos los del plan |
+| RF-CAL-009 | `build_grade_report` (promedios enteros, mitad hacia arriba); `GradeReportView` con gzip; permiso `grade.report` (`identity/0020`); `frontend/src/evaluation/{GradeReportPage.jsx,gradeReportPdf.js}`, `frontend/src/shared/pdf/miniPdf.js` | `TestGradeReport` (promedios, filtros, permiso, bitácora, consultas constantes); `frontend/src/test/gradeReport.test.jsx` (filtros y PDF válido) | Todos, grado (y sección) o estudiante; PDF armado en el navegador sin dependencias |
+| RF-BIT-001 / RF-BIT-005 | `record_events` (`backend/apps/audit/services.py`): inserción en lote con el mismo contexto y saneamiento que `record_event` | `TestCourseWorkbookImport` (eventos por nota y antes/después) | Solo inserta; no modifica ni borra historia |
+
+Medición local (PostgreSQL 16, 2026-10-24): plantilla 21 ms; importación de 40 filas 15 ms y 24
+consultas; datos del informe de 400 estudiantes y 7 200 notas 44 ms y 18 consultas; PDF de 400
+páginas armado en 165 ms (754 KB). Son mediciones locales, no de producción.
