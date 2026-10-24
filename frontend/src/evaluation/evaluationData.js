@@ -103,3 +103,42 @@ export function useUrlParams() {
     );
   return [params, set];
 }
+
+/**
+ * Cursos (sección y subárea) que la cuenta puede calificar en el ciclo. El
+ * backend decide: dirección ve todos los del plan y un docente solo sus
+ * asignaciones, así que la planilla nunca ofrece un curso ajeno.
+ */
+export function useGradeCourses(cycleId) {
+  return useQuery({
+    queryKey: queryKeys.evaluation(cycleId, "grade-courses"),
+    queryFn: () => evaluationService.listGradeCourses(cycleId),
+    enabled: Boolean(cycleId),
+  });
+}
+
+/** Secciones distintas de los cursos, en el orden que manda el backend. */
+export function courseSectionOptions(courses = []) {
+  const seen = new Set();
+  const options = [];
+  for (const course of courses) {
+    if (!seen.has(course.section.public_id)) {
+      seen.add(course.section.public_id);
+      options.push({
+        value: course.section.public_id,
+        label: course.section.label,
+      });
+    }
+  }
+  return options;
+}
+
+/** Subáreas de los cursos de una sección. */
+export function courseSubjectOptions(courses = [], sectionId) {
+  return courses
+    .filter((course) => course.section.public_id === sectionId)
+    .map((course) => ({
+      value: course.subject.public_id,
+      label: course.subject.name,
+    }));
+}
