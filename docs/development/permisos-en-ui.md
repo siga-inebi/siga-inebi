@@ -91,6 +91,10 @@ institución, módulo).
 | Asignaciones docentes | Listado, matriz sección × curso, vista previa del clonado | `GET /academics/teaching-assignments/`, `GET /academics/cycles/{id}/assignment-matrix/`, `GET /academics/cycles/{id}/teaching-assignments/clone-preview/` | `scope.assign` con alcance sobre la institución |
 | Asignaciones docentes | Reasignar a otro docente | `POST /academics/teaching-assignments/{id}/reassignments/` | `scope.assign` con alcance sobre la institución |
 | Evaluación | Pestañas (`/app/evaluacion?tab=`) | — | Unidades: sesión. Planilla y Avance: `grade.write` o `evaluation.configure_units`. Recuperación: `student.view_basic`. Resultados: `student.view_basic` o `grade.correct`. La pestaña sin permiso no se muestra |
+| Evaluación | Planilla › Descargar plantilla Excel | `GET …/grade-workbook/` | `grade.write` sobre la sección y la subárea, o `evaluation.configure_units` institucional |
+| Evaluación | Planilla › Importar Excel | `POST …/grade-workbook/import/` | `grade.write` sobre la sección y la subárea (el botón solo aparece con `grade.write`) |
+| Evaluación | Selector de sección y subárea | `GET …/grade-courses/` | Sesión; devuelve solo los cursos que la cuenta califica |
+| Informe de notas | Generar PDF | `GET …/grade-report/` | `grade.report` institucional (el menú se oculta sin ese permiso) |
 | Evaluación → Unidades | Nueva unidad / Crear unidad (recuperación opcional: las dos fechas o ninguna) | `POST /academics/cycles/{id}/evaluation-units/` | `evaluation.configure_units` con alcance sobre la institución (#631; antes solo sesión). Sin el permiso no se muestra el botón |
 | Evaluación → Unidades | ⋯ → Ajustar ventana de recuperación | `PATCH …/evaluation-units/{id}/recovery-window/` | `evaluation.configure_units` con alcance sobre la institución (#631); oculto sin el permiso |
 | Evaluación → Unidades | ⋯ → Cerrar unidad (confirmación; solo unidades abiertas) | `PATCH …/evaluation-units/{id}/close/` | `evaluation.configure_units` con alcance sobre la institución; oculto sin el permiso |

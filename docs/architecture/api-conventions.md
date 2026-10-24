@@ -1127,3 +1127,27 @@ que no exista ya ese perfil y confirma persona, perfil y auditoría de forma
 atómica. `GET /people/` agrega indicadores booleanos `profiles` y requiere
 `person.view` o `person.edit` con alcance `identity`; las escrituras requieren
 `person.edit`. La respuesta sigue ocultando CUI y fecha de nacimiento.
+
+## Notas por curso desde Excel e informe de calificaciones
+
+Todas cuelgan de `/api/v1/academics/cycles/{cycle_public_id}/`. Son endpoints nuevos y no
+cambian contratos existentes.
+
+- `GET grade-courses/`: cursos (`section {public_id, label, grade_name}`, `subject {public_id,
+  name}`, `teacher_name`) que la cuenta puede calificar, sin paginar. `grade.write`
+  institucional o configuración de evaluación: todos los del plan. Docente: sus asignaciones
+  vigentes (o las del ciclo, si está cerrado). Sin `grade.write`: `[]`.
+- `GET grade-workbook/?section_id=&subject_id=`: archivo `.xlsx` (hoja «Notas» y hoja muy
+  oculta `_siga` con los identificadores del ciclo, la sección, la subárea y cada unidad).
+  Exige `grade.write` sobre la sección y la subárea o configuración de evaluación. 400 si la
+  sección supera 200 matrículas activas o el ciclo no tiene unidades.
+- `POST grade-workbook/import/` (multipart `file`, `section_id`, `subject_id`): 200 `{created,
+  updated, unchanged}` o 400 `{errors: [{row, student_code, unit, message}]}`; un archivo que no
+  es la plantilla del curso responde con el sobre de error de dominio. Archivo de hasta 2 MB,
+  25 MB descomprimido y 200 entradas. Exige `grade.write` sobre la sección y la subárea.
+- `GET grade-report/?grade_id=&section_id=&student_id=`: `{institution, cycle, generated_at,
+  units[], students[{student_code, student_name, grade_name, section_label, subjects[{name,
+  grades[], average}], unit_averages[], general_average}]}`. `section_id` exige `grade_id`;
+  `student_id` no se combina con los otros. Promedios enteros (mitad hacia arriba) sin contar
+  las unidades sin nota; `null` si no hay ninguna. Respuesta con gzip. Exige `grade.report`
+  institucional; la denegación y cada generación quedan en la bitácora.
