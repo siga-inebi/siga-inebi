@@ -26,7 +26,7 @@ const primary = {
     edit: true,
     make_primary: false,
     end: true,
-    requires_replacement: true,
+    offers_replacement: true,
   },
 };
 const secondary = {
@@ -39,7 +39,7 @@ const secondary = {
     edit: true,
     make_primary: true,
     end: true,
-    requires_replacement: false,
+    offers_replacement: false,
   },
 };
 const page = (results, count = results.length) => ({ results, count });
@@ -110,7 +110,7 @@ test("finaliza principal con reemplazo de pagina dos sin descargar el catalogo",
   await user.click(
     await screen.findByRole("button", { name: "Finalizar vínculo" })
   );
-  await screen.findByText("No hay vínculos disponibles como reemplazo.");
+  await screen.findByText("No hay otros vínculos vigentes para elegir.");
   expect(
     screen.queryByRole("button", { name: "Confirmar finalización" })
   ).not.toBeInTheDocument();
@@ -132,7 +132,7 @@ test("finaliza principal con reemplazo de pagina dos sin descargar el catalogo",
   });
 });
 
-test("sin reemplazo no ofrece finalizar al principal", async () => {
+test("finaliza al principal sin elegir reemplazo y el estudiante queda sin principal", async () => {
   service.listRecordGuardians.mockImplementation(async (_id, params) =>
     page(params.replacement_for ? [] : [primary])
   );
@@ -141,13 +141,18 @@ test("sin reemplazo no ofrece finalizar al principal", async () => {
   await user.click(
     await screen.findByRole("button", { name: "Finalizar vínculo" })
   );
-  await screen.findByText("No hay vínculos disponibles como reemplazo.");
+  await screen.findByText("No hay otros vínculos vigentes para elegir.");
+  await user.click(
+    screen.getByRole("button", { name: "Continuar sin nuevo principal" })
+  );
   expect(
-    screen.queryByRole("button", { name: "Confirmar finalización" })
-  ).not.toBeInTheDocument();
-  expect(service.endGuardianRelation).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: "Cancelar" }));
-  expect(service.endGuardianRelation).not.toHaveBeenCalled();
+    screen.getByText("El estudiante quedará sin encargado principal.")
+  ).toBeInTheDocument();
+  await user.click(
+    screen.getByRole("button", { name: "Confirmar finalización" })
+  );
+  await screen.findByText("Vínculo finalizado. El historial se conserva.");
+  expect(service.endGuardianRelation).toHaveBeenCalledExactlyOnceWith(11, {});
 });
 
 test("finaliza secundario sin reemplazo y conserva error si el servidor rechaza", async () => {

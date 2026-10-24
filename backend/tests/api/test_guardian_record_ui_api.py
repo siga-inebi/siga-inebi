@@ -236,6 +236,26 @@ def test_audit_failure_rolls_back_and_unknown_payload_fields_are_rejected(auth_c
     )
 
 
+def test_rows_expose_end_only_for_current_links_the_actor_can_edit(auth_client):
+    guardian = GuardianFactory()
+    editable, read_only, ended = StudentFactory(), StudentFactory(), StudentFactory()
+    for student in (editable, read_only, ended):
+        grant(auth_client.user, "student_view_basic", student=student)
+    for student in (editable, ended):
+        grant(auth_client.user, "student_edit_basic", student=student)
+    StudentGuardianRelationFactory(guardian=guardian, student=editable, is_primary=True)
+    StudentGuardianRelationFactory(guardian=guardian, student=read_only, is_primary=False)
+    StudentGuardianRelationFactory(
+        guardian=guardian, student=ended, is_primary=False, ends_at=timezone.localdate()
+    )
+    rows = auth_client.get(reverse("guardian-students", args=[guardian.pk])).json()["results"]
+    actions = {row["student"]["public_id"]: row["actions"] for row in rows}
+    assert actions[str(editable.public_id)]["end"] is True
+    assert actions[str(editable.public_id)]["offers_replacement"] is True
+    assert actions[str(read_only.public_id)]["end"] is False
+    assert actions[str(ended.public_id)]["end"] is False
+
+
 def test_linked_student_names_do_not_add_queries_per_row(auth_client):
     guardian = GuardianFactory()
     grant(auth_client.user, "student_view_basic", module="students")

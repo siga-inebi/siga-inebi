@@ -242,7 +242,9 @@ Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad edu
 - `POST /api/v1/students/guardian-relations/{id}/make-primary/` designa una relacion vigente como
   principal.
 - `POST /api/v1/students/guardian-relations/{id}/end/` conserva el registro y termina el acceso.
-  Debe incluir `replacement_relation` al terminar la relacion principal.
+  `replacement_relation` es opcional: al terminar la relacion principal, si se envia, esa
+  relacion pasa a ser la principal; si no, el estudiante queda sin encargado principal
+  (decision del 2026-10-23; antes era obligatorio y respondia 400).
 - `PATCH /api/v1/students/guardian-relations/{id}/` permite corregir exclusivamente
   `relationship_label`, con `student.edit_basic` y alcance. No modifica identidades,
   fechas, principal o actividad; campos adicionales se rechazan con 400. Antes era 405.

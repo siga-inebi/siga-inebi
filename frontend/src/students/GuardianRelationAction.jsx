@@ -11,7 +11,17 @@ import { RecordCollection } from "./RecordCollection.jsx";
 import { RecordForm } from "./RecordForm.jsx";
 import { fullName } from "./studentPresentation.js";
 
-function ReplacementPicker({ student, relation, onChoose, onCancel }) {
+/**
+ * Nuevo principal opcional al finalizar el vínculo principal: el estudiante
+ * puede quedar sin encargado principal (decisión del 2026-10-23).
+ */
+export function ReplacementPicker({
+  student,
+  relation,
+  onChoose,
+  onSkip,
+  onCancel,
+}) {
   const load = useCallback(
     (params) =>
       studentsService.listRecordGuardians(student.public_id, {
@@ -24,19 +34,25 @@ function ReplacementPicker({ student, relation, onChoose, onCancel }) {
   return (
     <Stack gap={2}>
       <Alert severity="info">
-        Elija otro vínculo vigente como principal antes de finalizar este. Si no
-        hay reemplazos, vincule primero a otro encargado.
+        Es el vínculo principal. Puede elegir otro vínculo vigente como nuevo
+        principal o finalizar sin elegir: el estudiante quedará sin encargado
+        principal.
       </Alert>
       <RecordCollection
         list={list}
-        emptyMessage="No hay vínculos disponibles como reemplazo."
+        emptyMessage="No hay otros vínculos vigentes para elegir."
         renderRow={(row) => (
           <Button onClick={() => onChoose(row)}>
             Elegir {fullName(row.guardian_detail)} · {row.relationship_label}
           </Button>
         )}
       />
-      <Button onClick={onCancel}>Cancelar</Button>
+      <Stack direction="row" gap={1} justifyContent="flex-end">
+        <Button onClick={onCancel}>Cancelar</Button>
+        <Button onClick={onSkip} variant="outlined">
+          Continuar sin nuevo principal
+        </Button>
+      </Stack>
     </Stack>
   );
 }
@@ -50,14 +66,15 @@ export function GuardianRelationAction({
   onBusy,
 }) {
   const { relation, kind } = selection;
-  const [replacement, setReplacement] = useState(null);
+  // `undefined`: aún no se decide; `null`: finalizar sin nuevo principal.
+  const [replacement, setReplacement] = useState(undefined);
   const heading = useRef(null);
   useEffect(() => {
     heading.current?.focus();
   }, []);
   const name = fullName(relation.guardian_detail);
-  const requiresReplacement =
-    kind === "end" && relation.actions.requires_replacement;
+  const offersReplacement =
+    kind === "end" && relation.actions.offers_replacement;
   const title =
     kind === "edit"
       ? "Editar vínculo"
@@ -81,11 +98,12 @@ export function GuardianRelationAction({
           vínculo se conservan.
         </Typography>
       )}
-      {requiresReplacement && !replacement ? (
+      {offersReplacement && replacement === undefined ? (
         <ReplacementPicker
           student={student}
           relation={relation}
           onChoose={setReplacement}
+          onSkip={() => setReplacement(null)}
           onCancel={onCancel}
         />
       ) : (
@@ -93,6 +111,10 @@ export function GuardianRelationAction({
           {replacement ? (
             <Typography>
               Nuevo principal: {fullName(replacement.guardian_detail)}
+            </Typography>
+          ) : offersReplacement ? (
+            <Typography>
+              El estudiante quedará sin encargado principal.
             </Typography>
           ) : null}
           <RecordForm
