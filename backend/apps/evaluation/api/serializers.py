@@ -598,3 +598,114 @@ class SectionRecoveryEligibilitySerializer(serializers.Serializer):
     failed_subjects = FailedSubjectSerializer(
         source="eligibility.failed_subject_list", many=True, read_only=True
     )
+
+
+# --------------------------------------------------------------------------- #
+# Cursos del docente, plantilla Excel e informe de calificaciones
+# --------------------------------------------------------------------------- #
+
+
+class GradeCourseSectionSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    label = serializers.CharField(read_only=True)
+    grade_name = serializers.CharField(read_only=True)
+
+
+class GradeCourseSubjectSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+
+class GradeCourseSerializer(serializers.Serializer):
+    """Un curso (sección y subárea) que la cuenta puede calificar."""
+
+    section = GradeCourseSectionSerializer(read_only=True)
+    subject = GradeCourseSubjectSerializer(read_only=True)
+    teacher_name = serializers.CharField(read_only=True, allow_null=True)
+
+
+class CourseWorkbookImportSerializer(serializers.Serializer):
+    """Plantilla Excel de un curso (multipart): archivo, sección y subárea."""
+
+    file = serializers.FileField()
+    section_id = serializers.UUIDField()
+    subject_id = serializers.UUIDField()
+
+
+class CourseImportResultSerializer(serializers.Serializer):
+    created = serializers.IntegerField(read_only=True)
+    updated = serializers.IntegerField(read_only=True)
+    unchanged = serializers.IntegerField(read_only=True)
+
+
+class CourseImportErrorSerializer(serializers.Serializer):
+    row = serializers.IntegerField(read_only=True, allow_null=True)
+    student_code = serializers.CharField(read_only=True, allow_null=True)
+    unit = serializers.CharField(read_only=True, allow_null=True)
+    message = serializers.CharField(read_only=True)
+
+
+class CourseImportErrorsSerializer(serializers.Serializer):
+    errors = CourseImportErrorSerializer(many=True, read_only=True)
+
+
+class GradeReportQuerySerializer(serializers.Serializer):
+    """Filtros del informe: sin filtros es todo el ciclo."""
+
+    grade_id = serializers.UUIDField(required=False)
+    section_id = serializers.UUIDField(required=False)
+    student_id = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        if attrs.get("student_id") and (attrs.get("grade_id") or attrs.get("section_id")):
+            raise serializers.ValidationError(
+                "Filtre por estudiante o por grado y sección, no por ambos."
+            )
+        if attrs.get("section_id") and not attrs.get("grade_id"):
+            raise serializers.ValidationError({"grade_id": "Elija el grado de la sección."})
+        return attrs
+
+
+class GradeReportSubjectSerializer(serializers.Serializer):
+    name = serializers.CharField(read_only=True)
+    grades = serializers.ListField(child=serializers.IntegerField(allow_null=True), read_only=True)
+    average = serializers.IntegerField(read_only=True, allow_null=True)
+
+
+class GradeReportStudentSerializer(serializers.Serializer):
+    student_code = serializers.CharField(read_only=True)
+    student_name = serializers.CharField(read_only=True)
+    grade_name = serializers.CharField(read_only=True)
+    section_label = serializers.CharField(read_only=True)
+    subjects = GradeReportSubjectSerializer(many=True, read_only=True)
+    unit_averages = serializers.ListField(
+        child=serializers.IntegerField(allow_null=True), read_only=True
+    )
+    general_average = serializers.IntegerField(read_only=True, allow_null=True)
+
+
+class GradeReportUnitSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    number = serializers.IntegerField(read_only=True)
+    name = serializers.CharField(read_only=True)
+
+
+class GradeReportInstitutionSerializer(serializers.Serializer):
+    name = serializers.CharField(read_only=True)
+    short_name = serializers.CharField(read_only=True)
+
+
+class GradeReportCycleSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    year = serializers.IntegerField(read_only=True)
+
+
+class GradeReportSerializer(serializers.Serializer):
+    """Informe de calificaciones con todos los promedios ya calculados."""
+
+    institution = GradeReportInstitutionSerializer(read_only=True)
+    cycle = GradeReportCycleSerializer(read_only=True)
+    generated_at = serializers.DateTimeField(read_only=True)
+    units = GradeReportUnitSerializer(many=True, read_only=True)
+    students = GradeReportStudentSerializer(many=True, read_only=True)

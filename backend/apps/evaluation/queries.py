@@ -9,9 +9,11 @@ from apps.academics.models import (
     Subject,
     TeachingAssignment,
 )
+from apps.academics.models import Grade as AcademicGrade
 from apps.academics.queries import current_teaching_assignment, resolve_institution
 from apps.enrolments.models import Enrolment
 from apps.evaluation.models import CaptureExceptionGrant, EvaluationUnit, Grade
+from apps.students.models import Student
 
 #: Precarga de una nota para serializarla con nombres sin una consulta por fila.
 GRADE_RELATED = (
@@ -278,3 +280,171 @@ def grades_for_enrolment(enrolment):
         .select_related(*GRADE_RELATED)
         .order_by("evaluation_unit__number", "subject__name")
     )
+
+
+# --------------------------------------------------------------------------- #
+# Notas por curso (plantilla Excel) e informe de calificaciones
+# --------------------------------------------------------------------------- #
+
+
+def cycle_course_pairs(academic_cycle):
+    """
+    Every ``(section, subject)`` the cycle's curriculum plan expects: each
+    active section crossed with the subjects of its grade's active plan. Backs
+    the course list of an institution-wide grade writer. Two queries, whatever
+    the number of sections.
+    """
+    sections = list(
+        Section.objects.filter(offering__academic_cycle=academic_cycle, is_active=True)
+        .select_related("offering__grade__level", "offering__shift")
+        .order_by("offering__grade__level__sequence", "offering__grade__sequence", "name", "pk")
+    )
+    subjects_by_grade = {}
+    for plan in (
+        CurriculumPlan.objects.filter(academic_cycle=academic_cycle, is_active=True)
+        .select_related("subject")
+        .order_by("subject__name")
+    ):
+        subjects_by_grade.setdefault(plan.grade_id, []).append(plan.subject)
+    return [
+        (section, subject)
+        for section in sections
+        for subject in subjects_by_grade.get(section.offering.grade_id, [])
+    ]
+
+
+def assignment_course_pairs(assignments, academic_cycle):
+    """``(section, subject)`` of a teacher's ``assignments`` in ``academic_cycle``, ordered."""
+    rows = (
+        assignments.filter(academic_cycle=academic_cycle, section__is_active=True)
+        .select_related("section__offering__grade__level", "section__offering__shift", "subject")
+        .order_by(
+            "section__offering__grade__level__sequence",
+            "section__offering__grade__sequence",
+            "section__name",
+            "subject__name",
+        )
+    )
+    seen = set()
+    pairs = []
+    for assignment in rows:
+        key = (assignment.section_id, assignment.subject_id)
+        if key not in seen:
+            seen.add(key)
+            pairs.append((assignment.section, assignment.subject))
+    return pairs
+
+
+def current_teachers_by_pair(academic_cycle):
+    """``{(section_id, subject_id): Person}`` of the cycle's current assignments, one query."""
+    return {
+        (assignment.section_id, assignment.subject_id): assignment.teacher
+        for assignment in TeachingAssignment.objects.filter(
+            academic_cycle=academic_cycle, ends_on__isnull=True, is_active=True
+        ).select_related("teacher")
+    }
+
+
+def active_cycle_units(academic_cycle):
+    """Active evaluation units of the cycle, in order. Their count is configuration, not fixed."""
+    return list(
+        EvaluationUnit.objects.filter(academic_cycle=academic_cycle, is_active=True).order_by(
+            "number"
+        )
+    )
+
+
+def course_grades(*, section, subject, units):
+    """``{(enrolment_id, unit_id): Grade}`` of one course across ``units``, one query."""
+    return {
+        (grade.enrolment_id, grade.evaluation_unit_id): grade
+        for grade in Grade.objects.filter(
+            enrolment__section=section,
+            subject=subject,
+            evaluation_unit__in=units,
+            is_active=True,
+        )
+    }
+
+
+def active_capture_exception_unit_ids(*, units, subject, teacher, at):
+    """Ids of ``units`` where an unexpired exceptional grant covers ``teacher`` and ``subject``."""
+    return set(
+        CaptureExceptionGrant.objects.filter(
+            evaluation_unit__in=units,
+            subject=subject,
+            teacher=teacher,
+            is_active=True,
+            expires_at__gt=at,
+        ).values_list("evaluation_unit_id", flat=True)
+    )
+
+
+def report_enrolments(*, academic_cycle, grade=None, section=None, student=None):
+    """
+    Active enrolments the grade report covers, ordered by grade, section and
+    student name. Filters narrow from the whole cycle to a grade, a section or
+    one student. One query.
+    """
+    queryset = Enrolment.objects.filter(
+        academic_cycle=academic_cycle,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+        is_active=True,
+    )
+    if section is not None:
+        queryset = queryset.filter(section=section)
+    elif grade is not None:
+        queryset = queryset.filter(section__offering__grade=grade)
+    if student is not None:
+        queryset = queryset.filter(student=student)
+    return queryset.select_related(
+        "student__person", "section__offering__grade__level", "section__offering__shift"
+    ).order_by(
+        "section__offering__grade__level__sequence",
+        "section__offering__grade__sequence",
+        "section__name",
+        "student__person__last_name",
+        "student__person__first_name",
+        "pk",
+    )
+
+
+def plan_subjects_by_grade(academic_cycle, grade_ids):
+    """``{grade_id: [(subject_id, name), ...]}`` from the cycle's active plans, one query."""
+    result = {}
+    for grade_id, subject_id, name in (
+        CurriculumPlan.objects.filter(
+            academic_cycle=academic_cycle, grade_id__in=grade_ids, is_active=True
+        )
+        .order_by("subject__name")
+        .values_list("grade_id", "subject_id", "subject__name")
+    ):
+        result.setdefault(grade_id, []).append((subject_id, name))
+    return result
+
+
+def report_grade_values(*, enrolment_ids, unit_ids):
+    """
+    ``(enrolment_id, subject_id, subject_name, unit_id, value)`` tuples for the
+    report. Plain tuples, not model instances: the report reads thousands of
+    grades and needs only these values. Chunked so the IN list stays bounded.
+    """
+    chunk_size = 1000
+    for start in range(0, len(enrolment_ids), chunk_size):
+        yield from Grade.objects.filter(
+            enrolment_id__in=enrolment_ids[start : start + chunk_size],
+            evaluation_unit_id__in=unit_ids,
+            is_active=True,
+        ).values_list("enrolment_id", "subject_id", "subject__name", "evaluation_unit_id", "value")
+
+
+def grade_in_institution_or_none(*, institution, public_id):
+    return (
+        AcademicGrade.objects.filter(level__institution=institution, public_id=public_id)
+        .select_related("level")
+        .first()
+    )
+
+
+def student_or_none(public_id):
+    return Student.objects.filter(public_id=public_id).select_related("person").first()

@@ -221,6 +221,13 @@ PERMISSION_CATALOGUE = (
         "evaluation",
     ),
     (
+        "grade.report",
+        "Imprimir notas",
+        "Permite generar el informe de calificaciones en PDF de todos los estudiantes, de un "
+        "grado o sección, o de un estudiante; cada generación queda en la bitácora.",
+        "evaluation",
+    ),
+    (
         "academic_cycle.reopen",
         "Reabrir ciclo escolar",
         "Permite reabrir un ciclo cerrado, con motivo (RF-CIC-005).",

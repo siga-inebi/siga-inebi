@@ -2,11 +2,15 @@ from django.urls import include, path
 
 from apps.evaluation.api.views import (
     CloneCycleEvaluationConfigView,
+    CourseWorkbookImportView,
+    CourseWorkbookView,
     CurrentAverageView,
     CycleEvaluationConfigView,
     EnrolmentGradesView,
     EvaluationGlobalConfigView,
     FinalSubjectGradeView,
+    GradeCoursesView,
+    GradeReportView,
     RecoveryEligibilityView,
     RecoveryGradeCreateView,
     SectionRecoveryEligibilityView,
@@ -136,6 +140,26 @@ urlpatterns = [
     path(
         "cycles/<uuid:cycle_public_id>/evaluation-units/",
         include("apps.evaluation.api.urls"),
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/grade-courses/",
+        GradeCoursesView.as_view(),
+        name="grade-courses",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/grade-workbook/",
+        CourseWorkbookView.as_view(),
+        name="course-grade-workbook",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/grade-workbook/import/",
+        CourseWorkbookImportView.as_view(),
+        name="course-grade-workbook-import",
+    ),
+    path(
+        "cycles/<uuid:cycle_public_id>/grade-report/",
+        GradeReportView.as_view(),
+        name="grade-report",
     ),
     path(
         "evaluation-config/",
