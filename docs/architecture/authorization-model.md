@@ -125,9 +125,11 @@ Las pruebas en `backend/tests/permissions/test_identity_permissions.py` y
 
 - `StudentGuardianRelation` conserva el historial con `ends_at`; no se elimina fisicamente.
 - La base de datos permite a lo sumo una relacion principal sin `ends_at` por estudiante. Los
-  servicios transaccionales garantizan exactamente una: el primer vinculo vigente es principal,
-  `change_primary_student_guardian_relation(...)` reemplaza la principal, y
-  `end_student_guardian_relation(...)` exige una relacion vigente de reemplazo al terminarla.
+  servicios transaccionales la mantienen: el primer vinculo vigente es principal y
+  `change_primary_student_guardian_relation(...)` reemplaza la principal.
+  `end_student_guardian_relation(...)` acepta una relacion de reemplazo opcional; sin ella el
+  estudiante queda sin encargado principal (decision del 2026-10-23). Mientras no tenga uno,
+  la notificacion de ausencia de RF-JOR-007 no tiene destinatario.
 - `POST /api/v1/students/guardian-relations/` crea el vinculo y calcula su principalidad. La ruta
   de detalle es solo de lectura; `POST .../{id}/make-primary/` cambia la principal y
   `POST .../{id}/end/` termina la relacion con `replacement_relation` cuando corresponde.

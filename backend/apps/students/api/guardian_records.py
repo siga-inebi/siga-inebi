@@ -5,6 +5,7 @@ from rest_framework.response import Response
 
 from apps.students import queries, services
 from apps.students.models import Student, StudentGuardianRelation
+from apps.students.services import guardian_relation_actions
 
 
 class GuardianStudentSerializer(serializers.ModelSerializer):
@@ -17,6 +18,7 @@ class GuardianStudentSerializer(serializers.ModelSerializer):
 
 class GuardianStudentRelationSerializer(serializers.ModelSerializer):
     student = GuardianStudentSerializer(read_only=True)
+    actions = serializers.SerializerMethodField()
 
     class Meta:
         model = StudentGuardianRelation
@@ -28,7 +30,14 @@ class GuardianStudentRelationSerializer(serializers.ModelSerializer):
             "starts_at",
             "ends_at",
             "is_active",
+            "actions",
         ]
+
+    def get_actions(self, instance) -> dict[str, bool]:
+        # The POST response is a fresh relation without the list annotation; the
+        # service only got there after checking the actor can edit the student.
+        can_manage = getattr(instance, "record_can_manage", True)
+        return guardian_relation_actions(relation=instance, can_manage=can_manage)
 
 
 class GuardianStudentActionsSerializer(serializers.Serializer):

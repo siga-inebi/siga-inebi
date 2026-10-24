@@ -20,6 +20,8 @@ const guardiansServiceMock = vi.hoisted(() => ({
   get: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  // La ficha unica consulta sus estudiantes vinculados al abrirse.
+  linkedStudents: vi.fn(async () => ({ results: [], count: 0, actions: {} })),
 }));
 
 vi.mock("@guardians/guardiansService.js", () => ({
@@ -295,7 +297,7 @@ describe("GuardiansPage", () => {
     await screen.findByText("Rosa Elvira Garcia Mendez");
     await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
 
-    const panel = screen.getByRole("dialog");
+    const panel = await screen.findByRole("dialog");
     expect(
       within(panel).getByRole("heading", { name: "Rosa Elvira Garcia Mendez" })
     ).toBeInTheDocument();
@@ -408,6 +410,22 @@ describe("GuardiansPage", () => {
     expect(
       await screen.findByText("Sin encargados para los filtros seleccionados.")
     ).toBeInTheDocument();
+  });
+
+  test("opening edit mode does not submit the form with the same click", async () => {
+    guardiansServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
+    const user = userEvent.setup();
+    renderWithRouter(<GuardiansPage />);
+
+    await screen.findByText("Rosa Elvira Garcia Mendez");
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
+    await user.click(await screen.findByRole("button", { name: "Editar" }));
+
+    expect(
+      screen.getByRole("button", { name: "Guardar cambios" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Complete el campo/)).not.toBeInTheDocument();
+    expect(guardiansServiceMock.update).not.toHaveBeenCalled();
   });
 
   test("requires the mandatory fields before submitting", async () => {

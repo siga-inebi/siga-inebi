@@ -126,14 +126,14 @@ def test_record_actions_come_from_scope_and_relation_state(auth_client):
         "edit": True,
         "make_primary": False,
         "end": True,
-        "requires_replacement": True,
+        "offers_replacement": True,
     }
     assert rows[current.pk]["make_primary"] is True
     assert rows[ended.pk] == {
         "edit": True,
         "make_primary": False,
         "end": False,
-        "requires_replacement": False,
+        "offers_replacement": False,
     }
 
 

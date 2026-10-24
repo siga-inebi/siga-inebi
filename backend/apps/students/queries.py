@@ -269,12 +269,20 @@ def guardian_readable_students(actor):
 
 
 def guardian_record_relations(*, actor, guardian):
+    from django.db.models import Exists, OuterRef
+
     from apps.students.models import StudentGuardianRelation
 
+    editable = (
+        effective_student_queryset(user=actor, codename="student_edit_basic")
+        if actor.has_atomic_permission("student_edit_basic")
+        else Student.objects.none()
+    )
     return (
         StudentGuardianRelation.objects.filter(
             guardian=guardian, student__in=guardian_readable_students(actor)
         )
+        .annotate(record_can_manage=Exists(editable.filter(pk=OuterRef("student_id"))))
         .select_related("student__person")
         .order_by("-starts_at", "-pk")
     )
