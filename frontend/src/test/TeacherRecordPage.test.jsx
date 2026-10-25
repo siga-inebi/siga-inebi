@@ -107,9 +107,10 @@ describe("TeacherRecordPage", () => {
     expect(
       await within(assignments).findByText("Matemática")
     ).toBeInTheDocument();
-    expect(
-      academicsServiceMock.listTeachingAssignments
-    ).toHaveBeenCalledWith({ teacher_id: "teacher-1", current: true });
+    expect(academicsServiceMock.listTeachingAssignments).toHaveBeenCalledWith({
+      teacher_id: "teacher-1",
+      current: true,
+    });
 
     // Las lecturas a demanda no se adelantan: el expediente se pide al abrirlo.
     expect(documentsServiceMock.listTeacherRecords).not.toHaveBeenCalled();
@@ -121,9 +122,7 @@ describe("TeacherRecordPage", () => {
       name: "Marvin Estuardo Lopez Cifuentes",
     });
     expect(screen.queryByLabelText("Qué imparte")).not.toBeInTheDocument();
-    expect(
-      academicsServiceMock.listTeachingAssignments
-    ).not.toHaveBeenCalled();
+    expect(academicsServiceMock.listTeachingAssignments).not.toHaveBeenCalled();
   });
 
   test("carga el expediente documental únicamente al solicitarlo", async () => {
@@ -229,7 +228,9 @@ describe("TeacherRecordPage", () => {
       })
     );
     expect(
-      await screen.findByRole("heading", { name: "Marvin Estuardo Lopez Mendez" })
+      await screen.findByRole("heading", {
+        name: "Marvin Estuardo Lopez Mendez",
+      })
     ).toBeInTheDocument();
     expect(screen.getByText("Cambios guardados.")).toBeInTheDocument();
   });
@@ -263,20 +264,16 @@ describe("TeacherRecordPage", () => {
       name: "Marvin Estuardo Lopez Cifuentes",
     });
 
-    expect(screen.getByRole("link", { name: "Volver a docentes" })).toHaveAttribute(
-      "href",
-      "/app/docentes?position=Docente+Titulado"
-    );
+    expect(
+      screen.getByRole("link", { name: "Volver a docentes" })
+    ).toHaveAttribute("href", "/app/docentes?position=Docente+Titulado");
   });
 });
 
 function renderFicha({ route = "/app/docentes/1", permissions = [] } = {}) {
   return renderWithSession(
     <Routes>
-      <Route
-        path="/app/docentes/:teacherId"
-        element={<TeacherRecordPage />}
-      />
+      <Route path="/app/docentes/:teacherId" element={<TeacherRecordPage />} />
       <Route path="/app/docentes" element={<p>Listado de docentes</p>} />
     </Routes>,
     { route, user: sessionUser(permissions) }

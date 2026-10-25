@@ -59,7 +59,9 @@ function LocationProbe() {
 // navegacion el query string solo no dice a donde se llego.
 function PathProbe() {
   const location = useLocation();
-  return <output data-testid="path">{location.pathname + location.search}</output>;
+  return (
+    <output data-testid="path">{location.pathname + location.search}</output>
+  );
 }
 
 const SAMPLE = [

@@ -455,7 +455,9 @@ describe("Ficha del docente: qué imparte (AD4)", () => {
     teachersServiceMock.get.mockReset().mockResolvedValue(TEACHER);
     teachersServiceMock.listPositions
       .mockReset()
-      .mockResolvedValue([{ value: TEACHER.position, label: TEACHER.position }]);
+      .mockResolvedValue([
+        { value: TEACHER.position, label: TEACHER.position },
+      ]);
   });
 
   function renderFicha(user) {

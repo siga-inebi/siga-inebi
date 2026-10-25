@@ -39,10 +39,7 @@ beforeEach(() => {
 function renderFicha() {
   return renderWithRouter(
     <Routes>
-      <Route
-        path="/app/docentes/:teacherId"
-        element={<TeacherRecordPage />}
-      />
+      <Route path="/app/docentes/:teacherId" element={<TeacherRecordPage />} />
     </Routes>,
     { route: "/app/docentes/632" }
   );
