@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import Alert from "@mui/material/Alert";
@@ -38,7 +38,11 @@ import {
 } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 
-import { BulkLevelSubjectsWindow } from "./BulkLevelSubjectsWindow.jsx";
+const BulkLevelSubjectsWindow = lazy(() =>
+  import("./BulkLevelSubjectsWindow.jsx").then((module) => ({
+    default: module.BulkLevelSubjectsWindow,
+  }))
+);
 
 /**
  * Hermanos para el campo "Posición": una sola página, en orden pedagógico.
@@ -716,14 +720,16 @@ function LevelSubjectsSection({ canEdit, level, onChanged }) {
       ) : null}
 
       {batching ? (
-        <BulkLevelSubjectsWindow
-          level={level}
-          onCancel={() => setBatching(false)}
-          onCreated={() => {
-            setBatching(false);
-            afterChange();
-          }}
-        />
+        <Suspense fallback={null}>
+          <BulkLevelSubjectsWindow
+            level={level}
+            onCancel={() => setBatching(false)}
+            onCreated={() => {
+              setBatching(false);
+              afterChange();
+            }}
+          />
+        </Suspense>
       ) : null}
 
       {editing?.mode === "edit" ? (

@@ -65,8 +65,8 @@ from .serializers import (
     HistoricalAcademicCycleSerializer,
     LevelCreateSerializer,
     LevelSerializer,
-    LevelSubjectCreateSerializer,
     LevelSubjectBatchSerializer,
+    LevelSubjectCreateSerializer,
     LevelSubjectSerializer,
     LevelSubjectUpdateSerializer,
     LevelUpdateSerializer,
@@ -1140,7 +1140,10 @@ class LevelSubjectBatchView(CatalogueView):
         links = services.link_subjects_to_level_batch(
             level=level, subjects=subjects, actor=request.user
         )
-        return Response(LevelSubjectSerializer(links, many=True).data, status=status.HTTP_201_CREATED)
+        return Response(
+            LevelSubjectSerializer(links, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 @extend_schema_view(
