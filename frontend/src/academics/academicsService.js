@@ -38,6 +38,8 @@ export const academicsService = {
   getClassroom: (classroomId) =>
     apiClient.get(`${ROOT}/classrooms/${classroomId}/`),
   createClassroom: (payload) => apiClient.post(`${ROOT}/classrooms/`, payload),
+  createClassroomsBatch: (payload) =>
+    apiClient.post(`${ROOT}/classrooms/batch/`, payload),
   updateClassroom: (classroomId, payload) =>
     apiClient.patch(`${ROOT}/classrooms/${classroomId}/`, payload),
   deactivateClassroom: (classroomId) =>

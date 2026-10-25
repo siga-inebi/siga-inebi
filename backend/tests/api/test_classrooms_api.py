@@ -57,6 +57,47 @@ def test_classroom_code_is_unique_per_campus(admin_client, institution):
     assert "ya existe" in duplicate.json()["error"]["detail"]
 
 
+def test_classrooms_batch_creates_all_rows_for_one_campus(admin_client, institution):
+    campus = CampusFactory(institution=institution)
+
+    response = admin_client.post(
+        reverse("classroom-batch-create"),
+        {
+            "campus_id": str(campus.public_id),
+            "classrooms": [
+                {"name": "Aula 101", "code": "a-101", "capacity": 30},
+                {"name": "Laboratorio", "code": "lab-01", "location": "Edificio B"},
+            ],
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert [row["code"] for row in response.json()] == ["A-101", "LAB-01"]
+    assert Classroom.objects.filter(campus=campus).count() == 2
+
+
+def test_classrooms_batch_rolls_back_every_row_if_any_code_is_invalid(admin_client, institution):
+    campus = CampusFactory(institution=institution)
+    ClassroomFactory(campus=campus, code="A-101")
+
+    response = admin_client.post(
+        reverse("classroom-batch-create"),
+        {
+            "campus_id": str(campus.public_id),
+            "classrooms": [
+                {"name": "Aula nueva", "code": "A-102"},
+                {"name": "Duplicada", "code": "A-101"},
+            ],
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "ya existe" in response.json()["error"]["detail"]
+    assert not Classroom.objects.filter(campus=campus, code="A-102").exists()
+
+
 def test_classroom_history_is_preserved_by_logical_deactivation(admin_client, institution):
     campus = CampusFactory(institution=institution)
     active = ClassroomFactory(campus=campus, code="A-101")

@@ -7,6 +7,7 @@ vi.mock("@academics/academicsService.js", () => ({
   academicsService: {
     listClassrooms: vi.fn(),
     listCampuses: vi.fn(),
+    createClassroomsBatch: vi.fn(),
     updateClassroom: vi.fn(),
   },
 }));
@@ -42,6 +43,36 @@ beforeEach(() => {
     ...room,
     service_status: "maintenance",
   });
+  academicsService.createClassroomsBatch.mockResolvedValue([]);
+});
+
+test("crea varias aulas para una sede en una sola petición", async () => {
+  const user = userEvent.setup();
+  renderWithRouter(<RoomsPage />);
+  await screen.findByText("Aula demo");
+
+  await user.click(screen.getByRole("button", { name: "Crear por lote" }));
+  await user.type(screen.getByRole("combobox", { name: "Sede" }), "Se");
+  await user.click(await screen.findByRole("option", { name: /Sede demo/ }));
+  await user.type(screen.getByRole("textbox", { name: "Nombre" }), "Aula 101");
+  await user.type(screen.getByRole("textbox", { name: "Código" }), "A-101");
+  await user.click(screen.getByRole("button", { name: "Agregar aula" }));
+
+  const names = screen.getAllByRole("textbox", { name: "Nombre" });
+  const codes = screen.getAllByRole("textbox", { name: "Código" });
+  await user.type(names[1], "Laboratorio");
+  await user.type(codes[1], "LAB-01");
+  await user.click(screen.getByRole("button", { name: "Crear 2 aulas" }));
+
+  await waitFor(() =>
+    expect(academicsService.createClassroomsBatch).toHaveBeenCalledWith({
+      campus_id: "campus-demo",
+      classrooms: [
+        { name: "Aula 101", code: "A-101", location: "", capacity: 0 },
+        { name: "Laboratorio", code: "LAB-01", location: "", capacity: 0 },
+      ],
+    })
+  );
 });
 
 test("cambia disponibilidad, explica la conservacion y muestra el estado guardado", async () => {

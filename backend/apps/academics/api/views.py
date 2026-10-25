@@ -41,6 +41,7 @@ from .serializers import (
     CampusCreateSerializer,
     CampusSerializer,
     CampusUpdateSerializer,
+    ClassroomBatchCreateSerializer,
     ClassroomCreateSerializer,
     ClassroomSerializer,
     ClassroomUpdateSerializer,
@@ -660,6 +661,30 @@ class ClassroomListCreateView(CatalogueListCreateView):
     def create(self, request, payload):
         campus = queries.campus_or_404(self.institution, payload.pop("campus_id"))
         return services.create_classroom(campus=campus, actor=request.user, **payload)
+
+
+class ClassroomBatchCreateView(CatalogueView):
+    @extend_schema(
+        summary="Registrar varias aulas en una sede",
+        description=(
+            "Crea un lote de aulas para una sola sede. La operación es atómica: "
+            "si una fila no cumple las reglas, no se registra ninguna."
+        ),
+        tags=CATALOGUE,
+        request=ClassroomBatchCreateSerializer,
+        responses={201: ClassroomSerializer(many=True)},
+    )
+    def post(self, request):
+        self.require_assignment_scope()
+        payload = self.validated(ClassroomBatchCreateSerializer, request)
+        campus = queries.campus_or_404(self.institution, payload["campus_id"])
+        classrooms = services.create_classrooms_batch(
+            campus=campus, classrooms=payload["classrooms"], actor=request.user
+        )
+        return Response(
+            ClassroomSerializer(classrooms, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 @extend_schema_view(
