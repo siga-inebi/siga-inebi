@@ -683,3 +683,22 @@ informe de calificaciones».
 Medición local (PostgreSQL 16, 2026-10-24): plantilla 21 ms; importación de 40 filas 15 ms y 24
 consultas; datos del informe de 400 estudiantes y 7 200 notas 44 ms y 18 consultas; PDF de 400
 páginas armado en 165 ms (754 KB). Son mediciones locales, no de producción.
+
+## Ficha propia del docente y modal solo para editar
+
+Rama `feat/ficha-docente-vista-propia` (PR #685). Frontend solamente: sin contratos
+nuevos de API ni migraciones.
+
+| Requerimiento | Diseño y código | Pruebas | Alcance |
+| --- | --- | --- | --- |
+| RF-CTA-001 | `frontend/src/teachers/TeacherRecordPage.jsx` (ficha `/app/docentes/:teacherId`); `frontend/src/teachers/{DocentesPage.jsx,teacherPresentation.js}`; `frontend/src/app/routes.jsx` | `frontend/src/test/{TeacherRecordPage,DocentesPage,TeacherDeactivation}.test.jsx` | "Dar acceso al sistema" migra del modal de detalle a la ficha propia; el permiso `account.create` y la provisión no cambian |
+| RF-DOC-001 / RF-DOC-009 | `frontend/src/teachers/TeacherRecordPage.jsx` (expediente a demanda con `TeacherDocumentsWindow`) | `frontend/src/test/TeacherRecordPage.test.jsx` (carga solo al solicitarlo) | Consulta del expediente documental del docente desde su ficha; sin endpoint nuevo |
+| AD4 (interfaz) | `frontend/src/teachers/TeacherRecordPage.jsx` ("Qué imparte" con `TeacherAssignments`) | `frontend/src/test/teachingAssignments.test.jsx` (con y sin `scope.assign`) | Asignaciones vigentes visibles en la ficha solo con permiso de administrar asignaciones |
+| RF-PER-004 (T3, interfaz) | `frontend/src/teachers/TeacherRecordPage.jsx` (desactivación con `TeacherDeactivationDialog`) | `frontend/src/test/TeacherDeactivation.test.jsx` (confirmación, doble envío, rechazo, recarga con reintento) | Baja lógica desde la ficha; la ficha se conserva tras la baja |
+
+Decisión de contrato documentada: la ruta usa el id numérico porque
+`GET/PUT/DELETE /teachers/<id>/` responde al `pk` (`TeacherDetailView` sin
+`lookup_field`); cambiar el lookup rompería el contrato público actual. El
+modal del listado queda exclusivamente para crear y editar y ya no se apila
+sobre el detalle. Evidencia (2026-10-25): suite frontend en Docker, 727
+aprobadas en 87 archivos; ESLint sin hallazgos.
