@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const { cyclesServiceMock, teachersServiceMock } = vi.hoisted(() => ({
@@ -12,6 +13,8 @@ const { cyclesServiceMock, teachersServiceMock } = vi.hoisted(() => ({
     list: vi.fn(),
     listPage: vi.fn(),
     nextCode: vi.fn(),
+    get: vi.fn(),
+    listPositions: vi.fn(),
   },
 }));
 
@@ -30,7 +33,7 @@ vi.mock("@academics/academicsService.js", async () => {
 import { BulkAssignmentWindow } from "@academics/BulkAssignmentWindow.jsx";
 import { CloneAssignmentsWindow } from "@academics/CloneAssignmentsWindow.jsx";
 import { TeachingAssignmentsPage } from "@academics/TeachingAssignmentsPage.jsx";
-import { DocentesPage } from "@teachers/DocentesPage.jsx";
+import { TeacherRecordPage } from "@teachers/TeacherRecordPage.jsx";
 import { paginated } from "./fixtures/academics.js";
 import {
   renderWithSession,
@@ -437,6 +440,8 @@ describe("Ficha del docente: qué imparte (AD4)", () => {
     employee_code: "EMP-1",
     specialty: "Matemática",
     position: "Docente Titulado",
+    is_active: true,
+    actions: { deactivate: false },
     person: {
       public_id: "person-1",
       first_name: "Ana",
@@ -446,17 +451,34 @@ describe("Ficha del docente: qué imparte (AD4)", () => {
     },
   };
 
-  test("lista las asignaciones vigentes del docente", async () => {
-    const user = userEvent.setup();
-    teachersServiceMock.listPage.mockResolvedValue(paginated([TEACHER]));
-    renderWithSession(<DocentesPage />, { user: MANAGER });
+  beforeEach(() => {
+    teachersServiceMock.get.mockReset().mockResolvedValue(TEACHER);
+    teachersServiceMock.listPositions
+      .mockReset()
+      .mockResolvedValue([{ value: TEACHER.position, label: TEACHER.position }]);
+  });
 
-    await user.click(
-      await screen.findByRole("button", { name: /Ver detalle de Ana López/ })
+  function renderFicha(user) {
+    return renderWithSession(
+      <Routes>
+        <Route
+          path="/app/docentes/:teacherId"
+          element={<TeacherRecordPage />}
+        />
+      </Routes>,
+      { route: "/app/docentes/7", user }
     );
+  }
 
-    const dialog = await screen.findByRole("dialog");
-    const table = await within(dialog).findByRole("table", {
+  test("lista las asignaciones vigentes del docente", async () => {
+    renderFicha(MANAGER);
+
+    expect(
+      await screen.findByRole("heading", { name: "Ana López" })
+    ).toBeInTheDocument();
+
+    const section = await screen.findByLabelText("Qué imparte");
+    const table = await within(section).findByRole("table", {
       name: "Asignaciones vigentes",
     });
     const [header, first] = within(table).getAllByRole("row");
@@ -470,14 +492,8 @@ describe("Ficha del docente: qué imparte (AD4)", () => {
   });
 
   test("sin scope.assign no consulta las asignaciones", async () => {
-    const user = userEvent.setup();
-    teachersServiceMock.listPage.mockResolvedValue(paginated([TEACHER]));
-    renderWithSession(<DocentesPage />, { user: sessionUser([]) });
-
-    await user.click(
-      await screen.findByRole("button", { name: /Ver detalle de Ana López/ })
-    );
-    await screen.findByRole("dialog");
+    renderFicha(sessionUser([]));
+    await screen.findByRole("heading", { name: "Ana López" });
 
     expect(screen.queryByText("Qué imparte")).not.toBeInTheDocument();
     expect(academicsServiceMock.listTeachingAssignments).not.toHaveBeenCalled();

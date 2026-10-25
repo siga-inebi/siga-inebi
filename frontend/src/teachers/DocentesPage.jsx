@@ -1,17 +1,16 @@
-import { lazy, Suspense, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import Avatar from "@mui/material/Avatar";
-import Box from "@mui/material/Box";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
-import ButtonBase from "@mui/material/ButtonBase";
 import AddIcon from "@mui/icons-material/Add";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 
-import { GrantAccessButton } from "@auth/GrantAccessButton.jsx";
 import { PERMISSION } from "@auth/permissions.js";
 import { usePermissions } from "@auth/usePermissions.js";
 import { teachersService } from "@teachers/teachersService.js";
@@ -20,120 +19,27 @@ import { suggestedOrBlank } from "@shared/crud/suggestion.js";
 import { useServerList } from "@shared/crud/useServerList.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
 import { ExportCsvButton } from "@ui/buttons/ExportCsvButton.jsx";
-import { formatDate } from "@shared/utils/format.js";
 import { FilterBar } from "@ui/filters/FilterBar.jsx";
 import { FilterSelect } from "@ui/filters/FilterSelect.jsx";
 import { SearchField } from "@ui/filters/SearchField.jsx";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { DataTable } from "@ui/table/DataTable.jsx";
 import { ViewDetailButton } from "@ui/table/ViewDetailButton.jsx";
-import { MutedCell } from "@ui/table/cells.jsx";
-import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
-import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
+import {
+  EMPTY_TEACHER,
+  TEACHER_FIELDS,
+  buildTeacherPayload,
+  fullName,
+} from "./teacherPresentation.js";
 
-// "Qué imparte" trae el servicio académico: se descarga al abrir la ficha.
-const TeacherAssignments = lazy(() =>
-  import("@teachers/TeacherAssignments.jsx").then((module) => ({
-    default: module.TeacherAssignments,
-  }))
-);
-
-// Los documentos solo se consultan a demanda: fuera del chunk de la ruta.
-const TeacherDocumentsWindow = lazy(() =>
-  import("@teachers/TeacherDocumentsWindow.jsx").then((module) => ({
-    default: module.TeacherDocumentsWindow,
-  }))
-);
-
-// La foto ampliada solo se abre a demanda: fuera del chunk de la ruta.
-const ImageDialog = lazy(() =>
-  import("@ui/display/ImageDialog.jsx").then((module) => ({
-    default: module.ImageDialog,
-  }))
-);
-
-const TeacherDeactivationDialog = lazy(() =>
-  import("@teachers/TeacherDeactivationDialog.jsx").then((module) => ({
-    default: module.TeacherDeactivationDialog,
-  }))
-);
-
-const TEACHER_FIELDS = [
-  { name: "first_name", label: "Nombres", required: true },
-  { name: "last_name", label: "Apellidos", required: true },
-  {
-    name: "cui",
-    label: "CUI",
-    required: true,
-    help: "13 dígitos, sin guiones.",
-  },
-  {
-    name: "birth_date",
-    label: "Fecha de nacimiento",
-    type: "date",
-    required: true,
-  },
-  {
-    name: "sex",
-    label: "Sexo",
-    type: "select",
-    required: true,
-    options: [
-      { value: "female", label: "Femenino" },
-      { value: "male", label: "Masculino" },
-    ],
-  },
-  { name: "nationality", label: "Nacionalidad", required: true },
-  { name: "phone_number", label: "Teléfono", type: "tel", required: true },
-  { name: "email", label: "Correo", type: "email" },
-  { name: "address", label: "Dirección", required: true, span: "full" },
-  { name: "department", label: "Departamento", required: true },
-  { name: "municipality", label: "Municipio", required: true },
-  { name: "specialty", label: "Especialidad", required: true },
-  {
-    name: "position",
-    label: "Puesto",
-    type: "select",
-    options: [],
-    required: true,
-  },
-  {
-    name: "appointment_date",
-    label: "Fecha de nombramiento (opcional)",
-    type: "date",
-  },
-  {
-    name: "employee_code",
-    label: "Código de empleado",
-    help: "Se genera automáticamente. Cámbielo si ya figura en contratos o planilla.",
-  },
-  { name: "photo", label: "Foto (opcional)", type: "file", accept: "image/*" },
-];
-
-function fullName(teacher) {
-  return `${teacher.person.first_name} ${teacher.person.last_name}`.trim();
-}
-
-const personPayload = (values) => ({
-  ...Object.fromEntries(
-    Object.entries({
-      first_name: values.first_name,
-      last_name: values.last_name,
-      cui: values.cui,
-      birth_date: values.birth_date,
-      sex: values.sex,
-      nationality: values.nationality,
-      email: values.email,
-      phone_number: values.phone_number,
-      address: values.address,
-      department: values.department,
-      municipality: values.municipality,
-    }).filter(([, value]) => value !== "" && value != null)
-  ),
-});
-
+/**
+ * Listado de docentes y administrativos. El detalle vive en su propia ruta
+ * (`/app/docentes/:teacherId`, mismo patron que el expediente del estudiante):
+ * aqui solo quedan el alta y la edicion, cada una con un unico modal que ya
+ * no se apila sobre otro.
+ */
 export function DocentesPage() {
   const canSelectPerson = usePermissions().can(PERMISSION.PERSON_EDIT);
   const list = useServerList({
@@ -170,40 +76,28 @@ export function DocentesPage() {
   const positionLabel = (value) =>
     positionOptions.find((option) => option.value === value)?.label ?? value;
 
-  const [selected, setSelected] = useState(null);
-  // "Qué imparte" consulta un listado que exige administrar asignaciones.
-  const canSeeAssignments = usePermissions().can(PERMISSION.SCOPE_ASSIGN);
-  const [deactivating, setDeactivating] = useState(null);
-  const [deactivationNotice, setDeactivationNotice] = useState("");
+  const location = useLocation();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(null);
   // Valores iniciales, no un booleano: ver el comentario homonimo en
   // AlumnosPage. El codigo sugerido se pide al abrir.
   const [creating, setCreating] = useState(null);
   const [personField, setPersonField] = useState(null);
-  const [viewingPhoto, setViewingPhoto] = useState(null);
-  const [documentsFor, setDocumentsFor] = useState(null);
 
-  const buildPayload = (values) => ({
-    ...(values.person_public_id
-      ? { person_public_id: values.person_public_id }
-      : {}),
-    person: personPayload(values),
-    employee_code: values.employee_code,
-    specialty: values.specialty,
-    position: values.position,
-    appointment_date: values.appointment_date || null,
-    photo: values.photo,
-  });
+  const handleSelect = (teacher) =>
+    navigate(`/app/docentes/${teacher.id}`, {
+      state: { teacherListLocation: `/app/docentes${location.search}` },
+    });
 
   const handleCreate = async (values) => {
-    await teachersService.create(buildPayload(values));
+    await teachersService.create(buildTeacherPayload(values));
     list.refresh();
     setCreating(null);
   };
 
   const handleUpdate = async (values) => {
-    const updated = await teachersService.update(editing.id, {
-      ...buildPayload(values),
+    await teachersService.update(editing.id, {
+      ...buildTeacherPayload(values),
       person: {
         public_id: editing.person.public_id,
         first_name: values.first_name,
@@ -218,7 +112,6 @@ export function DocentesPage() {
       },
     });
     list.refresh();
-    setSelected(updated);
     setEditing(null);
   };
 
@@ -262,10 +155,25 @@ export function DocentesPage() {
       label: "Detalle",
       align: "right",
       render: (teacher) => (
-        <ViewDetailButton
-          label={`Ver detalle de ${fullName(teacher)}`}
-          onClick={() => setSelected(teacher)}
-        />
+        <Stack direction="row" gap={1} justifyContent="flex-end">
+          <ViewDetailButton
+            label={`Ver detalle de ${fullName(teacher)}`}
+            onClick={() => handleSelect(teacher)}
+          />
+          <Button
+            disabled={!positionsReady}
+            onClick={(event) => {
+              // La fila tambien escucha el click: sin esto abriria la ficha
+              // y el formulario a la vez.
+              event.stopPropagation();
+              setEditing(teacher);
+            }}
+            size="small"
+            variant="outlined"
+          >
+            Editar
+          </Button>
+        </Stack>
       ),
     },
   ];
@@ -275,7 +183,7 @@ export function DocentesPage() {
       <PageHeader
         action={
           <Button
-            disabled={!positionsReady || Boolean(deactivating)}
+            disabled={!positionsReady}
             onClick={async () => {
               const personModule = canSelectPerson
                 ? await import("@people/existingPersonSearch.js")
@@ -303,11 +211,6 @@ export function DocentesPage() {
         title="Docentes y administrativos"
       />
 
-      {deactivationNotice ? (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {deactivationNotice}
-        </Alert>
-      ) : null}
       <SectionCard fillHeight>
         <FilterBar
           actions={
@@ -390,9 +293,7 @@ export function DocentesPage() {
               }
               fillHeight
               loading={updating}
-              onRowClick={(teacher) => {
-                if (!deactivating) setSelected(teacher);
-              }}
+              onRowClick={handleSelect}
               pagination={list.pagination}
               rows={list.items}
             />
@@ -409,162 +310,6 @@ export function DocentesPage() {
             Reintentar puestos
           </Button>
         </Alert>
-      ) : null}
-
-      <DetailWindow
-        width={WINDOW_WIDTH.wide}
-        actions={
-          selected ? (
-            <>
-              <GrantAccessButton person={selected.person} size="medium" />
-              <Button onClick={() => setDocumentsFor(selected)} variant="text">
-                Documentos
-              </Button>
-              <Button
-                disabled={!positionsReady}
-                onClick={() => setEditing(selected)}
-                variant="contained"
-              >
-                Editar
-              </Button>
-              {selected.actions?.deactivate === true ? (
-                <Button
-                  color="error"
-                  onClick={() => {
-                    setDeactivating(selected);
-                    setSelected(null);
-                  }}
-                >
-                  Desactivar docente
-                </Button>
-              ) : null}
-            </>
-          ) : null
-        }
-        fields={
-          selected
-            ? [
-                { label: "Nombre completo", value: fullName(selected) },
-                {
-                  label: "Actividad del perfil",
-                  value: (
-                    <StatusChip
-                      label={
-                        selected.is_active === false ? "Desactivado" : "Activo"
-                      }
-                      variant={
-                        selected.is_active === false ? "neutral" : "success"
-                      }
-                    />
-                  ),
-                },
-                { label: "Especialidad", value: selected.specialty },
-                {
-                  label: "Puesto",
-                  value: (
-                    <StatusChip
-                      label={positionLabel(selected.position)}
-                      variant="primary"
-                    />
-                  ),
-                },
-                { label: "Código de empleado", value: selected.employee_code },
-                {
-                  label: "Fecha de nombramiento",
-                  value: selected.appointment_date
-                    ? formatDate(selected.appointment_date)
-                    : null,
-                },
-                { label: "Correo", value: selected.person.email },
-                { label: "Teléfono", value: selected.person.phone_number },
-                {
-                  label: "Foto",
-                  value: selected.photo ? (
-                    <ButtonBase
-                      onClick={() => setViewingPhoto(selected.photo)}
-                      sx={(theme) => ({
-                        borderRadius: theme.tokens.radii.chip,
-                        mt: 0.5,
-                      })}
-                    >
-                      <Box
-                        alt={`Foto de ${fullName(selected)}`}
-                        component="img"
-                        src={selected.photo}
-                        sx={(theme) => ({
-                          width: 112,
-                          height: 112,
-                          objectFit: "cover",
-                          borderRadius: theme.tokens.radii.chip,
-                          border: "1px solid",
-                          borderColor: "divider",
-                        })}
-                      />
-                    </ButtonBase>
-                  ) : (
-                    <MutedCell>Sin foto</MutedCell>
-                  ),
-                },
-              ]
-            : []
-        }
-        onClose={() => {
-          setSelected(null);
-          setViewingPhoto(null);
-        }}
-        open={Boolean(selected)}
-        title={selected ? fullName(selected) : ""}
-      >
-        {selected && canSeeAssignments ? (
-          <Suspense fallback={null}>
-            <TeacherAssignments
-              key={selected.public_id}
-              teacherId={selected.public_id}
-            />
-          </Suspense>
-        ) : null}
-      </DetailWindow>
-
-      {deactivating ? (
-        <Suspense fallback={<p role="status">Preparando confirmación…</p>}>
-          <TeacherDeactivationDialog
-            teacher={deactivating}
-            onCancel={() => {
-              setSelected(deactivating);
-              setDeactivating(null);
-            }}
-            onCompleted={() => {
-              setDeactivating(null);
-              setDeactivationNotice(
-                "Docente desactivado. El historial se conserva."
-              );
-              list.refresh();
-            }}
-          />
-        </Suspense>
-      ) : null}
-
-      {documentsFor ? (
-        <Suspense fallback={<p role="status">Cargando documentos…</p>}>
-          <TeacherDocumentsWindow
-            key={documentsFor.public_id}
-            onClose={() => setDocumentsFor(null)}
-            teacher={documentsFor}
-            teacherName={fullName(documentsFor)}
-          />
-        </Suspense>
-      ) : null}
-
-      {viewingPhoto ? (
-        <Suspense fallback={null}>
-          <ImageDialog
-            alt={selected ? fullName(selected) : ""}
-            downloadName={viewingPhoto.split("/").pop()}
-            onClose={() => setViewingPhoto(null)}
-            open
-            src={viewingPhoto}
-          />
-        </Suspense>
       ) : null}
 
       {creating ? (
@@ -610,22 +355,3 @@ export function DocentesPage() {
     </>
   );
 }
-
-const EMPTY_TEACHER = {
-  first_name: "",
-  last_name: "",
-  email: "",
-  phone_number: "",
-  cui: "",
-  birth_date: "",
-  sex: "",
-  nationality: "Guatemalteca",
-  address: "",
-  department: "",
-  municipality: "",
-  specialty: "",
-  position: "",
-  appointment_date: "",
-  employee_code: "",
-  photo: null,
-};

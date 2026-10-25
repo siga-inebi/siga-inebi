@@ -31,13 +31,6 @@ vi.mock("@teachers/teachersService.js", () => ({
   teachersService: teachersServiceMock,
 }));
 
-const documentsServiceMock = vi.hoisted(() => ({
-  listTeacherRecords: vi.fn(),
-}));
-vi.mock("@documents/documentsService.js", () => ({
-  documentsService: documentsServiceMock,
-}));
-
 const downloadCsvMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@shared/utils/csv.js", async (importOriginal) => ({
@@ -60,6 +53,13 @@ const POSITIONS = [
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.search}</output>;
+}
+
+// Igual que LocationProbe pero con la ruta completa: para aserciones de
+// navegacion el query string solo no dice a donde se llego.
+function PathProbe() {
+  const location = useLocation();
+  return <output data-testid="path">{location.pathname + location.search}</output>;
 }
 
 const SAMPLE = [
@@ -106,9 +106,6 @@ describe("DocentesPage", () => {
     teachersServiceMock.create.mockReset();
     teachersServiceMock.update.mockReset();
     downloadCsvMock.mockReset();
-    documentsServiceMock.listTeacherRecords
-      .mockReset()
-      .mockResolvedValue(paged([]));
   });
 
   test("renders the list once loaded", async () => {
@@ -333,26 +330,41 @@ describe("DocentesPage", () => {
     ).toBeInTheDocument();
   });
 
-  test("opens the detail panel for a row", async () => {
+  test("Ver y el click en la fila navegan a la ficha propia", async () => {
     teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     const user = userEvent.setup();
-    renderWithRouter(<DocentesPage />);
+    renderWithRouter(
+      <>
+        <DocentesPage />
+        <PathProbe />
+      </>,
+      { route: "/app/docentes?position=Docente+Titulado" }
+    );
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
+    await user.click(
+      screen.getByRole("button", {
+        name: "Ver detalle de Marvin Estuardo Lopez Cifuentes",
+      })
+    );
+    expect(await screen.findByTestId("path")).toHaveTextContent(
+      "/app/docentes/1"
+    );
 
-    expect(
-      screen.getByRole("heading", { name: "Marvin Estuardo Lopez Cifuentes" })
-    ).toBeInTheDocument();
-    expect(screen.getByText("marvin@example.test")).toBeInTheDocument();
+    // El click en cualquier celda de la fila lleva al mismo destino.
+    await user.click(screen.getByText("Karen Yesenia Vasquez Us"));
+    expect(screen.getByTestId("path")).toHaveTextContent("/app/docentes/2");
   });
 
-  test("el detalle alterna pantalla completa y reaparece en tamano normal", async () => {
+  test("el modal de edicion alterna pantalla completa y reaparece en tamano normal", async () => {
     const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "Editar" })[0]).toBeEnabled()
+    );
+    await user.click(screen.getAllByRole("button", { name: "Editar" })[0]);
 
     await user.click(screen.getByRole("button", { name: "Pantalla completa" }));
     expect(
@@ -373,33 +385,10 @@ describe("DocentesPage", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     );
-    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[1]);
+    await user.click(screen.getAllByRole("button", { name: "Editar" })[1]);
     expect(
       screen.getByRole("button", { name: "Pantalla completa" })
     ).toBeInTheDocument();
-  });
-
-  test("carga el expediente documental únicamente al solicitarlo", async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<DocentesPage />);
-    await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    expect(documentsServiceMock.listTeacherRecords).not.toHaveBeenCalled();
-    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
-    expect(documentsServiceMock.listTeacherRecords).not.toHaveBeenCalled();
-    await user.click(
-      screen.getByRole("button", { name: "Documentos", exact: true })
-    );
-    expect(
-      await screen.findByRole("heading", {
-        name: "Expediente documental del docente",
-      })
-    ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(documentsServiceMock.listTeacherRecords).toHaveBeenCalledWith(
-        "teacher-1",
-        expect.objectContaining({ page: 1 })
-      )
-    );
   });
 
   test("editar el puesto recarga la página filtrada sin mantener filas fuera del filtro", async () => {
@@ -413,10 +402,10 @@ describe("DocentesPage", () => {
       route: "/app/docentes?position=Docente+Titulado&page_size=50",
     });
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
-    await user.click(
-      screen.getByRole("button", { name: "Editar", exact: true })
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "Editar" })[0]).toBeEnabled()
     );
+    await user.click(screen.getAllByRole("button", { name: "Editar" })[0]);
     await selectOption(user, /^Puesto/, "Orientador/a");
     await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() =>
@@ -434,50 +423,8 @@ describe("DocentesPage", () => {
         )
       ).not.toBeInTheDocument()
     );
-    expect(
-      screen.getByRole("heading", { name: "Marvin Estuardo Lopez Cifuentes" })
-    ).toBeInTheDocument();
-  });
-
-  test("opens and closes the photo lightbox from the detail panel", async () => {
-    teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
-    const user = userEvent.setup();
-    renderWithRouter(<DocentesPage />);
-
-    await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
-
-    const detailWindow = screen.getByRole("dialog", {
-      name: "Marvin Estuardo Lopez Cifuentes",
-    });
-    await user.click(
-      within(detailWindow).getByAltText(
-        "Foto de Marvin Estuardo Lopez Cifuentes"
-      )
-    );
-
-    const lightbox = await screen.findByRole("dialog", {
-      name: "Foto de Marvin Estuardo Lopez Cifuentes",
-    });
-    const downloadLink = within(lightbox).getByRole("link", {
-      name: "Descargar",
-    });
-    expect(downloadLink).toHaveAttribute(
-      "href",
-      "http://localhost/media/teacher_photos/marvin.png"
-    );
-    expect(downloadLink).toHaveAttribute("download", "marvin.png");
-
-    await user.click(
-      within(lightbox).getByRole("button", { name: "Cerrar imagen" })
-    );
-    // El dialogo se desmonta al terminar su animacion de salida, no en el clic.
     await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", {
-          name: "Foto de Marvin Estuardo Lopez Cifuentes",
-        })
-      ).not.toBeInTheDocument()
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     );
   });
 
@@ -566,7 +513,7 @@ describe("DocentesPage", () => {
     );
   });
 
-  test("edits a teacher via the detail panel", async () => {
+  test("edits a teacher from the row action", async () => {
     teachersServiceMock.listPage.mockResolvedValue(paged(SAMPLE));
     teachersServiceMock.update.mockResolvedValue({
       id: 1,
@@ -589,8 +536,10 @@ describe("DocentesPage", () => {
     renderWithRouter(<DocentesPage />);
 
     await screen.findByText("Marvin Estuardo Lopez Cifuentes");
-    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
-    await user.click(screen.getByRole("button", { name: "Editar" }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "Editar" })[0]).toBeEnabled()
+    );
+    await user.click(screen.getAllByRole("button", { name: "Editar" })[0]);
 
     const lastNameInput = screen.getByLabelText(/^Apellidos/);
     expect(lastNameInput).toHaveValue("Lopez Cifuentes");
@@ -623,11 +572,10 @@ describe("DocentesPage", () => {
         employee_code: "EMP-0142",
       })
     );
-    expect(
-      await screen.findByRole("heading", {
-        name: "Marvin Estuardo Lopez Mendez",
-      })
-    ).toBeInTheDocument();
+    // El modal se cierra y el listado recarga; la ficha vive en su propia ruta.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    );
   });
 
   test("requires the mandatory fields before submitting", async () => {
