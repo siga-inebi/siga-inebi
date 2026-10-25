@@ -96,6 +96,8 @@ export const academicsService = {
     apiClient.get(withQuery(`${ROOT}/levels/${levelId}/subjects/`, params)),
   linkSubjectToLevel: (levelId, payload) =>
     apiClient.post(`${ROOT}/levels/${levelId}/subjects/`, payload),
+  linkSubjectsToLevelBatch: (levelId, payload) =>
+    apiClient.post(`${ROOT}/levels/${levelId}/subjects/batch/`, payload),
   updateLevelSubject: (levelId, subjectId, payload) =>
     apiClient.patch(
       `${ROOT}/levels/${levelId}/subjects/${subjectId}/`,
