@@ -179,6 +179,8 @@ describe("detalle del ciclo: resumen y lista de verificación (C7, C9)", () => {
     );
     renderDetail("/app/ciclos/c-2027");
 
+    await user.click(await screen.findByRole("tab", { name: "Pendientes" }));
+
     expect(
       await screen.findByText("Falta para activar (2)")
     ).toBeInTheDocument();
@@ -206,25 +208,29 @@ describe("detalle del ciclo: resumen y lista de verificación (C7, C9)", () => {
   });
 
   test("con otro ciclo activo, Activar se deshabilita y enlaza ese ciclo (D1)", async () => {
+    const user = userEvent.setup();
     cyclesServiceMock.readiness.mockResolvedValue(
       readiness({ active_cycle: { public_id: "c-2026", name: "Ciclo 2026" } })
     );
     renderDetail("/app/ciclos/c-2027");
 
-    expect(
-      await screen.findByRole("link", { name: "Ver «Ciclo 2026»" })
-    ).toHaveAttribute("href", "/app/ciclos/c-2026");
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Activar" })).toBeDisabled()
     );
+    await user.click(await screen.findByRole("tab", { name: "Pendientes" }));
+    expect(
+      await screen.findByRole("link", { name: "Ver «Ciclo 2026»" })
+    ).toHaveAttribute("href", "/app/ciclos/c-2026");
   });
 
   test("con la estructura completa avisa que se puede activar", async () => {
+    const user = userEvent.setup();
     cyclesServiceMock.readiness.mockResolvedValue(
       readiness({ activation: { ready: true, gaps: [] } })
     );
     renderDetail("/app/ciclos/c-2027");
 
+    await user.click(await screen.findByRole("tab", { name: "Pendientes" }));
     expect(
       await screen.findByText(/La estructura está completa/)
     ).toBeInTheDocument();
@@ -232,6 +238,7 @@ describe("detalle del ciclo: resumen y lista de verificación (C7, C9)", () => {
   });
 
   test("un ciclo activo lista lo pendiente para cerrar", async () => {
+    const user = userEvent.setup();
     cyclesServiceMock.get.mockResolvedValue(ACTIVE);
     cyclesServiceMock.readiness.mockResolvedValue(
       readiness({
@@ -248,12 +255,62 @@ describe("detalle del ciclo: resumen y lista de verificación (C7, C9)", () => {
     );
     renderDetail("/app/ciclos/c-2026");
 
+    await user.click(await screen.findByRole("tab", { name: "Pendientes" }));
+
     expect(
       await screen.findByText("La unidad U1 sigue abierta.")
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Ir a Evaluación" })
     ).toHaveAttribute("href", "/app/evaluacion");
+  });
+
+  test("muestra la estructura registrada en pestañas con tablas paginadas", async () => {
+    const user = userEvent.setup();
+    cyclesServiceMock.get.mockResolvedValue({
+      ...DRAFT,
+      grade_offerings: [
+        {
+          public_id: "offering-1",
+          grade: GRADE,
+          shift: SHIFT,
+          campus: CAMPUS,
+          sections: [SECTION],
+        },
+      ],
+      curriculum_plans: [
+        { public_id: "plan-1", grade: GRADE, subject: MATH, is_required: true },
+      ],
+      teaching_assignments: [
+        {
+          public_id: "assignment-1",
+          section: { grade_name: "Primero", name: "A" },
+          subject: MATH,
+          teacher: { name: "Docente de prueba" },
+          starts_on: "2027-01-15",
+        },
+      ],
+    });
+    renderDetail("/app/ciclos/c-2027");
+
+    expect(await screen.findByText("Oferta de grados (1)")).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "Jornada" })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Plan de estudios (1)" }));
+    expect(
+      screen.getByRole("columnheader", { name: "Curso" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Matemática")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("tab", { name: "Asignaciones docentes (1)" })
+    );
+    expect(
+      screen.getByRole("columnheader", { name: "Docente" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Docente de prueba")).toBeInTheDocument();
   });
 });
 

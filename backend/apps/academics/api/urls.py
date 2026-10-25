@@ -29,6 +29,7 @@ from .views import (
     CampusListCreateView,
     CampusNextCodeView,
     CampusShiftListCreateView,
+    ClassroomBatchCreateView,
     ClassroomDetailView,
     ClassroomListCreateView,
     ClassScheduleBlockDetailView,
@@ -236,6 +237,7 @@ urlpatterns = [
     path("campuses/next-code/", CampusNextCodeView.as_view(), name="campus-next-code"),
     path("campuses/<uuid:public_id>/", CampusDetailView.as_view(), name="campus-detail"),
     path("classrooms/", ClassroomListCreateView.as_view(), name="classroom-list-create"),
+    path("classrooms/batch/", ClassroomBatchCreateView.as_view(), name="classroom-batch-create"),
     path("classrooms/<uuid:public_id>/", ClassroomDetailView.as_view(), name="classroom-detail"),
     path(
         "campuses/<uuid:public_id>/shifts/",

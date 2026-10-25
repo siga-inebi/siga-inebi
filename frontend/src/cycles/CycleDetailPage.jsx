@@ -57,6 +57,7 @@ const NonComputableDaysTab = lazy(() =>
 );
 const CYCLE_TABS = [
   ["resumen", "Resumen"],
+  ["pendientes", "Pendientes"],
   ["secciones", "Secciones"],
   ["plan", "Plan de estudios"],
   ["asignaciones", "Asignaciones"],
@@ -136,7 +137,7 @@ function Checklist({ items, title }) {
   );
 }
 
-function SummaryTab({ actions, cycle, detail, goTo, readiness }) {
+function PendingTab({ cycle, goTo, readiness }) {
   const isDraft = cycle.status === CYCLE_STATUS.draft;
   const isActive = cycle.status === CYCLE_STATUS.active;
   const activeCycle = readiness?.active_cycle;
@@ -152,37 +153,6 @@ function SummaryTab({ actions, cycle, detail, goTo, readiness }) {
 
   return (
     <Stack gap={3}>
-      <Box
-        component="dl"
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", sm: "repeat(4, 1fr)" },
-          gap: 2.5,
-          m: 0,
-        }}
-      >
-        <DetailField label="Año" value={cycle.year} />
-        <DetailField
-          label="Vigencia"
-          value={`${formatDate(cycle.starts_on)} — ${formatDate(cycle.ends_on)}`}
-        />
-        <DetailField
-          label="Estado"
-          value={
-            <StatusChip
-              label={CYCLE_STATUS_LABEL[cycle.status] ?? cycle.status}
-              variant={CYCLE_STATUS_VARIANT[cycle.status] ?? "neutral"}
-            />
-          }
-        />
-        <DetailField
-          label="Descripción"
-          value={cycle.description || "Sin descripción"}
-        />
-      </Box>
-
-      <LifecycleButtons actions={actions} />
-
       {isDraft && activeCycle ? (
         <Alert severity="info">
           Para activar este ciclo, cierre primero el ciclo «{activeCycle.name}
@@ -260,6 +230,43 @@ function SummaryTab({ actions, cycle, detail, goTo, readiness }) {
           ) : null}
         </>
       ) : null}
+    </Stack>
+  );
+}
+
+function SummaryTab({ actions, cycle, detail }) {
+  return (
+    <Stack gap={3}>
+      <Box
+        component="dl"
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(4, 1fr)" },
+          gap: 2.5,
+          m: 0,
+        }}
+      >
+        <DetailField label="Año" value={cycle.year} />
+        <DetailField
+          label="Vigencia"
+          value={`${formatDate(cycle.starts_on)} — ${formatDate(cycle.ends_on)}`}
+        />
+        <DetailField
+          label="Estado"
+          value={
+            <StatusChip
+              label={CYCLE_STATUS_LABEL[cycle.status] ?? cycle.status}
+              variant={CYCLE_STATUS_VARIANT[cycle.status] ?? "neutral"}
+            />
+          }
+        />
+        <DetailField
+          label="Descripción"
+          value={cycle.description || "Sin descripción"}
+        />
+      </Box>
+
+      <LifecycleButtons actions={actions} />
 
       <SectionCard
         subtitle="Lo que quedó registrado en el ciclo. Solo consulta."
@@ -384,6 +391,10 @@ function CycleDetail({ cycleId }) {
                       })}
                       cycle={cycle}
                       detail={cycle}
+                    />
+                  ) : id === "pendientes" ? (
+                    <PendingTab
+                      cycle={cycle}
                       goTo={goTo}
                       readiness={readiness.data}
                     />
