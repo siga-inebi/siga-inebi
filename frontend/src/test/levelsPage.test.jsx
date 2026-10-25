@@ -29,11 +29,16 @@ import {
   resetAcademicsServiceMock,
 } from "./mocks/academicsService.js";
 
-/** Abre el detalle del nivel y espera a que carguen sus dos paneles. */
+/** Abre el detalle del nivel. La pestaña visible al entrar es Grados. */
 async function openLevel(user) {
   await screen.findByText("Basico");
   await user.click(screen.getByRole("button", { name: "Ver grados (3)" }));
   return screen.findByRole("heading", { name: "Grados de Basico" });
+}
+
+async function openLevelSubjects(user) {
+  await user.click(screen.getByRole("tab", { name: "Cursos del nivel" }));
+  return screen.findByRole("heading", { name: "Cursos del nivel" });
 }
 
 describe("pantalla de niveles", () => {
@@ -160,8 +165,10 @@ describe("pantalla de niveles", () => {
     );
     expect(screen.getByText("Primero Basico")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Cursos del nivel" })
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Cursos del nivel" })
+    ).not.toBeInTheDocument();
+
+    await openLevelSubjects(user);
     // N2: se explica que no es el plan de estudios del ciclo.
     expect(
       screen.getByText(/se define por grado en cada ciclo/)
@@ -207,10 +214,9 @@ describe("pantalla de niveles", () => {
     );
     renderWithRouter(<LevelsPage />);
     await openLevel(user);
+    await openLevelSubjects(user);
 
-    await user.click(
-      await screen.findByRole("button", { name: "Vincular curso" })
-    );
+    await user.click(screen.getByRole("button", { name: "Vincular curso" }));
     await user.type(
       await screen.findByRole("combobox", { name: /^Curso/ }),
       "Ar"
@@ -238,10 +244,9 @@ describe("pantalla de niveles", () => {
     );
     renderWithRouter(<LevelsPage />);
     await openLevel(user);
+    await openLevelSubjects(user);
 
-    await user.click(
-      await screen.findByRole("button", { name: "Desvincular" })
-    );
+    await user.click(screen.getByRole("button", { name: "Desvincular" }));
     expect(academicsServiceMock.unlinkSubjectFromLevel).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Sí, desvincular" }));
@@ -261,6 +266,7 @@ describe("pantalla de niveles", () => {
     );
     renderWithRouter(<LevelsPage />);
     await openLevel(user);
+    await openLevelSubjects(user);
 
     // Cada seccion es una region con nombre, asi que se puede acotar la busqueda
     // al plan de estudios sin depender de clases CSS.
@@ -322,14 +328,12 @@ describe("pantalla de niveles", () => {
     renderWithRouter(<LevelsPage />, { permissions: [] });
     await openLevel(user);
 
-    for (const name of [
-      "Nuevo nivel",
-      "Nuevo grado",
-      "Vincular curso",
-      "Editar",
-      "Desactivar",
-      "Desvincular",
-    ]) {
+    for (const name of ["Nuevo nivel", "Nuevo grado", "Editar", "Desactivar"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+
+    await openLevelSubjects(user);
+    for (const name of ["Vincular curso", "Editar", "Desvincular"]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
   });
