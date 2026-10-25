@@ -1643,9 +1643,7 @@ def link_subjects_to_level_batch(*, level, subjects, actor=None):
             raise DomainError(f"El curso '{subject.name}' se repite en el lote.")
         seen.add(subject.pk)
         prepared.append(item)
-    return [
-        link_subject_to_level(level=level, actor=actor, **item) for item in prepared
-    ]
+    return [link_subject_to_level(level=level, actor=actor, **item) for item in prepared]
 
 
 def get_level_subject(level, subject):
