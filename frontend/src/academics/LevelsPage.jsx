@@ -2,8 +2,11 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 
@@ -286,18 +289,9 @@ export function LevelsPage() {
       />
 
       {selected ? (
-        <LevelGradesSection
+        <LevelDetailTabs
           canEdit={canEdit}
-          key={`grades-${selected.public_id}`}
-          level={selected}
-          onChanged={list.refresh}
-        />
-      ) : null}
-
-      {selected ? (
-        <LevelSubjectsSection
-          canEdit={canEdit}
-          key={`subjects-${selected.public_id}`}
+          key={selected.public_id}
           level={selected}
           onChanged={list.refresh}
         />
@@ -336,6 +330,62 @@ export function LevelsPage() {
         />
       ) : null}
     </>
+  );
+}
+
+function LevelDetailTabs({ canEdit, level, onChanged }) {
+  const [tab, setTab] = useState("grades");
+
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Tabs
+        allowScrollButtonsMobile
+        aria-label={`Detalle de ${level.name}`}
+        onChange={(_event, next) => setTab(next)}
+        scrollButtons="auto"
+        value={tab}
+        variant="scrollable"
+      >
+        <Tab
+          aria-controls="level-grades-panel"
+          id="level-grades-tab"
+          label="Grados"
+          value="grades"
+        />
+        <Tab
+          aria-controls="level-subjects-panel"
+          id="level-subjects-tab"
+          label="Cursos del nivel"
+          value="subjects"
+        />
+      </Tabs>
+      <Box
+        aria-labelledby="level-grades-tab"
+        hidden={tab !== "grades"}
+        id="level-grades-panel"
+        role="tabpanel"
+        sx={{ pt: 2 }}
+      >
+        <LevelGradesSection
+          canEdit={canEdit}
+          level={level}
+          onChanged={onChanged}
+        />
+      </Box>
+      <Box
+        aria-labelledby="level-subjects-tab"
+        hidden={tab !== "subjects"}
+        id="level-subjects-panel"
+        role="tabpanel"
+        sx={{ pt: 2 }}
+      >
+        <LevelSubjectsSection
+          canEdit={canEdit}
+          level={level}
+          onChanged={onChanged}
+        />
+      </Box>
+    </Box>
   );
 }
 
