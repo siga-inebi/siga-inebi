@@ -347,6 +347,38 @@ describe("DocentesPage", () => {
     expect(screen.getByText("marvin@example.test")).toBeInTheDocument();
   });
 
+  test("el detalle alterna pantalla completa y reaparece en tamano normal", async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<DocentesPage />);
+
+    await screen.findByText("Marvin Estuardo Lopez Cifuentes");
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[0]);
+
+    await user.click(screen.getByRole("button", { name: "Pantalla completa" }));
+    expect(
+      screen.getByRole("button", { name: "Salir de pantalla completa" })
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Salir de pantalla completa" })
+    );
+    expect(
+      screen.getByRole("button", { name: "Pantalla completa" })
+    ).toBeInTheDocument();
+
+    // Al cerrar y abrir otro registro, la ventana vuelve a su tamano normal.
+    // Se espera el desmontaje real: durante la animacion de salida el titulo ya
+    // queda vacio pero el dialogo sigue ocultando el listado con aria-hidden.
+    await user.click(screen.getByRole("button", { name: "Cerrar" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    );
+    await user.click(screen.getAllByRole("button", { name: /Ver detalle/ })[1]);
+    expect(
+      screen.getByRole("button", { name: "Pantalla completa" })
+    ).toBeInTheDocument();
+  });
+
   test("carga el expediente documental únicamente al solicitarlo", async () => {
     const user = userEvent.setup();
     renderWithRouter(<DocentesPage />);

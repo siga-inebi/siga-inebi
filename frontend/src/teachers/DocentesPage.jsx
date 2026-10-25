@@ -31,6 +31,7 @@ import { MutedCell } from "@ui/table/cells.jsx";
 import { DetailWindow } from "@ui/layout/DetailWindow.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 import { SectionCard, SectionTableArea } from "@ui/layout/SectionCard.jsx";
+import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
 
 // "Qué imparte" trae el servicio académico: se descarga al abrir la ficha.
 const TeacherAssignments = lazy(() =>
@@ -411,6 +412,7 @@ export function DocentesPage() {
       ) : null}
 
       <DetailWindow
+        width={WINDOW_WIDTH.wide}
         actions={
           selected ? (
             <>

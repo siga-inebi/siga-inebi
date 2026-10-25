@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 
 import Box from "@mui/material/Box";
 import Dialog from "@mui/material/Dialog";
@@ -6,6 +6,8 @@ import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
+import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
+import FullscreenIcon from "@mui/icons-material/Fullscreen";
 
 import { WINDOW_WIDTH } from "./windowWidth.js";
 
@@ -19,10 +21,10 @@ import { WINDOW_WIDTH } from "./windowWidth.js";
  * foco donde el ojo ya esta y admite formularios de dos columnas sin quedar
  * angosta.
  *
- * Anatomia fija: cabecera (titulo + cerrar) -> cuerpo con scroll propio -> pie
- * opcional con acciones alineadas a la derecha. El cuerpo scrollea, no la
- * ventana: la cabecera y el pie quedan siempre visibles, asi el boton de
- * guardar no se va de pantalla en un formulario largo.
+ * Anatomia fija: cabecera (titulo + pantalla completa + cerrar) -> cuerpo con
+ * scroll propio -> pie opcional con acciones alineadas a la derecha. El cuerpo
+ * scrollea, no la ventana: la cabecera y el pie quedan siempre visibles, asi el
+ * boton de guardar no se va de pantalla en un formulario largo.
  *
  * @param {object}    props
  * @param {boolean}   props.open
@@ -47,6 +49,12 @@ export function FloatingWindow({
   // El dialogo se nombra con su propio titulo: sin `aria-labelledby` el lector
   // de pantalla anuncia "dialogo" y nada mas.
   const titleId = useId();
+  const [fullscreen, setFullscreen] = useState(false);
+  // Cada apertura vuelve al tamano normal: el estado no se hereda entre
+  // registros distintos del mismo listado.
+  useEffect(() => {
+    if (open) setFullscreen(false);
+  }, [open]);
   // El foco se limpia ANTES de desmontar: si un input de la ventana conserva el
   // foco al cerrarse, el navegador lo devuelve al body y la pagina salta al
   // inicio. El rAF deja que el blur se aplique antes de arrancar la animacion.
@@ -65,20 +73,31 @@ export function FloatingWindow({
       open={open}
       slotProps={{
         paper: {
-          sx: {
-            width: { xs: "100%", sm: width },
-            maxWidth: "100%",
-            // Alto acotado al viewport para que el cuerpo scrollee por dentro
-            // en vez de estirar la ventana fuera de la pantalla.
-            maxHeight: { xs: "100dvh", sm: "min(88dvh, 46rem)" },
-            m: { xs: 0, sm: 2 },
-            // A pantalla completa en movil: una ventana flotante en 360px de
-            // ancho deja margenes inutiles y campos comprimidos.
-            height: { xs: "100dvh", sm: "auto" },
-            borderRadius: { xs: 0, sm: undefined },
-            display: "flex",
-            flexDirection: "column",
-          },
+          sx: fullscreen
+            ? {
+                width: "100%",
+                maxWidth: "100%",
+                height: "100dvh",
+                maxHeight: "100dvh",
+                m: 0,
+                borderRadius: 0,
+                display: "flex",
+                flexDirection: "column",
+              }
+            : {
+                width: { xs: "100%", sm: width },
+                maxWidth: "100%",
+                // Alto acotado al viewport para que el cuerpo scrollee por dentro
+                // en vez de estirar la ventana fuera de la pantalla.
+                maxHeight: { xs: "100dvh", sm: "min(88dvh, 46rem)" },
+                m: { xs: 0, sm: 2 },
+                // A pantalla completa en movil: una ventana flotante en 360px de
+                // ancho deja margenes inutiles y campos comprimidos.
+                height: { xs: "100dvh", sm: "auto" },
+                borderRadius: { xs: 0, sm: undefined },
+                display: "flex",
+                flexDirection: "column",
+              },
         },
       }}
     >
@@ -119,14 +138,24 @@ export function FloatingWindow({
             </Typography>
           ) : null}
         </Box>
-        <IconButton
-          aria-label="Cerrar"
-          onClick={handleClose}
-          size="small"
-          sx={{ mt: -0.5 }}
-        >
-          <CloseIcon fontSize="small" />
-        </IconButton>
+        <Stack direction="row" gap={0.5} sx={{ mt: -0.5, flexShrink: 0 }}>
+          <IconButton
+            aria-label={
+              fullscreen ? "Salir de pantalla completa" : "Pantalla completa"
+            }
+            onClick={() => setFullscreen((value) => !value)}
+            size="small"
+          >
+            {fullscreen ? (
+              <FullscreenExitIcon fontSize="small" />
+            ) : (
+              <FullscreenIcon fontSize="small" />
+            )}
+          </IconButton>
+          <IconButton aria-label="Cerrar" onClick={handleClose} size="small">
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Stack>
       </Stack>
 
       <Box aria-busy={busy} sx={{ flex: 1, overflowY: "auto", px: 3, py: 2.5 }}>
