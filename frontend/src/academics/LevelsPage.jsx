@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import Alert from "@mui/material/Alert";
@@ -37,6 +37,12 @@ import {
   MutedCell,
 } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
+
+const BulkLevelSubjectsWindow = lazy(() =>
+  import("./BulkLevelSubjectsWindow.jsx").then((module) => ({
+    default: module.BulkLevelSubjectsWindow,
+  }))
+);
 
 /**
  * Hermanos para el campo "Posición": una sola página, en orden pedagógico.
@@ -598,6 +604,7 @@ function LevelSubjectsSection({ canEdit, level, onChanged }) {
   });
 
   const [editing, setEditing] = useState(null);
+  const [batching, setBatching] = useState(false);
   const [actionError, setActionError] = useState("");
 
   const afterChange = () => {
@@ -646,14 +653,22 @@ function LevelSubjectsSection({ canEdit, level, onChanged }) {
       <ListSection
         action={
           canEdit ? (
-            <Button
-              onClick={() => setEditing({ mode: "create" })}
-              size="small"
-              startIcon={<AddIcon fontSize="small" />}
-              variant="contained"
-            >
-              Vincular curso
-            </Button>
+            <Stack direction="row" gap={1}>
+              <Button
+                onClick={() => setBatching(true)}
+                size="small"
+                startIcon={<AddIcon fontSize="small" />}
+                variant="contained"
+              >
+                Vincular por lote
+              </Button>
+              <Button
+                onClick={() => setEditing({ mode: "create" })}
+                size="small"
+              >
+                Vincular curso
+              </Button>
+            </Stack>
           ) : null
         }
         actionError={actionError}
@@ -702,6 +717,19 @@ function LevelSubjectsSection({ canEdit, level, onChanged }) {
           submitLabel="Vincular"
           title={`Vincular curso a ${level.name}`}
         />
+      ) : null}
+
+      {batching ? (
+        <Suspense fallback={null}>
+          <BulkLevelSubjectsWindow
+            level={level}
+            onCancel={() => setBatching(false)}
+            onCreated={() => {
+              setBatching(false);
+              afterChange();
+            }}
+          />
+        </Suspense>
       ) : null}
 
       {editing?.mode === "edit" ? (

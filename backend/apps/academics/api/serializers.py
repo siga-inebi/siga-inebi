@@ -527,6 +527,10 @@ class LevelSubjectCreateSerializer(serializers.Serializer):
     )
 
 
+class LevelSubjectBatchSerializer(serializers.Serializer):
+    subjects = LevelSubjectCreateSerializer(many=True, allow_empty=False, max_length=100)
+
+
 class LevelSubjectUpdateSerializer(serializers.Serializer):
     is_required = serializers.BooleanField(required=False)
     weekly_hours = serializers.IntegerField(min_value=0, required=False)

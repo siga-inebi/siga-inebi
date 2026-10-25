@@ -52,6 +52,7 @@ from .views import (
     LevelGradeNextCodeView,
     LevelListCreateView,
     LevelNextCodeView,
+    LevelSubjectBatchView,
     LevelSubjectDetailView,
     LevelSubjectListCreateView,
     NonComputableDayDetailView,
@@ -274,6 +275,11 @@ urlpatterns = [
         "levels/<uuid:public_id>/subjects/",
         LevelSubjectListCreateView.as_view(),
         name="level-subject-list-create",
+    ),
+    path(
+        "levels/<uuid:public_id>/subjects/batch/",
+        LevelSubjectBatchView.as_view(),
+        name="level-subject-batch",
     ),
     path(
         "levels/<uuid:public_id>/subjects/<uuid:subject_public_id>/",

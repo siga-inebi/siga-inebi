@@ -65,6 +65,7 @@ from .serializers import (
     HistoricalAcademicCycleSerializer,
     LevelCreateSerializer,
     LevelSerializer,
+    LevelSubjectBatchSerializer,
     LevelSubjectCreateSerializer,
     LevelSubjectSerializer,
     LevelSubjectUpdateSerializer,
@@ -1118,6 +1119,30 @@ class LevelSubjectListCreateView(CatalogueListCreateView):
         subject = _resolve_subject(payload.pop("subject_id"))
         return services.link_subject_to_level(
             level=level, subject=subject, actor=request.user, **payload
+        )
+
+
+class LevelSubjectBatchView(CatalogueView):
+    @extend_schema(
+        summary="Vincular varios cursos a un nivel",
+        tags=CATALOGUE,
+        request=LevelSubjectBatchSerializer,
+        responses={201: LevelSubjectSerializer(many=True)},
+    )
+    def post(self, request, public_id):
+        self.require_assignment_scope()
+        payload = self.validated(LevelSubjectBatchSerializer, request)
+        level = queries.level_or_404(self.institution, public_id)
+        subjects = [
+            {**item, "subject": _resolve_subject(item.pop("subject_id"))}
+            for item in payload["subjects"]
+        ]
+        links = services.link_subjects_to_level_batch(
+            level=level, subjects=subjects, actor=request.user
+        )
+        return Response(
+            LevelSubjectSerializer(links, many=True).data,
+            status=status.HTTP_201_CREATED,
         )
 
 
