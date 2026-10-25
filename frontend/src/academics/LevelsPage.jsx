@@ -38,6 +38,8 @@ import {
 } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 
+import { BulkLevelSubjectsWindow } from "./BulkLevelSubjectsWindow.jsx";
+
 /**
  * Hermanos para el campo "Posición": una sola página, en orden pedagógico.
  * Los niveles y los grados de un nivel son pocos; el listado visible puede
@@ -598,6 +600,7 @@ function LevelSubjectsSection({ canEdit, level, onChanged }) {
   });
 
   const [editing, setEditing] = useState(null);
+  const [batching, setBatching] = useState(false);
   const [actionError, setActionError] = useState("");
 
   const afterChange = () => {
@@ -646,14 +649,22 @@ function LevelSubjectsSection({ canEdit, level, onChanged }) {
       <ListSection
         action={
           canEdit ? (
-            <Button
-              onClick={() => setEditing({ mode: "create" })}
-              size="small"
-              startIcon={<AddIcon fontSize="small" />}
-              variant="contained"
-            >
-              Vincular curso
-            </Button>
+            <Stack direction="row" gap={1}>
+              <Button
+                onClick={() => setBatching(true)}
+                size="small"
+                startIcon={<AddIcon fontSize="small" />}
+                variant="contained"
+              >
+                Vincular por lote
+              </Button>
+              <Button
+                onClick={() => setEditing({ mode: "create" })}
+                size="small"
+              >
+                Vincular curso
+              </Button>
+            </Stack>
           ) : null
         }
         actionError={actionError}
@@ -701,6 +712,17 @@ function LevelSubjectsSection({ canEdit, level, onChanged }) {
           open
           submitLabel="Vincular"
           title={`Vincular curso a ${level.name}`}
+        />
+      ) : null}
+
+      {batching ? (
+        <BulkLevelSubjectsWindow
+          level={level}
+          onCancel={() => setBatching(false)}
+          onCreated={() => {
+            setBatching(false);
+            afterChange();
+          }}
         />
       ) : null}
 

@@ -1632,6 +1632,22 @@ def link_subject_to_level(*, level, subject, is_required=True, weekly_hours=0, a
     return link
 
 
+@transaction.atomic
+def link_subjects_to_level_batch(*, level, subjects, actor=None):
+    """Atomically link several subjects to a level."""
+    seen = set()
+    prepared = []
+    for item in subjects:
+        subject = item["subject"]
+        if subject.pk in seen:
+            raise DomainError(f"El curso '{subject.name}' se repite en el lote.")
+        seen.add(subject.pk)
+        prepared.append(item)
+    return [
+        link_subject_to_level(level=level, actor=actor, **item) for item in prepared
+    ]
+
+
 def get_level_subject(level, subject):
     """The link between a level and a subject, or a DomainError if there is none."""
     try:
