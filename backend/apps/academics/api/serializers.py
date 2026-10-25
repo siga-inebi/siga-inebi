@@ -208,6 +208,18 @@ class ClassroomCreateSerializer(serializers.Serializer):
     capacity = serializers.IntegerField(min_value=0, required=False, default=0)
 
 
+class ClassroomBatchItemSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150)
+    code = serializers.CharField(max_length=30)
+    location = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    capacity = serializers.IntegerField(min_value=0, required=False, default=0)
+
+
+class ClassroomBatchCreateSerializer(serializers.Serializer):
+    campus_id = serializers.UUIDField(help_text="Public ID de la sede común.")
+    classrooms = ClassroomBatchItemSerializer(many=True, allow_empty=False, max_length=100)
+
+
 class ClassroomUpdateSerializer(serializers.Serializer):
     service_status = serializers.ChoiceField(
         choices=Classroom.ServiceStatus.choices, required=False

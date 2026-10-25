@@ -155,6 +155,15 @@ Implementación, pruebas, compatibilidad y pendientes: [entrega de comunidad edu
 
 ## Disponibilidad de aulas (RF-AUL-005)
 
+### Alta por lote
+
+- `POST /api/v1/academics/classrooms/batch/` recibe una `campus_id` y una lista
+  no vacía de aulas (`name`, `code`, `location`, `capacity`). Todas pertenecen a
+  la misma sede y se crean en una sola transacción.
+- Si una fila incumple la validación o el código ya existe dentro de la sede, la
+  respuesta es HTTP 400 y ninguna fila del lote se conserva. El endpoint mantiene
+  el permiso y alcance institucional de alta de aulas y audita cada aula creada.
+
 - Las respuestas de aulas agregan `service_status`: `available` (Disponible),
   `unavailable` (Temporalmente inhabilitada) o `maintenance` (En mantenimiento).
 - `PATCH /api/v1/academics/classrooms/{public_id}/` acepta ese campo opcional.

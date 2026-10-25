@@ -123,6 +123,27 @@ def create_classroom(*, campus, name, code, location="", capacity=0, actor=None)
 
 
 @transaction.atomic
+def create_classrooms_batch(*, campus, classrooms, actor=None):
+    """Create classrooms for one campus as an all-or-nothing operation."""
+    _require_active(campus, "la sede")
+    prepared = []
+    seen_codes = set()
+    for values in classrooms:
+        name = _clean_name(values.get("name"), field="nombre del aula")
+        code = _clean_code(values.get("code"), field="codigo del aula")
+        if code in seen_codes:
+            raise DomainError(f"El codigo de aula '{code}' se repite en el lote.")
+        seen_codes.add(code)
+        location = (values.get("location") or "").strip()
+        capacity = values.get("capacity", 0)
+        if capacity < 0:
+            raise DomainError("La capacidad del aula no puede ser negativa.")
+        prepared.append({"name": name, "code": code, "location": location, "capacity": capacity})
+
+    return [create_classroom(campus=campus, actor=actor, **values) for values in prepared]
+
+
+@transaction.atomic
 def update_classroom(
     *, classroom, name=None, location=None, capacity=None, service_status=None, actor=None
 ):

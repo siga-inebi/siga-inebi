@@ -21,6 +21,8 @@ import { ConfirmActionButton } from "@ui/buttons/ConfirmActionButton.jsx";
 import { ActiveCell, CodeCell, MutedCell } from "@ui/table/cells.jsx";
 import { PageHeader } from "@ui/layout/PageHeader.jsx";
 
+import { BulkClassroomWindow } from "./BulkClassroomWindow.jsx";
+
 /** Sedes con búsqueda en el servidor: no se descarga el catálogo completo. */
 const CAMPUS_SEARCH = {
   name: "campuses",
@@ -196,25 +198,33 @@ export function RoomsPage() {
       <ListSection
         action={
           canEdit ? (
-            <Button
-              onClick={() =>
-                setEditing({
-                  mode: "create",
-                  values: {
-                    campus_id: "",
-                    name: "",
-                    code: "",
-                    location: "",
-                    capacity: 0,
-                  },
-                })
-              }
-              size="small"
-              startIcon={<AddIcon fontSize="small" />}
-              variant="contained"
-            >
-              Nueva aula
-            </Button>
+            <Stack direction="row" gap={1}>
+              <Button
+                onClick={() => setEditing({ mode: "batch" })}
+                size="small"
+                startIcon={<AddIcon fontSize="small" />}
+                variant="contained"
+              >
+                Crear por lote
+              </Button>
+              <Button
+                onClick={() =>
+                  setEditing({
+                    mode: "create",
+                    values: {
+                      campus_id: "",
+                      name: "",
+                      code: "",
+                      location: "",
+                      capacity: 0,
+                    },
+                  })
+                }
+                size="small"
+              >
+                Nueva aula
+              </Button>
+            </Stack>
           ) : null
         }
         actionError={actionError}
@@ -299,6 +309,13 @@ export function RoomsPage() {
           open
           submitLabel="Crear aula"
           title="Nueva aula"
+        />
+      ) : null}
+
+      {editing?.mode === "batch" ? (
+        <BulkClassroomWindow
+          onCancel={() => setEditing(null)}
+          onCreated={afterChange}
         />
       ) : null}
 
