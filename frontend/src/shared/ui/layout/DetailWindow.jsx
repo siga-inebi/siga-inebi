@@ -58,6 +58,7 @@ export function DetailField({ label, value }) {
  * @param {Array<{label:string,value:ReactNode}>} props.fields
  * @param {ReactNode}[props.actions]  Acciones al pie.
  * @param {ReactNode}[props.children] Contenido extra bajo los campos.
+ * @param {number}  [props.width]  Ancho de la ventana; el default es medium.
  */
 export function DetailWindow({
   actions,
@@ -66,6 +67,7 @@ export function DetailWindow({
   onClose,
   open,
   title,
+  width = WINDOW_WIDTH.medium,
 }) {
   return (
     <FloatingWindow
@@ -73,7 +75,7 @@ export function DetailWindow({
       onClose={onClose}
       open={open}
       title={title}
-      width={WINDOW_WIDTH.medium}
+      width={width}
     >
       <Box
         component="dl"

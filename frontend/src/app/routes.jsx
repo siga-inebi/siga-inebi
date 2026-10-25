@@ -43,6 +43,11 @@ const StudentRecordPage = lazy(() =>
     default: module.StudentRecordPage,
   }))
 );
+const TeacherRecordPage = lazy(() =>
+  import("@teachers/TeacherRecordPage.jsx").then((module) => ({
+    default: module.TeacherRecordPage,
+  }))
+);
 const DocumentVerificationPage = lazy(() =>
   import("@documents/DocumentVerificationPage.jsx").then((module) => ({
     default: module.DocumentVerificationPage,
@@ -132,6 +137,16 @@ function RootRedirect() {
 export function AppRoutes() {
   return (
     <Routes>
+      <Route
+        path="/app/docentes/:teacherId"
+        element={
+          <PrivateRoute>
+            <PrivateLayout>
+              <TeacherRecordPage />
+            </PrivateLayout>
+          </PrivateRoute>
+        }
+      />
       <Route
         path="/app/alumnos/:studentId"
         element={
