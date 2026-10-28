@@ -32,7 +32,8 @@ WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend /frontend
-ENV VITE_API_URL=/api/v1
+ARG VITE_TIME_ZONE=America/Guatemala
+ENV VITE_API_URL=/api/v1 VITE_TIME_ZONE=${VITE_TIME_ZONE}
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine AS frontend

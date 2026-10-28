@@ -20,6 +20,7 @@ import {
   useSubjectCatalog,
 } from "@shared/catalogs/academicCatalogs.js";
 import { formatDate, todayInputValue } from "@shared/utils/format.js";
+import { dateInputBoundaryToIso } from "@shared/utils/timezone.js";
 import { studentsService } from "@students/studentsService.js";
 import { DateField } from "@ui/forms/DateField.jsx";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
@@ -36,13 +37,6 @@ const STUDENT_SEARCH = {
   fetchPage: (params) => studentsService.listPage(params),
   mapResult: studentOption,
 };
-
-/** Fecha `YYYY-MM-DD` como instante local, al inicio o al final del dia. */
-function dateToIso(value, endOfDay = false) {
-  if (!value) return null;
-  const date = new Date(`${value}T${endOfDay ? "23:59:59" : "00:00:00"}`);
-  return date.toISOString();
-}
 
 /**
  * Asistente de asignacion de rol con alcance (docs/ux-ui.md RA3, RA4).
@@ -167,9 +161,9 @@ export function AssignRoleWizard({ account, onAssigned, onClose, open }) {
       const assignment = await accountsService.assignRole(account.public_id, {
         role: roleId,
         ...(startsOn && startsOn !== todayInputValue()
-          ? { starts_at: dateToIso(startsOn) }
+          ? { starts_at: dateInputBoundaryToIso(startsOn) }
           : {}),
-        ends_at: dateToIso(endsOn, true),
+        ends_at: dateInputBoundaryToIso(endsOn, true),
         scope: scopePayload(choice, scopeOptions),
       });
       onAssigned?.(assignment);

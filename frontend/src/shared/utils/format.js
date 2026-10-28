@@ -6,9 +6,10 @@
  * fecha de dos maneras distintas.
  */
 
-/** Locale y zona horaria del establecimiento (Guatemala, UTC-6 sin horario de verano). */
+/** Locale y zona horaria configurada para el establecimiento. */
 export const APP_LOCALE = "es-GT";
-export const APP_TIMEZONE = "America/Guatemala";
+export const APP_TIMEZONE =
+  import.meta.env.VITE_TIME_ZONE || "America/Guatemala";
 
 /** Marcador de valor ausente. Em dash, se pinta en `text.disabled`. */
 export const EMPTY_VALUE = "—";
@@ -36,6 +37,25 @@ const dateTimeFormatter = new Intl.DateTimeFormat(APP_LOCALE, {
   timeZone: APP_TIMEZONE,
 });
 
+const institutionalPartsFormatter = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+  timeZone: APP_TIMEZONE,
+});
+
+function partsRecord(date) {
+  return Object.fromEntries(
+    institutionalPartsFormatter
+      .formatToParts(date)
+      .map(({ type, value }) => [type, value])
+  );
+}
+
 /**
  * Convierte a Date solo si el valor es utilizable.
  *
@@ -47,7 +67,7 @@ function toDate(value) {
   if (!value) return null;
   const isDateOnly =
     typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
-  const date = new Date(isDateOnly ? `${value}T12:00:00` : value);
+  const date = new Date(isDateOnly ? `${value}T12:00:00Z` : value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -77,9 +97,8 @@ export function formatDateTime(value) {
  * 18:00 devolveria el dia siguiente. "Hoy" tiene que ser hoy aca.
  */
 export function todayInputValue(now = new Date()) {
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
+  const { year, month, day } = partsRecord(now);
+  return `${year}-${month}-${day}`;
 }
 
 /** Devuelve el texto tal cual, o el marcador de ausencia si esta vacio. */

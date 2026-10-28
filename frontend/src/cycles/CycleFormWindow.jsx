@@ -10,6 +10,7 @@ import Switch from "@mui/material/Switch";
 
 import { cyclesService } from "@cycles/cyclesService.js";
 import { formatDate } from "@shared/utils/format.js";
+import { institutionalYear } from "@shared/utils/timezone.js";
 import { FormSelect } from "@ui/forms/FormSelect.jsx";
 import { FormTextField } from "@ui/forms/FormTextField.jsx";
 import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
@@ -20,7 +21,7 @@ const YEARS_BACK = 1;
 const YEARS_AHEAD = 6;
 
 function yearOptions(now = new Date()) {
-  const first = now.getFullYear() - YEARS_BACK;
+  const first = institutionalYear(now) - YEARS_BACK;
   return Array.from(
     { length: YEARS_BACK + 1 + YEARS_AHEAD },
     (_unused, index) => {

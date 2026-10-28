@@ -273,7 +273,7 @@ describe("AssignRoleWizard (RA1, RA3, RA4)", () => {
     expect(accountId).toBe("acc-1");
     expect(payload.role).toBe("r-1");
     expect(payload.scope).toEqual({ section: "sec-1", academic_cycle: "cy-1" });
-    expect(payload.ends_at).toMatch(/^2027-1[01]-/);
+    expect(payload.ends_at).toBe("2027-11-01T05:59:59.000Z");
     expect(onClose).toHaveBeenCalled();
   });
 

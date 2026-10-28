@@ -230,3 +230,11 @@ def test_is_minor_is_false_well_above_threshold_age():
     birth_date = date(1990, 1, 1)
 
     assert is_minor(birth_date, as_of=today) is False
+
+
+@pytest.mark.unit
+def test_is_minor_uses_institutional_local_date_by_default(monkeypatch):
+    institutional_today = date(2026, 8, 19)
+    monkeypatch.setattr("apps.people.queries.timezone.localdate", lambda: institutional_today)
+
+    assert is_minor(date(2008, 8, 20)) is True

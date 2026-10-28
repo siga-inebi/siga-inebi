@@ -285,7 +285,8 @@ def validate_capture_allowed(
             and no active grant covers it.
     """
     at = on_datetime or timezone.now()
-    if evaluation_unit.is_capture_window_open(at.date()) and not evaluation_unit.is_closed:
+    capture_window_open = evaluation_unit.is_capture_window_open(timezone.localdate(at))
+    if capture_window_open and not evaluation_unit.is_closed:
         return
     if has_active_capture_exception(evaluation_unit, subject, teacher, at=at):
         return

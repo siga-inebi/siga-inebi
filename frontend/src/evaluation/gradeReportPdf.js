@@ -12,6 +12,7 @@
  */
 import logoUrl from "@shared/assets/logo.webp";
 import { MiniPdf } from "@shared/pdf/miniPdf.js";
+import { formatNumericDateTime } from "@shared/utils/timezone.js";
 
 /** Carta vertical, en puntos (72 por pulgada). */
 const PAGE = { width: 612, height: 792 };
@@ -70,19 +71,6 @@ async function loadLogo() {
     // Sin logo el informe sigue siendo válido: solo pierde el escudo.
     return null;
   }
-}
-
-function formatDateTime(value) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? ""
-    : date.toLocaleString("es-GT", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
 }
 
 function drawHeader(pdf, report, hasLogo) {
@@ -293,7 +281,7 @@ function drawFooter(pdf, report, pageNumber, pageCount) {
     lineWidth: 0.8,
   });
   pdf.text(
-    `${report.institution.short_name || report.institution.name} · Generado el ${formatDateTime(report.generated_at)}`,
+    `${report.institution.short_name || report.institution.name} · Generado el ${formatNumericDateTime(report.generated_at)}`,
     MARGIN,
     y,
     { size: 8, rgb: MUTED }

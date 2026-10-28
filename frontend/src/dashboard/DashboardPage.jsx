@@ -16,18 +16,12 @@ import Typography from "@mui/material/Typography";
 import { NAV_GROUPS, canViewModule, prefetchModule } from "@app/navigation.js";
 import { useAuth } from "@auth/useAuth.js";
 import { formatDateLong, formatFullName } from "@shared/utils/format.js";
+import { formatWeekdayDate } from "@shared/utils/timezone.js";
 import { palette } from "@theme/tokens/color.js";
 import { StatusChip } from "@ui/display/StatusChip.jsx";
 import { SectionCard } from "@ui/layout/SectionCard.jsx";
 
 import { useDashboardSummary } from "./useDashboardSummary.js";
-
-const LONG_DATE = new Intl.DateTimeFormat("es-GT", {
-  weekday: "long",
-  day: "numeric",
-  month: "long",
-  timeZone: "America/Guatemala",
-});
 
 const ALERT_LABEL = {
   ausente_sin_registro: "Ausencia sin registro",
@@ -47,8 +41,8 @@ const SHORTCUT_ORDER = [
 
 function cycleProgress(cycle, now = new Date()) {
   if (!cycle?.starts_on || !cycle?.ends_on) return 0;
-  const start = new Date(`${cycle.starts_on}T12:00:00`);
-  const end = new Date(`${cycle.ends_on}T12:00:00`);
+  const start = new Date(`${cycle.starts_on}T12:00:00Z`);
+  const end = new Date(`${cycle.ends_on}T12:00:00Z`);
   const total = end.getTime() - start.getTime();
   if (total <= 0) return 0;
   return Math.min(100, Math.max(0, ((now.getTime() - start) / total) * 100));
@@ -239,7 +233,7 @@ export function DashboardPage() {
         <Grid container spacing={3} sx={{ position: "relative", zIndex: 1 }}>
           <Grid size={{ xs: 12, md: 8 }}>
             <Typography sx={{ opacity: 0.8 }} variant="overline">
-              {LONG_DATE.format(new Date())}
+              {formatWeekdayDate(new Date())}
             </Typography>
             <Typography component="h1" sx={{ mt: 0.75 }} variant="h4">
               Buen día, {displayName}

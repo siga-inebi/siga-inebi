@@ -70,7 +70,7 @@ function reportWith(students) {
   return {
     institution: { name: "Instituto Demo", short_name: "DEMO" },
     cycle: { public_id: "c-2026", name: "Ciclo 2026", year: 2026 },
-    generated_at: "2026-10-24T10:00:00-06:00",
+    generated_at: "2026-10-25T01:30:00Z",
     units: [
       { public_id: "u-1", number: 1, name: "Unidad 1" },
       { public_id: "u-2", number: 2, name: "Unidad 2" },
@@ -285,6 +285,7 @@ describe("PDF del informe", () => {
     expect(text).toContain("(61) Tj");
     expect(text).toContain("(70) Tj");
     expect(text).toContain("(P\\341gina 2 de 2) Tj");
+    expect(text).toContain("(DEMO \\267 Generado el 24/10/2026");
     // Sin nota se dibuja una raya (WinAnsi 0x97), nunca un cero.
     expect(text).toContain("(\\227) Tj");
     expect(progress).toHaveBeenLastCalledWith(2, 2);
