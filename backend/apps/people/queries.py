@@ -1,6 +1,6 @@
 """Read-side queries for institutional people."""
 
-from datetime import date
+from django.utils import timezone
 
 from apps.people.models import Person
 
@@ -23,7 +23,7 @@ def is_minor(birth_date, *, as_of=None):
     """
     if birth_date is None:
         return None
-    reference = as_of or date.today()
+    reference = as_of or timezone.localdate()
     had_birthday = (reference.month, reference.day) >= (birth_date.month, birth_date.day)
     age = reference.year - birth_date.year - (0 if had_birthday else 1)
     return age < MINOR_AGE_YEARS

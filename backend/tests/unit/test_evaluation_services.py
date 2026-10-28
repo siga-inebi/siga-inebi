@@ -23,7 +23,7 @@ Scenario 12: Promedio de las unidades
 Scenario 13: Preparación del ciclo siguiente
 """
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -539,6 +539,26 @@ class TestCaptureExceptionGrant:
             ends_on=yesterday,
             capture_starts_on=yesterday - timedelta(days=30),
             capture_ends_on=yesterday,
+        )
+
+    def test_capture_window_uses_institutional_date_near_utc_midnight(self):
+        local_day = date(2026, 8, 19)
+        unit = create_evaluation_unit(
+            academic_cycle=AcademicCycleFactory(),
+            number=1,
+            name="Unidad local",
+            starts_on=local_day,
+            ends_on=local_day,
+            capture_starts_on=local_day,
+            capture_ends_on=local_day,
+        )
+
+        validate_capture_allowed(
+            unit,
+            SubjectFactory(),
+            PersonFactory(),
+            # 20 de agosto en UTC, pero todavia 19 de agosto en Guatemala.
+            on_datetime=datetime(2026, 8, 20, 1, 30, tzinfo=UTC),
         )
 
     def test_teacher_with_grant_can_capture_after_window_closed(self):

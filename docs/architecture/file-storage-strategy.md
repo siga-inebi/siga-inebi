@@ -63,6 +63,20 @@ La foto de docente (`teachers.Teacher.photo`) se escribe hoy por el serializador
 del modelo, sin servicio de dominio, y queda fuera de esta normalizacion: debe
 encauzarse por un servicio antes de aplicarle estas reglas.
 
+## Nombres de fotografias de perfil
+
+Las nuevas fotografias de perfil se almacenan con un nombre generado por el
+sistema, no con el nombre enviado por el dispositivo del usuario:
+
+- estudiante: `student_photos/foto_estudiante_<codigo>_<unico>.jpg`;
+- docente: `teacher_photos/foto_docente_<codigo>_<unico>.<extension>`.
+
+El codigo institucional indica el propietario sin publicar nombre, CUI u otro
+dato personal. El sufijo aleatorio evita colisiones y permite conservar archivos
+anteriores. Esta regla aplica a cargas nuevas y reemplazos; no mueve archivos
+historicos porque sus rutas ya pueden estar referenciadas por base de datos,
+backups o almacenamiento externo.
+
 ## Riesgos a evitar
 
 - URLs directas permanentes.

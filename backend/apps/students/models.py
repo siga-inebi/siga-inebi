@@ -3,6 +3,17 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.common.models import TimeStampedModel
+from apps.common.uploads import profile_photo_upload_path
+
+
+def student_photo_upload_to(instance, filename):
+    """Name the photo by its purpose and stable institutional owner code."""
+    return profile_photo_upload_path(
+        directory="student_photos",
+        subject="estudiante",
+        owner_identifier=instance.student_code or instance.public_id,
+        filename=filename,
+    )
 
 
 class StudentRecordQuerySet(models.QuerySet):
@@ -40,7 +51,7 @@ class Student(HistoricalStudentRecord):
         choices=StudentStatus.choices,
         default=StudentStatus.PRE_ENROLLED,
     )
-    photo = models.FileField(upload_to="student_photos/", blank=True)
+    photo = models.FileField(upload_to=student_photo_upload_to, blank=True)
 
     class Meta:
         # Orden explicito: sin el, paginar es un sorteo. PostgreSQL no garantiza

@@ -1,3 +1,4 @@
+import re
 from io import BytesIO
 
 import pytest
@@ -219,7 +220,9 @@ def test_upload_student_photo(logged_in_client):
     )
     image_data = BytesIO()
     Image.new("RGB", (600, 800), color="blue").save(image_data, format="JPEG")
-    photo = SimpleUploadedFile("photo.jpg", image_data.getvalue(), content_type="image/jpeg")
+    photo = SimpleUploadedFile(
+        "WhatsApp2026-02-11.jpg", image_data.getvalue(), content_type="image/jpeg"
+    )
 
     response = logged_in_client.patch(
         reverse("student-detail", args=[student.pk]),
@@ -231,7 +234,11 @@ def test_upload_student_photo(logged_in_client):
     data = response.json()
     assert data["photo"]
     student.refresh_from_db()
-    assert student.photo.name
+    assert re.fullmatch(
+        rf"student_photos/foto_estudiante_{student.student_code.lower()}_[0-9a-f]{{12}}\.jpg",
+        student.photo.name,
+    )
+    assert "whatsapp" not in student.photo.name.lower()
     assert student.photo.size <= 5 * 1024 * 1024
     with Image.open(student.photo) as stored:
         assert stored.size == (295, 354)

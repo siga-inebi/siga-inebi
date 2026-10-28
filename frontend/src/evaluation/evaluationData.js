@@ -5,6 +5,7 @@ import { academicsService } from "@academics/academicsService.js";
 import { sectionLabel } from "@academics/searchOptions.js";
 import { evaluationService } from "@evaluation/evaluationService.js";
 import { queryKeys } from "@shared/api/queryKeys.js";
+import { todayInputValue } from "@shared/utils/format.js";
 
 /**
  * Datos que comparten las pestañas de Evaluación. Cada lista es de un solo
@@ -29,10 +30,7 @@ export function unitLabel(unit) {
 }
 
 /** Unidad a mostrar sin elección: la que hoy está en captura, o la primera abierta. */
-export function defaultUnit(
-  units,
-  today = new Date().toISOString().slice(0, 10)
-) {
+export function defaultUnit(units, today = todayInputValue()) {
   const open = units.filter((unit) => unit.status !== "closed");
   return (
     open.find(

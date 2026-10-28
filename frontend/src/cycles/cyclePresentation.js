@@ -1,6 +1,8 @@
+import { institutionalYear } from "@shared/utils/timezone.js";
+
 /** Anio propuesto para un ciclo nuevo: el siguiente al de referencia. */
 export function nextCycleYear(source) {
-  return (source?.year ?? new Date().getFullYear()) + 1;
+  return (source?.year ?? institutionalYear()) + 1;
 }
 
 /** Texto que explica por que no se puede volver a borrador (D6). */

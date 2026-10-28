@@ -35,6 +35,9 @@
   enganaria a quien lee.
 - Las fechas de efecto y los dias escolares se derivan del reloj local. Un movimiento capturado a
   las 23:30 pertenece a su dia local, no al dia siguiente en UTC.
+- El frontend recibe la misma zona mediante `VITE_TIME_ZONE`. Toda fecha de "hoy", seleccion de
+  anio, limite diario y presentacion de un instante pasa por `shared/utils/{format,timezone}.js`;
+  no se deriva con `toISOString().slice(0, 10)` ni con la zona del navegador.
 
 ## Respaldo y restauracion
 

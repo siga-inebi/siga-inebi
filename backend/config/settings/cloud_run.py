@@ -8,7 +8,6 @@ from django.core.exceptions import ImproperlyConfigured
 from .production import *
 
 DJANGO_ENVIRONMENT = "staging"
-TIME_ZONE = "America/Guatemala"
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_SSL_REDIRECT = True
