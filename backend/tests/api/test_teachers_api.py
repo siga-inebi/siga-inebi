@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -115,7 +117,9 @@ def test_list_teachers_returns_nested_person(logged_in_client):
 @pytest.mark.django_db
 def test_upload_teacher_photo(logged_in_client):
     teacher = TeacherFactory()
-    photo = SimpleUploadedFile("photo.jpg", b"fake-image-bytes", content_type="image/jpeg")
+    photo = SimpleUploadedFile(
+        "WhatsApp2026-02-11.jpg", b"fake-image-bytes", content_type="image/jpeg"
+    )
 
     response = logged_in_client.patch(
         reverse("teacher-detail", args=[teacher.pk]),
@@ -127,7 +131,11 @@ def test_upload_teacher_photo(logged_in_client):
     data = response.json()
     assert data["photo"]
     teacher.refresh_from_db()
-    assert teacher.photo.name
+    assert re.fullmatch(
+        rf"teacher_photos/foto_docente_{teacher.employee_code.lower()}_[0-9a-f]{{12}}\.jpg",
+        teacher.photo.name,
+    )
+    assert "whatsapp" not in teacher.photo.name.lower()
 
 
 @pytest.mark.api
