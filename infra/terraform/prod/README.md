@@ -2,7 +2,7 @@
 
 Configuración para el proyecto **existente** `precise-blend-428821-e0`, región `us-central1`. No crea proyectos ni vincula facturación. Los valores iniciales preparan infraestructura; `deploy_jobs` y `deploy_service` están desactivados hasta disponer de imágenes reales fijadas por digest. El presupuesto mensual queda pendiente: `monthly_budget_usd = null` no crea alertas.
 
-Diferencias deliberadas con QA (`../qa`): **no existe job de siembra ni datos de demostración** — la base de producción queda vacía (solo esquema, vía migraciones) y la institución la llena. El único dato que se provisiona es el superusuario inicial, mediante el job de una sola ejecución `siga-inebi-prod-createadmin` (`createsuperuser --noinput`, correo en `admin_email`). El despliegue continuo se dispara desde `main`, no desde `develop`.
+Diferencias deliberadas con QA (`../qa`): **no existe job de siembra ni datos de demostración** — la base de producción queda vacía (solo esquema, vía migraciones) y la institución la llena. El único dato que se provisiona es el superusuario inicial, mediante el job `siga-inebi-prod-createadmin` (comando `create_initial_admin`: crea persona, cuenta y rol `system-administrator` con todo el catálogo atómico; correo en `admin_email`). El despliegue continuo se dispara desde `main`, no desde `develop`.
 
 ## Recursos y límites
 
@@ -37,7 +37,7 @@ Copiar `terraform.tfvars.example` a `terraform.tfvars` y `backend.hcl.example` a
 
 Los jobs se ejecutan de forma explícita con `gcloud run jobs execute JOB --region=us-central1 --project=precise-blend-428821-e0 --wait`. Si fallan, la web permanece desactivada; conservar los logs sin secretos y corregir antes de habilitar tráfico. No existe una dependencia Terraform que certifique que esos comandos terminaron con éxito: la habilitación de la web es un paso operativo deliberado.
 
-Entrega de la contraseña inicial: se lee **una sola vez** con `gcloud secrets versions access latest --secret=siga-inebi-prod-admin-password`, se envía a la institución por un canal acordado y se instruye cambiarla en el primer ingreso. «Una sola vez» es un procedimiento, no una garantía técnica: el valor persiste en Secret Manager y en el estado de Terraform, ambos de acceso restringido; si la institución no la cambia, rotarla editando el usuario desde el admin de Django y actualizando el secreto fuera de banda. `createsuperuser` es idempotente solo a medias: reejecutar `createadmin` con el mismo username falla («ya existe»), lo cual es el comportamiento deseado.
+Entrega de la contraseña inicial: se lee **una sola vez** con `gcloud secrets versions access latest --secret=siga-inebi-prod-admin-password`, se envía a la institución por un canal acordado y se instruye cambiarla en el primer ingreso. «Una sola vez» es un procedimiento, no una garantía técnica: el valor persiste en Secret Manager y en el estado de Terraform, ambos de acceso restringido; si la institución no la cambia, rotarla editando el secreto fuera de banda y reejecutando `createadmin` (el comando es idempotente: restablece la clave sin borrar la cuenta ni su historial auditable).
 
 ## Despliegue continuo desde GitHub Actions
 

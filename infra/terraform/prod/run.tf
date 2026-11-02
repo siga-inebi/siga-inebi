@@ -4,7 +4,7 @@
 resource "google_cloud_run_v2_job" "maintenance" {
   for_each = var.deploy_jobs ? {
     migrate     = ["migrate", "--noinput"]
-    createadmin = ["createsuperuser", "--noinput"]
+    createadmin = ["create_initial_admin"]
   } : {}
   name                = "${local.name}-${each.key}"
   location            = var.region
