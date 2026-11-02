@@ -44,6 +44,24 @@ resource "google_artifact_registry_repository" "qa" {
   description   = "Immutable reviewed QA images"
   labels        = local.labels
   depends_on    = [google_project_service.apis]
+
+  cleanup_policy_dry_run = false
+
+  cleanup_policies {
+    id     = "keep-recent-10"
+    action = "KEEP"
+    most_recent_versions {
+      keep_count = 10
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-older-than-7d"
+    action = "DELETE"
+    condition {
+      older_than = "604800s"
+    }
+  }
 }
 
 resource "google_service_account" "runtime" {
