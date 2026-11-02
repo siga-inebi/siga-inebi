@@ -142,6 +142,8 @@ test("deploy plan: frontend image inputs include nginx runtime and Dockerfile.cl
 test("deploy plan: changing the pipeline rebuilds and migrates", () => {
   const plan = classifyDeployChanges([".github/workflows/deploy-qa.yml"]);
   assert.equal(plan.backend_build && plan.frontend_build && plan.run_migrations, true);
+  const prod = classifyDeployChanges([".github/workflows/deploy-prod.yml"]);
+  assert.equal(prod.backend_build && prod.frontend_build && prod.run_migrations, true);
 });
 
 test("diff range per event", () => {

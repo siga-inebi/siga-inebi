@@ -1,4 +1,4 @@
-// Change detection for ci.yml, codeql.yml and deploy-qa.yml (issue #627).
+// Change detection for ci.yml, codeql.yml, deploy-qa.yml and deploy-prod.yml (issue #627).
 //
 // Only git and Node are used: no third-party action decides what runs. Every
 // rule fails safe: an unknown path, an empty diff or a range git cannot
@@ -74,8 +74,12 @@ const frontendImagePaths = [
 ];
 const migrationPaths = [/^backend\/apps\/[^/]+\/migrations\//];
 
-// Changing the deploy pipeline itself rebuilds and migrates, like a first deploy.
-const deployPipelinePaths = [/^\.github\/workflows\/deploy-qa\.yml$/, /^scripts\/ci\//];
+// Changing a deploy pipeline itself rebuilds and migrates, like a first deploy.
+const deployPipelinePaths = [
+  /^\.github\/workflows\/deploy-qa\.yml$/,
+  /^\.github\/workflows\/deploy-prod\.yml$/,
+  /^scripts\/ci\//,
+];
 
 export const CI_JOBS = {
   backend: ["backend-lint", "backend-tests", "backend-security"],
