@@ -48,15 +48,28 @@ resource "google_cloud_run_v2_job" "maintenance" {
             value = env.value
           }
         }
-        # ADMIN_PASSWORD only reaches the createadmin job; migrate never sees it.
+        # ADMIN_PASSWORD never reaches the job under its own name: migrate does
+        # not need it and create_initial_admin reads DJANGO_SUPERUSER_PASSWORD.
         dynamic "env" {
-          for_each = { for key, value in local.secrets : key => value if key != "ADMIN_PASSWORD" || each.key == "createadmin" }
+          for_each = { for key, value in local.secrets : key => value if key != "ADMIN_PASSWORD" }
           content {
             name = env.key
             value_source {
               secret_key_ref {
                 secret  = google_secret_manager_secret.prod[env.key].secret_id
                 version = google_secret_manager_secret_version.prod[env.key].version
+              }
+            }
+          }
+        }
+        dynamic "env" {
+          for_each = each.key == "createadmin" ? ["admin"] : []
+          content {
+            name = "DJANGO_SUPERUSER_PASSWORD"
+            value_source {
+              secret_key_ref {
+                secret  = google_secret_manager_secret.prod["ADMIN_PASSWORD"].secret_id
+                version = google_secret_manager_secret_version.prod["ADMIN_PASSWORD"].version
               }
             }
           }
