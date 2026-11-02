@@ -100,3 +100,17 @@ test("a merge whose tree differs from the tested head falls back", () => {
   assert.match(result.reason, /al día/);
   assert.equal(evaluateGate(greenInput({ headTree: undefined })).verified, false);
 });
+
+test("the deploy branch comes from baseBranch, not a hardcoded default", () => {
+  const toMain = greenInput({
+    baseBranch: "main",
+    pulls: [{ number: 9, merged_at: "2026-10-15T00:00:00Z", merge_commit_sha: SHA, base: { ref: "main" }, head: { sha: HEAD } }],
+  });
+  const result = evaluateGate(toMain);
+  assert.equal(result.verified, true, result.reason);
+  assert.equal(result.pr, 9);
+  // The same merge to main is rejected when the gate runs for develop.
+  const wrongBranch = evaluateGate(greenInput({ pulls: toMain.pulls }));
+  assert.equal(wrongBranch.verified, false);
+  assert.match(wrongBranch.reason, /hacia develop/);
+});

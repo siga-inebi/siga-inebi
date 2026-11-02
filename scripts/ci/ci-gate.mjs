@@ -1,7 +1,9 @@
-// CI gate for deploy-qa.yml (issue #627).
+// CI gate for deploy-qa.yml and deploy-prod.yml (issue #627).
 //
-// A push to develop only skips the full CI rerun when ALL of these hold:
-//   1. it is the merge of a PR into develop (merge_commit_sha === pushed sha);
+// A push to the deploy branch only skips the full CI rerun when ALL of these
+// hold:
+//   1. it is the merge of a PR into the deploy branch
+//      (merge_commit_sha === pushed sha, base ref === BASE_BRANCH);
 //   2. the latest ci.yml pull_request run on the PR head finished in success;
 //   3. every job of that run ended in success or skipped, and the jobs the
 //      deploy needs (areas changed since the commit running in QA) really ran;
@@ -9,7 +11,9 @@
 //      which is what the "branch must be up to date" rule guarantees.
 // Anything else -- no PR, direct push, --admin merge with red or missing
 // checks, a stale branch, an API error or `full_ci: true` -- returns
-// verified=false and deploy-qa.yml runs the full ci.yml as before.
+// verified=false and the deploy workflow runs the full ci.yml as before.
+//
+// The deploy branch defaults to develop; deploy-prod.yml sets BASE_BRANCH=main.
 
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -39,7 +43,7 @@ export function evaluateGate({
   const pr = pulls.find(
     (pull) => pull.merged_at && pull.merge_commit_sha === sha && pull.base?.ref === baseBranch,
   );
-  if (!pr) return refuse("el commit no es la fusión de un PR hacia develop (push directo)");
+  if (!pr) return refuse(`el commit no es la fusión de un PR hacia ${baseBranch} (push directo)`);
   const headSha = pr.head?.sha;
   const context = { pr: pr.number, headSha };
 
@@ -77,7 +81,7 @@ export function evaluateGate({
 
   if (!pushedTree || !headTree || pushedTree !== headTree) {
     return refuse(
-      "el árbol fusionado no es el que probó CI (la rama no estaba al día con develop)",
+      `el árbol fusionado no es el que probó CI (la rama no estaba al día con ${baseBranch})`,
       context,
     );
   }
@@ -101,13 +105,16 @@ async function collect(env) {
   const sha = env.GITHUB_SHA;
   const input = {
     sha,
+    baseBranch: env.BASE_BRANCH || "develop",
     forceFullCi: env.FORCE_FULL_CI === "true",
     requiredJobs: JSON.parse(env.REQUIRED_CI_JOBS || "null") ?? Object.values(CI_JOBS).flat(),
   };
   if (input.forceFullCi) return input;
 
   input.pulls = await api(`${repo}/commits/${sha}/pulls`);
-  const pr = input.pulls.find((pull) => pull.merged_at && pull.merge_commit_sha === sha);
+  const pr = input.pulls.find(
+    (pull) => pull.merged_at && pull.merge_commit_sha === sha && pull.base?.ref === input.baseBranch,
+  );
   if (!pr) return input;
 
   const headSha = pr.head.sha;
