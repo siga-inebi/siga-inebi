@@ -3,9 +3,14 @@ const sensitiveName = /(secret|credential|backup|dump)/i;
 const sourceOrDocumentation = /\.(py|js|jsx|ts|tsx|mjs|cjs|sh|bash|ps1|md|rst|adoc)$/i;
 const sensitiveExtension = /\.(sqlite|sqlite3|db|sql|dump|pem|key|p12|pfx|crt)$/i;
 const artifactDirectory = /^(?:media|uploads|credentials|secrets|dumps|docker-data|backup|.*backups.*|.*backup[-_]data.*)$/i;
+const manualAsset = /^docs\/manuals\/assets\/[^/]+\.pdf$/i;
 
 export function isForbiddenFile(filename) {
   if (filename === ".secrets.baseline") return false;
+
+  // Published manuals are reviewed documentation, even when their title uses
+  // words such as "backup" that otherwise identify sensitive artifacts.
+  if (manualAsset.test(filename.replaceAll("\\", "/"))) return false;
 
   const parts = filename.replaceAll("\\", "/").split("/");
   const basename = parts.at(-1);
