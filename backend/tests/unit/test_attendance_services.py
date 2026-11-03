@@ -17,6 +17,7 @@ All in isolation from the API layer.
 """
 
 from datetime import datetime, time, timedelta
+import re
 
 import pytest
 from django.conf import settings
@@ -2940,21 +2941,10 @@ def test_the_opaque_identifier_does_not_encode_any_personal_data():
     assert first.opaque_identifier != second.opaque_identifier
     for credential in twins:
         payload = credential.opaque_identifier
-        student = credential.student
-        person = student.person
-        for secret in (
-            student.student_code,
-            student.student_code.lower(),
-            person.first_name,
-            person.last_name,
-            person.email,
-            person.phone_number,
-            str(student.public_id),
-        ):
-            assert secret not in payload
-        # Length is the observable proof of randomness: 32 random bytes render
-        # as 43 url-safe characters, far more than any derivation would need.
-        assert len(payload) >= 40
+        # 32 random bytes render as exactly 43 Base64URL characters. Searching
+        # for short personal strings here is probabilistic: "Ana" can occur by
+        # chance in a random Base64URL token without having been encoded.
+        assert re.fullmatch(r"[A-Za-z0-9_-]{43}", payload)
 
 
 def test_a_student_without_an_active_enrolment_gets_no_credential():
