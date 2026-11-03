@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Permission
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.sessions.models import Session
 from django.core.exceptions import ValidationError
 from django.core.signing import salted_hmac
@@ -21,6 +22,8 @@ from apps.identity.atomic_permissions import (
     ATOMIC_PERMISSION_CODENAMES,
     ATOMIC_PERMISSION_CODES_BY_CODENAME,
     ATOMIC_PERMISSIONS,
+    PERMISSION_CATALOGUE,
+    permission_codename,
 )
 from apps.identity.models import (
     ActivationChallenge,
@@ -132,6 +135,7 @@ def list_atomic_permissions(*, actor):
             "El actor no tiene permiso para consultar el catalogo de permisos."
         )
 
+    _ensure_atomic_permission_catalog()
     permissions = Permission.objects.filter(
         content_type__app_label="identity",
         content_type__model="role",
@@ -167,6 +171,7 @@ def _resolve_atomic_permissions(permission_codenames):
             "Los permisos de un rol deben pertenecer al catalogo de permisos atomicos."
         )
 
+    _ensure_atomic_permission_catalog()
     permissions = list(
         Permission.objects.filter(
             content_type__app_label="identity",
@@ -177,6 +182,29 @@ def _resolve_atomic_permissions(permission_codenames):
     if len(permissions) != len(requested):
         raise DomainError("Uno o mas permisos atomicos no existen.")
     return permissions
+
+
+def _ensure_atomic_permission_catalog():
+    """Restore catalog rows removed by a database flush outside migrations."""
+    content_type = ContentType.objects.get_for_model(Role)
+    labels = {
+        permission_codename(code): label
+        for code, label, _description, _group in PERMISSION_CATALOGUE
+    }
+    existing = set(
+        Permission.objects.filter(
+            content_type=content_type,
+            codename__in=labels,
+        ).values_list("codename", flat=True)
+    )
+    Permission.objects.bulk_create(
+        [
+            Permission(codename=codename, name=label, content_type=content_type)
+            for codename, label in labels.items()
+            if codename not in existing
+        ],
+        ignore_conflicts=True,
+    )
 
 
 def _active_account_administrators(*, when=None):
