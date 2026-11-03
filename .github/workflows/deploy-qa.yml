@@ -1,9 +1,6 @@
 name: CI/CD QA
 
 on:
-  push:
-    branches:
-      - develop
   workflow_dispatch:
     inputs:
       full_ci:
@@ -38,8 +35,11 @@ env:
 #   plan ──┬── gate ── ci (respaldo, solo si gate no verifica) ──┐
 #          ├── build-backend  (solo si cambió su imagen) ─────────┼── deploy-qa
 #          └── build-frontend (solo si cambió su imagen) ─────────┘
+# Solo `workflow_dispatch` inicia este flujo, siempre sobre `develop`.
 # deploy-qa nunca corre sin evidencia de CI en verde: o el gate verificó la
 # corrida de ci.yml del PR fusionado, o el respaldo terminó en success.
+# Además exige aprobación manual: el environment "qa" tiene revisores
+# obligatorios, así que el job queda en espera hasta que un revisor aprueba.
 jobs:
   # Compares this commit with the one QA is running (read from the tags of the
   # backend and frontend images in Cloud Run). Unknown -> everything changed.
@@ -260,6 +260,11 @@ jobs:
   deploy:
     name: deploy-qa
     needs: [plan, gate, ci, build-backend, build-frontend]
+    # Aprobación manual: el environment "qa" (Settings > Environments) exige un
+    # revisor. El flujo se inicia manualmente y el despliegue espera una
+    # aprobación adicional. El token OIDC sigue atado a
+    # repository+ref, el environment no cambia la condición de confianza.
+    environment: qa
     # Never without CI evidence: the gate verified the PR run, or the fallback
     # passed. A build job may only be skipped when the plan said "reuse".
     if: >-
