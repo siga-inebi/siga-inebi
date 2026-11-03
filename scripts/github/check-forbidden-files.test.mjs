@@ -11,6 +11,7 @@ test("backup, secrets and credentials source/docs remain reviewable", () => {
     "backend/tests/test_credentials.py",
     "frontend/src/auth/secret-validation.js",
     "docs/manuals/09-backup-and-recovery-plan.md",
+    "docs/manuals/assets/Backup y recuperacion.pdf",
     "docs/credentials-configuration.md",
     "scripts/github/credential-check.ps1",
     ".secrets.baseline",
