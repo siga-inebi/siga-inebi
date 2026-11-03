@@ -16,8 +16,8 @@ RF-CRE-006 — resolucion de identificador.
 All in isolation from the API layer.
 """
 
-from datetime import datetime, time, timedelta
 import re
+from datetime import datetime, time, timedelta
 
 import pytest
 from django.conf import settings
