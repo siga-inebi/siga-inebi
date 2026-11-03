@@ -1,4 +1,5 @@
 import pytest
+from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from apps.audit.models import AuditEvent
@@ -36,6 +37,10 @@ def test_administrator_can_consult_distinct_attendance_permissions(client):
     actor = UserFactory()
     role_assign = PermissionFactory(codename="role_assign")
     RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[role_assign]))
+    Permission.objects.filter(
+        content_type__app_label="identity",
+        content_type__model="role",
+    ).exclude(codename="role_assign").delete()
     client.force_login(actor)
 
     response = client.get(reverse("identity-permission-list"))
