@@ -1,0 +1,40 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 220] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 536 >>
+stream
+BT /F1 10 Tf 30 180 Td (Boleta de calificaciones) Tj ET
+BT /F1 10 Tf 30 165 Td (Estudiante: STU-0001) Tj ET
+BT /F1 10 Tf 30 150 Td (Ciclo: Cycle 1 \(2026-10-13 - 2026-12-31\)) Tj ET
+BT /F1 10 Tf 30 135 Td (Subarea: Matematica) Tj ET
+BT /F1 10 Tf 30 120 Td (  Unidad 1: 59) Tj ET
+BT /F1 10 Tf 30 105 Td (  Unidad 2: 60) Tj ET
+BT /F1 10 Tf 30 90 Td (  Nota final: 60 \(Aprobado\)) Tj ET
+BT /F1 10 Tf 30 75 Td (Condicion de promocion: Promovido) Tj ET
+BT /F1 10 Tf 30 60 Td (Codigo de verificacion: E6dFaF41_tB7BhIp1nXD8TNRtiqn4EET) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000241 00000 n
+0000000827 00000 n
+trailer
+<< /Root 1 0 R /Size 6 >>
+startxref
+897
+%%EOF

@@ -1,0 +1,62 @@
+services:
+  db-test:
+    image: postgres:16-alpine
+    # Fijado igual que el cluster de desarrollo y produccion. Las pruebas de
+    # RNF-LOC-001 corren contra un reloj configurado como el del
+    # establecimiento, no contra el UTC por omision de la imagen.
+    command:
+      - postgres
+      - -c
+      - timezone=America/Guatemala
+      - -c
+      - log_timezone=America/Guatemala
+    environment:
+      POSTGRES_DB: siga_inebi_test
+      POSTGRES_USER: siga_inebi_test
+      POSTGRES_PASSWORD: siga_inebi_test_password
+      TZ: America/Guatemala
+      PGTZ: America/Guatemala
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siga_inebi_test -d siga_inebi_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - app_net
+
+  backend-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DATABASE_ENGINE: postgresql
+      DATABASE_NAME: siga_inebi_test
+      DATABASE_USER: siga_inebi_test
+      DATABASE_PASSWORD: siga_inebi_test_password
+      DATABASE_HOST: db-test
+      DATABASE_PORT: 5432
+      DJANGO_SECRET_KEY: test-secret-key
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      TIME_ZONE: America/Guatemala
+      TZ: America/Guatemala
+      # RNF-RES-001: las pruebas de respaldo ejecutan los scripts de verdad, y
+      # la imagen solo copia `backend/`. Se montan aparte y esta variable les
+      # dice donde quedaron.
+      BACKUP_SCRIPTS_DIR: /opt/backup
+    volumes:
+      - ./scripts/backup:/opt/backup:ro
+    depends_on:
+      db-test:
+        condition: service_healthy
+    command:
+      [
+        "sh",
+        "-lc",
+        "python manage.py migrate --noinput && pytest"
+      ]
+    networks:
+      - app_net

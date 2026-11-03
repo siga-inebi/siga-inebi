@@ -1,0 +1,567 @@
+import { lazy, Suspense, useEffect, useId, useState } from "react";
+
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Stack from "@mui/material/Stack";
+import Switch from "@mui/material/Switch";
+import Typography from "@mui/material/Typography";
+import UploadFileIcon from "@mui/icons-material/UploadFileOutlined";
+
+import { useFormDraft } from "@shared/hooks/useFormDraft.js";
+import { useSessionKeepAlive } from "@shared/hooks/useSessionKeepAlive.js";
+import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
+import { FloatingWindow } from "@ui/layout/FloatingWindow.jsx";
+import { WINDOW_WIDTH } from "@ui/layout/windowWidth.js";
+import { DateField } from "@ui/forms/DateField.jsx";
+import { FormSelect } from "@ui/forms/FormSelect.jsx";
+import { FormTextField } from "@ui/forms/FormTextField.jsx";
+
+/**
+ * Formulario de alta y edicion en ventana modal centrada.
+ *
+ * Conserva el contrato declarativo de campos que ya usaban las pantallas
+ * (`{ name, label, type, help, required, options, min, placeholder, span }`),
+ * asi que migrar una pantalla no obliga a reescribir su definicion de campos.
+ *
+ * Los campos `select` aceptan ademas `loading`, `optionsError` y `emptyHint`
+ * para los catalogos que se traen del backend: mientras cargan el desplegable
+ * se muestra deshabilitado y no vacio, porque un select sin opciones se lee
+ * como "no hay nada" y esa es otra respuesta.
+ *
+ * Los campos `search-select` buscan en el servidor mientras se escribe
+ * (docs/ux-ui.md 1.3): son el tipo por defecto para entidades grandes
+ * (estudiante, docente, matricula, encargado), que con un `select` obligaban a
+ * descargar y recorrer el padron completo. Declaran
+ * `search: { name, fetchPage, mapResult }` y, al editar, `initialOption`.
+ * Con `fills: (opcion) => valores`, elegir una opcion precarga otros campos del
+ * formulario (los datos de una persona ya registrada, por ejemplo); solo se
+ * escriben los campos que el formulario declara.
+ *
+ * `fields` tambien puede ser una funcion `(values) => campos` cuando un campo
+ * depende de otro (las secciones de un ciclo, por ejemplo). Ese campo declara
+ * `resets: ["section_id"]` para limpiar lo que quedo colgando al cambiar: una
+ * seccion del ciclo anterior seguiria seleccionada y el backend la rechazaria
+ * recien al guardar.
+ *
+ * Los campos se acomodan en dos columnas desde `sm`. Un campo puede pedir el
+ * ancho completo con `span: "full"`; los de tipo archivo y los interruptores lo
+ * toman siempre, porque partirlos a media reja los deja ilegibles.
+ *
+ * `onSubmit` recibe los valores ya normalizados y puede rechazar: el mensaje del
+ * backend se muestra SIN cerrar la ventana, para no perder lo escrito. Cerrar en
+ * el error es como se pierde media hora de captura.
+ *
+ * Mientras hay cambios sin guardar, escribir renueva la sesion como maximo una
+ * vez por minuto (`useSessionKeepAlive`): llenar un formulario largo ya no
+ * termina en "sesion vencida" a mitad de la captura.
+ *
+ * `draftKey` (opcional) guarda un borrador local por formulario y por cuenta
+ * (`useFormDraft`): se ofrece recuperarlo al abrir, se borra al guardar y al
+ * cancelar se confirma antes de descartar. Los campos `password` y los que
+ * parecen secretos nunca se guardan. Sin `draftKey`, nada cambia.
+ *
+ * `children` puede ser contenido o `(values, {submitting}) => contenido` para
+ * mostrar información contextual bajo los campos sin duplicar el formulario.
+ */
+export function EntityFormWindow({
+  children,
+  description,
+  fields,
+  initialValues,
+  onCancel,
+  onSubmit,
+  open,
+  submitLabel = "Guardar",
+  title,
+  width = WINDOW_WIDTH.medium,
+  draftKey = null,
+}) {
+  const [values, setValues] = useState(initialValues);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // Dos formularios pueden convivir en la pantalla (nivel y grado, por
+  // ejemplo); el prefijo evita que compartan el id de un campo homonimo.
+  const formId = useId();
+
+  // Un campo puede depender de otro, asi que la lista se resuelve contra los
+  // valores actuales en cada render.
+  const resolvedFields = typeof fields === "function" ? fields(values) : fields;
+
+  const dirty = JSON.stringify(values) !== JSON.stringify(initialValues);
+  const keepAlive = useSessionKeepAlive(dirty);
+  const draft = useFormDraft(draftKey, values, {
+    enabled: Boolean(draftKey) && open,
+    secretFields: resolvedFields
+      .filter((field) => field.type === "password")
+      .map((field) => field.name),
+  });
+
+  const requestCancel = () => {
+    if (draftKey && dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    draft.clear();
+    onCancel();
+  };
+
+  const setValue = (name, value) =>
+    setValues((current) => {
+      const field = resolvedFields.find((candidate) => candidate.name === name);
+      const cleared = Object.fromEntries(
+        (field?.resets ?? []).map((dependent) => [dependent, ""])
+      );
+      return { ...current, ...cleared, [name]: value };
+    });
+
+  const fillValues = (filled) => {
+    if (!filled) {
+      return;
+    }
+    const known = new Set(resolvedFields.map((field) => field.name));
+    setValues((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        Object.entries(filled).filter(([name]) => known.has(name))
+      ),
+    }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    const missing = resolvedFields.find(
+      (field) =>
+        field.required &&
+        (field.type === "number"
+          ? values[field.name] === "" || values[field.name] === null
+          : !String(values[field.name] ?? "").trim())
+    );
+
+    if (missing) {
+      setError(`Complete el campo ${missing.label.toLowerCase()}.`);
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+    try {
+      await onSubmit(normalize(resolvedFields, values));
+      draft.clear();
+    } catch (submitError) {
+      setError(submitError.message);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <FloatingWindow
+      busy={submitting}
+      description={description}
+      footer={
+        <>
+          <Button disabled={submitting} onClick={requestCancel} variant="text">
+            Cancelar
+          </Button>
+          <Button
+            disabled={submitting}
+            form={formId}
+            startIcon={submitting ? <CircularProgress size={16} /> : undefined}
+            type="submit"
+            variant="contained"
+          >
+            {submitting ? "Guardando…" : submitLabel}
+          </Button>
+        </>
+      }
+      onClose={requestCancel}
+      open={open}
+      title={title}
+      width={width}
+    >
+      {draft.pending ? (
+        <Alert
+          action={
+            <>
+              <Button
+                color="inherit"
+                onClick={() => {
+                  const restored = draft.accept();
+                  if (restored)
+                    setValues((current) => ({ ...current, ...restored }));
+                }}
+                size="small"
+              >
+                Recuperar
+              </Button>
+              <Button color="inherit" onClick={draft.dismiss} size="small">
+                Descartar
+              </Button>
+            </>
+          }
+          severity="info"
+          sx={{ mb: 2 }}
+        >
+          Hay un borrador sin guardar de este formulario.
+        </Alert>
+      ) : null}
+      <ConfirmDialog
+        confirmColor="error"
+        confirmText="Descartar cambios"
+        message="Los cambios que no guardó se perderán, incluido el borrador."
+        onClose={() => setConfirmDiscard(false)}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          draft.clear();
+          onCancel();
+        }}
+        open={confirmDiscard}
+        title="¿Descartar los cambios?"
+      />
+      {/* El submit vive en el pie de la ventana, fuera del <form>: se enlazan
+          por el atributo form/id, que es el mecanismo estandar para eso. */}
+      <Box
+        component="form"
+        id={formId}
+        noValidate
+        onInput={keepAlive}
+        onKeyDown={keepAlive}
+        onSubmit={handleSubmit}
+      >
+        {error ? (
+          <Alert role="alert" severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        ) : null}
+
+        <EntityFields
+          disabled={submitting}
+          fields={resolvedFields}
+          onChange={setValue}
+          onFill={fillValues}
+          values={values}
+        />
+        {children ? (
+          <Box sx={{ mt: 2.5 }}>
+            {typeof children === "function"
+              ? children(values, { submitting })
+              : children}
+          </Box>
+        ) : null}
+      </Box>
+    </FloatingWindow>
+  );
+}
+
+/**
+ * Rejilla de campos declarativos, sin ventana ni envio.
+ *
+ * Para pantallas que editan dentro de una ventana que ya existe (la ficha del
+ * encargado, por ejemplo) en lugar de abrir otra encima.
+ */
+export function EntityFields({ disabled, fields, onChange, onFill, values }) {
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+        columnGap: 2,
+        rowGap: 2.5,
+      }}
+    >
+      {fields.map((field) => (
+        <Box
+          key={field.name}
+          sx={{
+            gridColumn: isFullWidth(field) ? { sm: "1 / -1" } : undefined,
+          }}
+        >
+          <EntityField
+            disabled={disabled}
+            field={field}
+            onChange={onChange}
+            onFill={onFill ?? (() => {})}
+            value={values[field.name]}
+          />
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+// Solo los formularios con un campo `search-select` descargan el buscador remoto.
+const RemoteSearchSelect = lazy(() =>
+  import("@ui/forms/RemoteSearchSelect.jsx").then((module) => ({
+    default: module.RemoteSearchSelect,
+  }))
+);
+
+/** Campos que nunca se parten a media reja. */
+function isFullWidth(field) {
+  return (
+    field.span === "full" ||
+    field.type === "file" ||
+    field.type === "checkbox" ||
+    field.type === "textarea"
+  );
+}
+
+function EntityField({ disabled, field, onChange, onFill, value }) {
+  if (field.type === "checkbox") {
+    return (
+      <FormControlLabel
+        control={
+          <Switch
+            checked={Boolean(value)}
+            disabled={disabled}
+            name={field.name}
+            onChange={(event) => onChange(field.name, event.target.checked)}
+          />
+        }
+        label={field.label}
+      />
+    );
+  }
+
+  if (field.type === "select") {
+    const options = normalizeOptions(field.options);
+    // Un catalogo vacio no es un error del formulario, es un dato que falta en
+    // otra pantalla; decirlo ahi mismo evita que la persona busque el problema
+    // en lo que acaba de escribir.
+    const empty = !field.loading && options.length === 0;
+
+    return (
+      <FormSelect
+        disabled={disabled || field.loading || empty}
+        error={field.optionsError}
+        fullWidth
+        helperText={empty ? (field.emptyHint ?? field.help) : field.help}
+        label={field.label}
+        loading={field.loading}
+        name={field.name}
+        onChange={(event) => onChange(field.name, event.target.value)}
+        // Se aceptan opciones como texto plano ("Matutina") o como par
+        // {value,label}: las pantallas de listado usan lo primero y los
+        // catalogos lo segundo, y no vale la pena forzar una sola forma.
+        options={options}
+        placeholder={field.placeholder ?? "Seleccione una opcion"}
+        required={field.required}
+        value={value ?? ""}
+      />
+    );
+  }
+
+  if (field.type === "search-select") {
+    return (
+      <Suspense fallback={null}>
+        <RemoteSearchSelect
+          disabled={disabled}
+          error={field.optionsError}
+          helperText={field.help}
+          initialOption={field.initialOption}
+          label={field.label}
+          name={field.name}
+          onChange={(event) => onChange(field.name, event.target.value)}
+          onOptionChange={
+            field.fills ? (option) => onFill(field.fills(option)) : undefined
+          }
+          placeholder={field.placeholder}
+          required={field.required}
+          search={field.search}
+          value={value ?? ""}
+        />
+      </Suspense>
+    );
+  }
+
+  if (field.type === "file") {
+    return (
+      <FileField
+        disabled={disabled}
+        field={field}
+        onChange={onChange}
+        value={value}
+      />
+    );
+  }
+
+  if (field.type === "date") {
+    return (
+      <DateField
+        disabled={disabled}
+        fullWidth
+        helperText={field.help}
+        label={field.label}
+        name={field.name}
+        onChange={(event) => onChange(field.name, event.target.value)}
+        required={field.required}
+        value={value}
+      />
+    );
+  }
+
+  return (
+    <FormTextField
+      disabled={disabled}
+      helperText={field.help}
+      label={field.label}
+      name={field.name}
+      onChange={(event) => onChange(field.name, event.target.value)}
+      placeholder={field.placeholder}
+      required={field.required}
+      multiline={field.type === "textarea"}
+      minRows={field.type === "textarea" ? (field.rows ?? 5) : undefined}
+      slotProps={{
+        ...(field.type === "number" && field.min != null
+          ? { htmlInput: { min: field.min } }
+          : null),
+        // Los inputs de fecha y hora SIEMPRE pintan su propio placeholder
+        // ("mm/dd/yyyy"), asi que la etiqueta flotante se le encima si no se
+        // fuerza arriba desde el principio.
+        ...(DATE_LIKE_TYPES.has(field.type)
+          ? { inputLabel: { shrink: true } }
+          : null),
+      }}
+      type={TEXT_INPUT_TYPES.has(field.type) ? field.type : "text"}
+      value={value ?? ""}
+    />
+  );
+}
+
+/** Tipos que traen placeholder propio del navegador. */
+const DATE_LIKE_TYPES = new Set(["date", "datetime-local", "time"]);
+
+/** Tipos que se delegan tal cual al input nativo. */
+const TEXT_INPUT_TYPES = new Set([
+  "number",
+  "email",
+  "tel",
+  "date",
+  "datetime-local",
+  "time",
+  "url",
+  "password",
+]);
+
+function normalizeOptions(options = []) {
+  return options.map((option) =>
+    typeof option === "string" ? { value: option, label: option } : option
+  );
+}
+
+/**
+ * Campo de archivo con vista previa de imagen.
+ *
+ * La URL del objeto se revoca al cambiar de archivo y al desmontar: sin eso
+ * cada foto elegida queda retenida en memoria hasta recargar la pagina.
+ */
+function FileField({ disabled, field, onChange, value }) {
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const inputId = useId();
+
+  useEffect(() => {
+    if (!(value instanceof File)) {
+      setPreviewUrl(null);
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(value);
+    setPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [value]);
+
+  return (
+    <Stack gap={1}>
+      {/*
+        Etiqueta real asociada por `htmlFor`, no un texto con aspecto de
+        etiqueta: sin esto el nombre accesible del input seria el del boton
+        ("Elegir archivo") y nadie sabria QUE archivo se esta pidiendo.
+      */}
+      <Typography
+        component="label"
+        htmlFor={inputId}
+        sx={{ fontSize: "0.75rem", color: "text.secondary" }}
+      >
+        {field.label}
+      </Typography>
+      <Stack alignItems="center" direction="row" gap={1.5}>
+        <Button
+          component="label"
+          disabled={disabled}
+          htmlFor={inputId}
+          size="small"
+          startIcon={<UploadFileIcon fontSize="small" />}
+          variant="outlined"
+        >
+          {value instanceof File ? "Cambiar archivo" : "Elegir archivo"}
+          <input
+            accept={field.accept}
+            hidden
+            id={inputId}
+            onChange={(event) =>
+              onChange(field.name, event.target.files[0] || null)
+            }
+            type="file"
+          />
+        </Button>
+        <Typography
+          color="text.secondary"
+          sx={{ fontSize: "0.8125rem" }}
+          noWrap
+        >
+          {value instanceof File ? value.name : "Ningun archivo seleccionado"}
+        </Typography>
+      </Stack>
+      {previewUrl ? (
+        <Box
+          alt="Vista previa"
+          component="img"
+          src={previewUrl}
+          sx={(theme) => ({
+            width: 96,
+            height: 96,
+            objectFit: "cover",
+            borderRadius: theme.tokens.radii.chip,
+            border: "1px solid",
+            borderColor: "divider",
+          })}
+        />
+      ) : null}
+      {field.help ? (
+        <Typography color="text.secondary" sx={{ fontSize: "0.75rem" }}>
+          {field.help}
+        </Typography>
+      ) : null}
+    </Stack>
+  );
+}
+
+/**
+ * Los inputs siempre devuelven texto; el backend espera enteros y booleanos.
+ * Los campos de texto se recortan para que un espacio no pase como nombre.
+ */
+function normalize(fields, values) {
+  const payload = {};
+
+  for (const field of fields) {
+    const value = values[field.name];
+
+    if (field.type === "checkbox") {
+      payload[field.name] = Boolean(value);
+    } else if (field.type === "number") {
+      payload[field.name] = Number(value);
+    } else if (field.type === "file") {
+      // El File se pasa intacto: convertirlo a texto lo destruiria, y el
+      // servicio necesita el binario para armar el FormData.
+      payload[field.name] = value ?? null;
+    } else {
+      payload[field.name] = String(value ?? "").trim();
+    }
+  }
+
+  return payload;
+}

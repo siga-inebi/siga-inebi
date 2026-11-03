@@ -1,0 +1,37 @@
+/*
+ * App.css — La unica hoja de estilos global del proyecto.
+ *
+ * Todo el estilo del sistema vive en el tema de MUI y en objetos `sx`. Este
+ * archivo se limita a lo que un tema no puede alcanzar: la caja raiz del
+ * documento. Cualquier regla nueva aqui debe justificarse: si se puede expresar
+ * en el tema, va en el tema.
+ */
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * El shell privado gestiona su propio scroll interno (patron "un solo scroll
+ * por pantalla"), asi que el documento no debe scrollear en horizontal nunca.
+ * El vertical se deja libre porque las rutas publicas si scrollean la pagina.
+ */
+body {
+  overflow-x: hidden;
+}
+
+/* Respeta a quien pidio menos animacion en su sistema operativo. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

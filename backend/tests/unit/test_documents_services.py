@@ -1,0 +1,1623 @@
+import hashlib
+import inspect
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
+
+import pytest
+from django.core.files.storage import default_storage
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+from django.utils import timezone
+
+from apps.academics.models import AcademicCycle, CurriculumPlan
+from apps.academics.services import close_academic_cycle
+from apps.audit.models import AuditEvent
+from apps.common.exceptions import AuthorizationError
+from apps.common.models import DomainError
+from apps.documents.field_catalog import FIELD_TAG_CODES, FIELD_TAGS
+from apps.documents.models import (
+    DocumentKind,
+    DocumentRecord,
+    DocumentTemplate,
+    DocumentVerificationCode,
+)
+from apps.documents.services import (
+    compile_document_batch,
+    compile_generated_document,
+    compile_historical_cycle_report,
+    create_document_kind,
+    create_document_template,
+    deactivate_document_kind,
+    deactivate_document_record,
+    deactivate_document_template,
+    document_storage_usage_summary,
+    ensure_document_access,
+    ensure_official_document_issuance_allowed,
+    ensure_official_document_issuance_permission,
+    evaluate_official_document_issuance,
+    get_active_document_template,
+    issue_document_download_token,
+    issue_official_document_folio,
+    list_document_types,
+    list_field_tags,
+    normalize_document_filename,
+    preview_document_template,
+    record_document_read_audit,
+    register_document_delivery_receipt,
+    register_scanned_document,
+    replace_document_record,
+    student_document_dossier,
+    update_document_kind,
+    update_document_template,
+    upload_document_record,
+    validate_document_checksum,
+    validate_document_download_token,
+    validate_document_upload,
+    verify_document,
+    verify_document_storage_integrity,
+    verify_stored_document_checksum,
+)
+from apps.enrolments.models import Enrolment, EnrolmentDocumentRequirement
+from apps.enrolments.services import create_enrolment, set_document_requirement
+from apps.evaluation.services import (
+    close_evaluation_unit,
+    create_evaluation_unit,
+    get_final_subject_grade,
+    register_unit_grade,
+)
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    InstitutionFactory,
+    SectionFactory,
+    SubjectFactory,
+)
+from tests.factories.documents import DocumentTemplateFactory
+from tests.factories.identity import (
+    PermissionFactory,
+    RoleAssignmentFactory,
+    RoleFactory,
+    ScopeGrantFactory,
+    UserFactory,
+)
+from tests.factories.people import PersonFactory
+from tests.factories.students import GuardianFactory, StudentFactory, StudentGuardianRelationFactory
+
+pytestmark = [pytest.mark.unit, pytest.mark.django_db]
+
+
+# --------------------------------------------------------------------------- #
+# create_document_template
+# --------------------------------------------------------------------------- #
+
+
+def test_create_document_template_normalises_code_to_upper_case():
+    institution = InstitutionFactory()
+
+    template = create_document_template(institution=institution, name="Constancia", code="  const ")
+
+    assert template.code == "CONST"
+    assert template.name == "Constancia"
+    assert template.kind == "other"
+    assert template.is_active is True
+
+
+def test_create_document_template_accepts_kind():
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Certificado de estudios",
+        code="CERT",
+        kind="certificate",
+    )
+
+    assert template.kind == "certificate"
+
+
+def test_create_document_template_rejects_duplicate_code_in_same_institution():
+    institution = InstitutionFactory()
+    create_document_template(institution=institution, name="Constancia", code="CONST")
+
+    with pytest.raises(DomainError, match="already"):
+        create_document_template(institution=institution, name="Otra", code="const")
+
+
+def test_create_document_template_allows_same_code_in_different_institutions():
+    first = create_document_template(institution=InstitutionFactory(), name="A", code="CONST")
+    second = create_document_template(institution=InstitutionFactory(), name="A", code="CONST")
+
+    assert first.pk != second.pk
+    assert DocumentTemplate.objects.filter(code="CONST").count() == 2
+
+
+def test_create_document_template_rejects_duplicate_code_even_when_existing_is_inactive():
+    """Codes stay reserved: history is preserved, so reuse must be explicit."""
+    institution = InstitutionFactory()
+    existing = create_document_template(institution=institution, name="A", code="CONST")
+    existing.is_active = False
+    existing.save(update_fields=["is_active"])
+
+    with pytest.raises(DomainError, match="already"):
+        create_document_template(institution=institution, name="B", code="CONST")
+
+
+def test_create_document_template_rejects_blank_code():
+    with pytest.raises(DomainError, match="code"):
+        create_document_template(institution=InstitutionFactory(), name="A", code="   ")
+
+
+def test_create_document_template_rejects_blank_name():
+    with pytest.raises(DomainError, match="name"):
+        create_document_template(institution=InstitutionFactory(), name="  ", code="CONST")
+
+
+def test_validate_document_upload_accepts_supported_pdf_and_image_types():
+    allowed = [
+        SimpleUploadedFile("constancia.pdf", b"%PDF-1.4 test", content_type="application/pdf"),
+        SimpleUploadedFile("dni.JPG", b"fake-jpg-bytes", content_type="image/jpeg"),
+        SimpleUploadedFile("foto.png", b"fake-png-bytes", content_type="image/png"),
+    ]
+
+    for upload in allowed:
+        validated = validate_document_upload(upload)
+        assert validated["content_type"] in {"application/pdf", "image/jpeg", "image/png"}
+        assert validated["size_bytes"] == len(upload.read())
+        upload.seek(0)
+
+
+def test_validate_document_upload_rejects_unsupported_extension_and_oversized_payload():
+    with pytest.raises(DomainError, match="no es admitido|no admitido"):
+        validate_document_upload(
+            SimpleUploadedFile(
+                "document.exe",
+                b"bad",
+                content_type="application/x-msdownload",
+            )
+        )
+
+    oversized = SimpleUploadedFile(
+        "big.pdf",
+        b"%PDF-1.4 " + b"A" * (10 * 1024 * 1024),
+        content_type="application/pdf",
+    )
+    with pytest.raises(DomainError, match="tamano maximo"):
+        validate_document_upload(oversized)
+
+
+def test_normalize_document_filename_keeps_safe_and_stable_basename():
+    assert (
+        normalize_document_filename("  Mi Documento (oficial).PDF  ") == "mi-documento-oficial.pdf"
+    )
+    assert normalize_document_filename("../weird name.png") == "weird-name.png"
+
+
+def test_register_scanned_document_creates_a_student_document_from_a_scanner_upload():
+    student = StudentFactory()
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    upload = SimpleUploadedFile(
+        "escaneo-constancia.pdf",
+        b"%PDF-1.4 scanned document",
+        content_type="application/pdf",
+    )
+
+    record = register_scanned_document(student=student, enrolment=enrolment, upload=upload)
+
+    assert record.student_id == student.pk
+    assert record.enrolment_id == enrolment.pk
+    assert record.filename == "escaneo-constancia.pdf"
+    assert record.content_type == "application/pdf"
+    assert record.checksum == hashlib.sha256(b"%PDF-1.4 scanned document").hexdigest()
+    assert record.storage_key.startswith("scanner/")
+
+    dossier = student_document_dossier(student=student)
+    assert dossier["documents"][0]["storage_key"] == record.storage_key
+
+
+def _enrolment():
+    section = SectionFactory()
+    return create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+
+def test_official_document_issuance_is_allowed_without_pending_required_documents():
+    assert ensure_official_document_issuance_allowed(enrolment=_enrolment()) is True
+
+
+def test_official_document_issuance_is_blocked_by_pending_required_documents():
+    enrolment = _enrolment()
+    set_document_requirement(
+        enrolment=enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+    )
+
+    with pytest.raises(DomainError, match="BIRTH-CERT"):
+        ensure_official_document_issuance_allowed(enrolment=enrolment)
+
+
+def test_official_document_issuance_ignores_pending_optional_documents():
+    enrolment = _enrolment()
+    set_document_requirement(
+        enrolment=enrolment,
+        code="PHOTO",
+        name="Student photo",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+        is_required=False,
+    )
+
+    assert ensure_official_document_issuance_allowed(enrolment=enrolment) is True
+
+
+def test_official_document_issuance_is_blocked_for_inactive_enrolments_or_students():
+    enrolment = _enrolment()
+    enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
+    enrolment.save(update_fields=["status", "updated_at"])
+
+    blocking_codes = evaluate_official_document_issuance(enrolment=enrolment)
+
+    assert "ENROLMENT_NOT_ACTIVE" in blocking_codes
+
+    enrolment.status = Enrolment.EnrolmentStatus.ACTIVE
+    enrolment.save(update_fields=["status", "updated_at"])
+    enrolment.student.status = enrolment.student.StudentStatus.INACTIVE
+    enrolment.student.save(update_fields=["status", "updated_at"])
+
+    blocking_codes = evaluate_official_document_issuance(enrolment=enrolment)
+
+    assert "STUDENT_NOT_ACTIVE" in blocking_codes
+
+
+def test_official_document_issuance_ignores_pending_inactive_documents():
+    enrolment = _enrolment()
+    requirement = set_document_requirement(
+        enrolment=enrolment,
+        code="OLD-FORM",
+        name="Superseded form",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.PENDING,
+    )
+    # ``set_document_requirement`` always reactivates the requirement it writes and
+    # no service deactivates one yet, so the state is set directly here.
+    requirement.is_active = False
+    requirement.save(update_fields=["is_active", "updated_at"])
+
+    assert ensure_official_document_issuance_allowed(enrolment=enrolment) is True
+
+
+def test_official_document_issuance_returns_every_blocking_code():
+    enrolment = _enrolment()
+    set_document_requirement(enrolment=enrolment, code="BIRTH-CERT", name="Birth certificate")
+    set_document_requirement(enrolment=enrolment, code="GUARDIAN-ID", name="Guardian ID")
+
+    blocking_codes = evaluate_official_document_issuance(enrolment=enrolment)
+
+    assert blocking_codes == ["BIRTH-CERT", "GUARDIAN-ID"]
+
+
+def test_official_document_issuance_permission_is_denied_without_actor():
+    with pytest.raises(AuthorizationError):
+        ensure_official_document_issuance_permission(actor=None)
+
+
+def test_official_document_issuance_permission_is_denied_without_the_permission():
+    with pytest.raises(AuthorizationError):
+        ensure_official_document_issuance_permission(actor=UserFactory())
+
+
+def test_superuser_passes_the_official_document_issuance_permission():
+    actor = UserFactory(is_superuser=True)
+
+    assert ensure_official_document_issuance_permission(actor=actor) is True
+
+
+def test_actor_with_document_issue_passes_the_official_document_issuance_permission():
+    permission = PermissionFactory(codename="document_issue")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    assert ensure_official_document_issuance_permission(actor=assignment.user) is True
+
+
+# --------------------------------------------------------------------------- #
+# update_document_template
+# --------------------------------------------------------------------------- #
+
+
+def test_update_document_template_changes_name_and_description():
+    template = DocumentTemplateFactory(name="Old", description="")
+
+    update_document_template(template=template, name="New", description="Updated")
+
+    template.refresh_from_db()
+    assert template.name == "New"
+    assert template.description == "Updated"
+
+
+def test_create_document_template_stores_versioned_content():
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Certificado",
+        code="CERT",
+        content="Hola {{student.full_name}}",
+    )
+
+    assert template.versions.get().content == "Hola {{student.full_name}}"
+
+
+def test_update_document_template_updates_content_and_preserves_history():
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Constancia",
+        code="CONST",
+        content="Antes",
+    )
+
+    update_document_template(template=template, content="Despues")
+
+    versions = list(template.versions.order_by("sequence"))
+    assert [v.content for v in versions] == ["Antes", "Despues"]
+    assert versions[-1].content == "Despues"
+
+
+def test_update_document_template_leaves_code_untouched():
+    template = DocumentTemplateFactory(code="ORIGINAL")
+
+    update_document_template(template=template, name="Renamed")
+
+    template.refresh_from_db()
+    assert template.code == "ORIGINAL"
+
+
+def test_preview_document_template_renders_only_allowed_markers():
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Constancia",
+        code="CONST",
+        content="Estudiante: {{student.full_name}} | Institucion: {{institution.name}}",
+    )
+
+    preview = preview_document_template(
+        template=template,
+        payload={
+            "student.full_name": "Ana López",
+            "institution.name": "INEBI",
+        },
+    )
+
+    assert preview["content"] == "Estudiante: Ana López | Institucion: INEBI"
+    assert preview["marker_count"] == 2
+
+
+def test_preview_document_template_rejects_unknown_markers():
+    with pytest.raises(
+        DomainError, match=r"no permitido|no form\w+ dentro del catalogo|catalogo cerrado"
+    ):
+        create_document_template(
+            institution=InstitutionFactory(),
+            name="Constancia",
+            code="CONST",
+            content="Bloqueado: {{student.health_note}}",
+        )
+
+
+def test_preview_document_template_never_evaluates_marker_content():
+    """
+    RNF-SEG-004: the engine only does str.replace against a closed marker
+    catalogue -- it must never interpret a payload value as code, no matter
+    how code-like the value looks.
+    """
+    template = create_document_template(
+        institution=InstitutionFactory(),
+        name="Constancia",
+        code="CONST",
+        content="Nombre: {{student.full_name}}",
+    )
+
+    preview = preview_document_template(
+        template=template,
+        payload={"student.full_name": "{{7*7}}__import__('os').system('id')"},
+    )
+
+    assert preview["content"] == "Nombre: {{7*7}}__import__('os').system('id')"
+
+
+def test_validate_document_checksum_accepts_matching_payload():
+    payload = b"archivo"
+    document = DocumentRecord.objects.create(
+        student=StudentFactory(),
+        filename="doc.pdf",
+        storage_key="local/doc.pdf",
+        content_type="application/pdf",
+        size_bytes=len(payload),
+        checksum=hashlib.sha256(payload).hexdigest(),
+    )
+    document.save(update_fields=["checksum", "updated_at"])
+
+    assert validate_document_checksum(document=document, payload=payload) is True
+
+
+def test_verify_document_storage_integrity_detects_corrupted_files(tmp_path, settings):
+    settings.MEDIA_ROOT = tmp_path
+    actor = UserFactory()
+    upload_permission = PermissionFactory(codename="document_upload")
+    read_permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(
+        user=actor,
+        role=RoleFactory(permissions=[upload_permission, read_permission]),
+    )
+    student = StudentFactory()
+    ScopeGrantFactory(assignment=assignment, student=student)
+
+    upload_document_record(
+        actor=actor,
+        student=student,
+        upload=SimpleUploadedFile("ok.pdf", b"ok-file", content_type="application/pdf"),
+    )
+    corrupt = upload_document_record(
+        actor=actor,
+        student=student,
+        upload=SimpleUploadedFile("bad.pdf", b"bad-file", content_type="application/pdf"),
+    )
+    with default_storage.open(corrupt.storage_key, "wb") as handle:
+        handle.write(b"tampered")
+
+    result = verify_document_storage_integrity(actor=actor)
+
+    assert result["total_checked"] == 2
+    assert result["ok"] == 1
+    assert result["corrupted"] == 1
+    assert result["unreadable"] == 0
+    assert result["missing"] == 0
+    assert result["by_status"] == {"ok": 1, "corrupted": 1, "unreadable": 0, "missing": 0}
+    assert any(issue["storage_key"] == corrupt.storage_key for issue in result["issues"])
+
+
+def test_uploaded_document_can_be_verified_and_replaced_without_losing_history(tmp_path, settings):
+    settings.MEDIA_ROOT = tmp_path
+    student = StudentFactory()
+    upload_permission = PermissionFactory(codename="document_upload")
+    read_permission = PermissionFactory(codename="document_read")
+    actor = UserFactory()
+    assignment = RoleAssignmentFactory(
+        user=actor,
+        role=RoleFactory(permissions=[upload_permission, read_permission]),
+    )
+    ScopeGrantFactory(assignment=assignment, student=student)
+    original = upload_document_record(
+        actor=actor,
+        student=student,
+        upload=SimpleUploadedFile("respaldo.pdf", b"version one", content_type="application/pdf"),
+    )
+
+    assert verify_stored_document_checksum(actor=actor, document=original) is True
+
+    replacement = replace_document_record(
+        actor=actor,
+        record=original,
+        upload=SimpleUploadedFile("respaldo.pdf", b"version two", content_type="application/pdf"),
+    )
+    original.refresh_from_db()
+
+    assert original.is_active is False
+    assert original.status == DocumentRecord.StorageStatus.ARCHIVED
+    assert replacement.supersedes_id == original.pk
+    assert replacement.version_group_id == original.version_group_id
+    assert replacement.version_number == 2
+
+
+@override_settings(
+    DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES=200,
+    DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES=50,
+)
+def test_document_storage_usage_summary_counts_and_sums_document_records():
+    institution = InstitutionFactory()
+    student = StudentFactory()
+    DocumentRecord.objects.create(
+        student=student,
+        filename="a.pdf",
+        storage_key="local/a.pdf",
+        content_type="application/pdf",
+        size_bytes=10,
+        checksum="a",
+    )
+    DocumentRecord.objects.create(
+        student=StudentFactory(),
+        filename="b.pdf",
+        storage_key="local/b.pdf",
+        content_type="application/pdf",
+        size_bytes=25,
+        checksum="b",
+    )
+
+    summary = document_storage_usage_summary(institution=institution)
+
+    assert summary["total_files"] == 2
+    assert summary["total_size_bytes"] == 35
+    assert summary["projected_growth_bytes_per_cycle"] == 200
+    assert summary["projected_total_bytes"] == 235
+    assert summary["warning_threshold_bytes"] == 50
+    assert summary["warning_active"] is False
+    assert summary["warning_level"] == "ok"
+    assert summary["threshold_utilization_percent"] == 70.0
+    assert summary["threshold_utilization_ratio"] == 0.7
+
+
+@override_settings(
+    DOCUMENT_STORAGE_GROWTH_PER_CYCLE_BYTES=200,
+    DOCUMENT_STORAGE_WARNING_THRESHOLD_BYTES=50,
+)
+def test_document_storage_usage_summary_flags_a_warning_when_threshold_is_reached():
+    institution = InstitutionFactory()
+    student = StudentFactory()
+    DocumentRecord.objects.create(
+        student=student,
+        filename="heavy.pdf",
+        storage_key="local/heavy.pdf",
+        content_type="application/pdf",
+        size_bytes=75,
+        checksum="heavy",
+    )
+
+    summary = document_storage_usage_summary(institution=institution)
+
+    assert summary["warning_active"] is True
+    assert summary["warning_level"] == "warning"
+    assert summary["threshold_utilization_percent"] == 150.0
+    assert summary["threshold_utilization_ratio"] == 1.5
+
+
+# --------------------------------------------------------------------------- #
+# deactivate_document_template
+# --------------------------------------------------------------------------- #
+
+
+def test_deactivate_document_template_preserves_the_record():
+    template = DocumentTemplateFactory()
+
+    deactivate_document_template(template=template)
+
+    template.refresh_from_db()
+    assert template.is_active is False
+    assert DocumentTemplate.objects.filter(pk=template.pk).exists()
+
+
+def test_deactivate_document_template_is_idempotent():
+    template = DocumentTemplateFactory(is_active=False)
+
+    deactivate_document_template(template=template)
+
+    template.refresh_from_db()
+    assert template.is_active is False
+
+
+def test_deactivate_document_template_does_not_record_a_version():
+    template = create_document_template(institution=InstitutionFactory(), name="A", code="A")
+
+    deactivate_document_template(template=template)
+
+    assert template.versions.count() == 1
+
+
+def test_document_template_delete_is_blocked_to_preserve_history():
+    template = DocumentTemplateFactory()
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        template.delete()
+
+
+def test_enrolment_document_requirement_delete_is_blocked_to_preserve_history():
+    enrolment = _enrolment()
+    requirement = set_document_requirement(
+        enrolment=enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+    )
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        requirement.delete()
+
+
+def test_document_record_is_soft_deactivated_instead_of_deleted():
+    student = StudentFactory()
+    record = DocumentRecord.objects.create(
+        student=student,
+        filename="birth-certificate.pdf",
+        storage_key="local/birth-certificate.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    deactivate_document_record(record=record)
+
+    record.refresh_from_db()
+    assert record.is_active is False
+    assert DocumentRecord.objects.filter(pk=record.pk).exists()
+
+
+def test_document_record_delete_is_blocked_to_preserve_history():
+    student = StudentFactory()
+    record = DocumentRecord.objects.create(
+        student=student,
+        filename="guardian-id.png",
+        storage_key="local/guardian-id.png",
+        content_type="image/png",
+        size_bytes=128,
+        checksum="def456",
+    )
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        record.delete()
+
+
+def test_document_record_queryset_delete_is_blocked_to_preserve_history():
+    student = StudentFactory()
+    DocumentRecord.objects.create(
+        student=student,
+        filename="medical-proof.pdf",
+        storage_key="local/medical-proof.pdf",
+        content_type="application/pdf",
+        size_bytes=64,
+        checksum="zzz999",
+    )
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        DocumentRecord.objects.filter(student=student).delete()
+
+
+def test_document_record_links_cannot_be_reassigned_after_creation():
+    student = StudentFactory()
+    enrolment = _enrolment()
+    record = DocumentRecord.objects.create(
+        student=student,
+        enrolment=enrolment,
+        filename="student-link.pdf",
+        storage_key="local/student-link.pdf",
+        content_type="application/pdf",
+        size_bytes=512,
+        checksum="ghi789",
+    )
+
+    new_student = StudentFactory()
+    with pytest.raises(RuntimeError, match="cannot be modified|link"):
+        record.student = new_student
+        record.save(update_fields=["student"])
+
+    new_enrolment = _enrolment()
+    with pytest.raises(RuntimeError, match="cannot be modified|link"):
+        record.enrolment = new_enrolment
+        record.save(update_fields=["enrolment"])
+
+
+# --------------------------------------------------------------------------- #
+# versioning (RF-PLA-005)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_document_template_records_initial_version():
+    template = create_document_template(
+        institution=InstitutionFactory(), name="Constancia", code="CONST", description="v1"
+    )
+
+    versions = list(template.versions.all())
+    assert len(versions) == 1
+    assert versions[0].sequence == 1
+    assert versions[0].name == "Constancia"
+    assert versions[0].description == "v1"
+
+
+def test_update_document_template_records_a_new_version():
+    template = create_document_template(institution=InstitutionFactory(), name="Old", code="A")
+
+    update_document_template(template=template, name="New")
+
+    versions = list(template.versions.order_by("sequence"))
+    assert [v.sequence for v in versions] == [1, 2]
+    assert versions[0].name == "Old"
+    assert versions[1].name == "New"
+
+
+def test_update_document_template_with_nothing_to_change_does_not_record_a_version():
+    template = create_document_template(institution=InstitutionFactory(), name="A", code="A")
+
+    update_document_template(template=template)
+
+    assert template.versions.count() == 1
+
+
+def test_document_template_version_cannot_be_modified():
+    version = create_document_template(
+        institution=InstitutionFactory(), name="A", code="A"
+    ).versions.get()
+
+    version.name = "Tampered"
+    with pytest.raises(RuntimeError):
+        version.save()
+
+
+def test_document_template_version_cannot_be_deleted():
+    version = create_document_template(
+        institution=InstitutionFactory(), name="A", code="A"
+    ).versions.get()
+
+    with pytest.raises(RuntimeError):
+        version.delete()
+
+
+# --------------------------------------------------------------------------- #
+# institutional_header (RF-PLA-004)
+# --------------------------------------------------------------------------- #
+
+
+def test_institutional_header_reflects_current_institution_data():
+    institution = InstitutionFactory(name="Instituto Demo", short_name="DEMO")
+    template = DocumentTemplateFactory(institution=institution)
+
+    assert template.institutional_header == {
+        "institution_name": "Instituto Demo",
+        "institution_short_name": "DEMO",
+        "logo_url": None,
+    }
+
+
+def test_institutional_header_follows_institution_changes():
+    """Derived, not stored: renaming the institution changes the header immediately."""
+    institution = InstitutionFactory(name="Old Name")
+    template = DocumentTemplateFactory(institution=institution)
+
+    institution.name = "New Name"
+    institution.save(update_fields=["name"])
+
+    assert template.institutional_header["institution_name"] == "New Name"
+
+
+# --------------------------------------------------------------------------- #
+# list_field_tags
+# --------------------------------------------------------------------------- #
+
+
+def test_list_field_tags_returns_the_fixed_catalogue_by_default():
+    assert list_field_tags() == FIELD_TAGS
+
+
+def test_field_tag_codes_are_unique():
+    assert len(FIELD_TAG_CODES) == len(set(FIELD_TAG_CODES))
+
+
+def test_current_field_catalogue_has_no_sensitive_tags():
+    """
+    RF-PLA-003: nothing medical or confidential is modelled yet, so today's
+    catalogue must not mark anything sensitive. This guards against someone
+    adding a sensitive tag without also reviewing the exclusion-by-default
+    mechanism below.
+    """
+    assert all(sensitive is False for _code, _label, sensitive in FIELD_TAGS)
+
+
+_FAKE_CATALOGUE = (
+    ("student.full_name", "Nombre completo del estudiante", False),
+    ("student.health_note", "Nota de salud (simulada para prueba)", True),
+)
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_sensitive_tags_are_excluded_by_default():
+    tags = list_field_tags()
+
+    assert tags == (_FAKE_CATALOGUE[0],)
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_including_sensitive_tags_without_permission_is_denied():
+    with pytest.raises(AuthorizationError):
+        list_field_tags(actor=UserFactory(), include_sensitive=True)
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_including_sensitive_tags_without_actor_is_denied():
+    with pytest.raises(AuthorizationError):
+        list_field_tags(include_sensitive=True)
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_superuser_can_include_sensitive_tags():
+    actor = UserFactory(is_superuser=True)
+
+    tags = list_field_tags(actor=actor, include_sensitive=True)
+
+    assert tags == _FAKE_CATALOGUE
+
+
+@patch("apps.documents.services.FIELD_TAGS", _FAKE_CATALOGUE)
+def test_actor_with_student_view_sensitive_can_include_sensitive_tags():
+    permission = PermissionFactory(codename="student_view_sensitive")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    tags = list_field_tags(actor=assignment.user, include_sensitive=True)
+
+    assert tags == _FAKE_CATALOGUE
+
+
+def test_document_read_audit_is_recorded_for_authorized_users():
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(role=RoleFactory(permissions=[permission]))
+
+    record_document_read_audit(actor=assignment.user, subject=StudentFactory())
+
+    assert AuditEvent.objects.filter(action="documents.document.read").exists()
+
+
+def test_document_read_audit_logs_denial_for_unauthorized_users():
+    with pytest.raises(AuthorizationError, match="leer documentos"):
+        record_document_read_audit(actor=UserFactory(), subject=StudentFactory())
+
+    assert AuditEvent.objects.filter(action="documents.document.read_denied").exists()
+
+
+def test_list_document_types_reads_the_institution_catalogue():
+    institution = InstitutionFactory()
+
+    assert list_document_types(institution=institution) == (
+        ("certificate", "Certificado"),
+        ("other", "Otro"),
+        ("report", "Reporte"),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# RNF-MAN-001: the document-type catalogue is data, not code
+# --------------------------------------------------------------------------- #
+
+
+def test_document_type_catalogue_admits_a_new_type_without_touching_code():
+    institution = InstitutionFactory()
+
+    kind = create_document_kind(
+        institution=institution, code="  Constancia ", label="Constancia de estudios"
+    )
+
+    assert kind.code == "constancia"
+    assert ("constancia", "Constancia de estudios") in list_document_types(institution=institution)
+
+    template = create_document_template(
+        institution=institution, name="Constancia", code="CONST", kind="constancia"
+    )
+
+    assert template.kind == "constancia"
+    assert get_active_document_template(institution=institution, kind="constancia") == template
+
+
+def test_document_type_catalogue_is_scoped_to_its_institution():
+    first = InstitutionFactory()
+    second = InstitutionFactory()
+
+    create_document_kind(institution=first, code="constancia", label="Constancia")
+
+    assert "constancia" in {code for code, _label in list_document_types(institution=first)}
+    assert "constancia" not in {code for code, _label in list_document_types(institution=second)}
+
+    with pytest.raises(DomainError, match="Tipo de documento no admitido"):
+        create_document_template(
+            institution=second, name="Constancia", code="CONST", kind="constancia"
+        )
+
+
+def test_document_type_label_is_editable_and_the_code_is_not():
+    institution = InstitutionFactory()
+    kind = create_document_kind(institution=institution, code="constancia", label="Constancia")
+
+    update_document_kind(kind=kind, label="Constancia de estudios")
+    kind.refresh_from_db()
+
+    assert kind.label == "Constancia de estudios"
+    assert kind.code == "constancia"
+    assert "code" not in inspect.signature(update_document_kind).parameters
+
+
+def test_document_type_rejects_a_duplicate_code_in_the_same_institution():
+    institution = InstitutionFactory()
+    create_document_kind(institution=institution, code="constancia", label="Constancia")
+
+    with pytest.raises(DomainError, match="Ya existe un tipo de documento"):
+        create_document_kind(institution=institution, code="CONSTANCIA", label="Otra")
+
+
+def test_document_type_is_deactivated_not_deleted_and_keeps_active_templates_usable():
+    institution = InstitutionFactory()
+    kind = create_document_kind(institution=institution, code="constancia", label="Constancia")
+    template = create_document_template(
+        institution=institution, name="Constancia", code="CONST", kind="constancia"
+    )
+
+    with pytest.raises(DomainError, match="plantillas activas"):
+        deactivate_document_kind(kind=kind)
+
+    deactivate_document_template(template=template)
+    deactivate_document_kind(kind=kind)
+    kind.refresh_from_db()
+
+    assert kind.is_active is False
+    assert DocumentKind.objects.filter(pk=kind.pk).exists()
+
+    with pytest.raises(RuntimeError, match="cannot be deleted"):
+        kind.delete()
+
+
+def test_deactivated_document_type_is_no_longer_offered_for_new_templates():
+    institution = InstitutionFactory()
+    kind = create_document_kind(institution=institution, code="constancia", label="Constancia")
+    deactivate_document_kind(kind=kind)
+
+    assert "constancia" not in {
+        code for code, _label in list_document_types(institution=institution)
+    }
+
+    with pytest.raises(DomainError, match="Tipo de documento no admitido"):
+        create_document_template(
+            institution=institution, name="Constancia", code="CONST", kind="constancia"
+        )
+
+
+def test_template_version_snapshot_keeps_the_code_it_was_issued_with():
+    institution = InstitutionFactory()
+    kind = create_document_kind(institution=institution, code="constancia", label="Constancia")
+    template = create_document_template(
+        institution=institution, name="Constancia", code="CONST", kind="constancia"
+    )
+
+    update_document_kind(kind=kind, label="Constancia de estudios")
+
+    assert template.versions.first().kind == "constancia"
+
+
+def test_get_active_document_template_requires_a_single_active_template_per_use():
+    institution = InstitutionFactory()
+    certificate = create_document_template(
+        institution=institution,
+        name="Certificado",
+        code="CERT",
+        kind="certificate",
+        issuance_use="study_certificate",
+    )
+    create_document_template(
+        institution=institution,
+        name="Certificado viejo",
+        code="CERT-OLD",
+        kind="certificate",
+        issuance_use="study_certificate",
+        is_active=False,
+    )
+
+    assert (
+        get_active_document_template(institution=institution, issuance_use="study_certificate")
+        == certificate
+    )
+
+    with pytest.raises(
+        DomainError,
+        match="uso",
+    ):
+        create_document_template(
+            institution=institution,
+            name="Segundo certificado",
+            code="CERT-2",
+            kind="certificate",
+            issuance_use="study_certificate",
+        )
+
+    certificate.is_active = False
+    certificate.save(update_fields=["is_active", "updated_at"])
+    second = create_document_template(
+        institution=institution,
+        name="Segundo certificado",
+        code="CERT-2",
+        kind="certificate",
+        issuance_use="study_certificate",
+    )
+
+    assert (
+        get_active_document_template(institution=institution, issuance_use="study_certificate")
+        == second
+    )
+
+    second.is_active = False
+    second.save(update_fields=["is_active", "updated_at"])
+
+
+def test_document_access_requires_permission_and_scope():
+    student = StudentFactory()
+    actor = UserFactory()
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
+
+    with pytest.raises(AuthorizationError, match="alcance|leer documentos"):
+        ensure_document_access(actor=actor, student=student)
+
+    ScopeGrantFactory(assignment=assignment, student=student)
+
+    assert ensure_document_access(actor=actor, student=student) is True
+
+
+def test_document_download_tokens_are_issued_and_validated():
+    actor = UserFactory()
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
+    student = StudentFactory()
+    ScopeGrantFactory(assignment=assignment, student=student)
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="birth-certificate.pdf",
+        storage_key="local/birth-certificate.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    token = issue_document_download_token(actor=actor, document=document)
+
+    assert token.token
+    assert (
+        validate_document_download_token(document=document, token=token.token, actor=actor) is True
+    )
+    with pytest.raises(DomainError, match="valid|token"):
+        validate_document_download_token(
+            document=document,
+            token="invalid-token",
+            actor=actor,
+        )
+
+
+def test_document_download_tokens_are_bound_to_the_requesting_actor():
+    actor = UserFactory()
+    other_actor = UserFactory()
+    permission = PermissionFactory(codename="document_read")
+    assignment = RoleAssignmentFactory(user=actor, role=RoleFactory(permissions=[permission]))
+    other_assignment = RoleAssignmentFactory(
+        user=other_actor,
+        role=RoleFactory(permissions=[permission]),
+    )
+    student = StudentFactory()
+    ScopeGrantFactory(assignment=assignment, student=student)
+    ScopeGrantFactory(assignment=other_assignment, student=student)
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="birth-certificate.pdf",
+        storage_key="local/birth-certificate.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    token = issue_document_download_token(actor=actor, document=document)
+
+    with pytest.raises(DomainError, match="valid|token|actor"):
+        validate_document_download_token(document=document, token=token.token, actor=other_actor)
+
+
+def test_document_access_audits_an_unauthenticated_download_attempt():
+    student = StudentFactory()
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="justificacion.pdf",
+        storage_key="local/justificacion.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    with pytest.raises(AuthorizationError, match="autenticado"):
+        ensure_document_access(actor=None, document=document, access_type="download")
+
+    event = AuditEvent.objects.get(action="documents.document.read_denied")
+    assert event.resource == "DocumentRecord"
+    assert event.resource_identifier == str(document.pk)
+    assert event.context["reason"] == "unauthenticated"
+    assert event.context["access_type"] == "download"
+
+
+def test_superuser_document_download_is_audited_from_the_central_guard():
+    actor = UserFactory(is_superuser=True)
+    student = StudentFactory()
+    document = DocumentRecord.objects.create(
+        student=student,
+        filename="justificacion.pdf",
+        storage_key="local/justificacion-superuser.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+
+    issue_document_download_token(actor=actor, document=document)
+
+    event = AuditEvent.objects.get(action="documents.document.read")
+    assert event.actor == actor
+    assert event.resource == "DocumentRecord"
+    assert event.resource_identifier == str(document.pk)
+    assert event.context["access_type"] == "download"
+
+
+def test_register_document_delivery_receipt_records_guardian_acknowledgement():
+    actor = UserFactory()
+    student = StudentFactory()
+    guardian = GuardianFactory()
+    StudentGuardianRelationFactory(student=student, guardian=guardian, is_primary=True)
+
+    receipt = register_document_delivery_receipt(
+        actor=actor,
+        student=student,
+        guardian=guardian,
+        document_type="Certificado",
+        folio="DOC-2026-0001",
+        recipient_name="Ana López",
+    )
+
+    assert receipt.student_id == student.pk
+    assert receipt.guardian_id == guardian.pk
+    assert receipt.document_type == "Certificado"
+    assert receipt.folio == "DOC-2026-0001"
+    assert AuditEvent.objects.filter(action="documents.delivery.receipt.created").exists()
+
+
+def test_generated_documents_are_compiled_in_memory_and_never_persisted():
+    template = DocumentTemplateFactory()
+
+    generated = compile_generated_document(
+        template=template,
+        payload={"student_name": "Ana López", "document_type": "Constancia"},
+    )
+
+    assert generated.persisted is False
+    assert generated.storage_key is None
+    assert generated.content_type == "application/pdf"
+    assert generated.content.startswith(b"%PDF")
+    assert DocumentRecord.objects.filter(storage_key=generated.storage_key).count() == 0
+
+
+def test_generated_documents_refuse_persistence_to_storage():
+    template = DocumentTemplateFactory()
+
+    with pytest.raises(DomainError, match="persist|storage"):
+        compile_generated_document(
+            template=template, payload={"student_name": "Ana López"}, persist=True
+        )
+
+
+def test_generated_documents_include_the_issuance_timestamp_and_folio_when_available():
+    template = DocumentTemplateFactory(kind="certificate")
+    issued_at = "2026-08-18T12:30:45-03:00"
+    folio = "DOC-2026-0001"
+
+    generated = compile_generated_document(
+        template=template,
+        payload={
+            "student_name": "Ana López",
+            "document_type": "Certificado",
+            "issued_at": issued_at,
+            "folio": folio,
+        },
+    )
+
+    assert generated.issued_at == issued_at
+    assert generated.folio == folio
+    assert folio.encode() in generated.content
+    assert b"2026-08-18" in generated.content
+
+
+def test_generated_documents_are_logged_in_the_emission_history():
+    actor = UserFactory()
+    student = StudentFactory()
+    template = DocumentTemplateFactory(kind="certificate")
+    issued_at = "2026-08-18T12:30:45-03:00"
+    folio = "DOC-2026-0001"
+
+    compile_generated_document(
+        template=template,
+        payload={
+            "student": student,
+            "student_name": "Ana López",
+            "document_type": "Certificado",
+            "issued_at": issued_at,
+            "folio": folio,
+        },
+        actor=actor,
+    )
+
+    event = AuditEvent.objects.filter(action="documents.document.issued").latest("created_at")
+    assert event.actor_id == actor.id
+    assert event.context["student_id"] == student.pk
+    assert event.context["document_type"] == "Certificado"
+    assert event.context["issued_at"] == issued_at
+    assert event.context["folio"] == folio
+
+
+def test_generated_document_prints_a_verification_code():
+    template = DocumentTemplateFactory(kind="certificate")
+
+    generated = compile_generated_document(
+        template=template,
+        payload={"student_name": "Ana López", "document_type": "Certificado"},
+    )
+
+    assert generated.verification_code
+    assert generated.verification_code.encode() in generated.content
+    assert DocumentVerificationCode.objects.filter(code=generated.verification_code).exists()
+
+
+def test_verify_document_confirms_a_genuine_code():
+    template = DocumentTemplateFactory(kind="certificate")
+    generated = compile_generated_document(
+        template=template,
+        payload={
+            "student_name": "Ana López",
+            "document_type": "Certificado",
+            "folio": "DOC-2026-0001",
+        },
+    )
+
+    result = verify_document(code=generated.verification_code)
+
+    assert result == {
+        "valid": True,
+        "document_type": "Certificado",
+        "folio": "DOC-2026-0001",
+        "issued_at": DocumentVerificationCode.objects.get(
+            code=generated.verification_code
+        ).issued_at,
+        "vigencia": "vigente",
+    }
+
+
+def test_verify_document_rejects_an_unknown_code():
+    assert verify_document(code="not-a-real-code") == {"valid": False}
+
+
+def test_verify_document_rejects_an_empty_code():
+    assert verify_document(code="") == {"valid": False}
+
+
+def test_verification_codes_are_never_sequential_or_guessable():
+    template = DocumentTemplateFactory(kind="certificate")
+
+    first = compile_generated_document(template=template, payload={})
+    second = compile_generated_document(template=template, payload={})
+
+    assert first.verification_code != second.verification_code
+    assert len(first.verification_code) >= 24
+
+
+def test_closed_cycle_history_report_is_generated_without_altering_historical_data():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    subject = SubjectFactory(institution=cycle.institution, name="Matemática")
+    CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+    unit = create_evaluation_unit(
+        academic_cycle=cycle,
+        number=1,
+        name="Unidad 1",
+        starts_on=cycle.starts_on,
+        ends_on=cycle.starts_on + timedelta(days=30),
+        capture_starts_on=cycle.starts_on,
+        capture_ends_on=cycle.starts_on + timedelta(days=30),
+    )
+    register_unit_grade(
+        enrolment=enrolment,
+        subject=subject,
+        evaluation_unit=unit,
+        teacher=PersonFactory(),
+        value=80,
+    )
+    close_evaluation_unit(unit)
+    close_academic_cycle(cycle=cycle)
+    cycle.refresh_from_db()
+
+    report = compile_historical_cycle_report(enrolment=enrolment)
+
+    assert report.verification_code
+    assert report.verification_code.encode() in report.content
+    assert report.persisted is False
+    assert report.storage_key is None
+    assert b"Boleta" in report.content
+    assert b"Matem\xc3\xa1tica" in report.content
+    assert b"80" in report.content
+    assert b"Aprobado" in report.content
+    assert b"Promovido" in report.content
+    assert get_final_subject_grade(enrolment, subject)["final_grade"] == 80
+    assert cycle.status == AcademicCycle.CycleStatus.CLOSED
+    assert DocumentRecord.objects.filter(storage_key=report.storage_key).count() == 0
+
+
+class TestHistoricalCycleReportContent:
+    """
+    Tests for RF-RES-008: Boleta de calificaciones (issue #262).
+
+    Escenario unico: boleta de un ciclo cerrado incluye notas por unidad,
+    nota final, condicion por subarea y condicion de promocion.
+    """
+
+    def _closed_cycle_with_two_units_per_subject(self, unit_values):
+        """
+        A closed cycle with one enrolment, one subarea with TWO evaluation
+        units graded with ``unit_values`` (average is what becomes the final
+        grade). Exists to prove the historical bug is fixed: the boleta must
+        print the subarea's unit grades and final grade once each, never one
+        final-grade line per unit.
+        """
+        cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        subject = SubjectFactory(institution=cycle.institution, name="Ciencias")
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        today = timezone.localdate()
+        for index, value in enumerate(unit_values, start=1):
+            unit = create_evaluation_unit(
+                academic_cycle=cycle,
+                number=index,
+                name=f"Unidad {index}",
+                # Periodos de evaluacion no solapados (constraint de BD), cada
+                # uno con su propia ventana de captura abierta hoy.
+                starts_on=cycle.starts_on + timedelta(days=(index - 1) * 40),
+                ends_on=cycle.starts_on + timedelta(days=(index - 1) * 40 + 30),
+                capture_starts_on=today - timedelta(days=5),
+                capture_ends_on=today + timedelta(days=5),
+            )
+            register_unit_grade(
+                enrolment=enrolment,
+                subject=subject,
+                evaluation_unit=unit,
+                teacher=PersonFactory(),
+                value=value,
+            )
+            close_evaluation_unit(unit)
+        close_academic_cycle(cycle=cycle)
+        return enrolment, subject
+
+    def test_boleta_prints_each_unit_grade_once_and_the_final_grade_once(self):
+        enrolment, subject = self._closed_cycle_with_two_units_per_subject([90, 70])
+
+        report = compile_historical_cycle_report(enrolment=enrolment)
+        text = report.content
+
+        assert text.count(b"Unidad 1: 90") == 1
+        assert text.count(b"Unidad 2: 70") == 1
+        # Promedio (90+70)/2 = 80, redondeado -- una sola vez, no una por unidad.
+        assert text.count(b"Nota final: 80") == 1
+        assert b"Aprobado" in text
+        assert b"Promovido" in text
+
+    def test_boleta_shows_failed_condition_and_not_promoted(self):
+        enrolment, subject = self._closed_cycle_with_two_units_per_subject([40, 50])
+
+        report = compile_historical_cycle_report(enrolment=enrolment)
+        text = report.content
+
+        assert b"Nota final: 45" in text
+        assert b"Reprobado" in text
+        assert b"No promovido" in text
+
+    def test_boleta_reads_the_frozen_result_not_a_live_recalculation(self):
+        """
+        RF-RES-007 + RF-RES-008: once closed and frozen, deactivating the
+        subject's curriculum plan (a structural change) must not change what
+        the boleta prints -- it reads FrozenSubjectResult, not a live
+        get_final_subject_grade.
+        """
+        enrolment, subject = self._closed_cycle_with_two_units_per_subject([90, 70])
+        CurriculumPlan.objects.filter(
+            academic_cycle=enrolment.academic_cycle, subject=subject
+        ).update(is_active=False)
+
+        report = compile_historical_cycle_report(enrolment=enrolment)
+
+        # La subarea sigue apareciendo con su nota congelada, aunque el plan
+        # ya no la liste como activa.
+        assert b"Ciencias" in report.content
+        assert b"Nota final: 80" in report.content
+
+    def test_boleta_falls_back_to_live_computation_without_a_frozen_row(self):
+        """
+        Backward-compatibility path: a cycle closed before RF-RES-007 shipped
+        (no FrozenSubjectResult/FrozenPromotionResult row) still produces a
+        correct boleta from a live recalculation.
+        """
+        cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.CLOSED)
+        section = SectionFactory(academic_cycle=cycle)
+        # Enrolment created directly (not via create_enrolment): the service
+        # itself rejects writes against an already-closed cycle, but this is
+        # simulating a cycle that was already closed *before* the enrolment
+        # existed, historically -- not a write happening now.
+        enrolment = Enrolment.objects.create(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        subject = SubjectFactory(institution=cycle.institution, name="Historia")
+        CurriculumPlan.objects.create(academic_cycle=cycle, grade=section.grade, subject=subject)
+        # No FrozenSubjectResult exists for this enrolment: the cycle above
+        # was force-created as CLOSED, bypassing close_academic_cycle.
+
+        report = compile_historical_cycle_report(enrolment=enrolment)
+
+        assert b"Historia" in report.content
+        assert b"Sin calificar" in report.content
+        assert b"No promovido" in report.content
+
+
+def test_document_batch_for_section_generates_one_in_memory_report_per_enrolment():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    enrolled_first = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    enrolled_second = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=cycle,
+        grade=section.grade,
+        section=section,
+    )
+    close_academic_cycle(cycle=cycle)
+    cycle.refresh_from_db()
+
+    batch = compile_document_batch(section=section)
+
+    assert batch["count"] == 2
+    assert all(item["persisted"] is False for item in batch["documents"])
+    assert all(item["storage_key"] is None for item in batch["documents"])
+    assert {item["enrolment_id"] for item in batch["documents"]} == {
+        str(enrolled_first.public_id),
+        str(enrolled_second.public_id),
+    }
+
+
+def test_document_batch_with_client_batch_id_is_not_repeated_on_retry():
+    """
+    Ampliacion a pedido del usuario (no exigida por #161): reenviar el mismo
+    client_batch_id no debe re-emitir el lote ni duplicar el evento de
+    auditoria de la primera ejecucion.
+    """
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    create_enrolment(
+        student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+    )
+    close_academic_cycle(cycle=cycle)
+    cycle.refresh_from_db()
+
+    first = compile_document_batch(section=section, client_batch_id="retry-key-1")
+    second = compile_document_batch(section=section, client_batch_id="retry-key-1")
+
+    assert first["count"] == 1
+    assert first.get("replayed", False) is False
+    assert second["count"] == 1
+    assert second["replayed"] is True
+    assert second["documents"] == []
+    assert AuditEvent.objects.filter(action="documents.document_batch.compiled").count() == 1
+
+
+def test_document_batch_without_client_batch_id_can_run_repeatedly():
+    cycle = AcademicCycleFactory(status=AcademicCycle.CycleStatus.ACTIVE)
+    section = SectionFactory(academic_cycle=cycle)
+    create_enrolment(
+        student=StudentFactory(), academic_cycle=cycle, grade=section.grade, section=section
+    )
+    close_academic_cycle(cycle=cycle)
+    cycle.refresh_from_db()
+
+    first = compile_document_batch(section=section)
+    second = compile_document_batch(section=section)
+
+    assert first["count"] == second["count"] == 1
+    assert AuditEvent.objects.filter(action="documents.document_batch.compiled").count() == 2
+
+
+def test_issue_official_document_folio_increments_by_institution():
+    institution = InstitutionFactory(short_name="INEBI")
+
+    first = issue_official_document_folio(
+        institution=institution,
+        issued_at=datetime(2026, 8, 18, 12, 30, 45, tzinfo=UTC),
+    )
+    second = issue_official_document_folio(
+        institution=institution,
+        issued_at=datetime(2026, 8, 18, 13, 0, tzinfo=UTC),
+    )
+
+    assert first.startswith("INEBI-2026-")
+    assert second.startswith("INEBI-2026-")
+    assert first.endswith("0001")
+    assert second.endswith("0002")
+
+
+def test_student_document_dossier_includes_document_records_for_the_student():
+    student = StudentFactory()
+    first_section = SectionFactory()
+    first_enrolment = create_enrolment(
+        student=student,
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        section=first_section,
+    )
+    DocumentRecord.objects.create(
+        student=student,
+        enrolment=first_enrolment,
+        filename="birth-certificate.pdf",
+        storage_key="local/birth-certificate.pdf",
+        content_type="application/pdf",
+        size_bytes=256,
+        checksum="abc123",
+    )
+    set_document_requirement(
+        enrolment=first_enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+
+    dossier = student_document_dossier(student=student)
+
+    assert dossier["documents"][0]["filename"] == "birth-certificate.pdf"
+    assert dossier["documents"][0]["storage_key"] == "local/birth-certificate.pdf"
+    assert dossier["documents"][0]["status"] == DocumentRecord.StorageStatus.ACTIVE
+
+
+def test_student_document_dossier_lists_all_enrolments_and_requirements():
+    student = StudentFactory()
+    first_section = SectionFactory()
+    second_section = SectionFactory()
+    first_enrolment = create_enrolment(
+        student=student,
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        section=first_section,
+    )
+    # Cerrada antes de abrir la siguiente: un estudiante tiene una sola matricula
+    # activa, y el expediente es justamente lo que junta la cerrada con la nueva.
+    first_enrolment.status = first_enrolment.EnrolmentStatus.COMPLETED
+    first_enrolment.save(update_fields=["status", "updated_at"])
+    second_enrolment = create_enrolment(
+        student=student,
+        academic_cycle=second_section.academic_cycle,
+        grade=second_section.grade,
+        section=second_section,
+    )
+    set_document_requirement(
+        enrolment=first_enrolment,
+        code="BIRTH-CERT",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+    set_document_requirement(
+        enrolment=second_enrolment,
+        code="GUARDIAN-ID",
+        name="Guardian ID",
+    )
+
+    dossier = student_document_dossier(student=student)
+
+    assert len(dossier["enrolments"]) == 2
+    assert {entry["enrolment_id"] for entry in dossier["enrolments"]} == {
+        str(first_enrolment.public_id),
+        str(second_enrolment.public_id),
+    }
+    assert {item["code"] for item in dossier["requirements"]} == {"BIRTH-CERT", "GUARDIAN-ID"}

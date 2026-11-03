@@ -1,0 +1,1562 @@
+"""
+HTTP layer for Jornada Diaria y Estados.
+
+Views only translate between HTTP and ``apps.attendance.services``; every
+invariant lives there (AGENTS.md #8). ``DomainError`` becomes a 400 envelope
+via ``config.api.exception_handler``, so no view here catches it.
+
+These handlers are written by hand on ``GenericAPIView`` instead of the generic
+list/create machinery, so drf-spectacular cannot infer their contract: it only
+sees ``serializer_class`` and would document the paginated listings as a single
+object and the write bodies with the read serializer. Every operation therefore
+declares its contract with ``extend_schema``. Without that the published schema
+lies, and anything generated from it (typed clients, SDKs) inherits the lie.
+"""
+
+from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import permissions, status
+from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
+
+from apps.attendance import card_export, queries, services
+from apps.audit.services import record_sensitive_read
+from apps.common.exceptions import AuthorizationError, DomainError
+from apps.identity import services as identity_services
+from apps.identity.scopes import authorized_student_queryset, can_access_student
+
+from .serializers import (
+    AbsenceNotificationSerializer,
+    AttendanceAlertRowSerializer,
+    AttendanceEventCreateSerializer,
+    AttendanceEventListQuerySerializer,
+    AttendanceEventResolutionQuerySerializer,
+    AttendanceEventRowSerializer,
+    AttendanceEventSerializer,
+    AttendancePercentageQuerySerializer,
+    AttendancePercentageResultSerializer,
+    AttendancePermitListQuerySerializer,
+    AttendancePermitRequestSerializer,
+    AttendancePermitResolutionRequestSerializer,
+    AttendancePermitSerializer,
+    AttendancePresenceQuerySerializer,
+    CaptureBatchRecoverySerializer,
+    CaptureBatchSerializer,
+    ControlPointSerializer,
+    CoverageClosureRatioQuerySerializer,
+    CoverageClosureRatioResultSerializer,
+    CredentialExportPreviewSerializer,
+    CredentialExportRequestSerializer,
+    CredentialPrintContentQuerySerializer,
+    CredentialPrintContentSerializer,
+    CredentialQrRequestSerializer,
+    CredentialQrSerializer,
+    CredentialResolutionRequestSerializer,
+    CredentialResolutionSerializer,
+    CredentialRevocationRequestSerializer,
+    CredentialRevocationResultSerializer,
+    CredentialStatusSerializer,
+    DayStatusQuerySerializer,
+    DayStatusResultSerializer,
+    JornadaClosureRequestSerializer,
+    JornadaClosureResultSerializer,
+    JornadaParametersCreateSerializer,
+    JornadaParametersSerializer,
+    JustificationAttachmentSerializer,
+    JustificationAttachmentUploadSerializer,
+    JustificationListQuerySerializer,
+    JustificationNotificationSerializer,
+    JustificationReasonSerializer,
+    JustificationRequestSerializer,
+    JustificationResolutionRequestSerializer,
+    JustificationSerializer,
+    ManualRegistrationReasonListQuerySerializer,
+    ManualRegistrationReasonSerializer,
+    PresentStudentSerializer,
+    ScanCaptureItemResultSerializer,
+    ScanCaptureRequestSerializer,
+    SectionClosureRequestSerializer,
+    SectionClosureResultSerializer,
+    StudentCredentialIssueSerializer,
+    StudentCredentialSerializer,
+)
+
+CONFIGURE_PERMISSION = "attendance_jornada_configure"
+STUDENT_VIEW_PERMISSION = "student_view_basic"
+
+
+def _require_permission(request, codename):
+    if not request.user.has_atomic_permission(codename):
+        raise AuthorizationError("El actor no tiene el permiso requerido.")
+
+
+def _require_any_permission(request, *codenames):
+    if not any(request.user.has_atomic_permission(codename) for codename in codenames):
+        raise AuthorizationError("El actor no tiene el permiso requerido.")
+
+
+# Provisional: one atomic permission per event origin. A separate
+# attendance-capture effort owns the real scanning/ingestion workflow and may
+# replace this mapping; this skeleton exists only so RF-JOR-002/003 have
+# events to read (see tmp/attendance_basis.md).
+ORIGIN_PERMISSIONS = queries.origin_permissions()
+MOVEMENT_TYPE_PERMISSIONS = queries.movement_type_permissions()
+
+TAGS = ["attendance: jornada"]
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar parametros de jornada",
+        description="Parametros vigentes e historicos por jornada y ciclo escolar.",
+        tags=TAGS,
+        responses={200: JornadaParametersSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar parametros de jornada",
+        description=(
+            "Registra un juego nuevo de parametros. No reemplaza en el lugar: el "
+            "anterior se conserva como historia y deja de estar vigente."
+        ),
+        tags=TAGS,
+        request=JornadaParametersCreateSerializer,
+        responses={201: JornadaParametersSerializer},
+    ),
+)
+class JornadaParametersListCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JornadaParametersSerializer
+
+    def get_queryset(self):
+        return queries.jornada_parameters()
+
+    def get(self, request):
+        _require_permission(request, CONFIGURE_PERMISSION)
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(JornadaParametersSerializer(page, many=True).data)
+
+    def post(self, request):
+        _require_permission(request, CONFIGURE_PERMISSION)
+        serializer = JornadaParametersCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        shift = queries.shift_for_payload(payload.pop("shift_id"))
+        academic_cycle = queries.academic_cycle_for_payload(payload.pop("academic_cycle_id"))
+        parameters = services.set_jornada_parameters(
+            shift=shift, academic_cycle=academic_cycle, actor=request.user, **payload
+        )
+        return Response(
+            JornadaParametersSerializer(parameters).data, status=status.HTTP_201_CREATED
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar movimientos de asistencia",
+        parameters=[AttendanceEventListQuerySerializer],
+        description=(
+            "Entradas y salidas dentro del alcance del actor. Incluye los "
+            "movimientos suprimidos por duplicado (`is_active=false`): el registro "
+            "se conserva, no se borra."
+        ),
+        tags=TAGS,
+        responses={200: AttendanceEventRowSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar movimiento de asistencia",
+        description="El permiso exigido depende del origen del movimiento.",
+        tags=TAGS,
+        request=AttendanceEventCreateSerializer,
+        responses={201: AttendanceEventSerializer},
+    ),
+)
+class AttendanceEventListCreateView(GenericAPIView):
+    """Deliberately thin skeleton: see ``ORIGIN_PERMISSIONS`` above."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendanceEventSerializer
+
+    def get_queryset(self):
+        query = AttendanceEventListQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        return queries.attendance_events(
+            student_id=query.validated_data.get("student_id"),
+            students=authorized_student_queryset(
+                user=self.request.user, codename=STUDENT_VIEW_PERMISSION
+            ),
+        )
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(AttendanceEventRowSerializer(page, many=True).data)
+
+    def post(self, request):
+        serializer = AttendanceEventCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        identity_services.require_all_permissions(
+            actor=request.user,
+            permission_codenames=[
+                ORIGIN_PERMISSIONS[payload["origin"]],
+                MOVEMENT_TYPE_PERMISSIONS[payload["movement_type"]],
+            ],
+            denial_action="attendance.event.capture_denied",
+            denial_resource="AttendanceEvent",
+        )
+        student = queries.student_for_payload(payload.pop("student_id"))
+        shift = queries.shift_for_payload(payload.pop("shift_id"))
+        is_manual = payload["origin"] == "manual"
+        manual_reason_id = payload.pop("manual_reason_id", None)
+        manual_reason = (
+            queries.manual_reason_for_payload(manual_reason_id)
+            if is_manual and manual_reason_id
+            else None
+        )
+        event = services.record_attendance_event(
+            student=student,
+            shift=shift,
+            actor=request.user,
+            operator=request.user if is_manual else None,
+            manual_reason=manual_reason,
+            **payload,
+        )
+        return Response(AttendanceEventSerializer(event).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el movimiento que prevalece",
+        description=(
+            "Devuelve el movimiento vigente para un estudiante, jornada, fecha y "
+            "tipo de movimiento, aplicando las reglas de precedencia. 404 cuando no "
+            "hay ninguno."
+        ),
+        tags=TAGS,
+        parameters=[AttendanceEventResolutionQuerySerializer],
+        responses={200: AttendanceEventSerializer},
+    ),
+)
+class AttendanceEventResolutionView(GenericAPIView):
+    """RF-JOR-003 contract: the event that prevails by precedence."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendanceEventSerializer
+
+    def get(self, request):
+        query = AttendanceEventResolutionQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = query.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        shift = queries.shift_for_payload(payload["shift_id"])
+        if not can_access_student(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        event = services.resolve_prevailing_event(
+            student=student,
+            shift=shift,
+            event_date=payload["event_date"],
+            movement_type=payload["movement_type"],
+        )
+        if event is None:
+            raise queries.no_event_error()
+        return Response(AttendanceEventSerializer(event).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el estado del dia de un estudiante",
+        description=(
+            "Deriva el estado del dia a partir de los movimientos registrados. "
+            "Responde `status: null` cuando no hay nada que derivar."
+        ),
+        tags=TAGS,
+        parameters=[DayStatusQuerySerializer],
+        responses={200: DayStatusResultSerializer},
+    ),
+)
+class AttendanceDayStatusView(GenericAPIView):
+    """RF-JOR-002 contract: derive a student's daily status for a jornada."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DayStatusResultSerializer
+
+    def get(self, request):
+        query = DayStatusQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = query.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        shift = queries.shift_for_payload(payload["shift_id"])
+        if not can_access_student(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.day_status.read",
+            resource="Student",
+            resource_identifier=str(student.pk),
+            student=student,
+        )
+        result = services.derive_day_status(
+            student=student, shift=shift, event_date=payload["event_date"]
+        )
+        if result is None:
+            return Response({"status": None, "entry_event": None})
+        return Response(DayStatusResultSerializer(result).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Cerrar la jornada del dia",
+        description=(
+            "Recalcula los estados del dia y emite las alertas correspondientes. El "
+            "cuerpo solo lleva jornada y fecha; los estados y alertas del resultado "
+            "los calcula el servicio."
+        ),
+        tags=TAGS,
+        request=JornadaClosureRequestSerializer,
+        responses={200: JornadaClosureResultSerializer},
+    ),
+)
+class JornadaClosureView(GenericAPIView):
+    """RF-JOR-004 contract: run the daily closure for a jornada."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JornadaClosureResultSerializer
+
+    def post(self, request):
+        _require_permission(request, CONFIGURE_PERMISSION)
+        serializer = JornadaClosureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        shift = queries.shift_for_payload(payload["shift_id"])
+        result = services.close_jornada(
+            shift=shift, event_date=payload["event_date"], actor=request.user
+        )
+        return Response(JornadaClosureResultSerializer(result).data)
+
+
+def _require_declared_closure_permission(request):
+    identity_services.require_all_permissions(
+        actor=request.user,
+        permission_codenames=[
+            ORIGIN_PERMISSIONS["declared"],
+            MOVEMENT_TYPE_PERMISSIONS["exit"],
+        ],
+        denial_action="attendance.event.capture_denied",
+        denial_resource="AttendanceEvent",
+    )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Previsualizar cierre declarado por seccion",
+        description=(
+            "RF-ASI-011: quien quedaria incluido y quien omitido -- y por que -- "
+            "si se confirma el cierre declarado de la seccion, sin registrar nada "
+            "todavia."
+        ),
+        tags=TAGS,
+        responses={200: SectionClosureResultSerializer},
+    ),
+)
+class SectionClosurePreviewView(GenericAPIView):
+    """RF-ASI-011 contract: preview a section's declared closure."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SectionClosureResultSerializer
+
+    def get(self, request):
+        _require_declared_closure_permission(request)
+        serializer = SectionClosureRequestSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = queries.section_for_payload(payload["section_id"])
+        result = services.preview_section_closure(section=section, event_date=payload["event_date"])
+        return Response(SectionClosureResultSerializer(result).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Confirmar cierre declarado por seccion",
+        description=(
+            "RF-ASI-011: declara la salida de cada estudiante activamente "
+            "inscrito en la seccion que tiene ingreso y aun no tiene salida "
+            "registrada. Excluye a quien ya tiene salida registrada o no tiene "
+            "ingreso, informando el motivo de cada exclusion. RF-ASI-013: si "
+            "quien declara no es el docente asignado a la seccion, esta "
+            "llamada no registra nada y responde con "
+            "`confirmation_required=true`; reenviar con `confirmed=true` para "
+            "completar el cierre."
+        ),
+        tags=TAGS,
+        request=SectionClosureRequestSerializer,
+        responses={200: SectionClosureResultSerializer},
+    ),
+)
+class SectionClosureView(GenericAPIView):
+    """RF-ASI-011/RF-ASI-013 contract: confirm a section's declared closure."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SectionClosureResultSerializer
+
+    def post(self, request):
+        _require_declared_closure_permission(request)
+        serializer = SectionClosureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = queries.section_for_payload(payload["section_id"])
+        result = services.close_section(
+            section=section,
+            event_date=payload["event_date"],
+            actor=request.user,
+            confirmed=payload["confirmed"],
+        )
+        return Response(SectionClosureResultSerializer(result).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Proporcion de cierres por cobertura",
+        description=(
+            "RF-ASI-013: de los cierres declarados confirmados en el alcance "
+            "dado, que proporcion los declaro un docente de cobertura (no "
+            "asignado a la seccion), sin inspeccionar el horario manualmente."
+        ),
+        tags=TAGS,
+        responses={200: CoverageClosureRatioResultSerializer},
+    ),
+)
+class CoverageClosureRatioView(GenericAPIView):
+    """RF-ASI-013 contract: coverage-closure proportion, filterable by section and date range."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CoverageClosureRatioResultSerializer
+
+    def get(self, request):
+        _require_permission(request, CONFIGURE_PERMISSION)
+        serializer = CoverageClosureRatioQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        section = (
+            queries.section_for_payload(payload["section_id"]) if "section_id" in payload else None
+        )
+        result = services.coverage_closure_ratio(
+            section=section,
+            date_from=payload.get("date_from"),
+            date_to=payload.get("date_to"),
+        )
+        return Response(CoverageClosureRatioResultSerializer(result).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar alertas de asistencia",
+        description="Alertas emitidas por el cierre de jornada, dentro del alcance del actor.",
+        tags=TAGS,
+        responses={200: AttendanceAlertRowSerializer(many=True)},
+    ),
+)
+class AttendanceAlertListView(GenericAPIView):
+    """RF-JOR-004/RF-JOR-005 contract: generated attendance alerts."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendanceAlertRowSerializer
+
+    def get_queryset(self):
+        return queries.attendance_alerts(
+            students=authorized_student_queryset(
+                user=self.request.user, codename=STUDENT_VIEW_PERMISSION
+            )
+        )
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(AttendanceAlertRowSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar presencia en tiempo real",
+        description=(
+            "Estudiantes con ingreso registrado y sin egreso posterior para una "
+            "jornada y fecha, dentro del alcance del actor. Filtrable por grado y "
+            "seccion."
+        ),
+        tags=TAGS,
+        parameters=[AttendancePresenceQuerySerializer],
+        responses={200: PresentStudentSerializer(many=True)},
+    ),
+)
+class AttendancePresenceListView(GenericAPIView):
+    """RF-JOR-008 contract: who is currently inside, in real time."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PresentStudentSerializer
+
+    def get(self, request):
+        query = AttendancePresenceQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = query.validated_data
+        shift = queries.shift_for_payload(payload["shift_id"])
+        grade = queries.grade_for_payload(payload["grade_id"]) if payload.get("grade_id") else None
+        section = (
+            queries.section_for_payload(payload["section_id"])
+            if payload.get("section_id")
+            else None
+        )
+        authorized_students = authorized_student_queryset(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION
+        )
+        present = services.list_present_students(
+            shift=shift,
+            event_date=payload.get("event_date"),
+            grade=grade,
+            section=section,
+            students=authorized_students,
+        )
+        page = self.paginate_queryset(present)
+        return self.get_paginated_response(PresentStudentSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar porcentaje de asistencia del ciclo",
+        description=(
+            "Porcentaje de dias lectivos con presente o tarde sobre los dias "
+            "lectivos transcurridos desde el inicio de la matricula activa del "
+            "estudiante en el ciclo vigente."
+        ),
+        tags=TAGS,
+        parameters=[AttendancePercentageQuerySerializer],
+        responses={200: AttendancePercentageResultSerializer},
+    ),
+)
+class AttendancePercentageView(GenericAPIView):
+    """RF-JOR-009 contract: attendance-percentage indicator for the cycle."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendancePercentageResultSerializer
+
+    def get(self, request):
+        query = AttendancePercentageQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        payload = query.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        shift = queries.shift_for_payload(payload["shift_id"])
+        if not can_access_student(
+            user=request.user, codename=STUDENT_VIEW_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.percentage.read",
+            resource="Student",
+            resource_identifier=str(student.pk),
+            student=student,
+        )
+        result = services.compute_attendance_percentage(
+            student=student, shift=shift, as_of_date=payload.get("as_of_date")
+        )
+        return Response(AttendancePercentageResultSerializer(result).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar puntos de control",
+        description="Catalogo de puntos de control por campus. Alta y edicion por Django admin.",
+        tags=TAGS,
+        responses={200: ControlPointSerializer(many=True)},
+    ),
+)
+class ControlPointListView(GenericAPIView):
+    """Read-only reference catalogue consumed by the scan-capture screen."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ControlPointSerializer
+
+    def get_queryset(self):
+        return queries.control_points()
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(ControlPointSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar motivos de registro manual",
+        description=(
+            "Catalogo configurable de motivos para un registro manual (RF-ASI-012). "
+            "Alta y edicion por Django admin. Por omision solo los vigentes; "
+            "`is_active=false` lista los retirados."
+        ),
+        tags=TAGS,
+        parameters=[ManualRegistrationReasonListQuerySerializer],
+        responses={200: ManualRegistrationReasonSerializer(many=True)},
+    ),
+)
+class ManualRegistrationReasonListView(GenericAPIView):
+    """Read-only reference catalogue consumed by the manual-registration form."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ManualRegistrationReasonSerializer
+
+    def get_queryset(self):
+        query = ManualRegistrationReasonListQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        is_active = query.validated_data.get("is_active")
+        return queries.manual_registration_reasons(is_active=is_active is not False)
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(ManualRegistrationReasonSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Registrar movimientos por escaneo",
+        description=(
+            "Captura mediada por operador (RF-ASI-001). Cada elemento porta su "
+            "propio `client_event_id`; reenviar el mismo id es un no-op exitoso "
+            "(RF-ASI-010). Un elemento del mismo tipo/estudiante/jornada dentro de "
+            "la ventana de supresion configurada se rechaza sin crear movimiento "
+            "(RF-ASI-004). Un elemento invalido no aborta el resto del lote. "
+            "`capture_batch_id` opcional enlaza cada elemento a un lote de "
+            "captura recuperable (RF-ASI-009). Un elemento capturado en dia no "
+            "lectivo o fuera de la ventana operativa se rechaza con `reason_code` "
+            "(RF-JOR-001); uno enviado a un lote cuyo tiempo asignado vencio cierra "
+            "ese lote y se rechaza con `capture_batch_expired` (RF-AUT-005)."
+        ),
+        tags=TAGS,
+        request=ScanCaptureRequestSerializer,
+        responses={200: ScanCaptureItemResultSerializer(many=True)},
+    ),
+)
+class AttendanceScanView(GenericAPIView):
+    """RF-ASI-002 contract: register movements captured by scanning."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ScanCaptureItemResultSerializer
+
+    def post(self, request):
+        _require_permission(request, "attendance_scan")
+        serializer = ScanCaptureRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        batch_id = payload["batch_id"]
+        raw_items = payload["items"]
+        transmission = queries.scan_transmission(batch_id=batch_id, item_count=len(raw_items))
+        capture_batch = None
+        if "capture_batch_id" in payload:
+            capture_batch = queries.capture_batch_for_payload(
+                payload["capture_batch_id"], operator=request.user
+            )
+
+        # RF-ASI-014: a batch overwhelmingly repeats the same shift, control
+        # point and movement-type permission across its items (one operator,
+        # one control point, one jornada) -- caching each by its own key
+        # avoids re-querying the database for a value already resolved
+        # earlier in this same request. A cached permission entry is only
+        # ever a granted one: a denial still runs (and gets audited) for
+        # every item that hits it, never skipped by an earlier item's cache.
+        granted_permission_keys = set()
+        shift_cache = {}
+        control_point_cache = {}
+
+        resolved = []
+        results_by_index = {}
+        for index, raw_item in enumerate(raw_items):
+            try:
+                permission_key = (
+                    ORIGIN_PERMISSIONS["scan"],
+                    MOVEMENT_TYPE_PERMISSIONS[raw_item["movement_type"]],
+                )
+                if permission_key not in granted_permission_keys:
+                    identity_services.require_all_permissions(
+                        actor=request.user,
+                        permission_codenames=list(permission_key),
+                        denial_action="attendance.event.capture_denied",
+                        denial_resource="AttendanceEvent",
+                    )
+                    granted_permission_keys.add(permission_key)
+                student = services.resolve_scan_subject(
+                    credential_identifier=raw_item.get("credential_identifier", ""),
+                    student_code=raw_item.get("student_code", ""),
+                    actor=request.user,
+                )
+                shift_id = raw_item["shift_id"]
+                if shift_id not in shift_cache:
+                    shift_cache[shift_id] = queries.shift_for_payload(shift_id)
+                shift = shift_cache[shift_id]
+                control_point_id = raw_item["control_point_id"]
+                if control_point_id not in control_point_cache:
+                    control_point_cache[control_point_id] = queries.control_point_for_payload(
+                        control_point_id
+                    )
+                control_point = control_point_cache[control_point_id]
+            except (DomainError, AuthorizationError) as exc:
+                results_by_index[index] = services.RejectedScanItem(
+                    client_event_id=raw_item["client_event_id"], reason=str(exc)
+                )
+                continue
+            resolved.append(
+                (
+                    index,
+                    {
+                        "student": student,
+                        "shift": shift,
+                        "control_point": control_point,
+                        "movement_type": raw_item["movement_type"],
+                        "captured_at": raw_item["captured_at"],
+                        "client_event_id": raw_item["client_event_id"],
+                        "batch_id": batch_id,
+                        "capture_batch": capture_batch,
+                        "transmission": transmission,
+                    },
+                )
+            )
+
+        outcomes = services.record_scan_batch(
+            items=[item for _, item in resolved], operator=request.user, actor=request.user
+        )
+        for (index, _), outcome in zip(resolved, outcomes, strict=True):
+            results_by_index[index] = outcome
+
+        data = [
+            {
+                "client_event_id": result.client_event_id,
+                "outcome": result.outcome,
+                "event": getattr(result, "event", None),
+                "duplicate_of": getattr(result, "duplicate_of", None),
+                "confirmation": getattr(result, "confirmation", None),
+                "reason": getattr(result, "reason", ""),
+                "reason_code": getattr(result, "reason_code", ""),
+            }
+            for result in (results_by_index[i] for i in range(len(raw_items)))
+        ]
+        return Response(ScanCaptureItemResultSerializer(data, many=True).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Abrir (o retomar) el lote de captura",
+        description=(
+            "RF-ASI-009: inicia el lote acumulable del operador autenticado. "
+            "Idempotente: si ya tiene uno abierto, devuelve ese mismo lote en "
+            "lugar de crear otro."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: CaptureBatchSerializer},
+    ),
+)
+class CaptureBatchOpenView(GenericAPIView):
+    """RF-ASI-009 contract: open or resume the operator's capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchSerializer
+
+    def post(self, request):
+        _require_permission(request, "attendance_scan")
+        capture_batch = services.open_capture_batch(
+            operator=request.user, session_key=request.session.session_key or ""
+        )
+        return Response(CaptureBatchSerializer(capture_batch).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Recuperar el lote de captura pendiente",
+        description=(
+            "RF-ASI-009: el lote abierto del operador autenticado, si existe, "
+            "con cada movimiento ya guardado y su hora de captura original -- "
+            "recuperable tras perder la sesion, incluso desde otro dispositivo. "
+            "RF-AUT-005: si el tiempo asignado al lote ya vencio, se cierra y se "
+            "audita en esta misma consulta y no se ofrece para recuperacion."
+        ),
+        tags=TAGS,
+        responses={200: CaptureBatchRecoverySerializer},
+    ),
+)
+class CaptureBatchCurrentView(GenericAPIView):
+    """RF-ASI-009 contract: recover the operator's pending capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchRecoverySerializer
+
+    def get(self, request):
+        _require_permission(request, "attendance_scan")
+        capture_batch = services.recover_open_capture_batch(operator=request.user)
+        events = (
+            capture_batch.events.select_related(
+                "student__person", "shift", "control_point", "manual_reason", "operator"
+            )
+            if capture_batch is not None
+            else []
+        )
+        return Response(
+            CaptureBatchRecoverySerializer({"capture_batch": capture_batch, "events": events}).data
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Confirmar el lote de captura",
+        description=(
+            "RF-ASI-009: cierra el lote en una sola operacion. Los movimientos "
+            "ya estaban guardados desde que se escanearon; esto solo deja de "
+            "ofrecerlo para recuperacion."
+        ),
+        tags=TAGS,
+        request=None,
+        responses={200: CaptureBatchSerializer},
+    ),
+)
+class CaptureBatchConfirmView(GenericAPIView):
+    """RF-ASI-009 contract: confirm (close) the operator's capture batch."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CaptureBatchSerializer
+
+    def post(self, request, public_id):
+        _require_permission(request, "attendance_scan")
+        capture_batch = queries.capture_batch_for_payload(public_id, operator=request.user)
+        capture_batch = services.confirm_capture_batch(
+            capture_batch=capture_batch, actor=request.user
+        )
+        return Response(CaptureBatchSerializer(capture_batch).data)
+
+
+CREDENTIAL_TAGS = ["attendance: credencial"]
+CREDENTIAL_ISSUE_PERMISSION = "attendance_credential_issue"
+CREDENTIAL_RESOLVE_PERMISSION = "attendance_credential_resolve"
+CREDENTIAL_PRINT_PERMISSION = card_export.CREDENTIAL_PRINT_PERMISSION
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Emitir credencial de estudiante",
+        tags=CREDENTIAL_TAGS,
+        request=StudentCredentialIssueSerializer,
+        responses={201: StudentCredentialSerializer},
+    ),
+)
+class StudentCredentialIssueView(GenericAPIView):
+    """Emitir identificador opaco para una credencial estudiantil (RF-CRE-001)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentCredentialSerializer
+
+    def post(self, request):
+        serializer = StudentCredentialIssueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        student = queries.student_for_payload(serializer.validated_data["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        credential = services.issue_credential(student=student, actor=request.user)
+        return Response(
+            StudentCredentialSerializer(credential).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Contenido imprimible de la credencial",
+        description=(
+            "Nombre completo, fotografia, grado, seccion, ciclo escolar e "
+            "institucion para el material imprimible de la credencial "
+            "(RF-CRE-002). No incluye salud, contacto de familia ni domicilio."
+        ),
+        tags=CREDENTIAL_TAGS,
+        parameters=[CredentialPrintContentQuerySerializer],
+        responses={200: CredentialPrintContentSerializer},
+    ),
+)
+class CredentialPrintContentView(GenericAPIView):
+    """RF-CRE-002 contract: exactly what the printed credential material shows."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialPrintContentSerializer
+
+    def get(self, request):
+        query = CredentialPrintContentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        student = queries.student_for_payload(query.validated_data["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        content = services.resolve_credential_print_content(student=student)
+        return Response(CredentialPrintContentSerializer(content).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar el estado de la credencial",
+        description=(
+            "#631 (AS2): estado de la credencial mas reciente del estudiante "
+            "(`active`, `revoked` o `none` si nunca tuvo una). No devuelve el "
+            "identificador opaco ni el QR. El QR de una credencial vigente se "
+            "vuelve a obtener con `POST credentials/qr/` (permiso "
+            "`attendance.credential.print`, auditado); ya no hace falta revocar "
+            "para reimprimir. Revocar sigue siendo para extravio o retiro "
+            "(RF-CRE-003/004)."
+        ),
+        tags=CREDENTIAL_TAGS,
+        parameters=[CredentialPrintContentQuerySerializer],
+        responses={200: CredentialStatusSerializer},
+    ),
+)
+class CredentialStatusView(GenericAPIView):
+    """#631 (AS2): whether the student has an active credential, without its token."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialStatusSerializer
+
+    def get(self, request):
+        query = CredentialPrintContentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        student = queries.student_for_payload(query.validated_data["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        return Response(CredentialStatusSerializer(queries.credential_status(student=student)).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Reimprimir el QR de la credencial vigente",
+        description=(
+            "RF-CRE-002: devuelve la imagen QR de la credencial vigente del "
+            "estudiante para volver a imprimirla. POST para que nada quede en la "
+            "URL ni en el log de acceso. Exige `attendance.credential.print` con "
+            "alcance sobre el estudiante (403 si falta). Sin credencial vigente "
+            "responde 400. Cada consulta se audita como "
+            "`attendance.credential.qr_revealed`, sin el identificador."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialQrRequestSerializer,
+        responses={200: CredentialQrSerializer},
+    ),
+)
+class CredentialQrView(GenericAPIView):
+    """RF-CRE-002: reprint the active credential's QR under its own audited permission."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialQrSerializer
+
+    def post(self, request):
+        serializer = CredentialQrRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        student = queries.student_for_payload(serializer.validated_data["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_PRINT_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        qr_code = services.reveal_credential_qr(student=student, actor=request.user)
+        return Response(CredentialQrSerializer({"qr_code": qr_code}).data)
+
+
+CREDENTIAL_EXPORT_DESCRIPTION = (
+    "Carnes en formato wireframe de 96 x 54 mm (16:9) a 300 dpi, fondo "
+    "transparente y guia de corte, con los campos de RF-CRE-002. `pdf`: hoja "
+    "carta con 8 carnes a tamano real y marcas de corte; `png`: exactamente un "
+    "estudiante; `zip`: un PNG por estudiante (`EST-2026-0001_Ana-Perez.png`). "
+    "Exige `attendance.credential.print` con alcance (403 si falta). Las "
+    "credenciales que faltan se emiten solo si el actor tiene ademas "
+    "`attendance.credential.issue` sobre ese estudiante; si no, la fila se "
+    "omite con su motivo. Un estudiante inexistente o fuera de alcance se omite "
+    "sin nombre ni codigo."
+)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Vista previa de exportacion de carnes",
+        description=(
+            CREDENTIAL_EXPORT_DESCRIPTION
+            + " La vista previa ejecuta la misma emision y la revierte: no emite "
+            "nada. Estados por fila: `ready` (credencial vigente), `to_issue` "
+            "(se emitira al exportar) o `skipped` (con `reason`)."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialExportRequestSerializer,
+        responses={200: CredentialExportPreviewSerializer},
+    ),
+)
+class CredentialExportPreviewView(GenericAPIView):
+    """Preview a card export without issuing anything (rolled back)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialExportPreviewSerializer
+
+    def post(self, request):
+        serializer = CredentialExportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = card_export.export_credentials(
+            actor=request.user,
+            student_ids=serializer.validated_data["student_ids"],
+            export_format=serializer.validated_data["format"],
+            preview=True,
+        )
+        return Response(
+            CredentialExportPreviewSerializer({"summary": result.summary, "rows": result.rows}).data
+        )
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Exportar carnes",
+        description=(
+            CREDENTIAL_EXPORT_DESCRIPTION
+            + " Emite las credenciales que faltan y responde el archivo binario "
+            "(`application/pdf`, `image/png` o `application/zip`) con "
+            "`Content-Disposition: attachment`. Si ningun carne es exportable "
+            "responde 400 y no emite nada. Se audita como "
+            "`attendance.credential.exported` con la cantidad y los estudiantes, "
+            "nunca los identificadores."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialExportRequestSerializer,
+        responses={
+            (200, "application/pdf"): OpenApiTypes.BINARY,
+            (200, "image/png"): OpenApiTypes.BINARY,
+            (200, "application/zip"): OpenApiTypes.BINARY,
+        },
+    ),
+)
+class CredentialExportView(GenericAPIView):
+    """Issue the missing credentials and return the rendered cards as a file."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialExportRequestSerializer
+
+    def post(self, request):
+        serializer = CredentialExportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = card_export.export_credentials(
+            actor=request.user,
+            student_ids=serializer.validated_data["student_ids"],
+            export_format=serializer.validated_data["format"],
+            preview=False,
+        )
+        response = HttpResponse(result.content, content_type=result.content_type)
+        response["Content-Disposition"] = f'attachment; filename="{result.filename}"'
+        response["Access-Control-Expose-Headers"] = "Content-Disposition"
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Revocar credencial",
+        description=(
+            "Revoca de inmediato la credencial vigente del estudiante, indicando "
+            "el motivo (RF-CRE-003). Una credencial revocada queda inutilizable "
+            "para registrar movimientos."
+        ),
+        tags=CREDENTIAL_TAGS,
+        request=CredentialRevocationRequestSerializer,
+        responses={200: CredentialRevocationResultSerializer},
+    ),
+)
+class CredentialRevocationView(GenericAPIView):
+    """RF-CRE-003 contract: revoke a student's active credential."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialRevocationResultSerializer
+
+    def post(self, request):
+        serializer = CredentialRevocationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        if not can_access_student(
+            user=request.user, codename=CREDENTIAL_ISSUE_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        credential = services.revoke_credential(
+            student=student, reason=payload["reason"], actor=request.user
+        )
+        return Response(CredentialRevocationResultSerializer(credential).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Resolver identificador de credencial",
+        tags=CREDENTIAL_TAGS,
+        request=CredentialResolutionRequestSerializer,
+        responses={200: CredentialResolutionSerializer},
+    ),
+)
+class StudentCredentialResolutionView(GenericAPIView):
+    """Resolver QR opaco sin exponer el identificador en URL (RF-CRE-006)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CredentialResolutionSerializer
+
+    def post(self, request):
+        _require_permission(request, CREDENTIAL_RESOLVE_PERMISSION)
+        serializer = CredentialResolutionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        resolution = services.resolve_credential(
+            opaque_identifier=serializer.validated_data["opaque_identifier"],
+            actor=request.user,
+        )
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.credential.resolved",
+            resource="StudentCredential",
+            resource_identifier=str(resolution.credential.public_id),
+            student=resolution.student,
+        )
+        return Response(CredentialResolutionSerializer(resolution).data)
+
+
+JUSTIFICATION_TAGS = ["attendance: justificaciones"]
+JUSTIFICATION_REQUEST_PERMISSION = "attendance_justification_request"
+JUSTIFICATION_RESOLVE_PERMISSION = "attendance_justification_resolve"
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar justificaciones",
+        description=(
+            "#631 (AS3): bandeja de justificaciones, pendientes primero y luego "
+            "de la mas reciente a la mas antigua. Con "
+            "attendance_justification_resolve se ven las de los estudiantes "
+            "dentro del alcance de ese permiso; cada actor ve ademas las que "
+            "presento. Sin attendance_justification_request ni "
+            "attendance_justification_resolve, 403. `search` busca por codigo "
+            "o nombre del estudiante; `ordering` admite `absence_date`, "
+            "`submitted_at`, `status` y `student` (con `-` para descendente)."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        parameters=[JustificationListQuerySerializer],
+        responses={200: JustificationSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Enviar justificacion de inasistencia",
+        description=(
+            "RF-JUS-003: acepta la solicitud solo dentro de la ventana "
+            "configurada desde la fecha de inasistencia; fuera de ella la "
+            "rechaza indicando que el plazo vencio, salvo que un usuario con "
+            "attendance_justification_resolve la registre como excepcion "
+            "documentada."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        request=JustificationRequestSerializer,
+        responses={201: JustificationSerializer},
+    ),
+)
+class JustificationSubmitView(GenericAPIView):
+    """RF-JUS-003 contract: submit an absence justification; #631: list them."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationSerializer
+
+    def get(self, request):
+        _require_any_permission(
+            request, JUSTIFICATION_REQUEST_PERMISSION, JUSTIFICATION_RESOLVE_PERMISSION
+        )
+        query = JustificationListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        rows = queries.visible_justifications(user=request.user, **query.validated_data)
+        page = self.paginate_queryset(rows)
+        return self.get_paginated_response(JustificationSerializer(page, many=True).data)
+
+    def post(self, request):
+        serializer = JustificationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        if not can_access_student(
+            user=request.user, codename=JUSTIFICATION_REQUEST_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        is_exception = payload["is_exception"]
+        if is_exception and not request.user.has_atomic_permission(
+            JUSTIFICATION_RESOLVE_PERMISSION
+        ):
+            raise AuthorizationError(
+                "Registrar una excepcion a la ventana requiere permiso elevado."
+            )
+        reason_catalog_id = payload.get("reason_catalog_id")
+        reason_catalog = (
+            queries.justification_reason_for_payload(reason_catalog_id)
+            if reason_catalog_id
+            else None
+        )
+        justification = services.submit_justification(
+            student=student,
+            absence_date=payload["absence_date"],
+            situation_type=payload["situation_type"],
+            reason=payload["reason"],
+            reason_catalog=reason_catalog,
+            actor=request.user,
+            is_exception=is_exception,
+            exception_reason=payload["exception_reason"],
+        )
+        return Response(JustificationSerializer(justification).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar catalogo de motivos de justificacion",
+        description=(
+            "RF-JUS-001: catalogo configurable de motivos para una solicitud de justificacion."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        responses={200: JustificationReasonSerializer(many=True)},
+    ),
+)
+class JustificationReasonListView(GenericAPIView):
+    """Read-only reference catalogue consumed by the justification submission form."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationReasonSerializer
+
+    def get_queryset(self):
+        return queries.justification_reasons()
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(JustificationReasonSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar una justificacion",
+        description=(
+            "#631 (AS3): mismas reglas de visibilidad que el listado; una "
+            "justificacion fuera de ellas responde 404."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        responses={200: JustificationSerializer},
+    ),
+)
+class JustificationDetailView(GenericAPIView):
+    """#631 (AS3): one justification of the review queue."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationSerializer
+
+    def get(self, request, public_id):
+        _require_any_permission(
+            request, JUSTIFICATION_REQUEST_PERMISSION, JUSTIFICATION_RESOLVE_PERMISSION
+        )
+        justification = queries.visible_justification(user=request.user, public_id=public_id)
+        return Response(JustificationSerializer(justification).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Resolver justificacion de inasistencia",
+        description=(
+            "RF-JUS-004: aprueba o rechaza una justificacion pendiente. El "
+            "rechazo exige un comentario. Una vez resuelta, la justificacion "
+            "queda inmutable -- resolverla de nuevo se rechaza; una correccion "
+            "requiere una justificacion nueva (RF-JUS-003)."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        request=JustificationResolutionRequestSerializer,
+        responses={200: JustificationSerializer},
+    ),
+)
+class JustificationResolveView(GenericAPIView):
+    """RF-JUS-004 contract: approve or reject a pending justification."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationSerializer
+
+    def post(self, request, public_id):
+        _require_permission(request, JUSTIFICATION_RESOLVE_PERMISSION)
+        serializer = JustificationResolutionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        justification = queries.justification_for_payload(public_id)
+        justification = services.resolve_justification(
+            justification=justification,
+            approved=payload["approved"],
+            comment=payload["comment"],
+            actor=request.user,
+        )
+        return Response(JustificationSerializer(justification).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar mis notificaciones de justificacion",
+        description=(
+            "RF-JUS-006: notificaciones del actor autenticado sobre la "
+            "resolucion de las justificaciones que el mismo presento -- "
+            "aprobadas o rechazadas por igual, con el comentario de quien "
+            "resolvio cuando lo haya. Siempre acotado al propio actor, sin "
+            "permiso ni alcance adicional."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        responses={200: JustificationNotificationSerializer(many=True)},
+    ),
+)
+class JustificationNotificationListView(GenericAPIView):
+    """RF-JUS-006 contract: a guardian's own justification-resolution notifications."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationNotificationSerializer
+
+    def get_queryset(self):
+        return services.list_my_justification_notifications(user=self.request.user)
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(
+            JustificationNotificationSerializer(page, many=True).data
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar mis notificaciones de inasistencia",
+        description=(
+            "RF-JOR-007: notificaciones de inasistencia dirigidas al encargado "
+            "vinculado al actor autenticado (asociacion principal del estudiante "
+            "al cierre de la jornada). Sin permiso atomico, como "
+            "RF-JUS-006: solo una cuenta de encargado activo con relacion vigente "
+            "accede (denegacion auditada en otro caso); solo incluye estudiantes "
+            "con relacion vigente, de modo que una relacion terminada "
+            "corta tambien las notificaciones anteriores. Una notificacion "
+            "superada indica que un registro posterior corrigio la inasistencia."
+        ),
+        tags=TAGS,
+        responses={200: AbsenceNotificationSerializer(many=True)},
+    ),
+)
+class AbsenceNotificationListView(GenericAPIView):
+    """RF-JOR-007 contract: a guardian's own absence notifications."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AbsenceNotificationSerializer
+
+    def get_queryset(self):
+        return services.list_my_absence_notifications(user=self.request.user)
+
+    def get(self, request):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(AbsenceNotificationSerializer(page, many=True).data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Leer el documento adjunto de una justificacion",
+        description=(
+            "RF-JUS-007: solo quien presento la justificacion o un usuario con "
+            "attendance_justification_resolve puede leer su documento adjunto -- "
+            "puede contener informacion de salud. Toda lectura queda registrada "
+            "en la bitacora de auditoria."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        responses={200: JustificationAttachmentSerializer},
+    ),
+    post=extend_schema(
+        summary="Adjuntar un documento de respaldo a una justificacion",
+        description=(
+            "RF-JUS-007: solo quien presento la justificacion puede adjuntar su "
+            "respaldo, y solo una vez -- en este corte minimo una justificacion "
+            "admite un unico documento adjunto."
+        ),
+        tags=JUSTIFICATION_TAGS,
+        request=JustificationAttachmentUploadSerializer,
+        responses={201: JustificationAttachmentSerializer},
+    ),
+)
+class JustificationAttachmentView(GenericAPIView):
+    """RF-JUS-007 contract: attach and confidentially read a justification's document."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = JustificationAttachmentSerializer
+
+    def get(self, request, public_id):
+        justification = queries.justification_for_payload(public_id)
+        attachment = getattr(justification, "attachment", None)
+        if attachment is None:
+            raise DomainError("La justificacion no tiene un documento adjunto.")
+        is_submitter = justification.submitted_by_id == request.user.pk
+        if not is_submitter and not request.user.has_atomic_permission(
+            JUSTIFICATION_RESOLVE_PERMISSION
+        ):
+            raise AuthorizationError(
+                "Solo quien presento la justificacion o un usuario con permiso de "
+                "revision puede leer este documento adjunto."
+            )
+        record_sensitive_read(
+            actor=request.user,
+            action="attendance.justification_attachment.read",
+            resource="JustificationAttachment",
+            resource_identifier=str(attachment.public_id),
+            student=justification.student,
+        )
+        return Response(JustificationAttachmentSerializer(attachment).data)
+
+    def post(self, request, public_id):
+        justification = queries.justification_for_payload(public_id)
+        serializer = JustificationAttachmentUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        attachment = services.attach_justification_document(
+            justification=justification,
+            upload=serializer.validated_data["file"],
+            actor=request.user,
+        )
+        return Response(
+            JustificationAttachmentSerializer(attachment).data, status=status.HTTP_201_CREATED
+        )
+
+
+PERMIT_TAGS = ["attendance: permisos"]
+PERMIT_REQUEST_PERMISSION = "attendance_permit_request"
+PERMIT_RESOLVE_PERMISSION = "attendance_permit_resolve"
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar permisos de salida anticipada o ingreso tardio",
+        description=(
+            "#631 (AS4): bandeja de permisos, pendientes primero y luego del mas "
+            "reciente al mas antiguo. Con attendance_permit_resolve se ven los "
+            "de los estudiantes dentro del alcance de ese permiso; cada actor ve "
+            "ademas los que solicito. Sin attendance_permit_request ni "
+            "attendance_permit_resolve, 403. `search` busca por codigo o nombre "
+            "del estudiante; `ordering` admite `permit_date`, `submitted_at`, "
+            "`status` y `student` (con `-` para descendente)."
+        ),
+        tags=PERMIT_TAGS,
+        parameters=[AttendancePermitListQuerySerializer],
+        responses={200: AttendancePermitSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Solicitar permiso de salida anticipada o ingreso tardio",
+        description=(
+            "RF-JUS-008: un permiso se solicita ANTES del hecho, a diferencia "
+            "de una justificacion (presentada despues). Queda pendiente hasta "
+            "su resolucion."
+        ),
+        tags=PERMIT_TAGS,
+        request=AttendancePermitRequestSerializer,
+        responses={201: AttendancePermitSerializer},
+    ),
+)
+class AttendancePermitSubmitView(GenericAPIView):
+    """RF-JUS-008 contract: submit a prospective early-exit/late-arrival permit; #631: list."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendancePermitSerializer
+
+    def get(self, request):
+        _require_any_permission(request, PERMIT_REQUEST_PERMISSION, PERMIT_RESOLVE_PERMISSION)
+        query = AttendancePermitListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        rows = queries.visible_attendance_permits(user=request.user, **query.validated_data)
+        page = self.paginate_queryset(rows)
+        return self.get_paginated_response(AttendancePermitSerializer(page, many=True).data)
+
+    def post(self, request):
+        serializer = AttendancePermitRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        student = queries.student_for_payload(payload["student_id"])
+        if not can_access_student(
+            user=request.user, codename=PERMIT_REQUEST_PERMISSION, student=student
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        permit = services.submit_attendance_permit(
+            student=student,
+            permit_type=payload["permit_type"],
+            permit_date=payload["permit_date"],
+            scheduled_time=payload["scheduled_time"],
+            reason=payload["reason"],
+            actor=request.user,
+        )
+        return Response(AttendancePermitSerializer(permit).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar un permiso de salida anticipada o ingreso tardio",
+        description=(
+            "#631 (AS4): mismas reglas de visibilidad que el listado; un "
+            "permiso fuera de ellas responde 404."
+        ),
+        tags=PERMIT_TAGS,
+        responses={200: AttendancePermitSerializer},
+    ),
+)
+class AttendancePermitDetailView(GenericAPIView):
+    """#631 (AS4): one permit of the review queue."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendancePermitSerializer
+
+    def get(self, request, public_id):
+        _require_any_permission(request, PERMIT_REQUEST_PERMISSION, PERMIT_RESOLVE_PERMISSION)
+        permit = queries.visible_attendance_permit(user=request.user, public_id=public_id)
+        return Response(AttendancePermitSerializer(permit).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Resolver permiso de salida anticipada o ingreso tardio",
+        description=(
+            "RF-JUS-008: aprueba o rechaza un permiso pendiente. El rechazo "
+            "exige un comentario. Una vez resuelto, el permiso queda "
+            "inmutable -- resolverlo de nuevo se rechaza."
+        ),
+        tags=PERMIT_TAGS,
+        request=AttendancePermitResolutionRequestSerializer,
+        responses={200: AttendancePermitSerializer},
+    ),
+)
+class AttendancePermitResolveView(GenericAPIView):
+    """RF-JUS-008 contract: approve or reject a pending permit."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendancePermitSerializer
+
+    def post(self, request, public_id):
+        _require_permission(request, PERMIT_RESOLVE_PERMISSION)
+        serializer = AttendancePermitResolutionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        permit = queries.attendance_permit_for_payload(public_id)
+        permit = services.resolve_attendance_permit(
+            permit=permit,
+            approved=payload["approved"],
+            comment=payload["comment"],
+            actor=request.user,
+        )
+        return Response(AttendancePermitSerializer(permit).data)

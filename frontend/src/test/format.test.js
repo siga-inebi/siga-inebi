@@ -1,0 +1,147 @@
+import { describe, expect, test } from "vitest";
+
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatDateLong,
+  formatDateTime,
+  formatFullName,
+  formatPercent,
+  orEmpty,
+  todayInputValue,
+} from "@shared/utils/format.js";
+import {
+  dateInputBoundaryToIso,
+  formatNumericDateTime,
+  formatWeekdayDate,
+  institutionalYear,
+} from "@shared/utils/timezone.js";
+
+describe("format", () => {
+  describe("fechas", () => {
+    test("formatea una fecha sin hora en la zona del establecimiento", () => {
+      expect(formatDate("2026-08-06")).toBe("6 ago 2026");
+    });
+
+    test("no corre el dia hacia atras en una fecha sin hora", () => {
+      // El motor interpreta "2026-01-01" como UTC; formatearlo en America/Guatemala
+      // (UTC-6) daria 31 dic si no se anclara al mediodia. Este test existe para
+      // que ese anclaje no se elimine por parecer innecesario.
+      expect(formatDate("2026-01-01")).toBe("1 ene 2026");
+      expect(formatDateLong("2026-01-01")).toBe("1 de enero de 2026");
+    });
+
+    test("formato largo", () => {
+      expect(formatDateLong("2026-08-06")).toBe("6 de agosto de 2026");
+    });
+
+    test("formato con hora", () => {
+      expect(formatDateTime("2026-08-06T21:45:00Z")).toMatch(/6 ago 2026/);
+    });
+
+    test("formatea instantes siempre en la zona institucional", () => {
+      const instant = "2026-08-20T01:30:00Z";
+
+      expect(formatDateTime(instant)).toMatch(/19 ago 2026/);
+      expect(formatNumericDateTime(instant)).toMatch(/19\/08\/2026/);
+      expect(formatWeekdayDate(instant)).toMatch(/miércoles.*19.*agosto/i);
+    });
+
+    test("devuelve el marcador de ausencia cuando no hay valor", () => {
+      expect(formatDate(null)).toBe(EMPTY_VALUE);
+      expect(formatDate("")).toBe(EMPTY_VALUE);
+      expect(formatDateLong(undefined)).toBe(EMPTY_VALUE);
+      expect(formatDateTime(null)).toBe(EMPTY_VALUE);
+    });
+
+    test("devuelve el marcador de ausencia cuando la fecha es invalida", () => {
+      expect(formatDate("no-es-fecha")).toBe(EMPTY_VALUE);
+    });
+  });
+
+  describe("orEmpty", () => {
+    test("deja pasar el texto con contenido", () => {
+      expect(orEmpty("Ana")).toBe("Ana");
+    });
+
+    test("trata como ausente el vacio y el espacio en blanco", () => {
+      expect(orEmpty("")).toBe(EMPTY_VALUE);
+      expect(orEmpty("   ")).toBe(EMPTY_VALUE);
+      expect(orEmpty(null)).toBe(EMPTY_VALUE);
+      expect(orEmpty(undefined)).toBe(EMPTY_VALUE);
+    });
+
+    test("conserva el cero, que si es un valor", () => {
+      expect(orEmpty(0)).toBe("0");
+    });
+  });
+
+  describe("formatPercent", () => {
+    test("agrega el signo con espacio", () => {
+      expect(formatPercent(87)).toBe("87 %");
+    });
+
+    test("respeta los decimales pedidos", () => {
+      expect(formatPercent(87.456, 1)).toBe("87.5 %");
+    });
+
+    test("devuelve el marcador de ausencia sin valor numerico", () => {
+      expect(formatPercent(null)).toBe(EMPTY_VALUE);
+      expect(formatPercent("abc")).toBe(EMPTY_VALUE);
+    });
+  });
+
+  describe("formatFullName", () => {
+    test("prefiere el nombre completo que ya trae el backend", () => {
+      expect(
+        formatFullName({
+          full_name: "Ana Gomez Lopez",
+          first_name: "Ana",
+          last_name: "Gomez",
+        })
+      ).toBe("Ana Gomez Lopez");
+    });
+
+    test("compone el nombre con las partes disponibles", () => {
+      expect(formatFullName({ first_name: "Ana", last_name: "Gomez" })).toBe(
+        "Ana Gomez"
+      );
+      expect(formatFullName({ first_name: "Ana" })).toBe("Ana");
+    });
+
+    test("devuelve el marcador de ausencia sin persona", () => {
+      expect(formatFullName(null)).toBe(EMPTY_VALUE);
+      expect(formatFullName({})).toBe(EMPTY_VALUE);
+    });
+  });
+
+  describe("todayInputValue", () => {
+    test("usa la fecha INSTITUCIONAL, no la UTC ni la del navegador", () => {
+      // Ya es 20 de agosto en UTC, pero siguen siendo las 19:30 del 19 en
+      // Guatemala. Este era el origen de formularios que proponian manana.
+      const lateEvening = new Date("2026-08-20T01:30:00Z");
+
+      expect(todayInputValue(lateEvening)).toBe("2026-08-19");
+    });
+
+    test("rellena mes y dia a dos digitos", () => {
+      // `<input type="date">` solo acepta YYYY-MM-DD; "2026-1-5" lo deja vacio.
+      expect(todayInputValue(new Date("2026-01-05T12:00:00Z"))).toBe(
+        "2026-01-05"
+      );
+    });
+
+    test("el anio tambien se deriva en la zona institucional", () => {
+      expect(institutionalYear(new Date("2027-01-01T01:00:00Z"))).toBe(2026);
+    });
+
+    test("convierte limites de fecha institucional a instantes UTC", () => {
+      expect(dateInputBoundaryToIso("2026-08-19")).toBe(
+        "2026-08-19T06:00:00.000Z"
+      );
+      expect(dateInputBoundaryToIso("2026-08-19", true)).toBe(
+        "2026-08-20T05:59:59.000Z"
+      );
+    });
+  });
+});

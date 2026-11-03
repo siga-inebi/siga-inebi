@@ -1,0 +1,441 @@
+from rest_framework import serializers
+
+from apps.academics.models import Grade, Section
+from apps.documents.kind_catalog import DEFAULT_DOCUMENT_KIND_CODE
+from apps.documents.models import (
+    DocumentDeliveryReceipt,
+    DocumentIssuance,
+    DocumentKind,
+    DocumentRecord,
+    DocumentTemplate,
+    DocumentTemplateVersion,
+)
+from apps.documents.template_rendering import public_template_content
+from apps.enrolments.models import Enrolment
+from apps.students.models import Guardian, Student
+
+TEMPLATE_LAYOUT_FIELDS = [
+    "content_format",
+    "page_size",
+    "orientation",
+    "margin_top",
+    "margin_right",
+    "margin_bottom",
+    "margin_left",
+    "footer_text",
+    "signature_blocks",
+]
+
+
+class InstitutionalHeaderSerializer(serializers.Serializer):
+    institution_name = serializers.CharField()
+    institution_short_name = serializers.CharField()
+    logo_url = serializers.CharField(allow_null=True)
+
+
+class DocumentKindSerializer(serializers.ModelSerializer):
+    template_count = serializers.IntegerField(read_only=True)
+    active_template_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = DocumentKind
+        fields = [
+            "public_id",
+            "code",
+            "label",
+            "description",
+            "template_count",
+            "active_template_count",
+            "is_active",
+        ]
+
+
+class DocumentKindCreateSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        max_length=30,
+        help_text="Codigo corto, unico por institucion e inmutable. Se normaliza a minusculas.",
+    )
+    label = serializers.CharField(max_length=100, help_text="Nombre visible del tipo de documento.")
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
+class DocumentKindUpdateSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=100, required=False)
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
+class DocumentTemplateSerializer(serializers.ModelSerializer):
+    """``header`` is read-only and derived; it cannot be set via create/update payloads."""
+
+    header = InstitutionalHeaderSerializer(source="institutional_header", read_only=True)
+    # Still the document-type CODE, as before RNF-MAN-001 moved the catalogue
+    # into the database: the contract did not change, only where the admitted
+    # values come from.
+    kind = serializers.CharField(source="document_kind.code", read_only=True)
+
+    class Meta:
+        model = DocumentTemplate
+        fields = [
+            "public_id",
+            "name",
+            "code",
+            "kind",
+            "issuance_use",
+            "description",
+            "content",
+            *TEMPLATE_LAYOUT_FIELDS,
+            "is_active",
+            "header",
+        ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["content"] = public_template_content(
+            content_format=instance.content_format, stored_content=instance.content
+        )
+        return data
+
+
+class DocumentTemplateCreateSerializer(serializers.Serializer):
+    issuance_use = serializers.ChoiceField(
+        choices=DocumentTemplate.IssuanceUse.choices, default=DocumentTemplate.IssuanceUse.NONE
+    )
+    replaces_template_id = serializers.UUIDField(required=False)
+    name = serializers.CharField(max_length=150, help_text="Nombre visible de la plantilla.")
+    code = serializers.CharField(
+        max_length=30,
+        help_text="Codigo corto, unico por institucion. Se normaliza a mayusculas.",
+    )
+    kind = serializers.CharField(
+        max_length=30,
+        required=False,
+        default=DEFAULT_DOCUMENT_KIND_CODE,
+        help_text=(
+            "Codigo de un tipo de documento del catalogo institucional. "
+            "Consultable en `GET /api/v1/documents/types/`."
+        ),
+    )
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    content = serializers.JSONField(
+        required=False,
+        default="",
+        help_text="Contenido base de la plantilla con marcadores cerrados.",
+    )
+    content_format = serializers.ChoiceField(
+        choices=DocumentTemplate.ContentFormat.choices,
+        default=DocumentTemplate.ContentFormat.PLAIN,
+    )
+    page_size = serializers.ChoiceField(
+        choices=DocumentTemplate.PageSize.choices, default=DocumentTemplate.PageSize.LETTER
+    )
+    orientation = serializers.ChoiceField(
+        choices=DocumentTemplate.Orientation.choices,
+        default=DocumentTemplate.Orientation.PORTRAIT,
+    )
+    margin_top = serializers.IntegerField(default=54, min_value=18, max_value=144)
+    margin_right = serializers.IntegerField(default=54, min_value=18, max_value=144)
+    margin_bottom = serializers.IntegerField(default=54, min_value=18, max_value=144)
+    margin_left = serializers.IntegerField(default=54, min_value=18, max_value=144)
+    footer_text = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    signature_blocks = serializers.JSONField(required=False, default=list)
+
+
+class DocumentTemplateUpdateSerializer(serializers.Serializer):
+    issuance_use = serializers.ChoiceField(
+        choices=DocumentTemplate.IssuanceUse.choices, required=False
+    )
+    replaces_template_id = serializers.UUIDField(required=False)
+    name = serializers.CharField(max_length=150, required=False)
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    kind = serializers.CharField(max_length=30, required=False)
+    content = serializers.JSONField(required=False)
+    content_format = serializers.ChoiceField(
+        choices=DocumentTemplate.ContentFormat.choices, required=False
+    )
+    page_size = serializers.ChoiceField(choices=DocumentTemplate.PageSize.choices, required=False)
+    orientation = serializers.ChoiceField(
+        choices=DocumentTemplate.Orientation.choices, required=False
+    )
+    margin_top = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_right = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_bottom = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_left = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    footer_text = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    signature_blocks = serializers.JSONField(required=False)
+
+
+class FieldTagSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    label = serializers.CharField()
+    sensitive = serializers.BooleanField()
+
+
+class ActiveIssuanceTemplateSerializer(serializers.Serializer):
+    public_id = serializers.UUIDField()
+    name = serializers.CharField()
+
+
+class TemplateIssuanceUseSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    label = serializers.CharField()
+    active_template = ActiveIssuanceTemplateSerializer(allow_null=True)
+    uses_fallback = serializers.BooleanField()
+
+
+class DocumentTemplateVersionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DocumentTemplateVersion
+        fields = [
+            "public_id",
+            "sequence",
+            "name",
+            "kind",
+            "issuance_use",
+            "description",
+            "content",
+            *TEMPLATE_LAYOUT_FIELDS,
+            "created_at",
+        ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["content"] = public_template_content(
+            content_format=instance.content_format, stored_content=instance.content
+        )
+        return data
+
+
+class StorageConsumptionSerializer(serializers.Serializer):
+    total_bytes = serializers.IntegerField()
+    file_count = serializers.IntegerField()
+    retained_count = serializers.IntegerField()
+    projected_growth_bytes_per_cycle = serializers.IntegerField()
+    projected_total_bytes = serializers.IntegerField()
+    warning_threshold_bytes = serializers.IntegerField()
+    warning_active = serializers.BooleanField()
+    warning_level = serializers.CharField()
+    threshold_utilization_ratio = serializers.FloatField()
+    threshold_utilization_percent = serializers.FloatField()
+    by_content_type = serializers.ListField(child=serializers.DictField(), allow_empty=True)
+
+
+class DocumentDeliveryReceiptSerializer(serializers.ModelSerializer):
+    student_id = serializers.UUIDField(source="student.public_id", read_only=True)
+    guardian_id = serializers.UUIDField(source="guardian.public_id", read_only=True)
+
+    class Meta:
+        model = DocumentDeliveryReceipt
+        fields = [
+            "public_id",
+            "student_id",
+            "guardian_id",
+            "document_type",
+            "folio",
+            "recipient_name",
+            "delivered_at",
+            "notes",
+        ]
+
+
+class DocumentDeliveryReceiptCreateSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField()
+    guardian_id = serializers.UUIDField()
+    document_type = serializers.CharField(max_length=100)
+    folio = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    recipient_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        student_id = attrs["student_id"]
+        guardian_id = attrs["guardian_id"]
+        student = Student.objects.filter(public_id=student_id).first()
+        guardian = Guardian.objects.filter(public_id=guardian_id).first()
+        if student is None:
+            raise serializers.ValidationError({"student_id": "No existe el estudiante indicado."})
+        if guardian is None:
+            raise serializers.ValidationError({"guardian_id": "No existe el encargado indicado."})
+        attrs["student"] = student
+        attrs["guardian"] = guardian
+        return attrs
+
+
+class OfficialDocumentEligibilityQuerySerializer(serializers.Serializer):
+    enrolment_id = serializers.UUIDField(help_text="Public ID de la matrícula.")
+
+
+class OfficialDocumentEligibilityResponseSerializer(serializers.Serializer):
+    eligible = serializers.BooleanField()
+    blocking_document_codes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Codigos de los documentos obligatorios pendientes que bloquean la emision.",
+    )
+
+
+class HistoricalCycleReportQuerySerializer(serializers.Serializer):
+    enrolment_id = serializers.UUIDField(help_text="Public ID de la matricula.")
+
+
+class DocumentBatchCompileSerializer(serializers.Serializer):
+    section_id = serializers.UUIDField(required=False, help_text="Public ID de la seccion.")
+    grade_id = serializers.UUIDField(required=False, help_text="Public ID del grado.")
+    document_type = serializers.CharField(max_length=100, required=False, default="Boleta")
+    client_batch_id = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Identificador generado por el cliente. Reenviar el mismo tras un fallo de red "
+            "devuelve el resultado ya registrado en lugar de repetir la emision."
+        ),
+    )
+
+    def validate(self, attrs):
+        section_id = attrs.get("section_id")
+        grade_id = attrs.get("grade_id")
+        if not section_id and not grade_id:
+            raise serializers.ValidationError("Se requiere section_id o grade_id.")
+
+        section = None
+        if section_id:
+            section = Section.objects.filter(public_id=section_id).first()
+            if section is None:
+                raise serializers.ValidationError({"section_id": "No existe la seccion indicada."})
+
+        grade = None
+        if grade_id:
+            grade = Grade.objects.filter(public_id=grade_id).first()
+            if grade is None:
+                raise serializers.ValidationError({"grade_id": "No existe el grado indicado."})
+
+        attrs["section"] = section
+        attrs["grade"] = grade
+        return attrs
+
+
+class DocumentBatchCompileResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    replayed = serializers.BooleanField(default=False)
+
+
+class DocumentTemplatePreviewSerializer(serializers.Serializer):
+    payload = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        default=dict,
+        help_text="Mapa de marcadores permitidos a valores a interpolar.",
+    )
+    content = serializers.JSONField(required=False)
+    content_format = serializers.ChoiceField(
+        choices=DocumentTemplate.ContentFormat.choices, required=False
+    )
+    page_size = serializers.ChoiceField(choices=DocumentTemplate.PageSize.choices, required=False)
+    orientation = serializers.ChoiceField(
+        choices=DocumentTemplate.Orientation.choices, required=False
+    )
+    margin_top = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_right = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_bottom = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    margin_left = serializers.IntegerField(required=False, min_value=18, max_value=144)
+    footer_text = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    signature_blocks = serializers.JSONField(required=False)
+
+
+class DocumentTemplatePreviewResponseSerializer(serializers.Serializer):
+    content = serializers.JSONField()
+    markers = serializers.ListField(child=serializers.CharField())
+    marker_count = serializers.IntegerField()
+    content_type = serializers.CharField()
+    pdf_base64 = serializers.CharField()
+    content_format = serializers.CharField()
+
+
+class DocumentVerificationResponseSerializer(serializers.Serializer):
+    valid = serializers.BooleanField()
+    document_type = serializers.CharField(required=False)
+    folio = serializers.CharField(required=False, allow_blank=True)
+    issued_at = serializers.CharField(required=False)
+    vigencia = serializers.CharField(required=False, allow_blank=True)
+
+
+class DocumentRecordSerializer(serializers.ModelSerializer):
+    enrolment_id = serializers.UUIDField(
+        source="enrolment.public_id", allow_null=True, read_only=True
+    )
+    supersedes_id = serializers.UUIDField(
+        source="supersedes.public_id", allow_null=True, read_only=True
+    )
+    # RF-DOC-001: exactly one of the two is set; additive, read-only fields.
+    student_id = serializers.UUIDField(source="student.public_id", allow_null=True, read_only=True)
+    teacher_id = serializers.UUIDField(source="teacher.public_id", allow_null=True, read_only=True)
+
+    class Meta:
+        model = DocumentRecord
+        fields = [
+            "public_id",
+            "student_id",
+            "teacher_id",
+            "enrolment_id",
+            "filename",
+            "content_type",
+            "size_bytes",
+            "checksum",
+            "status",
+            "is_active",
+            "version_group_id",
+            "version_number",
+            "supersedes_id",
+            "created_at",
+        ]
+
+
+class DocumentUploadSerializer(serializers.Serializer):
+    student_id = serializers.UUIDField()
+    enrolment_id = serializers.UUIDField(required=False, allow_null=True)
+    file = serializers.FileField()
+
+    def validate(self, attrs):
+        student = Student.objects.filter(public_id=attrs["student_id"]).first()
+        if student is None:
+            raise serializers.ValidationError({"student_id": "No existe el estudiante indicado."})
+        enrolment = None
+        if attrs.get("enrolment_id"):
+            enrolment = Enrolment.objects.filter(public_id=attrs["enrolment_id"]).first()
+            if enrolment is None:
+                raise serializers.ValidationError(
+                    {"enrolment_id": "No existe la matricula indicada."}
+                )
+        attrs["student"] = student
+        attrs["enrolment"] = enrolment
+        return attrs
+
+
+class DocumentReplaceSerializer(serializers.Serializer):
+    file = serializers.FileField()
+
+
+class IndividualIssuanceSerializer(serializers.Serializer):
+    enrolment_id = serializers.UUIDField(help_text="Public ID de la matricula del estudiante.")
+    document_type = serializers.ChoiceField(
+        choices=DocumentIssuance.DocumentType.choices,
+        help_text=(
+            "`enrolment_certificate` (constancia de inscripcion vigente) o "
+            "`study_certificate` (certificado de estudios de un ciclo cerrado)."
+        ),
+    )
+
+
+class IssuedDocumentVerifySerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="PDF recibido al emitir el documento.")
+
+
+class TeacherDocumentUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="PDF, JPG o PNG del expediente del docente.")
+
+
+class DocumentDownloadTokenSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="Token de un solo uso; se muestra una unica vez.")
+    expires_at = serializers.DateTimeField()
+    download_url = serializers.CharField(
+        help_text="Ruta relativa de descarga con el token ya incluido."
+    )

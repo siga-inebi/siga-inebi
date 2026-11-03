@@ -1,0 +1,20 @@
+changelog:
+  exclude:
+    labels:
+      - "dependencies"
+      - "status:blocked"
+  categories:
+    - title: "Cambios funcionales"
+      labels:
+        - "type:feature"
+        - "type:bug"
+        - "breaking-change"
+    - title: "Calidad y pruebas"
+      labels:
+        - "type:test"
+        - "type:refactor"
+    - title: "Documentacion y procesos"
+      labels:
+        - "type:docs"
+        - "type:chore"
+        - "area:devops"

@@ -1,0 +1,102 @@
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+
+# Local Claude Code config (machine-specific permissions, not shared tooling)
+.claude/
+
+# Caches de herramientas locales
+.atl/
+.codegraph/
+.playwright-mcp/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+.venv-broken/
+venv/
+venv-broken/
+
+# Node
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+
+# Build and runtime artifacts
+tmp/
+logs/
+scripts/requirements/out/
+
+# Documento fuente de requerimientos: 21 MB de binario que git no puede
+# diferenciar. Los datos que el pipeline necesita viven versionados en
+# docs/requirements/requirements.json y docs/requirements/openspec/.
+INEBI Fase 2.pdf
+media/
+staticfiles/
+*.sqlite3
+db.sqlite3
+coverage.xml
+build/
+docker-data/
+*.sql
+*.dump
+*.pem
+*.key
+*.crt
+credentials/
+
+# Project-specific
+uploads/
+
+# RNF-RES-001: los respaldos contienen datos reales del establecimiento y no se
+# versionan jamas. El directorio se crea con `make backup`.
+backups/
+
+# Raw Phase 7 execution evidence stays local; publish only reviewed references.
+docs/quality/fase-7/evidence/
+
+# Terraform: estado, planes, variables privadas y config del backend pueden
+# contener secretos. Se versionan el lockfile y los *.example.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+backend.hcl
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Local media binaries & scratch
+*.mp4
+*.webm
+*.mp3
+scratch/
+docs/manuals/video-real-raw/
+docs/manuals/video-playwright/
+docs/manuals/recursos-demostracion/
+frontend/test_*.txt

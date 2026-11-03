@@ -1,0 +1,134 @@
+import { apiClient } from "@shared/api/apiClient.js";
+import { collectAllPages } from "@shared/api/pages.js";
+import { withQuery } from "@shared/api/query.js";
+
+export const studentsService = {
+  linkRecordGuardian: (id, data) =>
+    apiClient.post(`/students/records/${id}/guardians/link/`, data),
+  getRecordStatus: (id, params) =>
+    apiClient.get(withQuery(`/students/records/${id}/status/`, params)),
+  changeRecordStatus: (id, data) =>
+    apiClient.post(`/students/records/${id}/status/`, data),
+  deactivate: (id) => apiClient.del(`/students/${id}/`),
+  getRecord: (id) => apiClient.get(`/students/records/${id}/`),
+  listRecordGuardians: (id, params) =>
+    apiClient.get(withQuery(`/students/records/${id}/guardians/`, params)),
+  listHealthNotesPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/health-notes/`, params)),
+  listObservationsPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/observations/`, params)),
+  listEmergencyContactsPage: (id, params) =>
+    apiClient.get(withQuery(`/students/${id}/emergency-contacts/`, params)),
+  /** Página del servidor: listado principal, selectores y exportación explícita. */
+  listPage: (params) => apiClient.get(withQuery("/students/", params)),
+  /**
+   * Listado completo con los filtros dados, recorriendo todas las paginas.
+   *
+   * Solo para la exportacion CSV que la persona pide: AlumnosPage pide al
+   * servidor unicamente la pagina visible (`listPage`).
+   */
+  list: (params = {}) =>
+    collectAllPages((page) => studentsService.listPage({ ...params, ...page })),
+  get: (id) => apiClient.get(`/students/${id}/`),
+  /** Plantilla CSV de importación (solo encabezados): `{ blob, headers }`. */
+  importTemplate: () => apiClient.getFile("/students/import/template/"),
+  /**
+   * Importación CSV, todo o nada. La vista previa valida cada fila sin
+   * guardar y devuelve `file_sha256`; la confirmación manda el MISMO archivo y
+   * ese hash. Si el archivo cambió responde 409; si alguna fila falla, 422 con
+   * las filas y no inserta ninguna.
+   */
+  previewImport: (file) => {
+    const payload = new FormData();
+    payload.set("file", file);
+    return apiClient.post("/students/import/preview/", payload);
+  },
+  confirmImport: (file, fileSha256) => {
+    const payload = new FormData();
+    payload.set("file", file);
+    payload.set("file_sha256", fileSha256);
+    return apiClient.post("/students/import/confirm/", payload);
+  },
+  /**
+   * Siguiente codigo de estudiante libre, para prellenar el alta.
+   *
+   * Es el MISMO que asignaria el backend si el campo llegara vacio; no reserva
+   * nada, asi que dos formularios abiertos a la vez ven el mismo valor y el
+   * segundo que guarde recibe el siguiente.
+   */
+  nextCode: () =>
+    apiClient.get("/students/next-code/").then((body) => body.student_code),
+  // Registros del expediente: una sola pagina del estudiante pedido, con su
+  // sobre paginado completo (#634). Nunca la primera pagina global recortada.
+  listHealthNotes: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/health-notes/`, params)
+    ),
+  createHealthNote: (studentPublicId, data) =>
+    apiClient.post(`/students/${studentPublicId}/health-notes/`, data),
+  updateHealthNote: (id, data) =>
+    apiClient.patch(`/students/health-notes/${id}/`, data),
+  deactivateHealthNote: (id) => apiClient.del(`/students/health-notes/${id}/`),
+  listObservations: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/observations/`, params)
+    ),
+  createObservation: (studentPublicId, data) =>
+    apiClient.post(`/students/${studentPublicId}/observations/`, data),
+  updateObservation: (id, data) =>
+    apiClient.patch(`/students/observations/${id}/`, data),
+  deactivateObservation: (id) => apiClient.del(`/students/observations/${id}/`),
+  listEmergencyContacts: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery(`/students/${studentPublicId}/emergency-contacts/`, params)
+    ),
+  createEmergencyContact: (studentPublicId, data) =>
+    apiClient.post(`/students/${studentPublicId}/emergency-contacts/`, data),
+  updateEmergencyContact: (id, data) =>
+    apiClient.patch(`/students/emergency-contacts/${id}/`, data),
+  deactivateEmergencyContact: (id) =>
+    apiClient.del(`/students/emergency-contacts/${id}/`),
+  listGuardianRelations: (studentPublicId, params) =>
+    apiClient.get(
+      withQuery("/students/guardian-relations/", {
+        ...params,
+        student_id: studentPublicId,
+      })
+    ),
+  createGuardianRelation: (data) =>
+    apiClient.post("/students/guardian-relations/", data),
+  updateGuardianRelation: (id, data) =>
+    apiClient.patch(`/students/guardian-relations/${id}/`, data),
+  makeGuardianRelationPrimary: (id) =>
+    apiClient.post(`/students/guardian-relations/${id}/make-primary/`, {}),
+  endGuardianRelation: (id, data) =>
+    apiClient.post(`/students/guardian-relations/${id}/end/`, data),
+  create: async ({ photo, ...data }) => {
+    const created = await apiClient.post("/students/", data);
+    if (!photo) {
+      return created;
+    }
+    const formData = new FormData();
+    formData.append("photo", photo);
+    return apiClient.patch(`/students/${created.id}/`, formData);
+  },
+  // StudentSerializer intentionally rejects nested `person` writes on update
+  // (see backend/apps/students/api/serializers.py), so name/email/phone
+  // edits go to /people/<public_id>/ while student_code/photo go to
+  // /students/<id>/ — the same two-endpoint split used by create.
+  update: async (id, { photo, person, ...data }) => {
+    if (person) {
+      const { public_id: personPublicId, ...personData } = person;
+      await apiClient.patch(`/people/${personPublicId}/`, personData);
+    }
+    if (Object.keys(data).length > 0) {
+      await apiClient.patch(`/students/${id}/`, data);
+    }
+    if (photo) {
+      const formData = new FormData();
+      formData.append("photo", photo);
+      await apiClient.patch(`/students/${id}/`, formData);
+    }
+    return studentsService.get(id);
+  },
+};

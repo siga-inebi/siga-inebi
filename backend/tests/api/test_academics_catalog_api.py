@@ -1,0 +1,831 @@
+from datetime import date
+
+import pytest
+from django.urls import reverse
+
+from apps.academics.models import Campus, Grade, Level, Subject
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    CampusFactory,
+    ClassroomFactory,
+    ClassScheduleBlockFactory,
+    GradeFactory,
+    GradeOfferingFactory,
+    LevelFactory,
+    LevelSubjectFactory,
+    ShiftFactory,
+    SubjectFactory,
+)
+
+pytestmark = [pytest.mark.api, pytest.mark.django_db]
+
+MISSING_UUID = "00000000-0000-0000-0000-000000000000"
+
+
+def _detail(response):
+    return response.json()["error"]["detail"]
+
+
+def _items(response):
+    """Rows of a paginated list response."""
+    return response.json()["results"]
+
+
+# --------------------------------------------------------------------------- #
+# authentication
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "url_name",
+    ["campus-list-create", "level-list-create", "subject-list-create"],
+)
+def test_catalog_endpoints_require_authentication(client, url_name):
+    response = client.get(reverse(url_name))
+
+    assert response.status_code in (401, 403)
+
+
+def test_classroom_endpoints_require_authentication(client, institution):
+    classroom = ClassroomFactory(campus=CampusFactory(institution=institution))
+
+    list_response = client.get(reverse("classroom-list-create"))
+    detail_response = client.get(reverse("classroom-detail", args=[classroom.public_id]))
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "url_name, build",
+    [
+        ("campus-detail", lambda institution: CampusFactory(institution=institution)),
+        ("level-detail", lambda institution: LevelFactory(institution=institution)),
+        ("grade-detail", lambda institution: GradeFactory(level__institution=institution)),
+        ("subject-detail", lambda institution: SubjectFactory(institution=institution)),
+    ],
+    ids=["campus", "level", "grade", "subject"],
+)
+def test_catalog_detail_endpoints_require_authentication(client, institution, url_name, build):
+    """
+    RF-EST-012: desactivar (DELETE) es la via de baja de estos elementos, y
+    comparte permission_classes con el resto del detalle, pero ningun test
+    lo confirmaba para estos cuatro -- ni siquiera via GET.
+    """
+    instance = build(institution)
+
+    response = client.get(reverse(url_name, args=[instance.public_id]))
+
+    assert response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# campuses
+# --------------------------------------------------------------------------- #
+
+
+def test_create_campus_returns_201_with_public_id(admin_client, institution):
+    response = admin_client.post(
+        reverse("campus-list-create"),
+        {"name": "Sede Central", "code": "central", "address": "Zona 1", "is_main": True},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["code"] == "CENTRAL"
+    assert body["is_main"] is True
+    assert "public_id" in body
+    assert Campus.objects.filter(institution=institution, code="CENTRAL").exists()
+
+
+def test_create_campus_rejects_duplicate_code_with_400(admin_client, institution):
+    CampusFactory(institution=institution, code="CENTRAL")
+
+    response = admin_client.post(
+        reverse("campus-list-create"),
+        {"name": "Otra", "code": "CENTRAL"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "already" in str(_detail(response))
+
+
+def test_create_campus_without_code_generates_one(admin_client, institution):
+    """El codigo dejo de ser obligatorio: el backend emite el siguiente."""
+    response = admin_client.post(
+        reverse("campus-list-create"),
+        {"name": "Sede sin codigo"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["code"] == "SED-01"
+
+
+def test_campus_next_code_endpoint_offers_what_the_creation_would_use(admin_client, institution):
+    """
+    La sugerencia y el alta salen de la misma funcion.
+
+    Si no coincidieran, el formulario mostraria un codigo y guardaria otro, que
+    es peor que no mostrar nada.
+    """
+    suggested = admin_client.get(reverse("campus-next-code")).json()["code"]
+
+    created = admin_client.post(
+        reverse("campus-list-create"),
+        {"name": "Sede Norte"},
+        content_type="application/json",
+    )
+
+    assert created.status_code == 201
+    assert created.json()["code"] == suggested
+
+
+def test_list_campuses_only_returns_current_institution(admin_client, institution):
+    CampusFactory(institution=institution, code="CENTRAL")
+    CampusFactory(code="OTHER")  # another institution
+
+    response = admin_client.get(reverse("campus-list-create"))
+
+    assert response.status_code == 200
+    codes = [item["code"] for item in _items(response)]
+    assert codes == ["CENTRAL"]
+
+
+def test_list_campuses_hides_inactive_by_default_and_shows_them_on_request(
+    admin_client, institution
+):
+    CampusFactory(institution=institution, code="ACTIVE")
+    CampusFactory(institution=institution, code="OLD", is_active=False)
+
+    default = admin_client.get(reverse("campus-list-create"))
+    included = admin_client.get(reverse("campus-list-create"), {"include_inactive": "true"})
+
+    assert [item["code"] for item in _items(default)] == ["ACTIVE"]
+    assert sorted(item["code"] for item in _items(included)) == ["ACTIVE", "OLD"]
+
+
+def test_campus_detail_returns_404_for_unknown_public_id(admin_client, institution):
+    response = admin_client.get(reverse("campus-detail", args=[MISSING_UUID]))
+
+    assert response.status_code == 404
+
+
+def test_campus_detail_returns_404_for_another_institution(admin_client, institution):
+    foreign = CampusFactory()
+
+    response = admin_client.get(reverse("campus-detail", args=[foreign.public_id]))
+
+    assert response.status_code == 404
+
+
+def test_patch_campus_updates_name(admin_client, institution):
+    campus = CampusFactory(institution=institution, name="Sede Vieja")
+
+    response = admin_client.patch(
+        reverse("campus-detail", args=[campus.public_id]),
+        {"name": "Sede Nueva"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Sede Nueva"
+
+
+def test_delete_campus_deactivates_instead_of_deleting(admin_client, institution):
+    campus = CampusFactory(institution=institution)
+
+    response = admin_client.delete(reverse("campus-detail", args=[campus.public_id]))
+
+    assert response.status_code == 204
+    campus.refresh_from_db()
+    assert campus.is_active is False
+
+
+def test_delete_campus_in_use_returns_400(admin_client, institution):
+    campus = CampusFactory(institution=institution)
+    shift = ShiftFactory(campus=campus)
+    cycle = AcademicCycleFactory(institution=institution)
+    GradeOfferingFactory(academic_cycle=cycle, shift=shift)
+
+    response = admin_client.delete(reverse("campus-detail", args=[campus.public_id]))
+
+    assert response.status_code == 400
+    assert "ciclo activo" in str(_detail(response))
+
+
+# --------------------------------------------------------------------------- #
+# shifts (per campus)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_shift_under_its_campus(admin_client, institution):
+    campus = CampusFactory(institution=institution)
+
+    response = admin_client.post(
+        reverse("campus-shift-list-create", args=[campus.public_id]),
+        {"name": "Matutina", "code": "mat"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["code"] == "MAT"
+    assert response.json()["campus"]["code"] == campus.code
+
+
+def test_list_shifts_is_scoped_to_the_campus(admin_client, institution):
+    campus = CampusFactory(institution=institution)
+    ShiftFactory(campus=campus, code="MAT")
+    ShiftFactory(campus=CampusFactory(institution=institution), code="VES")
+
+    response = admin_client.get(reverse("campus-shift-list-create", args=[campus.public_id]))
+
+    assert [item["code"] for item in _items(response)] == ["MAT"]
+
+
+def test_create_shift_under_unknown_campus_returns_404(admin_client, institution):
+    response = admin_client.post(
+        reverse("campus-shift-list-create", args=[MISSING_UUID]),
+        {"name": "Matutina", "code": "MAT"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 404
+
+
+def test_shift_detail_roundtrip(admin_client, institution):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution), name="Matutina")
+
+    read = admin_client.get(reverse("shift-detail", args=[shift.public_id]))
+    renamed = admin_client.patch(
+        reverse("shift-detail", args=[shift.public_id]),
+        {"name": "Jornada Matutina"},
+        content_type="application/json",
+    )
+    removed = admin_client.delete(reverse("shift-detail", args=[shift.public_id]))
+
+    assert read.json()["name"] == "Matutina"
+    assert renamed.json()["name"] == "Jornada Matutina"
+    assert removed.status_code == 204
+    shift.refresh_from_db()
+    assert shift.is_active is False
+
+
+def test_shift_detail_of_another_institution_returns_404(admin_client, institution):
+    foreign = ShiftFactory()
+
+    response = admin_client.get(reverse("shift-detail", args=[foreign.public_id]))
+
+    assert response.status_code == 404
+
+
+def test_deactivate_shift_in_use_returns_400(admin_client, institution):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+    GradeOfferingFactory(academic_cycle=AcademicCycleFactory(institution=institution), shift=shift)
+
+    response = admin_client.delete(reverse("shift-detail", args=[shift.public_id]))
+
+    assert response.status_code == 400
+    assert "ciclo activo" in str(_detail(response))
+
+
+def test_shift_endpoints_require_authentication(client, institution):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+
+    list_response = client.get(reverse("campus-shift-list-create", args=[shift.campus.public_id]))
+    detail_response = client.get(reverse("shift-detail", args=[shift.public_id]))
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# schedule blocks (per shift) -- RF-HOR-001
+# --------------------------------------------------------------------------- #
+
+
+def test_create_schedule_block_under_its_shift(admin_client, institution):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+
+    response = admin_client.post(
+        reverse("shift-schedule-block-list-create", args=[shift.public_id]),
+        {"number": 1, "name": "Bloque 1", "starts_on": "07:00:00", "ends_on": "07:45:00"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["number"] == 1
+    assert response.json()["starts_on"] == "07:00:00"
+    assert response.json()["shift"]["public_id"] == str(shift.public_id)
+
+
+def test_create_schedule_block_rejects_overlap_with_400(admin_client, institution):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+    ClassScheduleBlockFactory(shift=shift, number=1)
+
+    response = admin_client.post(
+        reverse("shift-schedule-block-list-create", args=[shift.public_id]),
+        {"number": 2, "name": "Bloque 2", "starts_on": "07:30:00", "ends_on": "08:15:00"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "se solapa" in str(_detail(response))
+
+
+def test_list_schedule_blocks_is_scoped_to_the_shift_and_ordered_by_number(
+    admin_client, institution
+):
+    shift = ShiftFactory(campus=CampusFactory(institution=institution))
+    ClassScheduleBlockFactory(shift=shift, number=2, starts_on="08:00", ends_on="08:45")
+    ClassScheduleBlockFactory(shift=shift, number=1, starts_on="07:00", ends_on="07:45")
+    ClassScheduleBlockFactory(shift=ShiftFactory(campus=CampusFactory(institution=institution)))
+
+    response = admin_client.get(reverse("shift-schedule-block-list-create", args=[shift.public_id]))
+
+    assert [item["number"] for item in _items(response)] == [1, 2]
+
+
+def test_create_schedule_block_under_unknown_shift_returns_404(admin_client, institution):
+    response = admin_client.post(
+        reverse("shift-schedule-block-list-create", args=[MISSING_UUID]),
+        {"number": 1, "name": "Bloque 1", "starts_on": "07:00:00", "ends_on": "07:45:00"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 404
+
+
+def test_schedule_block_detail_roundtrip(admin_client, institution):
+    campus = CampusFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=ShiftFactory(campus=campus))
+
+    read = admin_client.get(reverse("schedule-block-detail", args=[block.public_id]))
+    renamed = admin_client.patch(
+        reverse("schedule-block-detail", args=[block.public_id]),
+        {"name": "Primera hora"},
+        content_type="application/json",
+    )
+    removed = admin_client.delete(reverse("schedule-block-detail", args=[block.public_id]))
+
+    assert read.json()["name"] == block.name
+    assert renamed.json()["name"] == "Primera hora"
+    assert removed.status_code == 204
+    block.refresh_from_db()
+    assert block.is_active is False
+
+
+def test_schedule_block_detail_of_another_institution_returns_404(admin_client, institution):
+    foreign = ClassScheduleBlockFactory()
+
+    response = admin_client.get(reverse("schedule-block-detail", args=[foreign.public_id]))
+
+    assert response.status_code == 404
+
+
+def test_schedule_block_endpoints_require_authentication(client, institution):
+    campus = CampusFactory(institution=institution)
+    block = ClassScheduleBlockFactory(shift=ShiftFactory(campus=campus))
+
+    list_response = client.get(
+        reverse("shift-schedule-block-list-create", args=[block.shift.public_id])
+    )
+    detail_response = client.get(reverse("schedule-block-detail", args=[block.public_id]))
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# levels
+# --------------------------------------------------------------------------- #
+
+
+def test_create_level_returns_201(admin_client, institution):
+    response = admin_client.post(
+        reverse("level-list-create"),
+        {"name": "Primaria", "code": "pri", "sequence": 2},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["code"] == "PRI"
+    assert Level.objects.filter(institution=institution, sequence=2).exists()
+
+
+def test_create_level_rejects_duplicate_sequence(admin_client, institution):
+    LevelFactory(institution=institution, sequence=1)
+
+    response = admin_client.post(
+        reverse("level-list-create"),
+        {"name": "Primaria", "code": "PRI", "sequence": 1},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "secuencia" in str(_detail(response))
+
+
+def test_create_level_rejects_non_positive_sequence_at_serializer(admin_client, institution):
+    response = admin_client.post(
+        reverse("level-list-create"),
+        {"name": "Primaria", "code": "PRI", "sequence": 0},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "sequence" in _detail(response)
+
+
+def test_list_levels_sends_cache_control_and_etag(admin_client, institution):
+    LevelFactory(institution=institution)
+
+    response = admin_client.get(reverse("level-list-create"))
+
+    # #631 (1.2.1, N1): revalidar siempre; antes era max-age=300.
+    assert "max-age=0" in response.headers["Cache-Control"]
+    assert "private" in response.headers["Cache-Control"]
+    assert response.headers["ETag"]
+
+
+def test_list_levels_returns_304_when_etag_matches(admin_client, institution):
+    LevelFactory(institution=institution)
+
+    first = admin_client.get(reverse("level-list-create"))
+    etag = first.headers["ETag"]
+
+    revalidated = admin_client.get(reverse("level-list-create"), HTTP_IF_NONE_MATCH=etag)
+
+    assert revalidated.status_code == 304
+
+
+def test_list_levels_etag_changes_when_data_changes(admin_client, institution):
+    LevelFactory(institution=institution, sequence=1)
+    first_etag = admin_client.get(reverse("level-list-create")).headers["ETag"]
+
+    LevelFactory(institution=institution, sequence=2)
+    second_etag = admin_client.get(reverse("level-list-create")).headers["ETag"]
+
+    assert first_etag != second_etag
+
+
+def test_list_cycles_always_revalidates_so_new_cycles_show_up(admin_client, institution):
+    AcademicCycleFactory(
+        institution=institution,
+        year=2026,
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 12, 31),
+    )
+
+    first = admin_client.get(reverse("academic-cycle-list-create"))
+    cache_control = first.headers["Cache-Control"]
+
+    # max-age=0: el navegador no sirve el listado sin revalidar, pero conserva
+    # el ahorro del 304 mientras nada cambie.
+    assert "max-age=0" in cache_control
+    assert "private" in cache_control
+
+    revalidated = admin_client.get(
+        reverse("academic-cycle-list-create"), HTTP_IF_NONE_MATCH=first.headers["ETag"]
+    )
+    assert revalidated.status_code == 304
+
+    AcademicCycleFactory(
+        institution=institution,
+        year=2027,
+        status="draft",
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+    )
+    after_create = admin_client.get(
+        reverse("academic-cycle-list-create"), HTTP_IF_NONE_MATCH=first.headers["ETag"]
+    )
+    assert after_create.status_code == 200
+    assert after_create.json()["count"] == 2
+
+
+def test_teaching_assignment_history_does_not_send_cache_headers(admin_client, institution):
+    # A diferencia de los catalogos de baja rotacion, el historial de
+    # asignaciones muta seguido: no debe quedar cacheado por accidente.
+    # RNF-PRI-003: sin opt-in, la API responde `no-store` por defecto.
+    response = admin_client.get(reverse("teaching-assignment-history"))
+
+    assert response.headers["Cache-Control"] == "no-store"
+    assert "ETag" not in response.headers
+
+
+def test_list_levels_is_ordered_by_sequence(admin_client, institution):
+    LevelFactory(institution=institution, code="DIV", sequence=4)
+    LevelFactory(institution=institution, code="PRE", sequence=1)
+    LevelFactory(institution=institution, code="PRI", sequence=2)
+
+    response = admin_client.get(reverse("level-list-create"))
+
+    assert [item["code"] for item in _items(response)] == ["PRE", "PRI", "DIV"]
+
+
+def test_list_levels_expand_grades_nests_grades_ordered_by_sequence(admin_client, institution):
+    # El selector de "Presencia en tiempo real" dependia de una peticion por
+    # nivel para armar el desplegable de grados; esto lo reemplaza por una
+    # sola llamada con los grados ya anidados.
+    first = LevelFactory(institution=institution, sequence=1)
+    second = LevelFactory(institution=institution, sequence=2)
+    GradeFactory(level=first, code="B", sequence=2)
+    GradeFactory(level=first, code="A", sequence=1)
+    GradeFactory(level=second, code="C", sequence=1)
+
+    response = admin_client.get(reverse("level-list-create"), {"expand": "grades"})
+
+    assert response.status_code == 200
+    items = _items(response)
+    grades_by_level = {item["public_id"]: item["grades"] for item in items}
+    assert [g["code"] for g in grades_by_level[str(first.public_id)]] == ["A", "B"]
+    assert [g["code"] for g in grades_by_level[str(second.public_id)]] == ["C"]
+
+
+def test_list_levels_without_expand_does_not_include_grades(admin_client, institution):
+    LevelFactory(institution=institution)
+
+    response = admin_client.get(reverse("level-list-create"))
+
+    assert "grades" not in _items(response)[0]
+
+
+def test_list_levels_expand_grades_handles_a_level_without_grades(admin_client, institution):
+    LevelFactory(institution=institution)
+
+    response = admin_client.get(reverse("level-list-create"), {"expand": "grades"})
+
+    assert response.status_code == 200
+    assert _items(response)[0]["grades"] == []
+
+
+def test_level_payload_exposes_grade_count(admin_client, institution):
+    level = LevelFactory(institution=institution)
+    GradeFactory(level=level)
+    GradeFactory(level=level)
+
+    response = admin_client.get(reverse("level-detail", args=[level.public_id]))
+
+    assert response.status_code == 200
+    assert response.json()["grade_count"] == 2
+
+
+def test_level_detail_patch_and_deactivate(admin_client, institution):
+    level = LevelFactory(institution=institution, name="Basico", sequence=3)
+
+    renamed = admin_client.patch(
+        reverse("level-detail", args=[level.public_id]),
+        {"name": "Ciclo Basico"},
+        content_type="application/json",
+    )
+    removed = admin_client.delete(reverse("level-detail", args=[level.public_id]))
+
+    assert renamed.json()["name"] == "Ciclo Basico"
+    assert removed.status_code == 204
+    level.refresh_from_db()
+    assert level.is_active is False
+
+
+def test_level_patch_with_taken_sequence_returns_400(admin_client, institution):
+    LevelFactory(institution=institution, sequence=1)
+    second = LevelFactory(institution=institution, sequence=2)
+
+    response = admin_client.patch(
+        reverse("level-detail", args=[second.public_id]),
+        {"sequence": 1},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "secuencia" in str(_detail(response))
+
+
+# --------------------------------------------------------------------------- #
+# grades (per level)
+# --------------------------------------------------------------------------- #
+
+
+def test_create_grade_under_its_level(admin_client, institution):
+    level = LevelFactory(institution=institution)
+
+    response = admin_client.post(
+        reverse("level-grade-list-create", args=[level.public_id]),
+        {"name": "Primero Primaria", "code": "pri1", "sequence": 1},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["code"] == "PRI1"
+    assert body["level"]["public_id"] == str(level.public_id)
+    assert Grade.objects.filter(level=level, code="PRI1").exists()
+
+
+def test_list_grades_of_a_level_is_ordered_by_sequence(admin_client, institution):
+    level = LevelFactory(institution=institution)
+    GradeFactory(level=level, code="B", sequence=2)
+    GradeFactory(level=level, code="A", sequence=1)
+
+    response = admin_client.get(reverse("level-grade-list-create", args=[level.public_id]))
+
+    assert [item["code"] for item in _items(response)] == ["A", "B"]
+
+
+def test_create_grade_under_foreign_level_returns_404(admin_client, institution):
+    foreign_level = LevelFactory()
+
+    response = admin_client.post(
+        reverse("level-grade-list-create", args=[foreign_level.public_id]),
+        {"name": "Primero", "code": "PRI1", "sequence": 1},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 404
+
+
+def test_delete_grade_deactivates_it(admin_client, institution):
+    grade = GradeFactory(level=LevelFactory(institution=institution))
+
+    response = admin_client.delete(reverse("grade-detail", args=[grade.public_id]))
+
+    assert response.status_code == 204
+    grade.refresh_from_db()
+    assert grade.is_active is False
+
+
+def test_grade_detail_roundtrip(admin_client, institution):
+    grade = GradeFactory(level=LevelFactory(institution=institution), name="Primero")
+
+    read = admin_client.get(reverse("grade-detail", args=[grade.public_id]))
+    renamed = admin_client.patch(
+        reverse("grade-detail", args=[grade.public_id]),
+        {"name": "Primero Primaria", "sequence": 1},
+        content_type="application/json",
+    )
+
+    assert read.json()["name"] == "Primero"
+    assert renamed.json()["name"] == "Primero Primaria"
+    assert renamed.json()["sequence"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# subjects and their link to levels
+# --------------------------------------------------------------------------- #
+
+
+def test_create_subject_returns_201(admin_client, institution):
+    response = admin_client.post(
+        reverse("subject-list-create"),
+        {"name": "Matematica", "code": "mat"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["code"] == "MAT"
+    assert Subject.objects.filter(institution=institution, code="MAT").exists()
+
+
+def test_subject_payload_lists_the_levels_it_is_taught_in(admin_client, institution):
+    subject = SubjectFactory(institution=institution)
+    primaria = LevelFactory(institution=institution, code="PRI", sequence=1)
+    basico = LevelFactory(institution=institution, code="BAS", sequence=2)
+    LevelSubjectFactory(level=primaria, subject=subject)
+    LevelSubjectFactory(level=basico, subject=subject)
+
+    response = admin_client.get(reverse("subject-detail", args=[subject.public_id]))
+
+    assert response.status_code == 200
+    assert [item["code"] for item in response.json()["levels"]] == ["PRI", "BAS"]
+
+
+def test_subject_detail_patch_and_deactivate(admin_client, institution):
+    subject = SubjectFactory(institution=institution, name="Mate")
+
+    renamed = admin_client.patch(
+        reverse("subject-detail", args=[subject.public_id]),
+        {"name": "Matematica"},
+        content_type="application/json",
+    )
+    removed = admin_client.delete(reverse("subject-detail", args=[subject.public_id]))
+
+    assert renamed.json()["name"] == "Matematica"
+    assert removed.status_code == 204
+    subject.refresh_from_db()
+    assert subject.is_active is False
+
+
+def test_link_subject_to_level(admin_client, institution):
+    level = LevelFactory(institution=institution)
+    subject = SubjectFactory(institution=institution)
+
+    response = admin_client.post(
+        reverse("level-subject-list-create", args=[level.public_id]),
+        {"subject_id": str(subject.public_id), "weekly_hours": 5, "is_required": False},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["subject"]["code"] == subject.code
+    assert body["weekly_hours"] == 5
+    assert body["is_required"] is False
+
+
+def test_link_subject_to_level_rejects_duplicate(admin_client, institution):
+    link = LevelSubjectFactory(level=LevelFactory(institution=institution))
+
+    response = admin_client.post(
+        reverse("level-subject-list-create", args=[link.level.public_id]),
+        {"subject_id": str(link.subject.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "already" in str(_detail(response))
+
+
+def test_link_subject_from_another_institution_returns_400(admin_client, institution):
+    level = LevelFactory(institution=institution)
+    foreign_subject = SubjectFactory()
+
+    response = admin_client.post(
+        reverse("level-subject-list-create", args=[level.public_id]),
+        {"subject_id": str(foreign_subject.public_id)},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert "misma institucion" in str(_detail(response))
+
+
+def test_link_unknown_subject_returns_400(admin_client, institution):
+    level = LevelFactory(institution=institution)
+
+    response = admin_client.post(
+        reverse("level-subject-list-create", args=[level.public_id]),
+        {"subject_id": MISSING_UUID},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+
+
+def test_list_level_subjects_returns_curricular_metadata(admin_client, institution):
+    level = LevelFactory(institution=institution)
+    LevelSubjectFactory(level=level, weekly_hours=6, is_required=True)
+
+    response = admin_client.get(reverse("level-subject-list-create", args=[level.public_id]))
+
+    assert response.status_code == 200
+    assert _items(response)[0]["weekly_hours"] == 6
+
+
+def test_patch_level_subject_updates_weekly_hours(admin_client, institution):
+    link = LevelSubjectFactory(level=LevelFactory(institution=institution), weekly_hours=4)
+
+    response = admin_client.patch(
+        reverse("level-subject-detail", args=[link.level.public_id, link.subject.public_id]),
+        {"weekly_hours": 8},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["weekly_hours"] == 8
+
+
+def test_unlink_subject_from_level(admin_client, institution):
+    link = LevelSubjectFactory(level=LevelFactory(institution=institution))
+
+    response = admin_client.delete(
+        reverse("level-subject-detail", args=[link.level.public_id, link.subject.public_id])
+    )
+
+    assert response.status_code == 204
+
+
+def test_unlink_unlinked_subject_returns_400(admin_client, institution):
+    level = LevelFactory(institution=institution)
+    subject = SubjectFactory(institution=institution)
+
+    response = admin_client.delete(
+        reverse("level-subject-detail", args=[level.public_id, subject.public_id])
+    )
+
+    assert response.status_code == 400
+
+
+def test_level_subject_endpoints_require_authentication(client, institution):
+    link = LevelSubjectFactory(level=LevelFactory(institution=institution))
+
+    list_response = client.get(reverse("level-subject-list-create", args=[link.level.public_id]))
+    detail_response = client.get(
+        reverse("level-subject-detail", args=[link.level.public_id, link.subject.public_id])
+    )
+
+    assert list_response.status_code in (401, 403)
+    assert detail_response.status_code in (401, 403)

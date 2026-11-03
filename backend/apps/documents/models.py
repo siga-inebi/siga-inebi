@@ -1,0 +1,602 @@
+import re
+import uuid
+from datetime import timedelta
+
+from django.db import models
+from django.utils import timezone
+
+from apps.common.models import TimeStampedModel
+
+
+class DocumentRecordQuerySet(models.QuerySet):
+    """Preserve document metadata and history: bulk delete is prohibited."""
+
+    def delete(self):
+        raise RuntimeError("Document records cannot be deleted.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Document records cannot be modified.")
+
+
+# Vida de un enlace de descarga (RF-DOC-005).
+DOWNLOAD_TOKEN_LIFETIME = timedelta(minutes=5)
+
+
+def default_download_expiry():
+    """
+    Vencimiento por defecto de un token de descarga.
+
+    Es una funcion con nombre y no una lambda porque Django tiene que
+    SERIALIZARLA en la migracion: una lambda no se puede serializar, asi que
+    ``makemigrations --check`` detectaba un cambio pendiente en cada corrida y la
+    compuerta de CI quedaba roja sin que nada hubiera cambiado.
+    """
+    return timezone.now() + DOWNLOAD_TOKEN_LIFETIME
+
+
+class DocumentRecord(TimeStampedModel):
+    """Persisted metadata for stored documents without allowing hard deletes.
+
+    The storage byte content stays outside the database, while the metadata and
+    lineage remain auditable and linked to the owner's dossier history.
+
+    RF-DOC-001: a record belongs to exactly one institutional dossier, the
+    student's or the teacher's. The owner is an explicit pair of nullable
+    foreign keys guarded by ``document_record_has_exactly_one_owner`` instead
+    of a generic relation, so the database keeps referential integrity
+    (``PROTECT``) and the existing student queries keep working unchanged.
+    """
+
+    objects = DocumentRecordQuerySet.as_manager()
+
+    class StorageStatus(models.TextChoices):
+        ACTIVE = "active", "Active"
+        ARCHIVED = "archived", "Archived"
+        RETAINED = "retained", "Retained"
+
+    student = models.ForeignKey(
+        "students.Student",
+        on_delete=models.PROTECT,
+        related_name="document_records",
+        null=True,
+        blank=True,
+    )
+    teacher = models.ForeignKey(
+        "teachers.Teacher",
+        on_delete=models.PROTECT,
+        related_name="document_records",
+        null=True,
+        blank=True,
+    )
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment",
+        on_delete=models.PROTECT,
+        related_name="document_records",
+        null=True,
+        blank=True,
+    )
+    filename = models.CharField(max_length=255)
+    storage_key = models.CharField(max_length=500, unique=True)
+    content_type = models.CharField(max_length=100)
+    size_bytes = models.PositiveBigIntegerField()
+    checksum = models.CharField(max_length=128)
+    version_group_id = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
+    version_number = models.PositiveIntegerField(default=1)
+    supersedes = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="replacement_versions",
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=StorageStatus.choices,
+        default=StorageStatus.ACTIVE,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["version_group_id", "version_number"],
+                name="unique_document_record_version_in_group",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(student__isnull=False, teacher__isnull=True)
+                    | models.Q(student__isnull=True, teacher__isnull=False)
+                ),
+                name="document_record_has_exactly_one_owner",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(enrolment__isnull=True) | models.Q(student__isnull=False),
+                name="document_record_enrolment_requires_student",
+            ),
+        ]
+
+    def __str__(self):
+        return self.filename
+
+    @property
+    def owner(self):
+        """The dossier owner: the student or the teacher (RF-DOC-001)."""
+        return self.student if self.student_id else self.teacher
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = (
+                DocumentRecord.objects.filter(pk=self.pk)
+                .values(
+                    "student_id",
+                    "teacher_id",
+                    "enrolment_id",
+                    "filename",
+                    "storage_key",
+                    "content_type",
+                    "size_bytes",
+                    "checksum",
+                    "version_group_id",
+                    "version_number",
+                    "supersedes_id",
+                )
+                .first()
+            )
+            if original is not None:
+                immutable_fields = {
+                    "student_id": self.student_id,
+                    "teacher_id": self.teacher_id,
+                    "enrolment_id": self.enrolment_id,
+                    "filename": self.filename,
+                    "storage_key": self.storage_key,
+                    "content_type": self.content_type,
+                    "size_bytes": self.size_bytes,
+                    "checksum": self.checksum,
+                    "version_group_id": self.version_group_id,
+                    "version_number": self.version_number,
+                    "supersedes_id": self.supersedes_id,
+                }
+                if any(original[field] != value for field, value in immutable_fields.items()):
+                    raise RuntimeError(
+                        "Document record metadata cannot be modified after creation."
+                    )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document records cannot be deleted.")
+
+
+class DocumentKind(TimeStampedModel):
+    """
+    Institutional catalogue of document types ("tipos de documento", RNF-MAN-001).
+
+    This used to be a ``TextChoices`` enum on ``DocumentTemplate``. A fixed enum
+    means a new document type -- a constancia, a finiquito, whatever the
+    ministry asks for next -- needs a migration and a deploy, which is exactly
+    what RNF-MAN-001 forbids. The rows live per institution so one
+    establishment adding a type never alters another's catalogue.
+
+    ``code`` is the stable identifier the API exposes (it is what the ``kind``
+    field of a template serialises to) and is immutable once created;
+    ``label`` is the display text and is freely editable. Deactivation is soft
+    (``is_active``) and hard deletion is refused, because templates and the
+    immutable version snapshots keep pointing at the code (ADR-0006).
+    """
+
+    institution = models.ForeignKey(
+        "academics.Institution", on_delete=models.CASCADE, related_name="document_kinds"
+    )
+    code = models.CharField(max_length=30)
+    label = models.CharField(max_length=100)
+    description = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["label"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "code"],
+                name="unique_document_kind_code_per_institution",
+            ),
+        ]
+
+    def __str__(self):
+        return self.label
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document kinds cannot be deleted; deactivate them instead.")
+
+
+class DocumentTemplate(TimeStampedModel):
+    """
+    Catalogue entry for a document template ("plantilla"): a reusable format
+    or structure used to issue reports and certificates (RF-PLA-001).
+    """
+
+    class IssuanceUse(models.TextChoices):
+        NONE = "none", "Ninguna"
+        ENROLMENT_CERTIFICATE = "enrolment_certificate", "Constancia de inscripción"
+        STUDY_CERTIFICATE = "study_certificate", "Certificado de estudios"
+
+    class ContentFormat(models.TextChoices):
+        PLAIN = "plain", "Texto plano"
+        RICH = "rich", "Contenido enriquecido"
+
+    class PageSize(models.TextChoices):
+        LETTER = "letter", "Carta"
+        LEGAL = "legal", "Oficio"
+        A4 = "a4", "A4"
+
+    class Orientation(models.TextChoices):
+        PORTRAIT = "portrait", "Vertical"
+        LANDSCAPE = "landscape", "Horizontal"
+
+    issuance_use = models.CharField(
+        max_length=30, choices=IssuanceUse.choices, default=IssuanceUse.NONE
+    )
+    institution = models.ForeignKey(
+        "academics.Institution", on_delete=models.CASCADE, related_name="document_templates"
+    )
+    name = models.CharField(max_length=150)
+    code = models.CharField(max_length=30)
+    document_kind = models.ForeignKey(
+        DocumentKind,
+        on_delete=models.PROTECT,
+        related_name="templates",
+        help_text="Tipo de documento del catalogo institucional (RNF-MAN-001).",
+    )
+    description = models.CharField(max_length=255, blank=True)
+    content = models.TextField(blank=True, default="")
+    content_format = models.CharField(
+        max_length=10, choices=ContentFormat.choices, default=ContentFormat.PLAIN
+    )
+    page_size = models.CharField(max_length=10, choices=PageSize.choices, default=PageSize.LETTER)
+    orientation = models.CharField(
+        max_length=10, choices=Orientation.choices, default=Orientation.PORTRAIT
+    )
+    margin_top = models.PositiveSmallIntegerField(default=54)
+    margin_right = models.PositiveSmallIntegerField(default=54)
+    margin_bottom = models.PositiveSmallIntegerField(default=54)
+    margin_left = models.PositiveSmallIntegerField(default=54)
+    footer_text = models.CharField(max_length=255, blank=True, default="")
+    signature_blocks = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "code"], name="unique_document_template_code_per_institution"
+            ),
+            models.UniqueConstraint(
+                fields=["institution", "issuance_use"],
+                condition=models.Q(is_active=True) & ~models.Q(issuance_use="none"),
+                name="unique_active_template_per_issuance_use",
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document templates cannot be deleted.")
+
+    @property
+    def kind(self):
+        """
+        Code of the template's document type.
+
+        Kept as a read-only alias of ``document_kind.code`` so the public API
+        contract (``kind`` as a short string) survived moving the catalogue out
+        of code and into the database (RNF-MAN-001, AGENTS.md #3).
+        """
+        return self.document_kind.code
+
+    @property
+    def institutional_header(self):
+        """
+        Mandatory institutional header every print template carries by default
+        (RF-PLA-004). Derived from the institution, never stored or
+        configurable per template, so it always reflects current
+        institutional data and can never be turned off.
+
+        ``logo_url`` is ``None`` until the ``file-storage`` domain exists
+        (``docs/architecture/file-storage-strategy.md``); ``Institution`` has
+        no logo field yet.
+        """
+        return {
+            "institution_name": self.institution.name,
+            "institution_short_name": self.institution.short_name,
+            "logo_url": None,
+        }
+
+
+class DocumentTemplateVersion(TimeStampedModel):
+    """
+    Immutable snapshot of a document template's content at a point in time
+    (RF-PLA-005), for institutional traceability. Written only by
+    ``apps.documents.services`` on creation and content updates; never
+    edited or deleted, same guarantee as ``apps.audit.models.AuditEvent``.
+    """
+
+    issuance_use = models.CharField(
+        max_length=30,
+        choices=DocumentTemplate.IssuanceUse.choices,
+        default=DocumentTemplate.IssuanceUse.NONE,
+    )
+    template = models.ForeignKey(
+        DocumentTemplate, on_delete=models.CASCADE, related_name="versions"
+    )
+    sequence = models.PositiveIntegerField()
+    name = models.CharField(max_length=150)
+    # Snapshot of the document-type CODE, not a foreign key: the version row is
+    # immutable and must keep reading the same way even if the catalogue entry
+    # is later relabelled or deactivated (RNF-MAN-001 makes the catalogue
+    # editable; RF-PLA-005 makes the snapshot permanent).
+    kind = models.CharField(max_length=30)
+    description = models.CharField(max_length=255, blank=True)
+    content = models.TextField(blank=True, default="")
+    content_format = models.CharField(
+        max_length=10,
+        choices=DocumentTemplate.ContentFormat.choices,
+        default=DocumentTemplate.ContentFormat.PLAIN,
+    )
+    page_size = models.CharField(
+        max_length=10,
+        choices=DocumentTemplate.PageSize.choices,
+        default=DocumentTemplate.PageSize.LETTER,
+    )
+    orientation = models.CharField(
+        max_length=10,
+        choices=DocumentTemplate.Orientation.choices,
+        default=DocumentTemplate.Orientation.PORTRAIT,
+    )
+    margin_top = models.PositiveSmallIntegerField(default=54)
+    margin_right = models.PositiveSmallIntegerField(default=54)
+    margin_bottom = models.PositiveSmallIntegerField(default=54)
+    margin_left = models.PositiveSmallIntegerField(default=54)
+    footer_text = models.CharField(max_length=255, blank=True, default="")
+    signature_blocks = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ["-sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["template", "sequence"], name="unique_document_template_version_sequence"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.template.name} v{self.sequence}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Document template versions cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document template versions cannot be deleted.")
+
+
+class DocumentDownloadToken(TimeStampedModel):
+    """Short-lived token for controlled document downloads (RF-DOC-005)."""
+
+    document = models.ForeignKey(
+        DocumentRecord,
+        on_delete=models.PROTECT,
+        related_name="download_tokens",
+    )
+    created_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="document_download_tokens",
+        null=True,
+        blank=True,
+    )
+    token_hash = models.CharField(max_length=128, unique=True)
+    expires_at = models.DateTimeField(default=default_download_expiry)
+    used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def is_valid(self):
+        return (
+            self.is_active
+            and self.revoked_at is None
+            and self.used_at is None
+            and self.expires_at > timezone.now()
+        )
+
+    def __str__(self):
+        return f"Download token for {self.document_id}"
+
+
+class DocumentDeliveryReceipt(TimeStampedModel):
+    """Immutable acknowledgement that a printed document was delivered to a guardian."""
+
+    student = models.ForeignKey(
+        "students.Student",
+        on_delete=models.PROTECT,
+        related_name="document_delivery_receipts",
+    )
+    guardian = models.ForeignKey(
+        "students.Guardian",
+        on_delete=models.PROTECT,
+        related_name="document_delivery_receipts",
+    )
+    document_type = models.CharField(max_length=100)
+    folio = models.CharField(max_length=100, blank=True)
+    recipient_name = models.CharField(max_length=150, blank=True)
+    delivered_at = models.DateTimeField(default=timezone.now)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-delivered_at", "-created_at"]
+
+    def __str__(self):
+        return f"{self.document_type} entregado a {self.guardian_id}"
+
+
+class OfficialFolio(TimeStampedModel):
+    """Institutional counter for the official document folio sequence."""
+
+    institution = models.ForeignKey(
+        "academics.Institution",
+        on_delete=models.PROTECT,
+        related_name="official_folios",
+    )
+    year = models.PositiveSmallIntegerField()
+    sequence = models.PositiveIntegerField()
+    document_type = models.CharField(max_length=50, blank=True)
+    issued_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-year", "-sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "year", "sequence"],
+                name="unique_official_folio_per_institution_year_sequence",
+            )
+        ]
+
+    @property
+    def folio_code(self):
+        prefix = (self.institution.short_name or self.institution.name or "DOC").strip().upper()
+        prefix = re.sub(r"[^A-Z0-9]+", "", prefix) or "DOC"
+        return f"{prefix}-{self.year}-{self.sequence:04d}"
+
+    def __str__(self):
+        return self.folio_code
+
+
+class DocumentBatchRun(TimeStampedModel):
+    """
+    Idempotency marker for a batch emission (RF-EMI-006, ampliado a pedido
+    del usuario -- el issue original no lo exige). Reports themselves stay
+    ephemeral (never persisted, per ``compile_document_batch``'s contract);
+    this only records that a client-identified batch already ran, so a
+    retry with the same ``client_batch_id`` is recognised and skipped
+    instead of re-emitting the same documents and audit events.
+    """
+
+    client_batch_id = models.CharField(max_length=100, blank=True, default="")
+    document_type = models.CharField(max_length=100)
+    enrolment_count = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["client_batch_id"],
+                condition=~models.Q(client_batch_id=""),
+                name="unique_document_batch_run_client_batch_id",
+            )
+        ]
+
+    def __str__(self):
+        return self.client_batch_id or f"batch-run-{self.pk}"
+
+
+class DocumentVerificationCode(TimeStampedModel):
+    """
+    Public verification record for an emitted document (RF-EMI-009).
+
+    Unlike ``OfficialFolio.folio_code``, ``code`` is a random, unguessable
+    token (``secrets.token_urlsafe``), never sequential -- a public lookup
+    must not let anyone enumerate issued documents by walking a counter.
+    Deliberately carries no student reference: the public endpoint only
+    needs to confirm authenticity, and keeping the model minimal means it
+    cannot leak more than that even by accident. The folio is the only
+    institutional identifier exposed to the public, and it remains minimal
+    by design to satisfy RNF-PRI-005 without revealing sensitive document
+    ownership metadata.
+    """
+
+    code = models.CharField(max_length=64, unique=True)
+    document_type = models.CharField(max_length=100, blank=True)
+    folio = models.CharField(max_length=100, blank=True, default="")
+    issued_at = models.CharField(max_length=50, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.code
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Document verification codes cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document verification codes cannot be deleted.")
+
+
+class DocumentIssuanceQuerySet(models.QuerySet):
+    """The emission register is append-only, also for bulk operations."""
+
+    def delete(self):
+        raise RuntimeError("Document issuances cannot be deleted.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Document issuances cannot be modified.")
+
+
+class DocumentIssuance(TimeStampedModel):
+    """
+    Immutable register of an individually issued constancia or certificado
+    (RF-EMI-001, RF-EMI-003, RF-EMI-007).
+
+    It stores the evidence of the emission, never the PDF: RF-DOC-008 keeps
+    generated documents ephemeral, so the bytes are compiled on demand and
+    handed to the caller once. What stays is enough to prove a copy genuine
+    later -- the SHA-256 and size of the exact bytes delivered, the official
+    folio, the public verification code and the template version used.
+    """
+
+    objects = DocumentIssuanceQuerySet.as_manager()
+
+    class DocumentType(models.TextChoices):
+        ENROLMENT_CERTIFICATE = "enrolment_certificate", "Constancia de inscripcion"
+        STUDY_CERTIFICATE = "study_certificate", "Certificado de estudios"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="document_issuances"
+    )
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment", on_delete=models.PROTECT, related_name="document_issuances"
+    )
+    document_type = models.CharField(max_length=40, choices=DocumentType.choices)
+    folio = models.CharField(max_length=100)
+    verification_code = models.CharField(max_length=64, unique=True)
+    template_version = models.ForeignKey(
+        DocumentTemplateVersion,
+        on_delete=models.PROTECT,
+        related_name="issuances",
+        null=True,
+        blank=True,
+    )
+    checksum = models.CharField(max_length=64)
+    size_bytes = models.PositiveIntegerField()
+    issued_at = models.DateTimeField()
+    issued_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="document_issuances",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-issued_at", "-pk"]
+
+    def __str__(self):
+        return f"{self.get_document_type_display()} {self.folio}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Document issuances cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Document issuances cannot be deleted.")

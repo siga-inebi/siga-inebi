@@ -1,0 +1,738 @@
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import DateRangeField, RangeOperators
+from django.db import models
+from django.db.models import F, Func, Q, Value
+from django.utils import timezone
+
+from apps.common.models import TimeStampedModel
+
+
+class Institution(TimeStampedModel):
+    name = models.CharField(max_length=255)
+    short_name = models.CharField(max_length=100, blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class Campus(TimeStampedModel):
+    """
+    Physical site of the institution ("sede"). Shifts, and therefore the whole
+    grade offering, hang from a campus.
+    """
+
+    institution = models.ForeignKey(Institution, on_delete=models.CASCADE, related_name="campuses")
+    name = models.CharField(max_length=150)
+    code = models.CharField(max_length=30)
+    address = models.CharField(max_length=255, blank=True)
+    is_main = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name_plural = "campuses"
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "code"], name="unique_campus_code_per_institution"
+            ),
+            # Partial index: only one row per institution may carry is_main.
+            models.UniqueConstraint(
+                fields=["institution"],
+                condition=Q(is_main=True),
+                name="unique_main_campus_per_institution",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
+class Classroom(TimeStampedModel):
+    """Physical classroom, laboratory, or other teaching space (RF-AUL-001)."""
+
+    class ServiceStatus(models.TextChoices):
+        AVAILABLE = "available", "Disponible"
+        UNAVAILABLE = "unavailable", "Temporalmente inhabilitada"
+        MAINTENANCE = "maintenance", "En mantenimiento"
+
+    campus = models.ForeignKey(Campus, on_delete=models.PROTECT, related_name="classrooms")
+    name = models.CharField(max_length=150)
+    code = models.CharField(max_length=30)
+    location = models.CharField(max_length=255, blank=True)
+    capacity = models.PositiveIntegerField(default=0)
+    service_status = models.CharField(
+        max_length=20, choices=ServiceStatus.choices, default=ServiceStatus.AVAILABLE
+    )
+
+    class Meta:
+        ordering = ["campus__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campus", "code"], name="unique_classroom_code_per_campus"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
+class AcademicCycle(TimeStampedModel):
+    class CycleStatus(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        ACTIVE = "active", "Active"
+        CLOSED = "closed", "Closed"
+
+    institution = models.ForeignKey(
+        Institution, on_delete=models.CASCADE, related_name="academic_cycles"
+    )
+    year = models.PositiveSmallIntegerField()
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    starts_on = models.DateField()
+    ends_on = models.DateField()
+    status = models.CharField(max_length=20, choices=CycleStatus.choices, default=CycleStatus.DRAFT)
+
+    class Meta:
+        ordering = ["-year", "starts_on"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "name"], name="unique_cycle_name_per_institution"
+            ),
+            models.UniqueConstraint(
+                fields=["institution", "year"], name="unique_cycle_year_per_institution"
+            ),
+            models.UniqueConstraint(
+                fields=["institution"],
+                condition=Q(status="active"),
+                name="unique_active_cycle_per_institution",
+            ),
+            models.CheckConstraint(
+                condition=Q(starts_on__lte=F("ends_on")),
+                name="academic_cycle_valid_dates",
+            ),
+            ExclusionConstraint(
+                name="academic_cycle_no_overlapping_dates",
+                expressions=[
+                    ("institution", RangeOperators.EQUAL),
+                    (
+                        Func(
+                            F("starts_on"),
+                            F("ends_on"),
+                            Value("[]"),
+                            function="DATERANGE",
+                            output_field=DateRangeField(),
+                        ),
+                        RangeOperators.OVERLAPS,
+                    ),
+                ],
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_closed(self):
+        return self.status == self.CycleStatus.CLOSED
+
+    @property
+    def is_planning(self):
+        return self.status == self.CycleStatus.DRAFT
+
+
+class NonComputableDay(TimeStampedModel):
+    """An institutional day that is excluded from attendance calculations."""
+
+    academic_cycle = models.ForeignKey(
+        AcademicCycle, on_delete=models.CASCADE, related_name="non_computable_days"
+    )
+    day = models.DateField()
+    reason = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ["day"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["academic_cycle", "day"], name="unique_non_computable_day_per_cycle"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.day}: {self.reason}"
+
+
+class Shift(TimeStampedModel):
+    """
+    Working shift of a campus ("jornada"): matutina, vespertina, nocturna.
+    The same code may exist in more than one campus.
+    """
+
+    campus = models.ForeignKey(Campus, on_delete=models.CASCADE, related_name="shifts")
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=30)
+
+    class Meta:
+        ordering = ["campus__name", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["campus", "code"], name="unique_shift_code_per_campus")
+        ]
+
+    def __str__(self):
+        return f"{self.name} - {self.campus.name}"
+
+    @property
+    def institution(self):
+        return self.campus.institution
+
+
+class Level(TimeStampedModel):
+    """
+    Educational level ("nivel"): preprimaria, primaria, basico, diversificado.
+    ``sequence`` carries the pedagogical order and is unique per institution.
+    """
+
+    institution = models.ForeignKey(Institution, on_delete=models.CASCADE, related_name="levels")
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=30)
+    sequence = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["sequence", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "code"], name="unique_level_code_per_institution"
+            ),
+            models.UniqueConstraint(
+                fields=["institution", "sequence"],
+                name="unique_level_sequence_per_institution",
+            ),
+            # Redundant on its own, but it is the target a Grade's composite
+            # foreign key points at, which is what stops a grade from claiming
+            # an institution its level does not belong to.
+            models.UniqueConstraint(
+                fields=["id", "institution"], name="unique_level_id_institution"
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class Grade(TimeStampedModel):
+    """
+    Grade inside a level ("grado"): primero primaria, segundo primaria.
+
+    ``institution`` duplicates ``level.institution`` on purpose. A unique index
+    cannot span a join, so without the column the institution-wide uniqueness of
+    ``code`` could only be checked in Python, which two concurrent inserts can
+    both pass. The copy cannot drift: it is derived in ``save`` and a composite
+    foreign key on ``(level_id, institution_id)`` makes any disagreement with
+    the level unrepresentable (migration 0004).
+    """
+
+    level = models.ForeignKey(Level, on_delete=models.PROTECT, related_name="grades")
+    institution = models.ForeignKey(
+        Institution, on_delete=models.CASCADE, related_name="grades", editable=False
+    )
+    name = models.CharField(max_length=100)
+    presentation_label = models.CharField(max_length=150, blank=True, default="")
+    code = models.CharField(max_length=30)
+    sequence = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["level__sequence", "sequence", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["level", "sequence"], name="unique_grade_sequence_per_level"
+            ),
+            models.UniqueConstraint(
+                fields=["institution", "code"], name="unique_grade_code_per_institution"
+            ),
+        ]
+
+    def __str__(self):
+        return self.presentation_label or self.name
+
+    def save(self, *args, **kwargs):
+        # Derived on insert, never supplied by callers: the grade belongs
+        # wherever its level belongs. Later saves skip the lookup; moving a
+        # grade to a level of another institution would be rejected by the
+        # composite foreign key rather than silently accepted.
+        if self.institution_id is None and self.level_id is not None:
+            self.institution_id = self.level.institution_id
+        super().save(*args, **kwargs)
+
+
+class Subject(TimeStampedModel):
+    """Course or subarea ("curso"), taught in one or more levels."""
+
+    institution = models.ForeignKey(Institution, on_delete=models.CASCADE, related_name="subjects")
+    name = models.CharField(max_length=150)
+    code = models.CharField(max_length=50)
+    levels = models.ManyToManyField(
+        Level, through="LevelSubject", related_name="subjects", blank=True
+    )
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["institution", "code"], name="unique_subject_code_per_institution"
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class LevelSubject(TimeStampedModel):
+    """Subject offered at a level, with its curricular metadata."""
+
+    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name="level_subjects")
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="level_subjects")
+    is_required = models.BooleanField(default=True)
+    weekly_hours = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["level__sequence", "subject__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["level", "subject"], name="unique_subject_per_level")
+        ]
+
+    def __str__(self):
+        return f"{self.subject.name} @ {self.level.name}"
+
+
+class GradeOffering(TimeStampedModel):
+    """
+    A grade actually offered in a shift of a campus, for one cycle. This is the
+    catalogue node enrolments are assigned to, and it is rebuilt per cycle
+    (RF-EST-013).
+    """
+
+    academic_cycle = models.ForeignKey(
+        AcademicCycle, on_delete=models.CASCADE, related_name="grade_offerings"
+    )
+    shift = models.ForeignKey(Shift, on_delete=models.PROTECT, related_name="grade_offerings")
+    grade = models.ForeignKey(Grade, on_delete=models.PROTECT, related_name="offerings")
+
+    class Meta:
+        ordering = ["shift__campus__name", "grade__level__sequence", "grade__sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["academic_cycle", "shift", "grade"],
+                name="unique_grade_offering_per_cycle_shift",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.grade.name} - {self.shift.name} ({self.academic_cycle.name})"
+
+    @property
+    def campus(self):
+        return self.shift.campus
+
+    @property
+    def level(self):
+        return self.grade.level
+
+    @property
+    def institution(self):
+        return self.academic_cycle.institution
+
+
+class Section(TimeStampedModel):
+    """Concrete group of students inside a grade offering."""
+
+    offering = models.ForeignKey(GradeOffering, on_delete=models.CASCADE, related_name="sections")
+    name = models.CharField(max_length=50)
+    capacity = models.PositiveIntegerField(default=0)
+    default_classroom = models.ForeignKey(
+        Classroom,
+        on_delete=models.PROTECT,
+        related_name="default_for_sections",
+        null=True,
+        blank=True,
+        help_text=(
+            "Aula habitual de referencia para las clases de esta seccion (RF-AUL-002). "
+            "No obliga a las sesiones individuales a usarla: cada ClassSession sigue "
+            "llevando su propia aula, opcional (RF-AUL-003)."
+        ),
+    )
+
+    class Meta:
+        ordering = ["offering__grade__level__sequence", "offering__grade__sequence", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["offering", "name"], name="unique_section_name_per_offering"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.offering.grade.name} {self.name}"
+
+    @property
+    def academic_cycle(self):
+        return self.offering.academic_cycle
+
+    @property
+    def grade(self):
+        return self.offering.grade
+
+    @property
+    def shift(self):
+        return self.offering.shift
+
+    @property
+    def campus(self):
+        return self.offering.campus
+
+    @property
+    def level(self):
+        return self.offering.grade.level
+
+    @property
+    def active_enrolment_count(self):
+        """Occupancy (RF-EST-008). Uses the ``_active_enrolments`` annotation if present."""
+        annotated = getattr(self, "_active_enrolments", None)
+        if annotated is not None:
+            return annotated
+        return self.enrolments.filter(status="active").count()
+
+    @property
+    def available_seats(self):
+        """Remaining seats, or ``None`` when the section is uncapped."""
+        if self.capacity == 0:
+            return None
+        return max(0, self.capacity - self.active_enrolment_count)
+
+
+class CurriculumPlan(TimeStampedModel):
+    """Per-cycle study plan for a grade (RF-EST-005)."""
+
+    academic_cycle = models.ForeignKey(
+        AcademicCycle, on_delete=models.CASCADE, related_name="curriculum_plans"
+    )
+    grade = models.ForeignKey(Grade, on_delete=models.CASCADE, related_name="curriculum_plans")
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="curriculum_plans")
+    is_required = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["academic_cycle", "grade", "subject"],
+                name="unique_curriculum_plan_per_cycle_grade_subject",
+            ),
+        ]
+
+
+class TeachingAssignment(TimeStampedModel):
+    academic_cycle = models.ForeignKey(
+        AcademicCycle, on_delete=models.CASCADE, related_name="teaching_assignments"
+    )
+    section = models.ForeignKey(
+        Section, on_delete=models.CASCADE, related_name="teaching_assignments"
+    )
+    subject = models.ForeignKey(
+        Subject, on_delete=models.CASCADE, related_name="teaching_assignments"
+    )
+    teacher = models.ForeignKey(
+        "people.Person",
+        on_delete=models.PROTECT,
+        related_name="teaching_assignments",
+    )
+    starts_on = models.DateField(default=timezone.localdate)
+    ends_on = models.DateField(null=True, blank=True)
+
+    class Meta:
+        unique_together = [("academic_cycle", "section", "subject", "teacher", "starts_on")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ends_on__isnull=True) | Q(starts_on__lte=F("ends_on")),
+                name="teaching_assignment_valid_dates",
+            ),
+            ExclusionConstraint(
+                name="teaching_assignment_no_overlapping_period",
+                expressions=[
+                    ("academic_cycle", RangeOperators.EQUAL),
+                    ("section", RangeOperators.EQUAL),
+                    ("subject", RangeOperators.EQUAL),
+                    (
+                        Func(
+                            F("starts_on"),
+                            F("ends_on"),
+                            Value("[]"),
+                            function="DATERANGE",
+                            output_field=DateRangeField(),
+                        ),
+                        RangeOperators.OVERLAPS,
+                    ),
+                ],
+            ),
+        ]
+
+
+class ClassScheduleBlock(TimeStampedModel):
+    """
+    Period of the class-schedule grid for one shift ("bloque de la rejilla
+    horaria"), RF-HOR-001.
+
+    Scoped to ``Shift``, not ``AcademicCycle``: the grid of period times
+    (e.g. "Bloque 1: 07:00-07:45") is structural to the shift and does not
+    change per cycle, the same way ``Shift`` itself carries no cycle FK.
+    Class sessions (RF-HOR-003) will reference these blocks every cycle
+    instead of the grid being rebuilt.
+
+    No native PostgreSQL range type exists for ``time`` (only date, integer,
+    numeric and timestamp ranges), so the no-overlap invariant enforced at
+    the database level for date ranges elsewhere in this file cannot be an
+    ``ExclusionConstraint`` here; it is enforced in ``services.py`` instead,
+    under a row lock on the shift's existing blocks.
+    """
+
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE, related_name="schedule_blocks")
+    number = models.PositiveSmallIntegerField(help_text="Order within the shift: 1, 2, 3, etc.")
+    name = models.CharField(max_length=100, help_text='Display name: "Bloque 1", "Recreo", etc.')
+    starts_on = models.TimeField(help_text="Start time of the block.")
+    ends_on = models.TimeField(help_text="End time of the block.")
+
+    class Meta:
+        ordering = ["shift", "number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shift", "number"], name="unique_schedule_block_number_per_shift"
+            ),
+            models.CheckConstraint(
+                condition=Q(starts_on__lt=F("ends_on")),
+                name="class_schedule_block_valid_times",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.shift})"
+
+
+class ClassSession(TimeStampedModel):
+    """
+    Scheduled class session (RF-HOR-003): a subject taught to a section on a
+    given day of the week, in a specific block of the schedule grid.
+
+    The teacher is deliberately NOT stored here: RF-HOR-004 derives it from
+    the current ``TeachingAssignment`` for (academic_cycle, section,
+    subject). RF-HOR-005 rejects a section double-booked in the same day and
+    block (enforced in ``services.create_class_session``); the classroom
+    half of that requirement is blocked on RF-AUL-001 (#99) -- there is no
+    classroom concept in this app yet.
+
+    ``starts_on`` (RF-HOR-008) lets a mid-cycle restructuring take effect
+    from a chosen date instead of the cycle's own start: the old session is
+    deactivated (``services.deactivate_class_session``, already soft-delete)
+    and the new one is registered with a later ``starts_on``. It defaults to
+    the academic cycle's start date, same convention as
+    ``TeachingAssignment.starts_on``.
+    """
+
+    class Weekday(models.IntegerChoices):
+        # ISO weekday, matching apps.attendance.JornadaParameters.school_days.
+        MONDAY = 1, "Monday"
+        TUESDAY = 2, "Tuesday"
+        WEDNESDAY = 3, "Wednesday"
+        THURSDAY = 4, "Thursday"
+        FRIDAY = 5, "Friday"
+        SATURDAY = 6, "Saturday"
+        SUNDAY = 7, "Sunday"
+
+    academic_cycle = models.ForeignKey(
+        AcademicCycle, on_delete=models.CASCADE, related_name="class_sessions"
+    )
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="class_sessions")
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="class_sessions")
+    schedule_block = models.ForeignKey(
+        ClassScheduleBlock, on_delete=models.PROTECT, related_name="class_sessions"
+    )
+    classroom = models.ForeignKey(
+        Classroom,
+        on_delete=models.PROTECT,
+        related_name="class_sessions",
+        null=True,
+        blank=True,
+    )
+    day_of_week = models.PositiveSmallIntegerField(choices=Weekday.choices)
+    starts_on = models.DateField(
+        default=timezone.localdate,
+        help_text="Fecha desde la que la sesion esta vigente (RF-HOR-008).",
+    )
+
+    class Meta:
+        ordering = ["day_of_week", "schedule_block__number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["section", "subject", "day_of_week", "schedule_block"],
+                name="unique_class_session_registration",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.subject} - {self.section} ({self.get_day_of_week_display()})"
+
+    @property
+    def current_teacher(self):
+        """
+        RF-HOR-004: the teacher responsible for this session, derived from
+        the section's current teaching assignment for this subject -- never
+        captured on the session itself, and never cached: a reassignment is
+        reflected on the very next read.
+
+        ``None`` when no current assignment exists yet (a session may be
+        scheduled before the teacher for that subarea is assigned).
+        """
+        assignment = (
+            TeachingAssignment.objects.filter(
+                academic_cycle=self.academic_cycle,
+                section=self.section,
+                subject=self.subject,
+                ends_on__isnull=True,
+            )
+            .select_related("teacher")
+            .first()
+        )
+        return assignment.teacher if assignment else None
+
+
+class ClassSchedulePublication(TimeStampedModel):
+    """
+    Publication state of a cycle's class schedule (RF-HOR-009).
+
+    The schedule (its ``ClassSession`` rows) is a working draft until this
+    is published; ``docentes``, ``estudiantes`` and ``encargados`` seeing it
+    only once published is a query-time concern (RF-HOR-010, #203), out of
+    scope here. One row per cycle, created on first publish -- mirrors
+    ``CycleEvaluationConfig`` in ``apps.evaluation``.
+    """
+
+    academic_cycle = models.OneToOneField(
+        AcademicCycle, on_delete=models.CASCADE, related_name="schedule_publication"
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Schedule publication for {self.academic_cycle.name}"
+
+    @property
+    def is_published(self):
+        return self.published_at is not None
+
+
+class FrozenResultQuerySet(models.QuerySet):
+    def delete(self):
+        raise RuntimeError("Los resultados congelados no pueden eliminarse.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Los resultados congelados no pueden modificarse.")
+
+
+class FrozenSubjectResult(TimeStampedModel):
+    """
+    Immutable snapshot of one subarea's final result at cycle close (RF-RES-007).
+
+    Never updated in place: a post-freeze correction (``grade.correct``,
+    exceptional academic authorization) inserts a NEW row for the same
+    ``(enrolment, subject)`` instead of mutating this one, so the previous
+    congealed value stays a real, queryable row -- "conserva el resultado
+    congelado anterior" is literal, not something reconstructed from an audit
+    diff (AGENTS.md #12: conserve history over physical deletion). The most
+    recent row per ``(enrolment, subject)`` is the current, authoritative
+    value; RF-RES-008's boleta and RF-RES-009's traceability both read this
+    table instead of recalculating from ``evaluation.get_final_subject_grade``,
+    which is the whole point of freezing: config or structure changes after
+    close (RF-EST-*, RF-EVC-*) can no longer move this number.
+
+    Cross-domain FK (documented exception, confirmed 2026-09-08):
+    domain-map.md lists ``enrollment-lifecycle`` as a dependency *of*
+    ``academic-evaluation``/``school-cycle`` (this app), not the reverse, so
+    this FK to ``enrolments.Enrolment`` runs against that declared direction.
+    The freeze event structurally belongs to the cycle-close operation that
+    lives here, and this is meant to be a permanent, audited record -- a bare
+    identifier without a DB-level FK would trade away referential integrity
+    for a table whose whole purpose is to never silently drift from what it
+    references.
+    """
+
+    objects = FrozenResultQuerySet.as_manager()
+
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment",
+        on_delete=models.PROTECT,
+        related_name="frozen_subject_results",
+    )
+    subject = models.ForeignKey(
+        Subject, on_delete=models.PROTECT, related_name="frozen_subject_results"
+    )
+    final_grade = models.PositiveSmallIntegerField(null=True, blank=True)
+    # "" (never null, DJ001) means the subarea had no grade yet when frozen --
+    # mirrors get_final_subject_grade's own None, just via Django's preferred
+    # empty-string sentinel instead of a nullable CharField.
+    condition = models.CharField(max_length=30, blank=True, default="")
+    recovery_grade = models.PositiveSmallIntegerField(null=True, blank=True)
+    is_correction = models.BooleanField(default=False)
+    correction_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(is_correction=False) | ~Q(correction_reason=""),
+                name="frozen_subject_result_correction_requires_reason",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.enrolment} - {self.subject} = {self.final_grade}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Los resultados congelados no pueden modificarse.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Los resultados congelados no pueden eliminarse.")
+
+
+class FrozenPromotionResult(TimeStampedModel):
+    """
+    Immutable snapshot of an enrolment's promotion condition at cycle close
+    (RF-RES-007). Same insert-only discipline and cross-domain FK exception
+    as ``FrozenSubjectResult`` -- see its docstring.
+    """
+
+    objects = FrozenResultQuerySet.as_manager()
+
+    enrolment = models.ForeignKey(
+        "enrolments.Enrolment",
+        on_delete=models.PROTECT,
+        related_name="frozen_promotion_results",
+    )
+    promoted = models.BooleanField()
+    condition = models.CharField(max_length=20)
+    failed_subjects = models.JSONField(default=list)
+    is_correction = models.BooleanField(default=False)
+    correction_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(is_correction=False) | ~Q(correction_reason=""),
+                name="frozen_promotion_result_correction_requires_reason",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.enrolment} - {self.condition}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Los resultados congelados no pueden modificarse.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Los resultados congelados no pueden eliminarse.")

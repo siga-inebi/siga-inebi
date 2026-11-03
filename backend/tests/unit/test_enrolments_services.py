@@ -1,0 +1,1300 @@
+from datetime import date, timedelta
+
+import pytest
+from django.utils import timezone
+
+from apps.academics.models import CurriculumPlan, FrozenPromotionResult, FrozenSubjectResult
+from apps.audit.models import AuditEvent
+from apps.common.models import DomainError
+from apps.enrolments.models import (
+    Enrolment,
+    EnrolmentDocumentRequirement,
+    StudentMovement,
+    StudentMovementAnnulment,
+)
+from apps.enrolments.services import (
+    active_enrolments,
+    annul_student_movement,
+    bulk_reenrol_students,
+    change_section,
+    create_enrolment,
+    determine_grade_eligibility,
+    determine_promotion,
+    enrolment_history,
+    matriculate_student,
+    record_student_movement,
+    reenrol_student,
+    section_occupancy,
+    set_document_requirement,
+    transfer_student_in,
+    transfer_student_out,
+    withdraw_student,
+)
+from apps.evaluation.models import RecoveryGrade
+from apps.evaluation.services import create_evaluation_unit, register_unit_grade
+from tests.factories.academic import (
+    AcademicCycleFactory,
+    GradeFactory,
+    SectionFactory,
+    SubjectFactory,
+)
+from tests.factories.identity import UserFactory
+from tests.factories.people import PersonFactory
+from tests.factories.students import StudentFactory
+
+pytestmark = [pytest.mark.unit, pytest.mark.django_db]
+
+
+def test_transfer_out_closes_enrolment_and_marks_student_transferred():
+    section = SectionFactory()
+    student = StudentFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+    movement = transfer_student_out(
+        enrolment=enrolment,
+        effective_on=date(2026, 8, 20),
+        reason="Traslado solicitado",
+    )
+
+    enrolment.refresh_from_db()
+    student.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.COMPLETED
+    assert enrolment.ends_on == date(2026, 8, 20)
+    assert student.status == student.StudentStatus.TRANSFERRED
+    assert movement.movement_type == StudentMovement.MovementType.TRANSFER_OUT
+    assert movement.source_enrolment == enrolment
+    assert movement.target_enrolment is None
+
+
+def test_transfer_in_creates_target_only_movement_and_activates_student():
+    section = SectionFactory()
+    student = StudentFactory(status="transferred")
+    movement = transfer_student_in(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+        section=section,
+        effective_on=date(2026, 8, 20),
+    )
+
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.ACTIVE
+    assert movement.movement_type == StudentMovement.MovementType.TRANSFER_IN
+    assert movement.source_enrolment is None
+    assert movement.target_enrolment.student == student
+
+
+def test_transfer_operations_reject_future_effective_dates():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    future = timezone.localdate() + timedelta(days=1)
+
+    with pytest.raises(DomainError, match="fecha futura"):
+        transfer_student_out(enrolment=enrolment, effective_on=future)
+    with pytest.raises(DomainError, match="fecha futura"):
+        transfer_student_in(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+            effective_on=future,
+        )
+
+
+def test_bulk_reenrolment_preview_does_not_write_and_reports_each_item():
+    source_section = SectionFactory(academic_cycle=AcademicCycleFactory(year=2026, status="closed"))
+    target_cycle = AcademicCycleFactory(
+        institution=source_section.academic_cycle.institution,
+        year=2027,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+    )
+    target_section = SectionFactory(academic_cycle=target_cycle)
+    student = StudentFactory()
+    source = Enrolment.objects.create(
+        student=student,
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 1, 15),
+    )
+    actor = UserFactory()
+    actor.has_scoped_permission = lambda *args, **kwargs: True
+
+    result = bulk_reenrol_students(
+        items=[
+            {
+                "source_enrolment_id": source.public_id,
+                "target_section_id": target_section.public_id,
+            }
+        ],
+        effective_on=date(2027, 1, 15),
+        actor=actor,
+        preview=True,
+    )
+
+    assert result["succeeded"] == 1
+    assert result["results"][0]["status"] == "ready"
+    assert not Enrolment.objects.filter(student=student, academic_cycle=target_cycle).exists()
+
+
+def _movement_enrolments():
+    source_section = SectionFactory(name="A")
+    target_section = SectionFactory(
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        shift=source_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    source = Enrolment.objects.create(
+        student=student,
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 1, 15),
+        ends_on=date(2026, 3, 1),
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    target = Enrolment.objects.create(
+        student=student,
+        academic_cycle=target_section.academic_cycle,
+        grade=target_section.grade,
+        section=target_section,
+        effective_on=date(2026, 3, 1),
+    )
+    return student, source, target
+
+
+def test_record_student_movement_distinguishes_type_and_effective_date():
+    student, source, target = _movement_enrolments()
+    actor = UserFactory()
+
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+        source_enrolment=source,
+        target_enrolment=target,
+        effective_on=date(2026, 3, 1),
+        actor=actor,
+    )
+
+    assert movement.movement_type == StudentMovement.MovementType.SECTION_CHANGE
+    assert movement.effective_on == date(2026, 3, 1)
+    assert movement.created_at.date() != movement.effective_on
+    event = AuditEvent.objects.get(action="enrolments.student_movement.recorded")
+    assert event.actor == actor
+    assert event.context["movement_type"] == "section_change"
+    assert event.context["effective_on"] == "2026-03-01"
+
+
+@pytest.mark.parametrize(
+    ("movement_type", "use_source", "use_target"),
+    [
+        (StudentMovement.MovementType.TRANSFER_IN, False, True),
+        (StudentMovement.MovementType.TRANSFER_OUT, True, False),
+    ],
+)
+def test_record_student_movement_supports_explicit_transfer_direction(
+    movement_type, use_source, use_target
+):
+    student, source, target = _movement_enrolments()
+
+    movement = record_student_movement(
+        student=student,
+        movement_type=movement_type,
+        source_enrolment=source if use_source else None,
+        target_enrolment=target if use_target else None,
+        effective_on=date(2026, 3, 1),
+    )
+
+    assert movement.movement_type == movement_type
+
+
+def test_record_student_movement_rejects_invalid_shape_and_student():
+    student, source, target = _movement_enrolments()
+
+    with pytest.raises(DomainError, match="no corresponden"):
+        record_student_movement(
+            student=student,
+            movement_type=StudentMovement.MovementType.TRANSFER_IN,
+            source_enrolment=source,
+            target_enrolment=target,
+        )
+
+    with pytest.raises(DomainError, match="pertenecer al estudiante"):
+        record_student_movement(
+            student=StudentFactory(),
+            movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+            source_enrolment=source,
+            target_enrolment=target,
+        )
+
+    assert StudentMovement.objects.count() == 0
+
+
+def test_record_student_movement_rejects_date_before_source_enrolment():
+    student, source, target = _movement_enrolments()
+
+    with pytest.raises(DomainError, match="anterior a la matricula de origen"):
+        record_student_movement(
+            student=student,
+            movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+            source_enrolment=source,
+            target_enrolment=target,
+            effective_on=date(2026, 1, 14),
+        )
+
+
+def test_student_movement_is_immutable_by_instance_and_queryset():
+    student, source, target = _movement_enrolments()
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.SECTION_CHANGE,
+        source_enrolment=source,
+        target_enrolment=target,
+    )
+
+    movement.movement_type = StudentMovement.MovementType.TRANSFER_OUT
+    with pytest.raises(RuntimeError, match="no pueden modificarse"):
+        movement.save()
+    with pytest.raises(RuntimeError, match="no pueden modificarse"):
+        StudentMovement.objects.filter(pk=movement.pk).update(effective_on=date(2026, 4, 1))
+    with pytest.raises(RuntimeError, match="no pueden eliminarse"):
+        StudentMovement.objects.filter(pk=movement.pk).delete()
+
+
+def test_withdraw_student_closes_operational_presence_and_records_reason():
+    section = SectionFactory()
+    student = StudentFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="  Cambio de residencia  ",
+        effective_on=date(2026, 5, 20),
+        actor=actor,
+    )
+
+    enrolment.refresh_from_db()
+    student.refresh_from_db()
+    assert movement.movement_type == StudentMovement.MovementType.WITHDRAWAL
+    assert movement.reason == "Cambio de residencia"
+    assert movement.source_enrolment == enrolment
+    assert movement.target_enrolment is None
+    assert movement.effective_on == enrolment.ends_on == date(2026, 5, 20)
+    assert enrolment.status == Enrolment.EnrolmentStatus.WITHDRAWN
+    assert student.status == student.StudentStatus.WITHDRAWN
+    assert list(active_enrolments(student=student)) == []
+    assert AuditEvent.objects.filter(action="enrolments.student.withdrawn", actor=actor).exists()
+
+
+def test_withdraw_student_rejects_blank_reason_invalid_date_and_second_attempt():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    with pytest.raises(DomainError, match="causa del retiro"):
+        withdraw_student(enrolment=enrolment, reason="   ")
+    with pytest.raises(DomainError, match="anterior a la matricula"):
+        withdraw_student(
+            enrolment=enrolment,
+            reason="Traslado de domicilio",
+            effective_on=date(2026, 1, 31),
+        )
+
+    withdraw_student(enrolment=enrolment, reason="Traslado de domicilio")
+    with pytest.raises(DomainError, match="matricula activa"):
+        withdraw_student(enrolment=enrolment, reason="Intento repetido")
+    assert StudentMovement.objects.count() == 1
+
+
+def test_create_enrolment_keeps_explicit_vigency_dates():
+    section = SectionFactory()
+    student = StudentFactory()
+
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        effective_on=date(2026, 2, 1),
+        ends_on=date(2026, 10, 30),
+    )
+
+    assert enrolment.effective_on == date(2026, 2, 1)
+    assert enrolment.ends_on == date(2026, 10, 30)
+    assert enrolment.status == enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_enrolment_history_includes_all_statuses_and_orders_latest_first():
+    student = StudentFactory()
+    newest_section = SectionFactory()
+    older_section = SectionFactory()
+    older = Enrolment.objects.create(
+        student=student,
+        academic_cycle=older_section.academic_cycle,
+        grade=older_section.grade,
+        section=older_section,
+        effective_on=date(2025, 2, 1),
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    newest = Enrolment.objects.create(
+        student=student,
+        academic_cycle=newest_section.academic_cycle,
+        grade=newest_section.grade,
+        section=newest_section,
+        effective_on=date(2026, 2, 1),
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    )
+    newest.is_active = False
+    newest.save(update_fields=["is_active", "updated_at"])
+
+    assert list(enrolment_history(student=student)) == [newest, older]
+
+
+def test_create_enrolment_rejects_grade_not_owned_by_section():
+    section = SectionFactory()
+    foreign_grade = SectionFactory().grade
+
+    with pytest.raises(DomainError, match="seccion debe pertenecer al grado"):
+        create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=foreign_grade,
+            section=section,
+        )
+
+
+def test_create_enrolment_rejects_closed_cycle():
+    cycle = AcademicCycleFactory(status="closed")
+    section = SectionFactory(academic_cycle=cycle)
+
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
+        create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+
+def test_create_enrolment_rejects_full_section():
+    section = SectionFactory(capacity=1)
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(DomainError, match="alcanzo su cupo"):
+        create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            section=section,
+        )
+
+
+def test_create_enrolment_ignores_completed_records_for_capacity():
+    section = SectionFactory(capacity=1)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_closed_cycle_rejects_section_change():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    cycle = section.academic_cycle
+    cycle.status = cycle.CycleStatus.CLOSED
+    cycle.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
+        change_section(enrolment=enrolment, new_section=SectionFactory(academic_cycle=cycle))
+
+
+def test_matriculate_student_activates_pre_enrolled_student_and_links_shift():
+    section = SectionFactory()
+    student = StudentFactory(status="pre_enrolled")
+
+    enrolment = matriculate_student(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+        section=section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    student.refresh_from_db()
+    assert enrolment.student_id == student.id
+    assert enrolment.section_id == section.id
+    assert section.shift.id == enrolment.section.shift.id
+    assert student.status == student.StudentStatus.ACTIVE
+
+
+def test_matriculate_student_accepts_a_student_without_an_open_enrolment():
+    """
+    Ya no hace falta devolver el expediente a "preinscrito".
+
+    Exigirlo obligaba a un paso previo por cada estudiante activo del ciclo
+    anterior, y no protegia de nada: lo que se debe evitar es la matricula
+    duplicada, y eso lo cubren los constraints.
+    """
+    section = SectionFactory()
+
+    enrolment = matriculate_student(
+        student=StudentFactory(status="active"),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+        section=section,
+    )
+
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_matriculate_student_rejects_a_second_active_enrolment():
+    """Una sola matricula activa por estudiante, aunque el ciclo sea otro."""
+    first_section = SectionFactory()
+    other_cycle = AcademicCycleFactory(
+        institution=first_section.academic_cycle.institution,
+        year=2027,
+        name="Ciclo 2027",
+        starts_on=date(2027, 1, 15),
+        ends_on=date(2027, 10, 29),
+        status="draft",
+    )
+    second_section = SectionFactory(
+        academic_cycle=other_cycle,
+        grade=first_section.grade,
+        shift=first_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    create_enrolment(
+        student=student,
+        academic_cycle=first_section.academic_cycle,
+        grade=first_section.grade,
+        section=first_section,
+    )
+
+    with pytest.raises(DomainError, match="ya tiene una inscripcion activa"):
+        matriculate_student(
+            student=student,
+            academic_cycle=other_cycle,
+            grade=second_section.grade,
+            shift=second_section.shift,
+            section=second_section,
+        )
+
+
+def test_matriculate_student_rejects_repeating_the_same_section():
+    """Repetir es cursar de nuevo en OTRO ciclo, con otra seccion."""
+    section = SectionFactory()
+    student = StudentFactory()
+    first = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    first.status = Enrolment.EnrolmentStatus.WITHDRAWN
+    first.save(update_fields=["status", "updated_at"])
+
+    with pytest.raises(DomainError, match="ya estuvo inscrito en esa seccion"):
+        matriculate_student(
+            student=student,
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+
+def test_matriculate_student_rejects_an_archived_student():
+    """La baja del expediente no es una regla de duplicados; sigue vigente."""
+    section = SectionFactory()
+
+    with pytest.raises(DomainError, match="estudiante inactivo"):
+        matriculate_student(
+            student=StudentFactory(is_active=False),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+
+def test_matriculate_student_rejects_shift_not_assigned_to_section():
+    section = SectionFactory()
+    wrong_shift = SectionFactory().shift
+
+    with pytest.raises(DomainError, match="jornada seleccionada"):
+        matriculate_student(
+            student=StudentFactory(status="pre_enrolled"),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=wrong_shift,
+            section=section,
+        )
+
+
+def test_change_section_rejects_full_target_section_without_closing_current_enrolment():
+    current_section = SectionFactory()
+    target_section = SectionFactory(
+        academic_cycle=current_section.academic_cycle,
+        grade=current_section.grade,
+        shift=current_section.shift,
+        capacity=1,
+    )
+    current_enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=current_section.academic_cycle,
+        grade=current_section.grade,
+        section=current_section,
+    )
+    create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=target_section.academic_cycle,
+        grade=target_section.grade,
+        section=target_section,
+    )
+
+    with pytest.raises(DomainError, match="alcanzo su cupo"):
+        change_section(enrolment=current_enrolment, new_section=target_section)
+
+    current_enrolment.refresh_from_db()
+    assert current_enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_change_section_records_immutable_movement_with_same_effective_date():
+    source_section = SectionFactory(name="A")
+    target_section = SectionFactory(
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        shift=source_section.shift,
+        name="B",
+    )
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+        effective_on=date(2026, 2, 1),
+    )
+
+    replacement = change_section(
+        enrolment=enrolment,
+        new_section=target_section,
+        effective_on=date(2026, 4, 15),
+    )
+
+    movement = StudentMovement.objects.get()
+    enrolment.refresh_from_db()
+    assert movement.movement_type == StudentMovement.MovementType.SECTION_CHANGE
+    assert movement.source_enrolment == enrolment
+    assert movement.target_enrolment == replacement
+    assert movement.effective_on == enrolment.ends_on == replacement.effective_on
+
+
+def test_change_section_rejects_inactive_source_and_same_section():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(DomainError, match="distinta"):
+        change_section(enrolment=enrolment, new_section=section)
+
+    enrolment.status = Enrolment.EnrolmentStatus.COMPLETED
+    enrolment.save(update_fields=["status", "updated_at"])
+    target = SectionFactory(
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        shift=section.shift,
+    )
+    with pytest.raises(DomainError, match="matricula activa"):
+        change_section(enrolment=enrolment, new_section=target)
+
+
+def test_reenrol_student_reuses_student_record_and_previous_enrolment():
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        starts_on=date(2027, 1, 1),
+        ends_on=date(2027, 12, 31),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    previous = create_enrolment(
+        student=student,
+        academic_cycle=previous_section.academic_cycle,
+        grade=previous_section.grade,
+        section=previous_section,
+    )
+    student.status = student.StudentStatus.PRE_ENROLLED
+    student.save(update_fields=["status", "updated_at"])
+
+    enrolment = reenrol_student(
+        student=student,
+        academic_cycle=target_cycle,
+        grade=target_section.grade,
+        shift=target_section.shift,
+        section=target_section,
+    )
+
+    assert enrolment.student_id == student.id
+    assert enrolment.academic_cycle_id == target_cycle.id
+    assert student.enrolments.filter(pk=previous.pk).exists()
+    student.refresh_from_db()
+    assert student.status == student.StudentStatus.ACTIVE
+
+
+def test_reenrol_student_requires_previous_enrolment():
+    section = SectionFactory(name="A")
+
+    with pytest.raises(DomainError, match="no tiene matricula previa"):
+        reenrol_student(
+            student=StudentFactory(status="pre_enrolled"),
+            academic_cycle=section.academic_cycle,
+            grade=section.grade,
+            shift=section.shift,
+            section=section,
+        )
+
+
+def test_reenrol_student_closes_the_previous_active_enrolment():
+    """
+    Reinscribir cierra el ciclo anterior en la misma transaccion.
+
+    Es lo que hace usable la regla de "una sola activa": sin esto habria que
+    pasar antes por una pantalla de cierre para cada estudiante que sigue.
+    """
+    previous_section = SectionFactory(name="A")
+    target_cycle = AcademicCycleFactory(
+        institution=previous_section.academic_cycle.institution,
+        year=2027,
+        name="Ciclo 2027",
+        starts_on=date(2027, 1, 15),
+        ends_on=date(2027, 10, 29),
+        status="draft",
+    )
+    target_section = SectionFactory(
+        academic_cycle=target_cycle,
+        grade=previous_section.grade,
+        shift=previous_section.shift,
+        name="B",
+    )
+    student = StudentFactory(status="active")
+    previous = create_enrolment(
+        student=student,
+        academic_cycle=previous_section.academic_cycle,
+        grade=previous_section.grade,
+        section=previous_section,
+        effective_on=date(2026, 1, 15),
+    )
+
+    enrolment = reenrol_student(
+        student=student,
+        academic_cycle=target_cycle,
+        grade=target_section.grade,
+        shift=target_section.shift,
+        section=target_section,
+        effective_on=date(2027, 1, 15),
+    )
+
+    previous.refresh_from_db()
+    assert previous.status == Enrolment.EnrolmentStatus.COMPLETED
+    assert previous.ends_on == date(2027, 1, 15)
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+def test_set_document_requirement_records_and_updates_delivery_status():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    requirement = set_document_requirement(
+        enrolment=enrolment, code="birth-cert", name="Birth certificate"
+    )
+    updated = set_document_requirement(
+        enrolment=enrolment,
+        code="birth-cert",
+        name="Birth certificate",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+    )
+
+    assert requirement.pk == updated.pk
+    assert updated.code == "BIRTH-CERT"
+    assert updated.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+    assert enrolment.document_requirements.count() == 1
+
+
+def test_set_document_requirement_rejects_blank_code():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+
+    with pytest.raises(DomainError, match="codigo del documento no puede estar vacio"):
+        set_document_requirement(enrolment=enrolment, code="  ", name="Birth certificate")
+
+
+def test_set_document_requirement_preserves_delivery_state_on_partial_update():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    set_document_requirement(
+        enrolment=enrolment,
+        code="id-card",
+        name="Identity card",
+        status=EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED,
+        is_required=False,
+    )
+
+    corrected = set_document_requirement(
+        enrolment=enrolment, code="id-card", name="Identity card (DPI)"
+    )
+
+    assert corrected.name == "Identity card (DPI)"
+    assert corrected.status == EnrolmentDocumentRequirement.DeliveryStatus.DELIVERED
+    assert corrected.is_required is False
+
+
+def test_set_document_requirement_rejects_closed_cycle():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    cycle = enrolment.academic_cycle
+    cycle.status = "closed"
+    cycle.save(update_fields=["status"])
+
+    with pytest.raises(DomainError, match="ciclo escolar cerrado"):
+        set_document_requirement(enrolment=enrolment, code="id-card", name="Identity card")
+
+
+def test_set_document_requirement_revives_deactivated_row():
+    section = SectionFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    requirement = set_document_requirement(
+        enrolment=enrolment, code="id-card", name="Identity card"
+    )
+    requirement.is_active = False
+    requirement.save(update_fields=["is_active"])
+
+    revived = set_document_requirement(enrolment=enrolment, code="id-card", name="Identity card")
+
+    assert revived.pk == requirement.pk
+    assert revived.is_active is True
+
+
+def test_active_enrolments_excludes_historical_and_inactive_records():
+    section = SectionFactory()
+    active_student = StudentFactory()
+    historical_student = StudentFactory()
+    inactive_student = StudentFactory()
+    active = create_enrolment(
+        student=active_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    Enrolment.objects.create(
+        student=historical_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.COMPLETED,
+    )
+    inactive = create_enrolment(
+        student=inactive_student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    inactive.is_active = False
+    inactive.save(update_fields=["is_active", "updated_at"])
+
+    assert list(active_enrolments()) == [active]
+
+
+def test_section_occupancy_reports_capacity_and_used_seats():
+    section = SectionFactory(capacity=2)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    )
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.WITHDRAWN,
+    )
+
+    result = section_occupancy(section=section).get()
+
+    assert result.capacity == 2
+    assert result.active_enrolment_count == 1
+    assert result.available_seats == 1
+
+
+def test_section_occupancy_uncapped_section_has_no_available_seats_limit():
+    section = SectionFactory(capacity=0)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    )
+
+    result = section_occupancy(section=section).get()
+
+    assert result.available_seats is None
+
+
+def test_section_occupancy_full_section_has_zero_available_seats():
+    section = SectionFactory(capacity=1)
+    Enrolment.objects.create(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+        status=Enrolment.EnrolmentStatus.ACTIVE,
+    )
+
+    result = section_occupancy(section=section).get()
+
+    assert result.available_seats == 0
+
+
+def test_section_occupancy_filters_by_cycle_and_grade():
+    cycle = AcademicCycleFactory()
+    grade = GradeFactory(institution=cycle.institution)
+    matching = SectionFactory(academic_cycle=cycle, grade=grade)
+    SectionFactory()  # unrelated cycle and grade
+
+    result = list(section_occupancy(academic_cycle=cycle, grade=grade))
+
+    assert result == [matching]
+
+
+def test_section_occupancy_excludes_inactive_sections_unless_requested():
+    active_section = SectionFactory()
+    inactive_section = SectionFactory(is_active=False)
+
+    default_result = list(section_occupancy())
+    assert active_section in default_result
+    assert inactive_section not in default_result
+
+    with_inactive = list(section_occupancy(include_inactive=True))
+    assert inactive_section in with_inactive
+
+
+def test_annul_withdrawal_restores_operational_state_and_preserves_history():
+    section = SectionFactory()
+    student = StudentFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=student,
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(
+        enrolment=enrolment,
+        reason="Registro equivocado",
+        actor=actor,
+    )
+
+    annulment = annul_student_movement(
+        movement=movement,
+        reason="Se selecciono al estudiante incorrecto",
+        actor=actor,
+    )
+
+    enrolment.refresh_from_db()
+    student.refresh_from_db()
+    assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+    assert enrolment.ends_on is None
+    assert student.status == student.StudentStatus.ACTIVE
+    assert StudentMovement.objects.filter(pk=movement.pk).exists()
+    assert annulment.movement == movement
+    assert AuditEvent.objects.filter(
+        action="enrolments.student_movement.annulled",
+        actor=actor,
+    ).exists()
+
+
+def test_annul_section_change_restores_source_and_cancels_target():
+    source_section = SectionFactory(name="A")
+    target_section = SectionFactory(
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        shift=source_section.shift,
+        name="B",
+    )
+    student = StudentFactory()
+    actor = UserFactory()
+    source = create_enrolment(
+        student=student,
+        academic_cycle=source_section.academic_cycle,
+        grade=source_section.grade,
+        section=source_section,
+    )
+    target = change_section(enrolment=source, new_section=target_section, actor=actor)
+    movement = StudentMovement.objects.get(target_enrolment=target)
+
+    annul_student_movement(movement=movement, reason="Seccion incorrecta", actor=actor)
+
+    source.refresh_from_db()
+    target.refresh_from_db()
+    assert source.status == Enrolment.EnrolmentStatus.ACTIVE
+    assert source.ends_on is None
+    assert target.status == Enrolment.EnrolmentStatus.CANCELLED
+    assert target.ends_on == movement.effective_on
+
+
+def test_annul_movement_requires_reason_and_rejects_second_attempt():
+    section = SectionFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(enrolment=enrolment, reason="Error", actor=actor)
+
+    with pytest.raises(DomainError, match="motivo de la anulacion"):
+        annul_student_movement(movement=movement, reason="  ", actor=actor)
+
+    annul_student_movement(movement=movement, reason="Confirmado como error", actor=actor)
+    with pytest.raises(DomainError, match="ya fue anulado"):
+        annul_student_movement(movement=movement, reason="Segundo intento", actor=actor)
+    assert StudentMovementAnnulment.objects.filter(movement=movement).count() == 1
+
+
+def test_annul_transfer_without_reversible_workflow_is_rejected():
+    student, source, _ = _movement_enrolments()
+    movement = record_student_movement(
+        student=student,
+        movement_type=StudentMovement.MovementType.TRANSFER_OUT,
+        source_enrolment=source,
+    )
+
+    with pytest.raises(DomainError, match="no admite anulacion segura"):
+        annul_student_movement(movement=movement, reason="Error", actor=UserFactory())
+
+
+def test_student_movement_annulment_is_immutable_by_instance_and_queryset():
+    section = SectionFactory()
+    actor = UserFactory()
+    enrolment = create_enrolment(
+        student=StudentFactory(),
+        academic_cycle=section.academic_cycle,
+        grade=section.grade,
+        section=section,
+    )
+    movement = withdraw_student(enrolment=enrolment, reason="Error", actor=actor)
+    annulment = annul_student_movement(
+        movement=movement,
+        reason="Registro incorrecto",
+        actor=actor,
+    )
+
+    annulment.reason = "Intento de cambio"
+    with pytest.raises(RuntimeError, match="no pueden modificarse"):
+        annulment.save()
+    with pytest.raises(RuntimeError, match="no pueden modificarse"):
+        StudentMovementAnnulment.objects.filter(pk=annulment.pk).update(reason="Cambio")
+    with pytest.raises(RuntimeError, match="no pueden eliminarse"):
+        StudentMovementAnnulment.objects.filter(pk=annulment.pk).delete()
+    with pytest.raises(RuntimeError, match="no pueden eliminarse"):
+        annulment.delete()
+
+
+class TestDeterminePromotion:
+    """Tests for RF-RES-006: Promoción al grado siguiente (issue #260)."""
+
+    def _cycle_with_plan(self, subject_count):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subjects = []
+        for _ in range(subject_count):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle, grade=section.grade, subject=subject
+            )
+            subjects.append(subject)
+        return enrolment, unit, subjects
+
+    def _grade(self, enrolment, unit, subject, value):
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=PersonFactory(),
+            value=value,
+        )
+
+    def test_one_failed_subject_after_recovery_blocks_promotion(self):
+        """
+        Escenario 1: Una subárea reprobada impide la promoción
+        GIVEN un estudiante con promedio general superior a setenta y una
+              subárea con cincuenta y cinco puntos tras la recuperación
+        WHEN se determina su condición final
+        THEN el sistema lo declara no promovido
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(4)
+        # Tres subareas muy altas y una reprobada, para un promedio general
+        # (95+95+95+55)/4 = 85, muy por encima de 70 -- y sin embargo no debe
+        # promover, porque RF-RES-006 prohibe decidir por promedio general.
+        self._grade(enrolment, unit, subjects[0], 95)
+        self._grade(enrolment, unit, subjects[1], 95)
+        self._grade(enrolment, unit, subjects[2], 95)
+        self._grade(enrolment, unit, subjects[3], 50)
+        RecoveryGrade.objects.create(
+            enrolment=enrolment, subject=subjects[3], value=55, original_final_grade=50
+        )
+
+        result = determine_promotion(enrolment)
+
+        assert result["promoted"] is False
+        assert result["condition"] == "not_promoted"
+        assert result["failed_subjects"] == [subjects[3].name]
+        assert result["total_subjects"] == 4
+
+    def test_all_subjects_approved_promotes_to_next_grade(self):
+        """
+        Escenario 2: Todas las subáreas aprobadas
+        GIVEN un estudiante con al menos sesenta puntos en cada subárea
+        WHEN se determina su condición final
+        THEN el sistema lo declara promovido al grado inmediato superior
+        """
+        enrolment, unit, subjects = self._cycle_with_plan(3)
+        for subject in subjects:
+            self._grade(enrolment, unit, subject, 60)
+
+        result = determine_promotion(enrolment)
+
+        assert result["promoted"] is True
+        assert result["condition"] == "promoted"
+        assert result["failed_subjects"] == []
+        assert result["total_subjects"] == 3
+
+    def test_ungraded_subject_counts_as_not_promoted(self):
+        """A subarea with no grade yet cannot support a promotion decision."""
+        enrolment, unit, subjects = self._cycle_with_plan(2)
+        self._grade(enrolment, unit, subjects[0], 80)
+        # subjects[1] never graded.
+
+        result = determine_promotion(enrolment)
+
+        assert result["promoted"] is False
+        assert result["failed_subjects"] == [subjects[1].name]
+
+    def test_promotion_does_not_mutate_the_enrolment(self):
+        """RF-RES-006 only determines the condition; it never changes the enrolment."""
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 40)
+
+        determine_promotion(enrolment)
+
+        enrolment.refresh_from_db()
+        assert enrolment.status == Enrolment.EnrolmentStatus.ACTIVE
+
+
+class TestDetermineGradeEligibility:
+    """RF-MOV-006 maps the definitive result to the next academic path."""
+
+    def _cycle_with_plan(self, subject_count):
+        cycle = AcademicCycleFactory()
+        section = SectionFactory(academic_cycle=cycle)
+        enrolment = create_enrolment(
+            student=StudentFactory(),
+            academic_cycle=cycle,
+            grade=section.grade,
+            section=section,
+        )
+        today = timezone.localdate()
+        unit = create_evaluation_unit(
+            academic_cycle=cycle,
+            number=1,
+            name="Unit 1",
+            starts_on=today,
+            ends_on=today + timedelta(days=60),
+            capture_starts_on=today - timedelta(days=5),
+            capture_ends_on=today + timedelta(days=5),
+        )
+        subjects = []
+        for _ in range(subject_count):
+            subject = SubjectFactory(institution=cycle.institution)
+            CurriculumPlan.objects.create(
+                academic_cycle=cycle,
+                grade=section.grade,
+                subject=subject,
+            )
+            subjects.append(subject)
+        return enrolment, unit, subjects
+
+    def _grade(self, enrolment, unit, subject, value):
+        register_unit_grade(
+            enrolment=enrolment,
+            subject=subject,
+            evaluation_unit=unit,
+            teacher=PersonFactory(),
+            value=value,
+        )
+
+    def test_promoted_student_is_eligible_for_the_immediate_next_grade(self):
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 80)
+        next_grade = GradeFactory(
+            level=enrolment.grade.level,
+            sequence=enrolment.grade.sequence + 1,
+        )
+
+        result = determine_grade_eligibility(enrolment)
+
+        assert result["progression"] == "promoted"
+        assert result["eligible_grade_id"] == str(next_grade.public_id)
+        assert result["eligible_grade_name"] == next_grade.name
+        assert result["result_source"] == "live"
+
+    def test_not_promoted_student_repeats_the_same_grade(self):
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 59)
+
+        result = determine_grade_eligibility(enrolment)
+
+        assert result["progression"] == "repeating"
+        assert result["eligible_grade_id"] == str(enrolment.grade.public_id)
+        assert result["eligible_grade_name"] == enrolment.grade.name
+
+    def test_promoted_student_in_last_configured_grade_graduates(self):
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 80)
+
+        result = determine_grade_eligibility(enrolment)
+
+        assert result["progression"] == "graduated"
+        assert result["eligible_grade_id"] is None
+        assert result["eligible_grade_name"] is None
+
+    def test_frozen_result_is_authoritative_for_closed_cycle(self):
+        enrolment, unit, subjects = self._cycle_with_plan(1)
+        self._grade(enrolment, unit, subjects[0], 95)
+        FrozenSubjectResult.objects.create(
+            enrolment=enrolment,
+            subject=subjects[0],
+            final_grade=50,
+            condition="failed",
+        )
+        FrozenPromotionResult.objects.create(
+            enrolment=enrolment,
+            promoted=False,
+            condition="not_promoted",
+            failed_subjects=[subjects[0].name],
+        )
+
+        result = determine_grade_eligibility(enrolment)
+
+        assert result["promoted"] is False
+        assert result["progression"] == "repeating"
+        assert result["eligible_grade_id"] == str(enrolment.grade.public_id)
+        assert result["total_subjects"] == 1
+        assert result["result_source"] == "frozen"

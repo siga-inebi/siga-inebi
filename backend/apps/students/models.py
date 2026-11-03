@@ -1,0 +1,152 @@
+from django.db import models
+from django.db.models import Q
+from django.utils import timezone
+
+from apps.common.models import TimeStampedModel
+from apps.common.uploads import profile_photo_upload_path
+
+
+def student_photo_upload_to(instance, filename):
+    """Name the photo by its purpose and stable institutional owner code."""
+    return profile_photo_upload_path(
+        directory="student_photos",
+        subject="estudiante",
+        owner_identifier=instance.student_code or instance.public_id,
+        filename=filename,
+    )
+
+
+class StudentRecordQuerySet(models.QuerySet):
+    def delete(self):
+        raise RuntimeError("Student records cannot be physically deleted.")
+
+
+class HistoricalStudentRecord(TimeStampedModel):
+    objects = StudentRecordQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Student records cannot be physically deleted.")
+
+
+class Student(HistoricalStudentRecord):
+    class StudentStatus(models.TextChoices):
+        PRE_ENROLLED = "pre_enrolled", "Pre-enrolled"
+        ACTIVE = "active", "Active"
+        INACTIVE = "inactive", "Inactive"
+        WITHDRAWN = "withdrawn", "Withdrawn"
+        GRADUATED = "graduated", "Graduated"
+        TRANSFERRED = "transferred", "Transferred"
+
+    person = models.OneToOneField(
+        "people.Person",
+        on_delete=models.PROTECT,
+        related_name="student_profile",
+    )
+    student_code = models.CharField(max_length=50, unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=StudentStatus.choices,
+        default=StudentStatus.PRE_ENROLLED,
+    )
+    photo = models.FileField(upload_to=student_photo_upload_to, blank=True)
+
+    class Meta:
+        # Orden explicito: sin el, paginar es un sorteo. PostgreSQL no garantiza
+        # el mismo orden entre dos consultas con LIMIT/OFFSET sobre un queryset
+        # sin ordenar, asi que recorrer las paginas devolvia filas repetidas y
+        # omitia otras (DRF lo avisa con UnorderedObjectListWarning).
+        ordering = ["student_code"]
+
+    def __str__(self):
+        return self.student_code
+
+
+class Guardian(HistoricalStudentRecord):
+    person = models.OneToOneField(
+        "people.Person",
+        on_delete=models.PROTECT,
+        related_name="guardian_profile",
+    )
+
+    class Meta:
+        # Orden explicito: sin el, paginar es un sorteo. PostgreSQL no garantiza
+        # el mismo orden entre dos consultas con LIMIT/OFFSET sobre un queryset
+        # sin ordenar, asi que recorrer las paginas devolvia filas repetidas y
+        # omitia otras (DRF lo avisa con UnorderedObjectListWarning).
+        ordering = ["person__last_name", "person__first_name", "id"]
+
+    def __str__(self):
+        return str(self.person)
+
+
+class StudentGuardianRelation(HistoricalStudentRecord):
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="guardian_relations"
+    )
+    guardian = models.ForeignKey(
+        Guardian,
+        on_delete=models.PROTECT,
+        related_name="student_relations",
+    )
+    relationship_label = models.CharField(max_length=100)
+    is_primary = models.BooleanField(default=False)
+    starts_at = models.DateField(default=timezone.localdate)
+    ends_at = models.DateField(null=True, blank=True)
+
+    class Meta:
+        # Orden explicito: sin el, paginar es un sorteo. PostgreSQL no garantiza
+        # el mismo orden entre dos consultas con LIMIT/OFFSET sobre un queryset
+        # sin ordenar, asi que recorrer las paginas devolvia filas repetidas y
+        # omitia otras (DRF lo avisa con UnorderedObjectListWarning).
+        ordering = ["-is_primary", "-starts_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student"],
+                condition=Q(is_primary=True, ends_at__isnull=True),
+                name="students_one_current_primary_guardian",
+            )
+        ]
+
+
+class EmergencyContact(HistoricalStudentRecord):
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="emergency_contacts",
+    )
+    name = models.CharField(max_length=255)
+    phone_number = models.CharField(max_length=30)
+    relationship_label = models.CharField(max_length=100)
+
+
+class StudentHealthNote(HistoricalStudentRecord):
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.PROTECT,
+        related_name="health_notes",
+    )
+    author = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="student_health_notes",
+    )
+    content = models.TextField()
+    recorded_on = models.DateField(default=timezone.localdate)
+
+    class Meta:
+        ordering = ["-recorded_on", "-created_at"]
+
+
+class StudentObservation(HistoricalStudentRecord):
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="observations")
+    author = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="student_observations"
+    )
+    description = models.TextField()
+    observed_on = models.DateField(default=timezone.localdate)
+
+    class Meta:
+        ordering = ["-observed_on", "-created_at"]

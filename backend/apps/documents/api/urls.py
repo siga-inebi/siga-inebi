@@ -1,0 +1,152 @@
+from django.urls import path
+
+from apps.documents.api.views import StudentDocumentRecordListView
+
+from .views import (
+    DocumentBatchCompileView,
+    DocumentDeliveryReceiptCreateView,
+    DocumentRecordDownloadTokenView,
+    DocumentRecordDownloadView,
+    DocumentRecordIntegrityVerifyView,
+    DocumentRecordUploadView,
+    DocumentRecordVersionCreateView,
+    DocumentTemplateDetailView,
+    DocumentTemplateDraftPreviewView,
+    DocumentTemplateListCreateView,
+    DocumentTemplatePreviewView,
+    DocumentTemplateVersionListView,
+    DocumentTemplateVersionRestoreView,
+    DocumentTypeDetailView,
+    DocumentTypeListCreateView,
+    DocumentVerificationView,
+    EnrolmentDocumentRecordListView,
+    FieldTagListView,
+    HistoricalCycleReportView,
+    IndividualDocumentIssuanceView,
+    IssuedDocumentIntegrityVerifyView,
+    OfficialDocumentEligibilityView,
+    ScannedDocumentUploadView,
+    StorageConsumptionView,
+    TeacherDocumentRecordListCreateView,
+    TemplateIssuanceUseListView,
+)
+
+urlpatterns = [
+    path(
+        "students/<uuid:student_id>/records/",
+        StudentDocumentRecordListView.as_view(),
+        name="student-document-record-list",
+    ),
+    path(
+        "templates/issuance-uses/",
+        TemplateIssuanceUseListView.as_view(),
+        name="template-issuance-use-list",
+    ),
+    path(
+        "templates/", DocumentTemplateListCreateView.as_view(), name="document-template-list-create"
+    ),
+    path(
+        "templates/preview/",
+        DocumentTemplateDraftPreviewView.as_view(),
+        name="document-template-draft-preview",
+    ),
+    path(
+        "templates/<uuid:public_id>/",
+        DocumentTemplateDetailView.as_view(),
+        name="document-template-detail",
+    ),
+    path(
+        "templates/<uuid:public_id>/versions/",
+        DocumentTemplateVersionListView.as_view(),
+        name="document-template-version-list",
+    ),
+    path(
+        "templates/<uuid:public_id>/versions/<uuid:version_id>/restore/",
+        DocumentTemplateVersionRestoreView.as_view(),
+        name="document-template-version-restore",
+    ),
+    path(
+        "templates/<uuid:public_id>/preview/",
+        DocumentTemplatePreviewView.as_view(),
+        name="document-template-preview",
+    ),
+    path("records/", DocumentRecordUploadView.as_view(), name="document-record-upload"),
+    path("records/scan/", ScannedDocumentUploadView.as_view(), name="document-record-scan"),
+    path(
+        "storage-consumption/",
+        StorageConsumptionView.as_view(),
+        name="document-storage-consumption",
+    ),
+    path(
+        "records/<uuid:public_id>/versions/",
+        DocumentRecordVersionCreateView.as_view(),
+        name="document-record-version-create",
+    ),
+    path(
+        "records/<uuid:public_id>/download/",
+        DocumentRecordDownloadView.as_view(),
+        name="document-record-download",
+    ),
+    path(
+        "records/<uuid:public_id>/verify/",
+        DocumentRecordIntegrityVerifyView.as_view(),
+        name="document-record-integrity-verify",
+    ),
+    path(
+        "enrolments/<uuid:enrolment_id>/records/",
+        EnrolmentDocumentRecordListView.as_view(),
+        name="enrolment-document-record-list",
+    ),
+    path(
+        "records/<uuid:public_id>/download-tokens/",
+        DocumentRecordDownloadTokenView.as_view(),
+        name="document-record-download-token",
+    ),
+    path(
+        "teachers/<uuid:teacher_id>/records/",
+        TeacherDocumentRecordListCreateView.as_view(),
+        name="teacher-document-record-list-create",
+    ),
+    path("field-tags/", FieldTagListView.as_view(), name="document-field-tag-list"),
+    path("types/", DocumentTypeListCreateView.as_view(), name="document-type-list-create"),
+    path(
+        "types/<uuid:public_id>/",
+        DocumentTypeDetailView.as_view(),
+        name="document-type-detail",
+    ),
+    path(
+        "official-issuance/eligibility/",
+        OfficialDocumentEligibilityView.as_view(),
+        name="document-official-issuance-eligibility",
+    ),
+    path(
+        "historical-cycle-reports/",
+        HistoricalCycleReportView.as_view(),
+        name="document-historical-cycle-report",
+    ),
+    path(
+        "delivery-receipts/",
+        DocumentDeliveryReceiptCreateView.as_view(),
+        name="document-delivery-receipt-create",
+    ),
+    path(
+        "official-issuance/batches/",
+        DocumentBatchCompileView.as_view(),
+        name="document-batch-compile",
+    ),
+    path(
+        "official-issuance/individual/",
+        IndividualDocumentIssuanceView.as_view(),
+        name="document-individual-issuance",
+    ),
+    path(
+        "issuances/<uuid:public_id>/verify/",
+        IssuedDocumentIntegrityVerifyView.as_view(),
+        name="document-issuance-integrity-verify",
+    ),
+    path(
+        "verify/<str:code>/",
+        DocumentVerificationView.as_view(),
+        name="document-verify",
+    ),
+]

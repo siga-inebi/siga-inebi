@@ -1,0 +1,16 @@
+# Replace @ORGANIZATION with real GitHub organization before enabling required reviews.
+
+* @ORGANIZATION/project-management
+
+/frontend/ @ORGANIZATION/frontend
+/backend/ @ORGANIZATION/backend
+/backend/apps/identity/ @ORGANIZATION/backend @ORGANIZATION/security
+/backend/apps/audit/ @ORGANIZATION/backend @ORGANIZATION/security
+/backend/**/migrations/ @ORGANIZATION/backend
+/.github/ @ORGANIZATION/project-management @ORGANIZATION/devops
+/docker/ @ORGANIZATION/devops
+/compose*.yml @ORGANIZATION/devops
+/Dockerfile @ORGANIZATION/devops
+/docs/requirements/ @ORGANIZATION/project-management @ORGANIZATION/analysis
+/docs/architecture/ @ORGANIZATION/backend @ORGANIZATION/frontend @ORGANIZATION/project-management
+/AGENTS.md @ORGANIZATION/project-management

@@ -1,0 +1,41 @@
+name: Docker Build
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - "compose*.yml"
+      - "backend/Dockerfile"
+      - "backend/docker-entrypoint.sh"
+      - "backend/requirements/*.txt"
+      - "frontend/Dockerfile"
+      - "frontend/package*.json"
+      - "scripts/**"
+      - ".github/workflows/docker-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    name: docker-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare env file
+        run: cp .env.example .env
+
+      - name: Validate compose
+        run: docker compose config
+
+      - name: Build images
+        run: docker compose build

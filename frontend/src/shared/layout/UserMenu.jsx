@@ -1,0 +1,202 @@
+import { lazy, Suspense, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import ButtonBase from "@mui/material/ButtonBase";
+import Divider from "@mui/material/Divider";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import LockResetIcon from "@mui/icons-material/LockReset";
+import AccountCircleOutlinedIcon from "@mui/icons-material/AccountCircleOutlined";
+import LogoutIcon from "@mui/icons-material/Logout";
+
+import { ConfirmDialog } from "@ui/feedback/ConfirmDialog.jsx";
+import { formatFullName } from "@shared/utils/format.js";
+
+// Se carga al abrirla: con sus reglas de contraseña y su formulario no tiene
+// por que viajar en el chunk inicial de todas las pantallas.
+const ChangePasswordWindow = lazy(() =>
+  import("@auth/ChangePasswordWindow.jsx").then((module) => ({
+    default: module.ChangePasswordWindow,
+  }))
+);
+
+/** Iniciales para el avatar cuando no hay foto. */
+function initials(name) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
+
+/**
+ * Identidad de la sesion y cierre de sesion.
+ *
+ * @param {object}   props
+ * @param {object}   props.user
+ * @param {Function} props.onLogout
+ * @param {Function} props.onLogoutAll
+ */
+export function UserMenu({ onLogout, onLogoutAll, user }) {
+  const navigate = useNavigate();
+  const [anchor, setAnchor] = useState(null);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [logoutAllOpen, setLogoutAllOpen] = useState(false);
+  const [closingAll, setClosingAll] = useState(false);
+  const [logoutAllError, setLogoutAllError] = useState("");
+  const displayName =
+    formatFullName(user?.person) !== "—"
+      ? formatFullName(user.person)
+      : (user?.username ?? "Sesión");
+
+  const closeAllSessions = async () => {
+    setClosingAll(true);
+    setLogoutAllError("");
+    try {
+      await onLogoutAll();
+    } catch (error) {
+      setLogoutAllError(
+        error?.message || "No fue posible cerrar las sesiones."
+      );
+    } finally {
+      setClosingAll(false);
+    }
+  };
+
+  return (
+    <>
+      <ButtonBase
+        aria-haspopup="menu"
+        aria-label="Cuenta"
+        onClick={(event) => setAnchor(event.currentTarget)}
+        sx={(theme) => ({
+          gap: 1,
+          px: 1,
+          py: 0.5,
+          borderRadius: theme.tokens.radii.input,
+          "&:hover": { bgcolor: "action.hover" },
+        })}
+      >
+        <Avatar
+          sx={{
+            width: 28,
+            height: 28,
+            fontSize: "0.75rem",
+            bgcolor: "primary.main",
+            color: "primary.contrastText",
+          }}
+        >
+          {initials(displayName)}
+        </Avatar>
+        <Typography
+          sx={{
+            fontSize: "0.8125rem",
+            fontWeight: 500,
+            display: { xs: "none", md: "block" },
+          }}
+        >
+          {displayName}
+        </Typography>
+      </ButtonBase>
+
+      <Menu
+        anchorEl={anchor}
+        anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+        onClose={() => setAnchor(null)}
+        open={Boolean(anchor)}
+        transformOrigin={{ horizontal: "right", vertical: "top" }}
+      >
+        <Box sx={{ px: 2, py: 1.5, minWidth: 200 }}>
+          <Typography sx={{ fontSize: "0.875rem", fontWeight: 600 }}>
+            {displayName}
+          </Typography>
+          <Stack gap={0.25} sx={{ mt: 0.25 }}>
+            <Typography color="text.secondary" sx={{ fontSize: "0.75rem" }}>
+              {user?.username}
+            </Typography>
+            {user?.email ? (
+              <Typography color="text.secondary" sx={{ fontSize: "0.75rem" }}>
+                {user.email}
+              </Typography>
+            ) : null}
+          </Stack>
+        </Box>
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            setAnchor(null);
+            navigate("/app/mi-cuenta");
+          }}
+        >
+          <ListItemIcon>
+            <AccountCircleOutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          Mi cuenta
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchor(null);
+            setChangePasswordOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <LockResetIcon fontSize="small" />
+          </ListItemIcon>
+          Cambiar contraseña
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchor(null);
+            setLogoutAllOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <LogoutIcon fontSize="small" />
+          </ListItemIcon>
+          Cerrar sesiones en todos los dispositivos
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchor(null);
+            onLogout();
+          }}
+        >
+          <ListItemIcon>
+            <LogoutIcon fontSize="small" />
+          </ListItemIcon>
+          Cerrar sesión
+        </MenuItem>
+      </Menu>
+
+      {changePasswordOpen ? (
+        <Suspense fallback={null}>
+          <ChangePasswordWindow
+            onClose={() => setChangePasswordOpen(false)}
+            open
+          />
+        </Suspense>
+      ) : null}
+      <ConfirmDialog
+        busy={closingAll}
+        confirmColor="error"
+        confirmText="Cerrar todas"
+        errorText={logoutAllError}
+        message="Se cerrará su sesión actual y cualquier otra sesión abierta en otros dispositivos. Deberá iniciar sesión nuevamente."
+        onClose={() => {
+          setLogoutAllError("");
+          setLogoutAllOpen(false);
+        }}
+        onConfirm={closeAllSessions}
+        open={logoutAllOpen}
+        title="Cerrar todas las sesiones"
+      />
+    </>
+  );
+}

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Reporte de seguridad privado
+    url: https://example.invalid/security-contact
+    about: No publiques vulnerabilidades reales ni datos sensibles en issues publicos. Reemplaza este enlace por canal privado oficial.

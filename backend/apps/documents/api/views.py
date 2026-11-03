@@ -1,0 +1,820 @@
+"""
+HTTP layer for the document templates catalogue.
+
+Views only translate between HTTP and the domain services in
+``apps.documents.services``; every invariant lives there. ``DomainError`` is
+turned into a 400 envelope by ``config.api.exception_handler``, so no view
+catches it (AGENTS.md #8).
+
+The request/response plumbing is shared with the rest of the catalogue-shaped
+resources in the repo (``apps.academics.api.views``), so it is reused here
+rather than duplicated.
+"""
+
+from django.core.files.storage import default_storage
+from django.http import HttpResponse
+from django.urls import reverse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
+from rest_framework import permissions, status
+from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
+
+from apps.academics.api.views import (
+    CatalogueDetailView,
+    CatalogueListCreateView,
+    CatalogueView,
+    DeactivateMixin,
+    RetrieveMixin,
+    UpdateMixin,
+)
+from apps.common.models import DomainError
+from apps.documents import queries, services
+
+from .serializers import (
+    DocumentBatchCompileResponseSerializer,
+    DocumentBatchCompileSerializer,
+    DocumentDeliveryReceiptCreateSerializer,
+    DocumentDeliveryReceiptSerializer,
+    DocumentDownloadTokenSerializer,
+    DocumentKindCreateSerializer,
+    DocumentKindSerializer,
+    DocumentKindUpdateSerializer,
+    DocumentRecordSerializer,
+    DocumentReplaceSerializer,
+    DocumentTemplateCreateSerializer,
+    DocumentTemplatePreviewResponseSerializer,
+    DocumentTemplatePreviewSerializer,
+    DocumentTemplateSerializer,
+    DocumentTemplateUpdateSerializer,
+    DocumentTemplateVersionSerializer,
+    DocumentUploadSerializer,
+    DocumentVerificationResponseSerializer,
+    FieldTagSerializer,
+    HistoricalCycleReportQuerySerializer,
+    IndividualIssuanceSerializer,
+    IssuedDocumentVerifySerializer,
+    OfficialDocumentEligibilityQuerySerializer,
+    OfficialDocumentEligibilityResponseSerializer,
+    StorageConsumptionSerializer,
+    TeacherDocumentUploadSerializer,
+    TemplateIssuanceUseSerializer,
+)
+
+CATALOGUE = ["documents: catalogue"]
+OFFICIAL_ISSUANCE = ["documents: official issuance"]
+PUBLIC_VERIFICATION = ["documents: public verification"]
+
+INCLUDE_INACTIVE = OpenApiParameter(
+    name="include_inactive",
+    type=bool,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Incluye registros desactivados. Por defecto solo se listan los activos.",
+)
+
+INCLUDE_SENSITIVE = OpenApiParameter(
+    name="include_sensitive",
+    type=bool,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description=(
+        "Incluye etiquetas sensibles/confidenciales. Requiere el permiso "
+        "student.view_sensitive. Excluidas por defecto."
+    ),
+)
+
+ENROLMENT_ID = OpenApiParameter(
+    name="enrolment_id",
+    type=str,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="Public ID de la matricula que se evalua.",
+)
+
+
+def _wants_sensitive(request):
+    return str(request.query_params.get("include_sensitive", "")).lower() in {"1", "true", "yes"}
+
+
+def _include_inactive(request):
+    return str(request.query_params.get("include_inactive", "")).lower() in {"1", "true", "yes"}
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar plantillas",
+        description=(
+            "Plantillas de documentos de la institucion. Solo activas salvo "
+            "`include_inactive=true`."
+        ),
+        tags=CATALOGUE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: DocumentTemplateSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Crear plantilla",
+        description=(
+            "Registra una plantilla de documento. El codigo se normaliza a mayusculas "
+            "y es unico por institucion."
+        ),
+        tags=CATALOGUE,
+        request=DocumentTemplateCreateSerializer,
+        responses={201: DocumentTemplateSerializer},
+    ),
+)
+class DocumentTemplateListCreateView(CatalogueListCreateView):
+    list_serializer = DocumentTemplateSerializer
+    create_serializer = DocumentTemplateCreateSerializer
+
+    def list_queryset(self, request):
+        return queries.document_templates(
+            self.institution, include_inactive=_include_inactive(request)
+        )
+
+    def create(self, request, payload):
+        template = services.create_document_template(
+            institution=self.institution, actor=request.user, **payload
+        )
+        return queries.document_template_or_404(self.institution, template.public_id)
+
+
+class TemplateIssuanceUseListView(CatalogueView):
+    serializer_class = TemplateIssuanceUseSerializer
+
+    @extend_schema(responses={200: TemplateIssuanceUseSerializer(many=True)}, tags=CATALOGUE)
+    def get(self, request):
+        return Response(
+            self.get_serializer(queries.template_issuance_uses(self.institution), many=True).data
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar plantilla", tags=CATALOGUE, responses={200: DocumentTemplateSerializer}
+    ),
+    patch=extend_schema(
+        summary="Actualizar plantilla",
+        description=(
+            "El codigo es inmutable; se actualizan contenido, descripcion, tipo y uso de emision. "
+            "Reemplazar requiere confirmar el UUID de la plantilla activa."
+        ),
+        tags=CATALOGUE,
+        request=DocumentTemplateUpdateSerializer,
+        responses={200: DocumentTemplateSerializer},
+    ),
+    delete=extend_schema(
+        summary="Desactivar plantilla",
+        description="Desactiva la plantilla en lugar de borrarla.",
+        tags=CATALOGUE,
+        responses={204: None},
+    ),
+)
+class DocumentTemplateDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = DocumentTemplateSerializer
+    update_serializer = DocumentTemplateUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.document_template_or_404(self.institution, public_id)
+
+    def update(self, request, template, payload):
+        services.update_document_template(template=template, actor=request.user, **payload)
+
+    def deactivate(self, request, template):
+        services.deactivate_document_template(template=template, actor=request.user)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Historial de versiones de la plantilla",
+        description=(
+            "Historial inmutable de contenido de la plantilla, mas reciente primero (RF-PLA-005)."
+        ),
+        tags=CATALOGUE,
+        responses={200: DocumentTemplateVersionSerializer(many=True)},
+    ),
+)
+class DocumentTemplateVersionListView(CatalogueView):
+    def get(self, request, public_id):
+        template = queries.document_template_or_404(self.institution, public_id)
+        page = self.paginate_queryset(queries.document_template_versions(template))
+        serializer = DocumentTemplateVersionSerializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+
+class DocumentTemplateVersionRestoreView(CatalogueView):
+    @extend_schema(
+        summary="Restaurar una versión como versión nueva",
+        description=(
+            "Copia contenido y diseño de una versión histórica y agrega un nuevo snapshot. "
+            "No modifica ni elimina historia, ni cambia código, tipo, uso o actividad."
+        ),
+        request=None,
+        responses={200: DocumentTemplateSerializer},
+        tags=CATALOGUE,
+    )
+    def post(self, request, public_id, version_id):
+        template = queries.document_template_or_404(self.institution, public_id)
+        version = queries.document_template_version_or_404(template, version_id)
+        restored = services.restore_document_template_version(
+            template=template, version=version, actor=request.user
+        )
+        return Response(DocumentTemplateSerializer(restored).data)
+
+
+class DocumentTemplateDraftPreviewView(CatalogueView):
+    """Preview a new unsaved template using the institution from the session."""
+
+    @extend_schema(
+        summary="Vista previa de plantilla nueva sin guardar",
+        request=DocumentTemplatePreviewSerializer,
+        responses={200: DocumentTemplatePreviewResponseSerializer},
+        tags=CATALOGUE,
+    )
+    def post(self, request):
+        serializer = DocumentTemplatePreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        preview = services.preview_document_template(
+            institution=self.institution,
+            actor=request.user,
+            **serializer.validated_data,
+        )
+        return Response(preview)
+
+
+class DocumentTemplatePreviewView(CatalogueView):
+    """Render a safe sample preview without mutating a template or issuing a document."""
+
+    @extend_schema(
+        summary="Vista previa de plantilla sin guardar",
+        request=DocumentTemplatePreviewSerializer,
+        responses={200: DocumentTemplatePreviewResponseSerializer},
+        tags=CATALOGUE,
+    )
+    def post(self, request, public_id):
+        template = queries.document_template_or_404(self.institution, public_id)
+        serializer = DocumentTemplatePreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        preview = services.preview_document_template(
+            template=template,
+            actor=request.user,
+            **serializer.validated_data,
+        )
+        return Response(preview)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar etiquetas dinamicas",
+        description=(
+            "Catalogo cerrado y predefinido de etiquetas dinamicas disponibles para el "
+            "contenido de las plantillas (RF-PLA-002). Las etiquetas sensibles se excluyen "
+            "por defecto (RF-PLA-003)."
+        ),
+        tags=CATALOGUE,
+        parameters=[INCLUDE_SENSITIVE],
+        responses={200: FieldTagSerializer(many=True)},
+    ),
+)
+class FieldTagListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = FieldTagSerializer
+
+    def get(self, request):
+        catalogue = services.list_field_tags(
+            actor=request.user, include_sensitive=_wants_sensitive(request)
+        )
+        tags = [
+            {"code": code, "label": label, "sensitive": sensitive}
+            for code, label, sensitive in catalogue
+        ]
+        page = self.paginate_queryset(tags)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar tipos de documento",
+        description=(
+            "Catalogo institucional de tipos de documento, administrable sin redespliegue "
+            "(RNF-MAN-001). Solo activos salvo `include_inactive=true`."
+        ),
+        tags=CATALOGUE,
+        parameters=[INCLUDE_INACTIVE],
+        responses={200: DocumentKindSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar tipo de documento",
+        description="El codigo se normaliza a minusculas, es unico por institucion e inmutable.",
+        tags=CATALOGUE,
+        request=DocumentKindCreateSerializer,
+        responses={201: DocumentKindSerializer},
+    ),
+)
+class DocumentTypeListCreateView(CatalogueListCreateView):
+    list_serializer = DocumentKindSerializer
+    create_serializer = DocumentKindCreateSerializer
+
+    def list_queryset(self, request):
+        return queries.document_kinds(self.institution, include_inactive=_include_inactive(request))
+
+    def create(self, request, payload):
+        return services.create_document_kind(
+            institution=self.institution, actor=request.user, **payload
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar tipo de documento",
+        tags=CATALOGUE,
+        responses={200: DocumentKindSerializer},
+    ),
+    patch=extend_schema(
+        summary="Actualizar tipo de documento",
+        description="El codigo es inmutable; se actualizan nombre visible y descripcion.",
+        tags=CATALOGUE,
+        request=DocumentKindUpdateSerializer,
+        responses={200: DocumentKindSerializer},
+    ),
+    delete=extend_schema(
+        summary="Desactivar tipo de documento",
+        description=(
+            "Desactiva el tipo en lugar de borrarlo. Se rechaza mientras existan "
+            "plantillas activas de ese tipo."
+        ),
+        tags=CATALOGUE,
+        responses={204: None},
+    ),
+)
+class DocumentTypeDetailView(RetrieveMixin, UpdateMixin, DeactivateMixin, CatalogueDetailView):
+    detail_serializer = DocumentKindSerializer
+    update_serializer = DocumentKindUpdateSerializer
+
+    def get_object(self, public_id):
+        return queries.document_kind_or_404(self.institution, public_id)
+
+    def update(self, request, kind, payload):
+        services.update_document_kind(kind=kind, actor=request.user, **payload)
+
+    def deactivate(self, request, kind):
+        services.deactivate_document_kind(kind=kind, actor=request.user)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Consultar elegibilidad de emision oficial",
+        description=(
+            "Indica si una matricula puede continuar con la emision de un documento oficial. "
+            "La emision queda bloqueada mientras existan documentos obligatorios pendientes "
+            "(RF-MAT-006)."
+        ),
+        tags=OFFICIAL_ISSUANCE,
+        parameters=[ENROLMENT_ID],
+        responses={200: OfficialDocumentEligibilityResponseSerializer},
+    ),
+)
+class OfficialDocumentEligibilityView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OfficialDocumentEligibilityQuerySerializer
+
+    def get(self, request):
+        # The permission is checked before the enrolment is resolved: otherwise a
+        # caller without `document_issue` could probe which enrolments exist by
+        # telling a 404 apart from a 403.
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        enrolment = queries.enrolment_or_404(query.validated_data["enrolment_id"])
+        blocking_codes = services.evaluate_official_document_issuance(
+            enrolment=enrolment, actor=request.user
+        )
+        return Response({"eligible": not blocking_codes, "blocking_document_codes": blocking_codes})
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Generar boleta de un ciclo cerrado",
+        description=(
+            "Genera en memoria la boleta de calificaciones de una matricula cuyo ciclo "
+            "academico ya esta cerrado (RF-EMI-005). No persiste ningun registro ni "
+            "altera el historial academico."
+        ),
+        tags=OFFICIAL_ISSUANCE,
+        parameters=[ENROLMENT_ID],
+        responses={200: OpenApiTypes.BINARY},
+    ),
+)
+class HistoricalCycleReportView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = HistoricalCycleReportQuerySerializer
+
+    def get(self, request):
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        enrolment = queries.enrolment_or_404(query.validated_data["enrolment_id"])
+        report = services.compile_historical_cycle_report(enrolment=enrolment, actor=request.user)
+        response = HttpResponse(report.content, content_type=report.content_type)
+        response["Content-Disposition"] = 'attachment; filename="boleta.pdf"'
+        return response
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Emitir documentos por lote",
+        description=(
+            "Genera en memoria las boletas de calificaciones de toda una seccion o grado "
+            "(RF-EMI-006). Reenviar el mismo client_batch_id tras un fallo de red devuelve "
+            "el resultado ya registrado en lugar de repetir la emision."
+        ),
+        tags=OFFICIAL_ISSUANCE,
+        request=DocumentBatchCompileSerializer,
+        responses={200: DocumentBatchCompileResponseSerializer},
+    ),
+)
+class DocumentBatchCompileView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentBatchCompileSerializer
+
+    def post(self, request):
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = services.compile_document_batch(
+            section=serializer.validated_data["section"],
+            grade=serializer.validated_data["grade"],
+            document_type=serializer.validated_data["document_type"],
+            client_batch_id=serializer.validated_data["client_batch_id"],
+            actor=request.user,
+        )
+        return Response({"count": result["count"], "replayed": result.get("replayed", False)})
+
+
+class IndividualDocumentIssuanceView(GenericAPIView):
+    """RF-EMI-001: individual emission of a constancia or certificado."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = IndividualIssuanceSerializer
+
+    @extend_schema(
+        summary="Emitir constancia o certificado individual",
+        description=(
+            "Compila en memoria la constancia de inscripcion o el certificado de estudios "
+            "de un estudiante (RF-EMI-001) y la devuelve como PDF adjunto. El archivo no se "
+            "almacena (RF-DOC-008); se registra la emision con folio correlativo, codigo de "
+            "verificacion publico, version de plantilla, SHA-256 y tamano. Los cabezales "
+            "`X-Document-Issuance-Id`, `X-Document-Folio`, `X-Document-Checksum` y "
+            "`X-Document-Verification-Code` acompanan al archivo. Requiere `document.issue` "
+            "con alcance sobre el estudiante."
+        ),
+        request=IndividualIssuanceSerializer,
+        responses={201: OpenApiTypes.BINARY},
+        tags=OFFICIAL_ISSUANCE,
+    )
+    def post(self, request):
+        # Atomic permission first: without it the caller must not be able to
+        # tell an existing enrolment (403 later) from a missing one (404).
+        services.ensure_official_document_issuance_permission(actor=request.user)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        enrolment = queries.enrolment_or_404(serializer.validated_data["enrolment_id"])
+        issued = services.issue_individual_document(
+            enrolment=enrolment,
+            document_type=serializer.validated_data["document_type"],
+            actor=request.user,
+        )
+        issuance = issued.issuance
+        response = HttpResponse(
+            issued.content, content_type=issued.content_type, status=status.HTTP_201_CREATED
+        )
+        response["Content-Disposition"] = f'attachment; filename="{issued.filename}"'
+        response["X-Document-Issuance-Id"] = str(issuance.public_id)
+        response["X-Document-Folio"] = issuance.folio
+        response["X-Document-Checksum"] = issuance.checksum
+        response["X-Document-Verification-Code"] = issuance.verification_code
+        response["Access-Control-Expose-Headers"] = (
+            "Content-Disposition, X-Document-Issuance-Id, X-Document-Folio, "
+            "X-Document-Checksum, X-Document-Verification-Code"
+        )
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class IssuedDocumentIntegrityVerifyView(GenericAPIView):
+    """RF-EMI-001: prove that a file is the exact emission that was registered."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = IssuedDocumentVerifySerializer
+
+    @extend_schema(
+        summary="Verificar integridad de un documento emitido",
+        description=(
+            "Compara el SHA-256 del archivo recibido con el registrado al emitirlo. "
+            "204 si coincide; 400 si fue alterado. Requiere `document.read` con alcance "
+            "sobre el estudiante."
+        ),
+        request=IssuedDocumentVerifySerializer,
+        responses={204: None},
+        tags=OFFICIAL_ISSUANCE,
+    )
+    def post(self, request, public_id):
+        issuance = queries.document_issuance_or_404(public_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        services.verify_issued_document(
+            actor=request.user,
+            issuance=issuance,
+            payload=serializer.validated_data["file"].read(),
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DocumentDeliveryReceiptCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentDeliveryReceiptCreateSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        receipt = services.register_document_delivery_receipt(
+            actor=request.user,
+            student=serializer.validated_data["student"],
+            guardian=serializer.validated_data["guardian"],
+            document_type=serializer.validated_data["document_type"],
+            folio=serializer.validated_data.get("folio", ""),
+            recipient_name=serializer.validated_data.get("recipient_name", ""),
+            notes=serializer.validated_data.get("notes", ""),
+        )
+        return Response(DocumentDeliveryReceiptSerializer(receipt).data, status=201)
+
+
+class DocumentRecordDownloadView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        summary="Descargar un documento usando un token de vigencia breve",
+        description=(
+            "El archivo se entrega a traves de un token temporal ligado al usuario. "
+            "La ruta no es una URL estatica del archivo y el token vence rapidamente."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="token",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description=(
+                    "Token de descarga temporal emitido por la API para el usuario autenticado."
+                ),
+            )
+        ],
+        responses={200: OpenApiTypes.BINARY},
+        tags=["documents: records"],
+    )
+    def get(self, request, public_id):
+        document = queries.document_record_or_404(public_id)
+        token = str(request.query_params.get("token", "") or "").strip()
+        services.validate_document_download_token(
+            document=document,
+            token=token,
+            actor=request.user,
+        )
+
+        try:
+            with default_storage.open(document.storage_key, "rb") as stored_file:
+                payload = stored_file.read()
+        except OSError as exc:
+            raise DomainError("El archivo persistido del documento no esta disponible.") from exc
+
+        response = HttpResponse(payload, content_type=document.content_type)
+        response["Content-Disposition"] = (
+            f'attachment; filename="{document.filename or "documento.pdf"}"'
+        )
+        return response
+
+
+class DocumentVerificationThrottle(AnonRateThrottle):
+    """Limit public verification attempts independently from authenticated API traffic."""
+
+    scope = "document_verification"
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Verificar la autenticidad de un documento emitido",
+        description=(
+            "Consulta publica y sin autenticacion (RF-EMI-009): confirma si un codigo "
+            "impreso en un documento emitido es genuino. No revela a quien se emitio el "
+            "documento, solo el tipo, folio, fecha y vigencia del documento."
+        ),
+        tags=PUBLIC_VERIFICATION,
+        responses={200: DocumentVerificationResponseSerializer},
+    ),
+)
+class DocumentVerificationView(GenericAPIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [DocumentVerificationThrottle]
+    serializer_class = DocumentVerificationResponseSerializer
+
+    def get(self, request, code):
+        result = services.verify_document(code=code)
+        return Response(result)
+
+
+class DocumentRecordUploadView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentUploadSerializer
+
+    @extend_schema(
+        request=DocumentUploadSerializer,
+        responses={201: DocumentRecordSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        record = services.upload_document_record(
+            actor=request.user,
+            student=serializer.validated_data["student"],
+            enrolment=serializer.validated_data.get("enrolment"),
+            upload=serializer.validated_data["file"],
+        )
+        return Response(DocumentRecordSerializer(record).data, status=status.HTTP_201_CREATED)
+
+
+class ScannedDocumentUploadView(GenericAPIView):
+    """RF-DOC-007: direct scanner upload reuses the immutable record pipeline."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentUploadSerializer
+
+    @extend_schema(
+        request=DocumentUploadSerializer,
+        responses={201: DocumentRecordSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        record = services.register_scanned_document(
+            actor=request.user,
+            student=serializer.validated_data["student"],
+            enrolment=serializer.validated_data.get("enrolment"),
+            upload=serializer.validated_data["file"],
+        )
+        return Response(DocumentRecordSerializer(record).data, status=status.HTTP_201_CREATED)
+
+
+class StorageConsumptionView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StorageConsumptionSerializer
+
+    @extend_schema(responses={200: StorageConsumptionSerializer}, tags=["documents: records"])
+    def get(self, request):
+        return Response(services.storage_consumption_summary(actor=request.user))
+
+
+class StudentDocumentRecordListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentRecordSerializer
+
+    @extend_schema(
+        responses={200: DocumentRecordSerializer(many=True)}, tags=["documents: records"]
+    )
+    def get(self, request, student_id):
+        student = queries.student_or_404(student_id)
+        services.ensure_document_access(actor=request.user, student=student)
+        page = self.paginate_queryset(queries.document_records_for_student(student))
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+
+class EnrolmentDocumentRecordListView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentRecordSerializer
+
+    @extend_schema(
+        responses={200: DocumentRecordSerializer(many=True)},
+        tags=["documents: records"],
+    )
+    def get(self, request, enrolment_id):
+        enrolment = queries.enrolment_or_404(enrolment_id)
+        services.ensure_document_access(actor=request.user, student=enrolment.student)
+        page = self.paginate_queryset(queries.document_records_for_enrolment(enrolment))
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+
+class DocumentRecordVersionCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentReplaceSerializer
+
+    @extend_schema(
+        request=DocumentReplaceSerializer,
+        responses={201: DocumentRecordSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request, public_id):
+        record = queries.document_record_or_404(public_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        replacement = services.replace_document_record(
+            actor=request.user,
+            record=record,
+            upload=serializer.validated_data["file"],
+        )
+        return Response(DocumentRecordSerializer(replacement).data, status=status.HTTP_201_CREATED)
+
+
+class TeacherDocumentRecordListCreateView(GenericAPIView):
+    """RF-DOC-001: documents of a teacher's institutional dossier."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TeacherDocumentUploadSerializer
+
+    @extend_schema(
+        summary="Listar documentos del expediente del docente",
+        description=(
+            "Todas las versiones de los documentos del docente, agrupadas por "
+            "`version_group_id`. Requiere `document.read` y ser el propio docente o "
+            "tener alcance sobre el modulo `teachers`. Cada consulta queda auditada."
+        ),
+        responses={200: DocumentRecordSerializer(many=True)},
+        tags=["documents: records"],
+    )
+    def get(self, request, teacher_id):
+        teacher = queries.teacher_or_404(teacher_id)
+        services.ensure_teacher_document_access(actor=request.user, teacher=teacher)
+        page = self.paginate_queryset(queries.document_records_for_teacher(teacher))
+        return self.get_paginated_response(DocumentRecordSerializer(page, many=True).data)
+
+    @extend_schema(
+        summary="Adjuntar documento al expediente del docente",
+        description=(
+            "Valida tipo y tamano, guarda el archivo fuera de la base de datos con su "
+            "SHA-256 y lo vincula al docente. Requiere `document.upload` con alcance sobre "
+            "el modulo `teachers`; el propio docente no carga en su expediente."
+        ),
+        request=TeacherDocumentUploadSerializer,
+        responses={201: DocumentRecordSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request, teacher_id):
+        teacher = queries.teacher_or_404(teacher_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        record = services.upload_teacher_document_record(
+            actor=request.user,
+            teacher=teacher,
+            upload=serializer.validated_data["file"],
+        )
+        return Response(DocumentRecordSerializer(record).data, status=status.HTTP_201_CREATED)
+
+
+class DocumentRecordDownloadTokenView(GenericAPIView):
+    """RF-DOC-005: issue the short-lived token the download endpoint requires."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentDownloadTokenSerializer
+
+    @extend_schema(
+        summary="Emitir token de descarga de un documento",
+        description=(
+            "Emite un token de un solo uso, ligado al usuario y con vigencia breve, para "
+            "descargar el documento. Aplica el mismo control de acceso y auditoria que la "
+            "lectura del expediente (estudiante o docente)."
+        ),
+        request=None,
+        responses={201: DocumentDownloadTokenSerializer},
+        tags=["documents: records"],
+    )
+    def post(self, request, public_id):
+        record = queries.document_record_or_404(public_id)
+        token = services.issue_document_download_token(actor=request.user, document=record)
+        download_url = (
+            reverse("document-record-download", args=[record.public_id]) + f"?token={token.token}"
+        )
+        payload = {
+            "token": token.token,
+            "expires_at": token.expires_at,
+            "download_url": download_url,
+        }
+        return Response(
+            DocumentDownloadTokenSerializer(payload).data, status=status.HTTP_201_CREATED
+        )
+
+
+class DocumentRecordIntegrityVerifyView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DocumentRecordSerializer
+
+    @extend_schema(responses={204: None}, tags=["documents: records"])
+    def post(self, request, public_id):
+        record = queries.document_record_or_404(public_id)
+        services.verify_stored_document_checksum(actor=request.user, document=record)
+        return Response(status=status.HTTP_204_NO_CONTENT)

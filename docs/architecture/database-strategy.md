@@ -1,0 +1,51 @@
+# Database Strategy
+
+## Motores por ambiente
+
+| Ambiente | Motor | Estado |
+| --- | --- | --- |
+| Desarrollo rapido local | SQLite | Opcional |
+| Desarrollo recomendado | PostgreSQL | Recomendado |
+| Pruebas automatizadas | PostgreSQL | Obligatorio |
+| Staging | PostgreSQL | Obligatorio |
+| Produccion | PostgreSQL | Obligatorio |
+
+## Motivo
+
+- SQLite acelera arranque y exploracion local.
+- PostgreSQL es referencia de comportamiento objetivo, integridad y compatibilidad.
+
+## Reglas
+
+- No depender de SQLite en CI.
+- No usar SQLite en staging o produccion.
+- Validar migraciones y pytest sobre PostgreSQL.
+- Mantener modelos y consultas compatibles con ambos solo donde aplica a desarrollo.
+
+## Zona horaria
+
+- El cluster de PostgreSQL se fija explicitamente en la zona horaria del establecimiento
+  (`timezone` y `log_timezone`), y el contenedor recibe `TZ` y `PGTZ`. La zona se configura una
+  sola vez con la variable `TIME_ZONE`; ver `.env.example`.
+- Los instantes se almacenan como `timestamptz`, es decir de forma absoluta. La zona del
+  establecimiento interpreta al leer, no altera lo guardado.
+- La sesion de Django habla UTC a proposito: con `USE_TZ` activo el ORM fija la conexion en UTC y
+  convierte usando `TIME_ZONE`. Fijar el reloj del cluster sirve para lo que entra por fuera de
+  Django -- `psql`, `pg_dump`, cron, las lineas del log -- que es donde un servidor en UTC
+  enganaria a quien lee.
+- Las fechas de efecto y los dias escolares se derivan del reloj local. Un movimiento capturado a
+  las 23:30 pertenece a su dia local, no al dia siguiente en UTC.
+- El frontend recibe la misma zona mediante `VITE_TIME_ZONE`. Toda fecha de "hoy", seleccion de
+  anio, limite diario y presentacion de un instante pasa por `shared/utils/{format,timezone}.js`;
+  no se deriva con `toISOString().slice(0, 10)` ni con la zona del navegador.
+
+## Respaldo y restauracion
+
+El respaldo de la base es independiente del de la pila de archivos y se produce
+con `pg_dump --format=custom`, que es lo que permite restaurarlo con
+`pg_restore` en la infraestructura objetivo. El cliente de PostgreSQL debe
+compartir version mayor con el servidor; por eso el servidor esta fijado en
+`postgres:16-alpine` y la imagen del backend instala `postgresql-client-16`.
+
+Detalle completo, metas de recuperacion y simulacro en
+`docs/architecture/backup-and-recovery.md` (RNF-RES-001, RNF-RES-002).

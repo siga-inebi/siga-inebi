@@ -1,0 +1,99 @@
+# Expediente de calidad — Fase 7
+
+Este directorio conserva evidencia de la Fase 7 para una versión identificable de SIGA-INEBI. Pablo coordina su consolidación; cada responsable de dominio entrega sus resultados, evidencias y regresiones.
+
+RUN-D1-06 aprobó 28 controles locales con 1589 pruebas backend y283 frontend.
+Codex ejecutó en apoyo a Daniel; revisión independiente y aceptación pendientes.
+La instantánea incluye cambios sin commit: consultar SHA y digest en el
+[manifiesto](manifiesto-version.md). QA cloud desplegado en RUN-CQ-01 con URL,
+digests y revisiones en [despliegue cloud](despliegue-cloud-qa.md). Las líneas
+base previas permanecen en los registros.
+
+| Evidencia nueva | Propósito |
+| --- | --- |
+| [Candidata final de identidad y seguridad](evidencia-candidata-final-identidad-seguridad-2026-10-13.md) | Repeticion de autenticacion, autorizacion, dependencias y TLS sobre `develop` `68fa7753`; revision de Roi pendiente |
+| [Cierre documental D1 de Santiago](cierre-d1-identidad-santiago.md) | Inventario, perfiles sintéticos, ejecuciones vinculadas, revisión y límites del cierre de identidad |
+| [Cierre documental D3 de Santiago](cierre-d3-identidad-seguridad-santiago.md) | Cookies/TLS en QA, revisión de dependencias, documentos entregados y pendientes trasladados a D5 |
+| [Entorno y datos](entorno-y-datos.md) | Versiones, recursos, aislamiento y pendientes cloud/teléfono |
+| [Índice](indice-evidencias.csv) | Checksums de artefactos locales ignorados; exportación pendiente |
+| [Rendimiento](informe-rendimiento.md) | Duraciones reales y mediciones de usuario pendientes |
+| [Recuperación](informe-recuperacion.md) | Restauraciones sintéticas y límites de RPO/RTO |
+| [Manifiesto](manifiesto-version.md) | Identidad verificable de la instantánea evaluada |
+| [Despliegue cloud](despliegue-cloud-qa.md) | RUN-CQ-01: URL, imágenes, revisiones y verificaciones en Cloud Run |
+| [Resultado integrado de Pablo](resultado-ejecucion-pablo-2026-10-12.md) | RUN-PAB-20261012-02: 28/28 controles, métricas y regresión de formato |
+| [Instalación limpia y recuperación PostgreSQL](reporte-final-pruebas.md) | Validación real de PostgreSQL 16, migraciones, semillas, esquema, integración y restauración de respaldo |
+| [Avance de Estuardo](estuardo/informe-avance-2026-10-13.md) | Alcance vigente y pendientes D2/D5 |
+| [Ajuste de alcance de Estuardo](estuardo/ajuste-alcance.md) | Decisión comunicada para retirar D1, D3 y D4 de sus responsabilidades de evaluación |
+| [Revalidación D2 de Estuardo](estuardo/d2-evaluacion-integracion.md) | 243 pruebas aprobadas en `develop` `5ed5fd24`; no es candidato QA final |
+| [Cierre de INC-008](estuardo/informe-inc-008-2026-10-13.md) | Corrección y regresión técnica aprobadas por Roí; Pablo autorizó el cierre formal y comunicó aprobación de los controles adicionales de QA por medio de Estuardo, sin artefactos de esa ejecución |
+| [QA4-PDF-01](estuardo/qa4-pdf-01/README.md) | Descarga API, PDF sintético y captura legible tras corregir referencias internas |
+| [Regresión de Estuardo sobre candidato QA](estuardo/qa4-pdf-01/candidato-2026-10-14/README.md) | Commit `7f04a945` desplegado, 378 backend y 5 frontend aprobadas, PDF nuevo y JUnit; Roí aprobó con observaciones el cierre técnico en PR #602; controles adicionales aprobados según Pablo, sin artefactos adjuntos |
+| [UAT documental de Roí](estuardo/uat-roi-documentos-api-auditoria.md) | Estados reportados por escenario y límites de verificación |
+| [Seguimiento de manuales](seguimiento-manuales.md) | Estado, revisión y evidencia por manual |
+| [Preparación de usabilidad y UAT de Estuardo](estuardo/preparacion-usabilidad-uat/README.md) | Tareas y formatos listos; sesiones institucionales aún no ejecutadas |
+
+## Estado al inicio
+
+- Candidato evaluado inicialmente: pendiente de fijar en `manifiesto-version.md`.
+- Aceptación institucional: pendiente. Ningún documento de este directorio equivale a una aceptación firmada.
+- Datos: solo sintéticos. No guardar secretos, cookies, tokens, expedientes reales, respaldos ni volcados de base de datos.
+- Resultados de pruebas: usar `ejecuciones.csv`; no sustituir un resultado real por una afirmación de conformidad en Markdown.
+
+## Índice
+
+Segunda ronda de evaluación de Estuardo: [flujo en navegador y resultados](estuardo/ronda-2/README.md).
+Diagnóstico técnico: seis casos aprobados, uno fallido (INC-008) y uno bloqueado;
+no constituye UAT ni aceptación institucional.
+Primera ronda de evaluación de Estuardo: [guía, catálogo y evidencias](estuardo/README.md).
+Es un diagnóstico local complementario; no sustituye la aceptación institucional.
+
+Primera ronda de expediente de Diana: [guía, catálogo y evidencias](diana/README.md).
+Incluye dos fallos de frontend conservados (INC-013) y una incidencia funcional menor (INC-009).
+
+| Archivo | Propósito | Responsable |
+| --- | --- | --- |
+| `alcance-y-decisiones.md` | Alcance, dependencias y decisiones que bloquean validación. | Pablo |
+| `catalogo-casos.csv` | Universo de requisitos, clasificación inicial y vínculos de caso/ejecución. | Pablo + responsables de dominio |
+| `matriz-final.csv` | Matriz final de 230 requisitos declarados implementados por cierre de issues; uno cuenta además con evidencia individual aprobada. | Pablo |
+| `matriz-final-historica-pre-reduccion-alcance-2026-10-13.csv` | Universo y estados anteriores; preservado por auditoría, fuera del alcance final. | Pablo |
+| `ejecuciones.csv` | Registro inmutable de cada corrida o caso manual. | Ejecutores; Pablo consolida |
+| `incidencias.csv` | Registro y clasificación de defectos y bloqueos. | Reportante; Pablo hace triage |
+| `correcciones-y-regresion.md` | Correcciones aprobadas y regresión posterior. | Pablo + autor/revisor |
+| `informe-seguridad.md` | Resultado de controles de seguridad y dependencias disponibles. | Pablo coordina; Santiago/Daniel resuelven |
+| `reporte-final-pruebas.md` | Informe de estado y recomendación QA. | Pablo |
+| `acta-aceptacion.md` | Borrador de acta o reporte de aceptación institucional. | Pablo + autoridad institucional |
+| `seguimiento-manuales.md` | Estado de manuales y verificación por versión. | Pablo + responsables |
+| `roi-cierre.md` | Consolidación de entregables, pruebas y pendientes verificables de Roí. | Roí / Estuardo / Daniel |
+| `../manuals/08-maintenance-and-support-plan.md` | Plan operativo de mantenimiento y soporte. | Pablo + Daniel |
+
+## Actualización reproducible
+
+Regenerar únicamente el catálogo histórico después de cambios de requerimientos o catálogo:
+
+```bash
+python3 scripts/quality/generate_phase7_catalog.py
+```
+
+El generador conserva el universo histórico con resultado inicial `No ejecutado`. No debe sobrescribir `matriz-final.csv`, que es el cierre reducido aprobado el 13 de octubre de 2026.
+
+## Corridas automatizadas con evidencia
+
+Desde la raíz del repositorio, con Docker y Compose disponibles:
+
+```bash
+python3 scripts/quality/run_phase7_checks.py --run-id RUN-D1-06
+```
+
+La salida se guarda en `tmp/phase7/RUN-D1-06/`. Para elegir otro directorio local se admite `--evidence-root`. Un RUN-ID existente se rechaza para conservar su historial. El directorio contiene `summary.json`, logs por control, JUnit y cobertura backend/frontend y el build frontend. Los directorios `tmp/` y `docs/quality/fase-7/evidence/` están excluidos de Git; revisar los artefactos antes de compartirlos y referenciarlos desde `ejecuciones.csv`.
+
+Cada corrida usa un proyecto Compose propio, PostgreSQL 16 con datos sintéticos y contenedores sin dependencias implícitas. Comprueba versiones, migraciones, suites y umbrales de cobertura, lint, formato, Bandit, auditorías de dependencias y build. La auditoría Python conserva las excepciones declaradas en Makefile; aprobar ese control no significa ausencia de todas las vulnerabilidades. Los reportes se verifican antes de retirar los contenedores. Las comprobaciones independientes continúan aunque una falle; la preparación fallida bloquea sus dependientes. La salida global es 0 solo si todos los controles aprobaron, incluidos los reportes requeridos y la limpieza.
+
+`summary.json` registra el SHA base, si el árbol contiene cambios y un digest SHA-256 de los archivos versionados y no versionados no ignorados (incluye borrados y enlaces). Cuando el árbol está modificado, identificar la versión por SHA **y digest**, sin afirmar que los resultados pertenecen al commit limpio. El runner no captura contenidos de archivos fuente ni variables de entorno. Mantener el árbol estable durante la corrida: se toma otra instantánea al finalizar y cualquier diferencia invalida el resultado global (`source_stable: false`). Vitest usa como máximo dos trabajadores para limitar la carga sobre el host.
+
+Estas corridas verifican controles automatizados; las pruebas de QR en teléfono, rendimiento de referencia, restauración y aceptación institucional requieren su evidencia específica.
+
+Las pruebas del ejecutor no requieren Docker:
+
+```bash
+python3 -m unittest discover -s scripts/quality/tests -p 'test_run_phase7_checks.py'
+```

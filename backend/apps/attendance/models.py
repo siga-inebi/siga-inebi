@@ -1,0 +1,724 @@
+from datetime import time
+
+from django.db import models
+from django.db.models import Q
+
+from apps.common.models import TimeStampedModel
+
+
+class JornadaParameters(TimeStampedModel):
+    """
+    Configurable parameters for a jornada (``academics.Shift``) within an
+    academic cycle (RF-JOR-001).
+
+    A change never mutates an existing row: it creates a new one effective
+    from a given date, so days already elapsed keep evaluating against the
+    parameters that were in force when they happened (AGENTS.md #12).
+
+    The daily operating window in which scans and manual registrations are
+    accepted runs from ``opening_time`` to ``closing_time`` (both inclusive),
+    only on the ISO weekdays listed in ``school_days`` (1=lunes .. 7=domingo).
+    ``opening_time`` defaults to midnight so versions created before the
+    window existed keep accepting captures from the start of the day.
+    """
+
+    shift = models.ForeignKey(
+        "academics.Shift", on_delete=models.PROTECT, related_name="jornada_parameters"
+    )
+    academic_cycle = models.ForeignKey(
+        "academics.AcademicCycle", on_delete=models.PROTECT, related_name="jornada_parameters"
+    )
+    opening_time = models.TimeField(default=time(0, 0))
+    entry_limit_time = models.TimeField()
+    tolerance_minutes = models.PositiveIntegerField()
+    closing_time = models.TimeField()
+    duplicate_suppression_minutes = models.PositiveIntegerField()
+    school_days = models.JSONField(default=list)
+    effective_from = models.DateField()
+
+    class Meta:
+        ordering = ["-effective_from"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shift", "academic_cycle", "effective_from"],
+                name="unique_jornada_parameters_effective_from",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["shift", "academic_cycle", "effective_from"],
+                name="attendance_params_lookup_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.shift} ({self.academic_cycle}) from {self.effective_from}"
+
+
+class ControlPoint(TimeStampedModel):
+    """
+    A physical checkpoint (turnstile, gate, entrance) where scans happen
+    (RF-ASI-002). Just enough for an ``AttendanceEvent`` to reference where
+    it was captured, plus which movement types it admits (RF-ASI-005) --
+    both default to allowed so existing points keep working unconfigured.
+    """
+
+    campus = models.ForeignKey(
+        "academics.Campus", on_delete=models.PROTECT, related_name="control_points"
+    )
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=30)
+    allows_entry = models.BooleanField(default=True)
+    allows_exit = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campus", "code"], name="unique_control_point_code_per_campus"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.campus})"
+
+
+class ManualRegistrationReason(TimeStampedModel):
+    """
+    A configurable reason a manual attendance registration can cite
+    (RF-ASI-012). Deliberately minimal, same pattern as ``ControlPoint``:
+    just enough for an ``AttendanceEvent`` to reference why it was recorded
+    without a scan. Retiring one (``is_active=False``) never touches events
+    that already cite it (AGENTS.md #12).
+    """
+
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=30, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class CaptureBatch(TimeStampedModel):
+    """
+    RF-ASI-009: an operator's in-progress group of scanned movements, kept
+    open across sessions and devices so nothing already captured is lost if
+    the operator's session drops before they confirm. Each movement is
+    already a real, immutable ``AttendanceEvent`` the instant it's scanned
+    (RF-ASI-002) -- this row only tracks whether the group is still being
+    accumulated or has been confirmed closed, so recovery is just reading
+    rows that were already durably saved, from any device.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Abierto"
+        CONFIRMED = "confirmed", "Confirmado"
+        EXPIRED = "expired", "Vencido"
+
+    operator = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="capture_batches"
+    )
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    session_key = models.CharField(max_length=64, blank=True, default="")
+    # RF-AUT-005: the time assigned to this capture turn, fixed when it is
+    # opened. Rows opened before the field existed have no value and fall
+    # back to ``created_at`` plus the configured duration.
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["operator"],
+                condition=Q(status="open"),
+                name="unique_open_capture_batch_per_operator",
+            )
+        ]
+
+    def __str__(self):
+        return f"Lote de {self.operator} ({self.status})"
+
+
+class AttendanceEventQuerySet(models.QuerySet):
+    """
+    ``QuerySet.delete()``/``update()`` run a direct SQL statement and never
+    call the model's own ``delete()``/``save()`` overrides below, so the
+    instance-level guard on its own would not stop a bulk
+    ``AttendanceEvent.objects.filter(...).delete()`` (RNF-AUD-001, same gap
+    class already closed for ``apps.audit.models.AuditEvent`` in RF-BIT-005).
+    """
+
+    def delete(self):
+        raise RuntimeError("Attendance events cannot be deleted.")
+
+    def update(self, **kwargs):
+        raise RuntimeError("Attendance events cannot be modified.")
+
+
+class AttendanceEvent(TimeStampedModel):
+    """
+    A single movement record for a student in a jornada (RF-JOR-002/003):
+    ``student`` + ``shift`` + ``event_date`` identify "la misma jornada".
+
+    Events are never deleted or overwritten, even when a later event
+    supersedes them for precedence purposes (AGENTS.md #12) — a superseded
+    event stays stored and queryable. RNF-AUD-001: corrections must add a new
+    row (see ``resolve_prevailing_event``'s precedence rule and
+    ``record_scan_movement``'s duplicate rejection, both of which already
+    never touch an existing row) rather than editing this one, so both the
+    instance and the queryset reject any attempt to do so after creation.
+    """
+
+    class MovementType(models.TextChoices):
+        ENTRY = "entry", "Ingreso"
+        EXIT = "exit", "Egreso"
+
+    class Origin(models.TextChoices):
+        SCAN = "scan", "Escaneo"
+        MANUAL = "manual", "Manual"
+        DECLARED = "declared", "Declarado"
+
+    class Transmission(models.TextChoices):
+        INDIVIDUAL = "individual", "Individual"
+        BATCH = "batch", "Lote"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="attendance_events"
+    )
+    shift = models.ForeignKey(
+        "academics.Shift", on_delete=models.PROTECT, related_name="attendance_events"
+    )
+    event_date = models.DateField()
+    movement_type = models.CharField(max_length=10, choices=MovementType.choices)
+    origin = models.CharField(max_length=10, choices=Origin.choices)
+    transmission = models.CharField(
+        max_length=12, choices=Transmission.choices, default=Transmission.INDIVIDUAL
+    )
+    captured_at = models.DateTimeField()
+    control_point = models.ForeignKey(
+        ControlPoint,
+        on_delete=models.PROTECT,
+        related_name="attendance_events",
+        null=True,
+        blank=True,
+    )
+    operator = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="attendance_events_operated",
+        null=True,
+        blank=True,
+    )
+    manual_reason = models.ForeignKey(
+        ManualRegistrationReason,
+        on_delete=models.PROTECT,
+        related_name="attendance_events",
+        null=True,
+        blank=True,
+    )
+    client_event_id = models.CharField(max_length=100, blank=True, default="")
+    batch_id = models.CharField(max_length=100, blank=True, default="")
+    capture_batch = models.ForeignKey(
+        CaptureBatch,
+        on_delete=models.PROTECT,
+        related_name="events",
+        null=True,
+        blank=True,
+    )
+
+    objects = AttendanceEventQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-captured_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["client_event_id"],
+                condition=~Q(client_event_id=""),
+                name="unique_attendance_event_client_event_id",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["student", "shift", "event_date", "movement_type"],
+                name="attendance_event_prec_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student} {self.movement_type} ({self.origin}) {self.captured_at}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("Attendance events cannot be modified.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("Attendance events cannot be deleted.")
+
+
+class AttendanceAlert(TimeStampedModel):
+    """
+    A generated attendance alert (RF-JOR-004/RF-JOR-005), e.g. a student who
+    entered but never registered an exit, or conflicting events for the same
+    jornada. Alerts are append-only: they are never edited or removed, and a
+    later reevaluation simply raises a new one.
+
+    ``target_roles`` and ``section`` describe who the alert is meant for
+    without enforcing delivery: routing an alert to actual people is a
+    ``reporting-notifications`` concern, not this domain's.
+    """
+
+    class AlertType(models.TextChoices):
+        PERMANENCIA_SIN_CIERRE = "permanencia_sin_cierre", "Permanencia sin cierre"
+        INCONSISTENCIA = "inconsistencia", "Inconsistencia entre fuentes"
+
+    class TargetRole(models.TextChoices):
+        CONTROL_POINT = "control_point", "Personal del punto de control"
+        SECTION_COORDINATOR = "section_coordinator", "Coordinador de aula"
+
+    alert_type = models.CharField(max_length=30, choices=AlertType.choices)
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="attendance_alerts"
+    )
+    shift = models.ForeignKey(
+        "academics.Shift", on_delete=models.PROTECT, related_name="attendance_alerts"
+    )
+    section = models.ForeignKey(
+        "academics.Section",
+        on_delete=models.PROTECT,
+        related_name="attendance_alerts",
+        null=True,
+        blank=True,
+    )
+    event_date = models.DateField()
+    target_roles = models.JSONField(default=list)
+    context = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["student", "shift", "event_date", "alert_type"],
+                name="attendance_alert_lookup_idx",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.alert_type} ({self.student}, {self.event_date})"
+
+
+class DayStatus(models.TextChoices):
+    """
+    Derived daily attendance status (RF-JOR-002). Not a model field: this is
+    the shared vocabulary ``services.derive_day_status`` returns and the API
+    serializes, computed fresh each time rather than persisted.
+    """
+
+    PRESENT = "presente", "Presente"
+    LATE = "tarde", "Tarde"
+    ABSENT_PENDING_JUSTIFICATION = "ausente_pendiente_justificar", "Ausente pendiente de justificar"
+    JUSTIFIED_ABSENCE = "ausencia_justificada", "Ausencia justificada"
+    JUSTIFIED_LATE = "tarde_justificada", "Llegada tardia justificada"
+
+
+class RecalculationReason(models.TextChoices):
+    """
+    Why ``services.recalculate_day`` re-evaluated a day (RF-JOR-006). Not a
+    model field: a vocabulary shared by the audit trail and
+    ``DayRecalculationResult``. ``JUSTIFICATION_RESOLVED`` (RF-JUS-005) is
+    passed by ``services.resolve_justification`` once an approval changes
+    the day's derived status.
+    """
+
+    LATE_EVENT = "late_event", "Evento con fecha anterior"
+    PARAMETERS_CHANGED = "parameters_changed", "Cambio de parametros de jornada"
+    JUSTIFICATION_RESOLVED = "justification_resolved", "Resolucion de justificacion"
+
+
+class StudentCredential(TimeStampedModel):
+    """
+    A student's QR credential (RF-CRE-001).
+
+    ``opaque_identifier`` is the whole QR payload. It is generated randomly and
+    is not derived from ``student_code``, the national ID, or any other personal
+    data, so scanning the printed code with an off-the-shelf reader yields a
+    meaningless string instead of identifying its bearer.
+
+    Credentials are never deleted or rewritten: reposition (RF-CRE-004) issues a
+    new row and revocation (RF-CRE-003) flips ``status`` on the old one, so the
+    student's credential history stays queryable (AGENTS.md #12).
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Vigente"
+        REVOKED = "revoked", "Revocada"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="credentials"
+    )
+    opaque_identifier = models.CharField(max_length=64)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    issued_at = models.DateTimeField()
+    revocation_reason = models.CharField(max_length=255, blank=True, default="")
+    revoked_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="credentials_revoked",
+        null=True,
+        blank=True,
+    )
+
+    revoked_on_movement = models.ForeignKey(
+        "enrolments.StudentMovement",
+        on_delete=models.PROTECT,
+        related_name="credentials_revoked_on_close",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-issued_at"]
+        constraints = [
+            # Named explicitly rather than declared with ``unique=True`` so the
+            # services can map the violation back to a message by name.
+            models.UniqueConstraint(
+                fields=["opaque_identifier"],
+                name="unique_credential_opaque_identifier",
+            ),
+            models.UniqueConstraint(
+                fields=["student"],
+                condition=Q(status="active", is_active=True),
+                name="unique_active_student_credential",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["student", "status"], name="attendance_cred_student_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.student} ({self.status})"
+
+
+class SectionClosureLog(TimeStampedModel):
+    """
+    RF-ASI-013: one durable row per confirmed declared closure of a section
+    (RF-ASI-011), recording who declared it and whether they were the
+    section's currently assigned teacher or a covering one -- so the
+    coverage proportion is a plain count query, never a re-derivation of
+    the schedule for every past closure. Append-only, like every other
+    movement record in this app (AGENTS.md #12).
+    """
+
+    section = models.ForeignKey(
+        "academics.Section", on_delete=models.PROTECT, related_name="closure_logs"
+    )
+    event_date = models.DateField()
+    declared_by = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="section_closures_declared"
+    )
+    is_covering = models.BooleanField()
+    included_count = models.PositiveIntegerField()
+    omitted_count = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Cierre de {self.section} ({self.event_date})"
+
+
+class JustificationPolicy(TimeStampedModel):
+    """
+    RF-JUS-003: how many business days after an absence a guardian may still
+    submit a justification for it. A single global row -- no per-institution
+    scoping yet, since nothing has asked for that -- read via
+    ``services.justification_window_business_days``, which falls back to a
+    sensible default (never creating a row as a side effect, same pattern as
+    ``academics.queries.class_schedule_publication``). Configured through
+    Django admin, matching every other lightweight catalog in this app.
+    """
+
+    window_business_days = models.PositiveIntegerField(default=5)
+
+    def __str__(self):
+        return f"Ventana de justificacion: {self.window_business_days} dias habiles"
+
+
+class JustificationReason(TimeStampedModel):
+    """
+    RF-JUS-001: a configurable catalog entry a guardian selects as the
+    reason for a justification request -- same minimal pattern as
+    ``ManualRegistrationReason``/``ControlPoint`` elsewhere in this app.
+    Retiring one (``is_active=False``) never touches a ``Justification``
+    that already cites it (AGENTS.md #12).
+    """
+
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=30, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class Justification(TimeStampedModel):
+    """
+    RF-JUS-003: a guardian's request to justify a student's absence on a
+    given date. Scope enforcement so a guardian only ever sees their own
+    wards is RF-JUS-002 (covered at the service boundary by reusing
+    ``identity.scopes.can_access_student``, not by anything new here).
+    ``status`` carries the full lifecycle so later RFs need no migration of
+    their own to add a transition.
+
+    RF-JUS-001: ``situation_type`` and ``reason_catalog`` complete the
+    submission flow the spec describes -- indicating whether it's an
+    absence or a late arrival, and a reason taken from a configurable
+    list. ``reason_catalog`` is optional (``null=True``) rather than
+    replacing the free-text ``reason`` outright: RF-JUS-003 through
+    RF-JUS-007 already shipped against free-text ``reason`` as the sole
+    input, and forcing a catalog selection now would break that already-
+    delivered, already-tested behavior. ``situation_type`` defaults to
+    ``ABSENCE`` for the same reason -- every caller written before this RF
+    existed keeps working unchanged.
+
+    RF-JUS-004: once ``resolved_by``/``resolved_at`` are set the row is
+    immutable (enforced in ``services.resolve_justification``, not here) --
+    a correction is a brand-new ``Justification`` via ``submit_justification``,
+    never an edit of this one (AGENTS.md #12).
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        APPROVED = "approved", "Aprobada"
+        REJECTED = "rejected", "Rechazada"
+
+    class SituationType(models.TextChoices):
+        ABSENCE = "absence", "Inasistencia"
+        LATE_ARRIVAL = "late_arrival", "Llegada tardia"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="justifications"
+    )
+    absence_date = models.DateField()
+    situation_type = models.CharField(
+        max_length=15, choices=SituationType.choices, default=SituationType.ABSENCE
+    )
+    reason = models.TextField()
+    reason_catalog = models.ForeignKey(
+        JustificationReason,
+        on_delete=models.PROTECT,
+        related_name="justifications",
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    submitted_by = models.ForeignKey(
+        "identity.UserAccount", on_delete=models.PROTECT, related_name="justifications_submitted"
+    )
+    is_exception = models.BooleanField(default=False)
+    exception_reason = models.CharField(max_length=255, blank=True, default="")
+    resolved_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justifications_resolved",
+        null=True,
+        blank=True,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_comment = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Justificacion de {self.student} ({self.absence_date})"
+
+
+class JustificationNotification(TimeStampedModel):
+    """
+    RF-JUS-006: a record that the guardian who submitted a justification has
+    been informed of its resolution. Nothing in this system sends email or
+    push yet -- every other alerting surface (``AttendanceAlert``,
+    ``reporting.Alert``) targets school staff, never a guardian -- so this is
+    the minimal channel available: a queryable record the guardian fetches
+    via ``services.list_my_justification_notifications``. A real channel
+    (email, push), if one is ever added, would read from this same table
+    rather than replacing it.
+
+    One row per resolution: ``resolve_justification`` creates it right after
+    saving the resolution, for approval and for rejection alike -- the
+    requirement notifies on either outcome.
+    """
+
+    justification = models.OneToOneField(
+        "attendance.Justification", on_delete=models.CASCADE, related_name="notification"
+    )
+    recipient = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justification_notifications",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Notificacion de {self.justification} para {self.recipient}"
+
+
+class AbsenceNotification(TimeStampedModel):
+    """
+    RF-JOR-007 (HU-14, RN-NOT-001): a record that a student's guardian has
+    been notified of an absence. Same in-system channel as
+    ``JustificationNotification`` -- no email, push or queue exists
+    (ADR-0009) -- so this is a queryable row the guardian fetches via
+    ``services.list_my_absence_notifications``. A future external channel
+    would read from this same table rather than replace it.
+
+    Recipient: the student's primary ``StudentGuardianRelation`` in force on
+    the day (openspec ``autorizacion-alcance`` "Asociacion principal del
+    estudiante": the primary association is the default destination of
+    notifications). ``relation`` keeps which association it was addressed
+    through; ``guardian`` is denormalised from it so the guardian's listing
+    is a plain filter. Visibility is still re-checked on every read against
+    the guardian's *current* relations ("Corte total al terminar la
+    asociacion"), so a stored row never grants historical access.
+
+    One row per (student, date, reason): ``services.notify_absence`` is
+    idempotent, so reprocessing the jornada closure never duplicates it.
+    Rows are never deleted (AGENTS.md #12): when a later-recorded entry shows
+    the student was not absent after all, ``services.recalculate_day`` marks
+    the row superseded (``superseded_at``) instead of removing it, the same
+    idiom as ``AttendanceAlert.is_active``.
+    """
+
+    class Reason(models.TextChoices):
+        ABSENCE = "inasistencia", "Inasistencia"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="absence_notifications"
+    )
+    shift = models.ForeignKey(
+        "academics.Shift", on_delete=models.PROTECT, related_name="absence_notifications"
+    )
+    absence_date = models.DateField()
+    reason = models.CharField(max_length=20, choices=Reason.choices, default=Reason.ABSENCE)
+    guardian = models.ForeignKey(
+        "students.Guardian", on_delete=models.PROTECT, related_name="absence_notifications"
+    )
+    relation = models.ForeignKey(
+        "students.StudentGuardianRelation",
+        on_delete=models.PROTECT,
+        related_name="absence_notifications",
+    )
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    superseded_reason = models.CharField(max_length=40, blank=True, default="")
+
+    class Meta:
+        ordering = ["-absence_date", "-created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "absence_date", "reason"],
+                name="unique_absence_notification_per_student_day_reason",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["guardian", "absence_date"], name="attendance_absnotif_guard_idx")
+        ]
+
+    def __str__(self):
+        return f"Notificacion de inasistencia de {self.student} ({self.absence_date})"
+
+
+class JustificationAttachment(TimeStampedModel):
+    """
+    RF-JUS-007: a single supporting document for a justification (e.g. a
+    medical note) -- may carry health information, which is why this
+    deliberately does not reuse ``apps.documents.DocumentRecord``/
+    ``ensure_document_access``: that model grants read to any staff member
+    with ``document_read`` scoped to the student, wider than the "solo quien
+    la cargo o quien tiene permiso de revision" rule this RF requires. Only
+    the pure validation rules (``apps.documents.services.validate_document_upload``)
+    are reused; the record and its narrower access gate
+    (``services.ensure_justification_attachment_access``) live here.
+
+    One attachment per justification -- RF-JUS-001's fuller catalog (several
+    attachments, situation-type metadata) stays out of this minimal cut.
+    """
+
+    justification = models.OneToOneField(
+        "attendance.Justification", on_delete=models.CASCADE, related_name="attachment"
+    )
+    uploaded_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="justification_attachments",
+    )
+    filename = models.CharField(max_length=255)
+    storage_key = models.CharField(max_length=500, unique=True)
+    content_type = models.CharField(max_length=100)
+    size_bytes = models.PositiveBigIntegerField()
+    checksum = models.CharField(max_length=128)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Adjunto de {self.justification}: {self.filename}"
+
+
+class AttendancePermit(TimeStampedModel):
+    """
+    RF-JUS-008: a guardian's PROSPECTIVE request to authorize a student's
+    early exit or late arrival on a specific date -- requested BEFORE the
+    fact, unlike ``attendance.Justification`` (a separate feature,
+    presented AFTER). A permit only changes anything once it's
+    ``APPROVED``: ``services.record_attendance_event``/``derive_day_status``
+    check for one dated exactly ``permit_date``, so it's never mistakenly
+    treated as covering any other day. A still-pending or rejected permit
+    changes nothing about how the actual movement is recorded (RF-JUS-008's
+    "Permiso pendiente al momento del movimiento" scenario) -- resolution
+    never retroactively edits an ``AttendanceEvent`` that already happened.
+
+    Same resolution/immutability shape as ``Justification``
+    (``resolved_by``/``resolved_at``/``resolution_comment``, enforced in
+    ``services.resolve_attendance_permit``, not here): a correction is a
+    brand-new permit, never an edit of a resolved one (AGENTS.md #12).
+    """
+
+    class PermitType(models.TextChoices):
+        EARLY_EXIT = "early_exit", "Salida anticipada"
+        LATE_ARRIVAL = "late_arrival", "Ingreso tardio"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        APPROVED = "approved", "Aprobado"
+        REJECTED = "rejected", "Rechazado"
+
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.PROTECT, related_name="attendance_permits"
+    )
+    permit_type = models.CharField(max_length=15, choices=PermitType.choices)
+    permit_date = models.DateField()
+    scheduled_time = models.TimeField(help_text="Horario previsto del hecho.")
+    reason = models.TextField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    submitted_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="attendance_permits_submitted",
+    )
+    resolved_by = models.ForeignKey(
+        "identity.UserAccount",
+        on_delete=models.PROTECT,
+        related_name="attendance_permits_resolved",
+        null=True,
+        blank=True,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_comment = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Permiso de {self.student} ({self.permit_type}, {self.permit_date})"

@@ -1,0 +1,602 @@
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import filters, generics, permissions, status
+from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
+
+from apps.audit.services import record_sensitive_read
+from apps.common.exceptions import AuthorizationError
+from apps.identity.scopes import authorized_student_queryset, can_access_student
+from apps.students import queries, services
+from apps.students.api.serializers import (
+    EmergencyContactCreateSerializer,
+    EmergencyContactListSerializer,
+    EmergencyContactSerializer,
+    EmergencyContactUpdateSerializer,
+    GuardianListQuerySerializer,
+    GuardianSerializer,
+    StudentDossierSerializer,
+    StudentGuardianRelationEndSerializer,
+    StudentGuardianRelationQuerySerializer,
+    StudentGuardianRelationSerializer,
+    StudentGuardianRelationUpdateSerializer,
+    StudentHealthNoteCreateSerializer,
+    StudentHealthNoteListSerializer,
+    StudentHealthNoteSerializer,
+    StudentHealthNoteUpdateSerializer,
+    StudentListQuerySerializer,
+    StudentObservationCreateSerializer,
+    StudentObservationListSerializer,
+    StudentObservationSerializer,
+    StudentObservationUpdateSerializer,
+    StudentRecordGuardianRelationSerializer,
+    StudentRecordGuardiansQuerySerializer,
+    StudentSerializer,
+    SuggestedStudentCodeSerializer,
+)
+from apps.students.services import (
+    change_primary_student_guardian_relation,
+    deactivate_guardian,
+    deactivate_student,
+    end_student_guardian_relation,
+)
+
+
+def _include_inactive(request):
+    return str(request.query_params.get("include_inactive", "")).lower() in {"1", "true", "yes"}
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Sugerir codigo de estudiante",
+        description=(
+            "Siguiente codigo libre de la serie del anio, sin crear nada. El alta lo "
+            "genera igual si el campo llega vacio; esto solo permite MOSTRARLO antes "
+            "de guardar."
+        ),
+        tags=["students"],
+        responses={200: SuggestedStudentCodeSerializer},
+    )
+)
+class StudentNextCodeView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SuggestedStudentCodeSerializer
+
+    def get(self, request):
+        code = services.next_student_code()
+        return Response(SuggestedStudentCodeSerializer({"student_code": code}).data)
+
+
+@extend_schema_view(get=extend_schema(parameters=[StudentListQuerySerializer]))
+class StudentListCreateView(generics.ListCreateAPIView):
+    serializer_class = StudentSerializer
+    # Sin esto, el selector de estudiante de cada modal (matricular por lotes,
+    # consultar resultado) traia el listado completo paginado solo para poder
+    # escribir un nombre en el buscador. `?search=` deja que el backend filtre.
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["student_code", "person__first_name", "person__last_name", "person__cui"]
+
+    def get_queryset(self):
+        params = StudentListQuerySerializer(data=self.request.query_params.dict())
+        params.is_valid(raise_exception=True)
+        return authorized_student_queryset(
+            user=self.request.user,
+            codename="student_view_basic",
+            queryset=queries.students(**params.validated_data),
+        )
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if not user.has_scoped_permission("student_edit_basic", scope={"module_key": "students"}):
+            raise AuthorizationError("El actor no tiene el permiso o el alcance requerido.")
+        serializer.save()
+
+
+class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = StudentSerializer
+
+    def get_queryset(self):
+        codename = "student_view_basic" if self.request.method == "GET" else "student_edit_basic"
+        return authorized_student_queryset(
+            user=self.request.user,
+            codename=codename,
+            queryset=queries.students(),
+        )
+
+    def perform_destroy(self, instance):
+        deactivate_student(student=instance, actor=self.request.user)
+
+
+class StudentDossierDetailView(StudentDetailView):
+    """Lectura por UUID con capacidades, sin ampliar datos sensibles."""
+
+    lookup_field = "public_id"
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "head", "options"]
+    serializer_class = StudentDossierSerializer
+
+    def get_queryset(self):
+        return queries.student_dossier_queryset(actor=self.request.user)
+
+
+@extend_schema_view(get=extend_schema(parameters=[StudentRecordGuardiansQuerySerializer]))
+class StudentRecordGuardiansView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentRecordGuardianRelationSerializer
+
+    def get_queryset(self):
+        params = StudentRecordGuardiansQuerySerializer(data=self.request.query_params)
+        params.is_valid(raise_exception=True)
+        return queries.guardian_relations_for_record(
+            actor=self.request.user,
+            student_public_id=self.kwargs["public_id"],
+            **params.validated_data,
+        )
+
+
+@extend_schema_view(get=extend_schema(parameters=[GuardianListQuerySerializer]))
+class GuardianListCreateView(generics.ListCreateAPIView):
+    serializer_class = GuardianSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["person__first_name", "person__last_name", "person__cui"]
+
+    def get_queryset(self):
+        params = GuardianListQuerySerializer(data=self.request.query_params.dict())
+        params.is_valid(raise_exception=True)
+        return queries.guardians(**params.validated_data)
+
+
+@extend_schema_view(
+    delete=extend_schema(
+        summary="Desactivar el perfil de encargado",
+        description=(
+            "Requiere guardian.deactivate con alcance students (o superusuario). "
+            "Conserva persona, cuenta y relaciones, "
+            "pero retira el acceso derivado de esos vinculos. "
+            "Es idempotente; baja y auditoria se confirman en una transaccion."
+        ),
+        responses={204: None},
+    )
+)
+class GuardianDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = GuardianSerializer
+
+    def get_queryset(self):
+        return queries.guardians()
+
+    def perform_destroy(self, instance):
+        deactivate_guardian(guardian=instance, actor=self.request.user)
+
+
+@extend_schema_view(get=extend_schema(parameters=[StudentGuardianRelationQuerySerializer]))
+class StudentGuardianRelationListCreateView(generics.ListCreateAPIView):
+    serializer_class = StudentGuardianRelationSerializer
+
+    def get_queryset(self):
+        query = StudentGuardianRelationQuerySerializer(data=self.request.query_params.dict())
+        query.is_valid(raise_exception=True)
+        return queries.guardian_relations(
+            student_public_id=query.validated_data.get("student_id")
+        ).filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user,
+                codename="student_view_basic",
+            )
+        )
+
+    def perform_create(self, serializer):
+        student = serializer.validated_data["student"]
+        if not self.request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": student}
+        ):
+            raise AuthorizationError(
+                "El actor no tiene el permiso requerido o el alcance sobre el estudiante."
+            )
+        serializer.save()
+
+
+class StudentGuardianRelationDetailView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentGuardianRelationSerializer
+
+    @extend_schema(request=StudentGuardianRelationUpdateSerializer)
+    def patch(self, request, pk):
+        relation = self.get_object()
+        serializer = StudentGuardianRelationUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated = services.update_student_guardian_relation(
+            relation=relation, actor=request.user, **serializer.validated_data
+        )
+        return Response(self.get_serializer(updated).data)
+
+    def get_queryset(self):
+        return queries.guardian_relations().filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user,
+                codename=(
+                    "student_edit_basic" if self.request.method == "PATCH" else "student_view_basic"
+                ),
+            )
+        )
+
+
+class StudentGuardianRelationPrimaryView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentGuardianRelationSerializer
+
+    def get_queryset(self):
+        return queries.guardian_relations().filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user,
+                codename="student_edit_basic",
+            )
+        )
+
+    def post(self, request, pk):
+        relation = self.get_object()
+        relation = change_primary_student_guardian_relation(relation=relation, actor=request.user)
+        return Response(self.get_serializer(relation).data)
+
+
+class StudentGuardianRelationEndView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentGuardianRelationEndSerializer
+
+    def get_queryset(self):
+        return queries.guardian_relations().filter(
+            student__in=authorized_student_queryset(
+                user=self.request.user,
+                codename="student_edit_basic",
+            )
+        )
+
+    def post(self, request, pk):
+        relation = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        relation = end_student_guardian_relation(
+            relation=relation,
+            actor=request.user,
+            replacement_relation=serializer.validated_data.get("replacement_relation"),
+        )
+        return Response(StudentGuardianRelationSerializer(relation).data)
+
+
+# --------------------------------------------------------------------------- #
+# emergency contacts — nested under a student
+#
+# Small, local scaffolding mirroring apps.academics.api.views (list-create
+# nested under the parent, detail flat by the resource's own public_id, same
+# as Shift/Grade there). Duplicated on purpose instead of imported: keeps
+# student-records independent of institutional-structure (AGENTS.md #9).
+# --------------------------------------------------------------------------- #
+
+
+class StudentRecordView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def validated(self, serializer_class, request):
+        serializer = serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+
+class StudentRecordListCreateView(StudentRecordView):
+    list_serializer = None
+    create_serializer = None
+    create_response_serializer = None
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return self.create_serializer
+        return self.list_serializer
+
+    def get(self, request, **kwargs):
+        page = self.paginate_queryset(self.list_queryset(request, **kwargs))
+        return self.get_paginated_response(self.list_serializer(page, many=True).data)
+
+    def post(self, request, **kwargs):
+        payload = self.validated(self.create_serializer, request)
+        created = self.create(request, payload, **kwargs)
+        response_serializer = self.create_response_serializer or self.list_serializer
+        return Response(response_serializer(created).data, status=status.HTTP_201_CREATED)
+
+
+class StudentRecordDetailView(StudentRecordView):
+    detail_serializer = None
+    update_serializer = None
+
+    def get_serializer_class(self):
+        if self.request.method == "PATCH":
+            return self.update_serializer
+        return self.detail_serializer
+
+    def represent(self, instance):
+        return Response(self.detail_serializer(instance).data)
+
+
+class RetrieveMixin:
+    def get(self, request, **kwargs):
+        return self.represent(self.get_object(**kwargs))
+
+
+class UpdateMixin:
+    def patch(self, request, **kwargs):
+        payload = self.validated(self.update_serializer, request)
+        self.update(request, self.get_object(**kwargs), payload)
+        return self.represent(self.get_object(**kwargs))
+
+
+class DeactivateMixin:
+    def delete(self, request, **kwargs):
+        self.deactivate(request, self.get_object(**kwargs))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Listar contactos de emergencia de un estudiante",
+        tags=["students: emergency contacts"],
+        # `StudentRecordListCreateView.get` pagina dentro del handler, algo que
+        # drf-spectacular no puede inferir desde `get_serializer_class`: sin esta
+        # anotacion documenta un objeto suelto en vez del sobre paginado.
+        responses={200: EmergencyContactListSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Registrar contacto de emergencia",
+        tags=["students: emergency contacts"],
+        request=EmergencyContactCreateSerializer,
+        responses={201: EmergencyContactSerializer},
+    ),
+)
+class StudentEmergencyContactListCreateView(StudentRecordListCreateView):
+    list_serializer = EmergencyContactListSerializer
+    create_serializer = EmergencyContactCreateSerializer
+    create_response_serializer = EmergencyContactSerializer
+
+    def _student(self, request, public_id, *, write=False):
+        student = queries.student_or_404(public_id)
+        required = ["student_view_sensitive"]
+        if write:
+            required.append("student_edit_basic")
+        if not all(
+            request.user.has_scoped_permission(codename, scope={"student": student})
+            for codename in required
+        ):
+            raise AuthorizationError(
+                "El actor no tiene permiso o alcance para ver datos sensibles del estudiante."
+            )
+        return student
+
+    def list_queryset(self, request, public_id):
+        student = self._student(request, public_id)
+        record_sensitive_read(
+            actor=request.user,
+            action="students.emergency_contacts.read",
+            resource="EmergencyContact",
+            resource_identifier=str(student.pk),
+            student=student,
+        )
+        return queries.with_student_record_actions(
+            queries.emergency_contacts(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
+
+    def create(self, request, payload, public_id):
+        student = self._student(request, public_id, write=True)
+        return services.create_emergency_contact(student=student, actor=request.user, **payload)
+
+
+class EmergencyContactDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
+    detail_serializer = EmergencyContactSerializer
+    update_serializer = EmergencyContactUpdateSerializer
+
+    def get_object(self, public_id):
+        contact = queries.emergency_contact_or_404(public_id)
+        required = ["student_view_sensitive"]
+        if self.request.method in {"PATCH", "DELETE"}:
+            required.append("student_edit_basic")
+        if not all(
+            self.request.user.has_scoped_permission(codename, scope={"student": contact.student})
+            for codename in required
+        ):
+            raise AuthorizationError(
+                "El actor no tiene permiso o alcance para ver datos sensibles del estudiante."
+            )
+        if self.request.method == "GET":
+            record_sensitive_read(
+                actor=self.request.user,
+                action="students.emergency_contact.detail_read",
+                resource="EmergencyContact",
+                resource_identifier=str(contact.pk),
+                student=contact.student,
+            )
+        return contact
+
+    def update(self, request, emergency_contact, payload):
+        services.update_emergency_contact(
+            emergency_contact=emergency_contact, actor=request.user, **payload
+        )
+
+    def deactivate(self, request, emergency_contact):
+        services.deactivate_emergency_contact(
+            emergency_contact=emergency_contact, actor=request.user
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(responses={200: StudentHealthNoteListSerializer(many=True)}),
+    post=extend_schema(
+        request=StudentHealthNoteCreateSerializer, responses={201: StudentHealthNoteSerializer}
+    ),
+)
+class StudentHealthNoteListCreateView(StudentRecordListCreateView):
+    list_serializer = StudentHealthNoteListSerializer
+    create_serializer = StudentHealthNoteCreateSerializer
+    create_response_serializer = StudentHealthNoteSerializer
+
+    def _student(self, request, public_id, *, write=False):
+        student = queries.student_or_404(public_id)
+        required = ["student_view_sensitive"]
+        if write:
+            required.append("student_edit_basic")
+        if not all(
+            can_access_student(user=request.user, codename=codename, student=student)
+            for codename in required
+        ):
+            raise AuthorizationError(
+                "El actor no tiene permiso o alcance para ver datos sensibles del estudiante."
+            )
+        return student
+
+    def list_queryset(self, request, public_id):
+        student = self._student(request, public_id)
+        services._audit(
+            request.user,
+            "students.health_note.list_read",
+            student,
+            student_id=student.pk,
+        )
+        return queries.with_student_record_actions(
+            queries.health_notes(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
+
+    def create(self, request, payload, public_id):
+        student = self._student(request, public_id, write=True)
+        return services.create_student_health_note(student=student, actor=request.user, **payload)
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        request=StudentHealthNoteUpdateSerializer, responses={200: StudentHealthNoteSerializer}
+    ),
+)
+class StudentHealthNoteDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
+    detail_serializer = StudentHealthNoteSerializer
+    update_serializer = StudentHealthNoteUpdateSerializer
+
+    def get_object(self, public_id):
+        note = queries.health_note_or_404(public_id)
+        if not self.request.user.has_scoped_permission(
+            "student_view_sensitive", scope={"student": note.student}
+        ):
+            raise AuthorizationError(
+                "El actor no tiene permiso o alcance para ver datos sensibles del estudiante."
+            )
+        services._audit(
+            self.request.user,
+            "students.health_note.detail_read",
+            note,
+            student_id=note.student_id,
+        )
+        return note
+
+    def deactivate(self, request, health_note):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": health_note.student}
+        ):
+            raise AuthorizationError(
+                "El actor no tiene permiso o alcance para editar al estudiante."
+            )
+        services.deactivate_student_health_note(health_note=health_note, actor=request.user)
+
+    def update(self, request, health_note, payload):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": health_note.student}
+        ):
+            raise AuthorizationError("Actor lacks student edit permission or scope.")
+        services.update_student_health_note(health_note=health_note, actor=request.user, **payload)
+
+
+@extend_schema_view(
+    get=extend_schema(responses={200: StudentObservationListSerializer(many=True)}),
+    post=extend_schema(
+        request=StudentObservationCreateSerializer, responses={201: StudentObservationSerializer}
+    ),
+)
+class StudentObservationListCreateView(StudentRecordListCreateView):
+    list_serializer = StudentObservationListSerializer
+    create_serializer = StudentObservationCreateSerializer
+    create_response_serializer = StudentObservationSerializer
+
+    def _student(self, request, public_id, *, write=False):
+        student = queries.student_or_404(public_id)
+        required = ["student_view_sensitive"]
+        if write:
+            required.append("student_edit_basic")
+        if not all(
+            can_access_student(user=request.user, codename=codename, student=student)
+            for codename in required
+        ):
+            raise AuthorizationError(
+                "El actor no tiene permiso o alcance para ver datos sensibles del estudiante."
+            )
+        return student
+
+    def list_queryset(self, request, public_id):
+        student = self._student(request, public_id)
+        services._audit(
+            request.user,
+            "students.observation.list_read",
+            student,
+            student_id=student.pk,
+        )
+        return queries.with_student_record_actions(
+            queries.observations(student, include_inactive=_include_inactive(request)),
+            actor=request.user,
+            student=student,
+        )
+
+    def create(self, request, payload, public_id):
+        student = self._student(request, public_id, write=True)
+        return services.create_student_observation(student=student, actor=request.user, **payload)
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        request=StudentObservationUpdateSerializer, responses={200: StudentObservationSerializer}
+    ),
+)
+class StudentObservationDetailView(
+    RetrieveMixin, UpdateMixin, DeactivateMixin, StudentRecordDetailView
+):
+    detail_serializer = StudentObservationSerializer
+    update_serializer = StudentObservationUpdateSerializer
+
+    def get_object(self, public_id):
+        observation = queries.observation_or_404(public_id)
+        if not self.request.user.has_scoped_permission(
+            "student_view_sensitive", scope={"student": observation.student}
+        ):
+            raise AuthorizationError(
+                "El actor no tiene permiso o alcance para ver datos sensibles del estudiante."
+            )
+        services._audit(
+            self.request.user,
+            "students.observation.detail_read",
+            observation,
+            student_id=observation.student_id,
+        )
+        return observation
+
+    def deactivate(self, request, observation):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": observation.student}
+        ):
+            raise AuthorizationError(
+                "El actor no tiene permiso o alcance para editar al estudiante."
+            )
+        services.deactivate_student_observation(observation=observation, actor=request.user)
+
+    def update(self, request, observation, payload):
+        if not request.user.has_scoped_permission(
+            "student_edit_basic", scope={"student": observation.student}
+        ):
+            raise AuthorizationError("Actor lacks student edit permission or scope.")
+        services.update_student_observation(observation=observation, actor=request.user, **payload)

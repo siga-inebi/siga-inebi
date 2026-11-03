@@ -1,0 +1,69 @@
+area:frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "frontend/**"
+
+area:backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "backend/**"
+
+area:database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "backend/**/migrations/**"
+          - "docs/architecture/initial-data-model.md"
+          - "docs/architecture/database-strategy.md"
+
+area:docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "compose*.yml"
+          - "backend/Dockerfile"
+          - "frontend/Dockerfile"
+          - "docker/**"
+          - "scripts/**"
+
+area:security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "SECURITY.md"
+          - "backend/apps/identity/**"
+          - "backend/apps/audit/**"
+          - "backend/config/settings/**"
+          - ".github/workflows/**"
+
+area:devops:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "compose*.yml"
+          - "Makefile"
+
+area:requirements:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/requirements/**"
+          - "docs/decisions/**"
+          - "docs/architecture/**"
+
+type:docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "README.md"
+          - "CONTRIBUTING.md"
+
+type:test:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "backend/tests/**"
+          - "frontend/src/test/**"
+
+type:chore:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".editorconfig"
+          - ".gitattributes"
+          - ".gitignore"
+          - ".pre-commit-config.yaml"

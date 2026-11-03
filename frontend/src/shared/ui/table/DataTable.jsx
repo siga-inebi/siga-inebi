@@ -1,0 +1,301 @@
+import { memo } from "react";
+
+import Box from "@mui/material/Box";
+import Checkbox from "@mui/material/Checkbox";
+import Skeleton from "@mui/material/Skeleton";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TablePagination from "@mui/material/TablePagination";
+import TableRow from "@mui/material/TableRow";
+
+import { EmptyState } from "@ui/feedback/EmptyState.jsx";
+
+import { DEFAULT_ROWS_PER_PAGE_OPTIONS } from "./tableOptions.js";
+import {
+  FILL_HEIGHT_QUERY,
+  TABLE_FALLBACK_MAX_HEIGHT,
+} from "@theme/tokens/fillHeight.js";
+
+const NO_SELECTION = [];
+
+/** Filas de esqueleto durante la primera carga. */
+const SKELETON_ROWS = 5;
+
+/**
+ * Anchos deterministas del esqueleto. Un ancho aleatorio cambiaria en cada
+ * render y produciria un parpadeo peor que el propio estado de carga.
+ */
+const SKELETON_WIDTHS = ["78%", "62%", "85%", "55%", "70%"];
+
+const BODY_CELL_SX = { px: 2, py: 1.5 };
+
+/** Nombres accesibles de los botones de paginacion, en espanol. */
+const PAGINATION_LABELS = {
+  first: "Primera página",
+  last: "Última página",
+  next: "Siguiente",
+  previous: "Anterior",
+};
+
+const CLICKABLE_ROW_SX = {
+  cursor: "pointer",
+  "&:hover": { bgcolor: "action.hover" },
+};
+
+const DataTableRow = memo(function DataTableRow({ columns, onRowClick, row }) {
+  return (
+    <TableRow
+      hover={Boolean(onRowClick)}
+      onClick={onRowClick ? () => onRowClick(row) : undefined}
+      sx={onRowClick ? CLICKABLE_ROW_SX : undefined}
+    >
+      {columns.map((column) => (
+        <TableCell align={column.align} key={column.key} sx={BODY_CELL_SX}>
+          {column.render ? column.render(row) : String(row[column.key] ?? "—")}
+        </TableCell>
+      ))}
+    </TableRow>
+  );
+});
+
+/**
+ * Unico componente de tabla del sistema.
+ *
+ * @param {object}   props
+ * @param {Array<{key:string,label:string,align?:string,render?:Function}>} props.columns
+ * @param {Array<object>} props.rows
+ * @param {boolean} [props.loading]
+ * @param {string}  [props.emptyMessage="No hay datos disponibles"]
+ * @param {object}  [props.pagination] {page (0-based), rowsPerPage, total, onPageChange, onRowsPerPageChange?, rowsPerPageOptions?}
+ *   El selector "Filas por pagina" solo aparece cuando la pantalla entrega
+ *   `onRowsPerPageChange` (ux-ui 1.1.1): antes se mostraba siempre y, como
+ *   ninguna pantalla lo atendia, elegir 50 no hacia nada.
+ * @param {Function}[props.getRowKey]
+ * @param {Function}[props.onRowClick]
+ * @param {boolean} [props.fillHeight] Header pegado y paginacion anclada fuera del scroll.
+ * @param {boolean} [props.selectable] Casillas para elegir filas (apagado por omision).
+ * @param {Array}   [props.selectedIds] Ids elegidos; pueden incluir filas de otras paginas.
+ * @param {Function}[props.onSelectionChange] Recibe el arreglo de ids nuevo.
+ * @param {Function}[props.getRowId] Id de seleccion; por omision `getRowKey` o `row.id`.
+ * @param {Function}[props.getRowLabel] Nombre accesible de la casilla de cada fila.
+ */
+export function DataTable({
+  columns: baseColumns,
+  emptyMessage = "No hay datos disponibles",
+  fillHeight = false,
+  getRowId,
+  getRowKey,
+  getRowLabel,
+  loading = false,
+  onRowClick,
+  onSelectionChange,
+  pagination,
+  rows,
+  selectable = false,
+  selectedIds = NO_SELECTION,
+}) {
+  const hasRows = rows.length > 0;
+  const rowId = getRowId ?? getRowKey ?? ((row) => row.id);
+  // La seleccion es una columna mas: asi la cabecera, el esqueleto y el estado
+  // vacio la cubren sin logica propia.
+  const columns = selectable
+    ? [
+        selectionColumn({
+          getRowId: rowId,
+          getRowLabel,
+          onSelectionChange,
+          pageIds: loading ? [] : rows.map(rowId),
+          selectedIds,
+        }),
+        ...baseColumns,
+      ]
+    : baseColumns;
+  // El header solo se pega cuando el contenedor scrollea por dentro; si
+  // scrollea la pagina, `sticky` lo dejaria flotando sobre otro contenido.
+  const stickyHeader = fillHeight;
+
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        ...(fillHeight
+          ? { [FILL_HEIGHT_QUERY]: { flex: 1, minHeight: 0 } }
+          : null),
+      }}
+    >
+      <TableContainer
+        sx={{
+          overflow: "auto",
+          maxHeight: TABLE_FALLBACK_MAX_HEIGHT,
+          ...(fillHeight
+            ? {
+                [FILL_HEIGHT_QUERY]: {
+                  flex: 1,
+                  minHeight: 0,
+                  maxHeight: "none",
+                },
+              }
+            : null),
+        }}
+      >
+        <Table aria-busy={loading} size="small" stickyHeader={stickyHeader}>
+          <TableHead>
+            <TableRow>
+              {columns.map((column) => (
+                <TableCell
+                  align={column.align}
+                  key={column.key}
+                  // La cabecera del sistema no lleva relleno de color, pero en
+                  // modo pegado necesita fondo opaco o las filas se ven pasar
+                  // por debajo al scrollear.
+                  sx={
+                    stickyHeader ? { bgcolor: "background.paper" } : undefined
+                  }
+                >
+                  {column.label}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {loading
+              ? Array.from({ length: SKELETON_ROWS }, (_, rowIndex) => (
+                  <TableRow key={`skeleton-${rowIndex}`}>
+                    {columns.map((column, columnIndex) => (
+                      <TableCell key={column.key} sx={BODY_CELL_SX}>
+                        <Skeleton
+                          aria-hidden
+                          variant="text"
+                          width={
+                            SKELETON_WIDTHS[
+                              (rowIndex + columnIndex) % SKELETON_WIDTHS.length
+                            ]
+                          }
+                        />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              : null}
+
+            {!loading && !hasRows ? (
+              <TableRow sx={{ "&:hover": { bgcolor: "transparent" } }}>
+                <TableCell
+                  colSpan={columns.length}
+                  sx={{ borderBottom: "none" }}
+                >
+                  <EmptyState message={emptyMessage} />
+                </TableCell>
+              </TableRow>
+            ) : null}
+
+            {!loading
+              ? rows.map((row, index) => (
+                  <DataTableRow
+                    columns={columns}
+                    key={getRowKey ? getRowKey(row) : (row.id ?? index)}
+                    onRowClick={onRowClick}
+                    row={row}
+                  />
+                ))
+              : null}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      {pagination ? (
+        <TablePagination
+          component="div"
+          count={pagination.total}
+          // Los botones de pagina de MUI vienen con nombre accesible en ingles
+          // ("Go to next page"): en una interfaz en espanol eso obliga al lector
+          // de pantalla a cambiar de idioma a media tabla.
+          getItemAriaLabel={(type) => PAGINATION_LABELS[type] ?? type}
+          labelDisplayedRows={({ count, from, to }) =>
+            `Mostrando ${from}–${to} de ${count}`
+          }
+          labelRowsPerPage="Filas por página:"
+          onPageChange={(_event, page) => pagination.onPageChange(page)}
+          onRowsPerPageChange={
+            pagination.onRowsPerPageChange
+              ? (event) =>
+                  pagination.onRowsPerPageChange(Number(event.target.value))
+              : undefined
+          }
+          page={pagination.page}
+          rowsPerPage={pagination.rowsPerPage}
+          // Un arreglo vacio oculta el selector en MUI: sin manejador no se
+          // ofrece un control que no hace nada.
+          rowsPerPageOptions={
+            pagination.onRowsPerPageChange
+              ? (pagination.rowsPerPageOptions ?? DEFAULT_ROWS_PER_PAGE_OPTIONS)
+              : []
+          }
+          sx={{ flexShrink: 0, borderTop: "1px solid", borderColor: "divider" }}
+        />
+      ) : null}
+    </Box>
+  );
+}
+
+function selectionColumn({
+  getRowId,
+  getRowLabel,
+  onSelectionChange,
+  pageIds,
+  selectedIds,
+}) {
+  const selected = new Set(selectedIds);
+  const onPage = pageIds.filter((id) => selected.has(id)).length;
+  const allOnPage = pageIds.length > 0 && onPage === pageIds.length;
+  return {
+    key: "__select",
+    label: (
+      <Checkbox
+        checked={allOnPage}
+        disabled={!pageIds.length}
+        indeterminate={onPage > 0 && !allOnPage}
+        // Marcar todo afecta solo a la pagina visible y conserva lo elegido en
+        // otras paginas.
+        onChange={() =>
+          onSelectionChange(
+            allOnPage
+              ? selectedIds.filter((id) => !pageIds.includes(id))
+              : [...selectedIds, ...pageIds.filter((id) => !selected.has(id))]
+          )
+        }
+        size="small"
+        slotProps={{
+          input: { "aria-label": "Seleccionar las filas de esta página" },
+        }}
+      />
+    ),
+    render: (row) => {
+      const id = getRowId(row);
+      return (
+        <Checkbox
+          checked={selected.has(id)}
+          // Marcar no es abrir: sin esto el clic tambien dispara `onRowClick`.
+          onClick={(event) => event.stopPropagation()}
+          onChange={() =>
+            onSelectionChange(
+              selected.has(id)
+                ? selectedIds.filter((current) => current !== id)
+                : [...selectedIds, id]
+            )
+          }
+          size="small"
+          slotProps={{
+            input: {
+              "aria-label": getRowLabel ? getRowLabel(row) : "Seleccionar fila",
+            },
+          }}
+        />
+      );
+    },
+  };
+}
