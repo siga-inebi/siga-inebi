@@ -33,6 +33,33 @@ def test_create_initial_admin_provisions_only_the_user():
 
 @pytest.mark.integration
 @pytest.mark.django_db
+def test_create_initial_admin_can_provision_the_production_institution():
+    call_command(
+        "create_initial_admin",
+        username="root",
+        email="root@example.test",
+        password="initial-pass-123",
+        institution_name="Instituto Sintético de QA",
+        institution_short_name="ISQA",
+    )
+
+    institution = Institution.objects.get()
+    assert institution.name == "Instituto Sintético de QA"
+    assert institution.short_name == "ISQA"
+
+    call_command(
+        "create_initial_admin",
+        username="root",
+        email="root@example.test",
+        password="rotated-pass-123",
+        institution_name="Instituto Sintético de QA",
+        institution_short_name="ISQA",
+    )
+    assert Institution.objects.count() == 1
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
 def test_create_initial_admin_is_idempotent_and_rotates_password():
     args = {"username": "root", "email": "root@example.test"}
     call_command("create_initial_admin", **args, password="first-pass")

@@ -96,3 +96,20 @@ variable "admin_email" {
     error_message = "Provide admin_email (a real mailbox) before enabling deploy_jobs."
   }
 }
+
+variable "institution_name" {
+  description = "Official institution name provisioned by the one-time production bootstrap job."
+  type        = string
+  default     = null
+  nullable    = true
+  validation {
+    condition     = var.deploy_jobs ? var.institution_name != null && trimspace(var.institution_name) != "" : true
+    error_message = "Provide institution_name before enabling deploy_jobs."
+  }
+}
+
+variable "institution_short_name" {
+  description = "Optional short institution name used in institutional headers."
+  type        = string
+  default     = ""
+}
