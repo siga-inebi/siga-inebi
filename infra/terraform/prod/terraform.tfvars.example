@@ -4,6 +4,8 @@ region     = "us-central1"
 deploy_jobs    = false
 deploy_service = false
 # admin_email = "real-mailbox@example.com"   # required when deploy_jobs = true
+# institution_name = "Nombre oficial de la institución" # required when deploy_jobs = true
+# institution_short_name = "SIGA"
 # backend_image  = "us-central1-docker.pkg.dev/PROJECT/siga-inebi-prod/backend@sha256:REAL_DIGEST"
 # frontend_image = "us-central1-docker.pkg.dev/PROJECT/siga-inebi-prod/frontend@sha256:REAL_DIGEST"
 # monthly_budget_usd = 50

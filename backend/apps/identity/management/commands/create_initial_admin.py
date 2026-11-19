@@ -5,6 +5,7 @@ from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.academics.models import Institution
 from apps.identity.atomic_permissions import ATOMIC_PERMISSIONS, permission_codename
 from apps.identity.models import Role, RoleAssignment, ScopeGrant
 from apps.people.models import Person
@@ -21,6 +22,13 @@ class Command(BaseCommand):
         parser.add_argument("--email", default=os.environ.get("DJANGO_SUPERUSER_EMAIL", ""))
         parser.add_argument("--password", default=os.environ.get("DJANGO_SUPERUSER_PASSWORD", ""))
         parser.add_argument(
+            "--institution-name", default=os.environ.get("INSTITUTION_NAME", "")
+        )
+        parser.add_argument(
+            "--institution-short-name",
+            default=os.environ.get("INSTITUTION_SHORT_NAME", ""),
+        )
+        parser.add_argument(
             "--first-name", default=os.environ.get("ADMIN_FIRST_NAME", "Administrador")
         )
         parser.add_argument(
@@ -31,10 +39,18 @@ class Command(BaseCommand):
         username = options["username"].strip()
         email = options["email"].strip()
         password = options["password"]
+        institution_name = options["institution_name"].strip()
+        institution_short_name = options["institution_short_name"].strip()
         if not username or not email or not password:
             raise CommandError(
                 "username, email y password son obligatorios (argumentos o "
                 "DJANGO_SUPERUSER_USERNAME/DJANGO_SUPERUSER_EMAIL/DJANGO_SUPERUSER_PASSWORD)."
+            )
+
+        if institution_name:
+            Institution.objects.get_or_create(
+                name=institution_name,
+                defaults={"short_name": institution_short_name},
             )
 
         # El catalogo atomico lo siembran las migraciones de identity; el rol se

@@ -42,6 +42,8 @@ resource "google_cloud_run_v2_job" "maintenance" {
           for_each = each.key == "createadmin" ? {
             DJANGO_SUPERUSER_USERNAME = var.admin_username
             DJANGO_SUPERUSER_EMAIL    = var.admin_email
+            INSTITUTION_NAME          = var.institution_name
+            INSTITUTION_SHORT_NAME    = var.institution_short_name
           } : {}
           content {
             name  = env.key
