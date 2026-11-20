@@ -21,9 +21,7 @@ class Command(BaseCommand):
         parser.add_argument("--username", default=os.environ.get("DJANGO_SUPERUSER_USERNAME", ""))
         parser.add_argument("--email", default=os.environ.get("DJANGO_SUPERUSER_EMAIL", ""))
         parser.add_argument("--password", default=os.environ.get("DJANGO_SUPERUSER_PASSWORD", ""))
-        parser.add_argument(
-            "--institution-name", default=os.environ.get("INSTITUTION_NAME", "")
-        )
+        parser.add_argument("--institution-name", default=os.environ.get("INSTITUTION_NAME", ""))
         parser.add_argument(
             "--institution-short-name",
             default=os.environ.get("INSTITUTION_SHORT_NAME", ""),
