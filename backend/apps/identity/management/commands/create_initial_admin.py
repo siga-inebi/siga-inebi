@@ -45,11 +45,16 @@ class Command(BaseCommand):
                 "DJANGO_SUPERUSER_USERNAME/DJANGO_SUPERUSER_EMAIL/DJANGO_SUPERUSER_PASSWORD)."
             )
 
+        institution = None
         if institution_name:
-            Institution.objects.get_or_create(
+            institution, _ = Institution.objects.get_or_create(
                 name=institution_name,
                 defaults={"short_name": institution_short_name},
             )
+        else:
+            # Mismo criterio que academics.queries.resolve_institution: la
+            # institucion sobre la que operan las vistas es la primera creada.
+            institution = Institution.objects.order_by("pk").first()
 
         # El catalogo atomico lo siembran las migraciones de identity; el rol se
         # deriva de el para que el admin nunca diverja de las vistas (mismo
@@ -94,5 +99,9 @@ class Command(BaseCommand):
         assignment, _ = RoleAssignment.objects.get_or_create(user=user, role=role)
         for module_key in ("identity", "students", "teachers"):
             ScopeGrant.objects.get_or_create(assignment=assignment, module_key=module_key)
+        # Sin alcance de institucion el admin recibe 403 al crear sedes, ciclos y
+        # demas catalogos (require_assignment_scope); seed_demo_data lo concede igual.
+        if institution is not None:
+            ScopeGrant.objects.get_or_create(assignment=assignment, institution=institution)
 
         self.stdout.write(self.style.SUCCESS(f"Initial admin ready: {username} <{email}>"))

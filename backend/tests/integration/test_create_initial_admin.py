@@ -5,7 +5,7 @@ from django.core.management.base import CommandError
 
 from apps.academics.models import AcademicCycle, Institution
 from apps.identity.atomic_permissions import ATOMIC_PERMISSION_CODENAMES
-from apps.identity.models import Role
+from apps.identity.models import Role, ScopeGrant
 from apps.people.models import Person
 
 
@@ -96,3 +96,37 @@ def test_create_initial_admin_role_covers_every_atomic_permission():
 def test_create_initial_admin_requires_username_email_and_password():
     with pytest.raises(CommandError):
         call_command("create_initial_admin", username="", email="", password="")
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_create_initial_admin_grants_scope_over_the_institution():
+    # Sin alcance de institucion el admin recibe 403 al crear sedes o ciclos
+    # (require_assignment_scope), aunque tenga todos los permisos atomicos.
+    call_command(
+        "create_initial_admin",
+        username="root",
+        email="root@example.test",
+        password="initial-pass-123",
+        institution_name="Instituto Sintético de QA",
+        institution_short_name="ISQA",
+    )
+
+    admin = get_user_model().objects.get(username="root")
+    institution = Institution.objects.get()
+    assert admin.has_scoped_permission("scope_assign", scope={"institution": institution})
+
+
+@pytest.mark.integration
+@pytest.mark.django_db
+def test_create_initial_admin_rerun_grants_scope_over_an_existing_institution():
+    # Caso de produccion: el admin ya existe sin alcance de institucion y la
+    # institucion ya esta creada; reejecutar el job debe repararlo sin duplicar.
+    institution = Institution.objects.create(name="Instituto Sintético de QA", short_name="ISQA")
+    args = {"username": "root", "email": "root@example.test", "password": "initial-pass-123"}
+    call_command("create_initial_admin", **args)
+    call_command("create_initial_admin", **args)
+
+    admin = get_user_model().objects.get(username="root")
+    assert admin.has_scoped_permission("scope_assign", scope={"institution": institution})
+    assert ScopeGrant.objects.filter(assignment__user=admin, institution=institution).count() == 1
